@@ -17,7 +17,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
@@ -33,6 +32,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
+from products.cdp.backend.flag_gated_templates import gated_template_enabled
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
@@ -6530,7 +6530,7 @@ class TestFlagGatedTemplates(APIBaseTest):
     def test_flag_eval_failure_hides_the_gated_template(self):
         # A flag-service blip must hide the pre-release step, not expose it.
         with patch(
-            "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
+            "products.cdp.backend.flag_gated_templates.posthoganalytics.feature_enabled",
             side_effect=Exception("flag service down"),
         ):
             assert gated_template_enabled("workflow-ai-task-action", self.team) is False

@@ -423,7 +423,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert (function.inputs or {}) == {}
         assert (function.encrypted_inputs or {})["token"]["value"] == "example-private-browser-value"
 
-        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(function.id) in result
@@ -458,7 +458,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             unsafe.refresh_from_db()
         safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True, hog=SITE_HOG)
 
-        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(unsafe.id) not in result
@@ -506,7 +506,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             mappings=list(mappings),
         )
 
-        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(function.id) in result

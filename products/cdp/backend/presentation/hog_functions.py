@@ -5,14 +5,13 @@ the helpers that workflows and messaging views use cross here. Their signatures 
 return untyped bytecode, so they cannot cross through the facade.
 """
 
-from posthog.cdp.flag_gated_templates import (
-    FLAG_GATED_TEMPLATE_IDS as FLAG_GATED_TEMPLATE_IDS,
-    gated_template_enabled as gated_template_enabled,
-)
-
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES as DATA_WAREHOUSE_SOURCES,
     compile_filters_expr as compile_filters_expr,
+)
+from products.cdp.backend.flag_gated_templates import (
+    FLAG_GATED_TEMPLATE_IDS as FLAG_GATED_TEMPLATE_IDS,
+    gated_template_enabled as gated_template_enabled,
 )
 from products.cdp.backend.validation import (
     build_html_wrap_design as build_html_wrap_design,

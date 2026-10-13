@@ -28,8 +28,6 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.services.icons import CDPIconsService
-from posthog.cdp.site_functions import get_transpiled_function
 from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -70,6 +68,8 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
 )
+from products.cdp.backend.services.icons import CDPIconsService
+from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
     DUPLICATE_INPUT_KEYS_ERROR,
     HogFunctionFiltersSerializer,

@@ -595,6 +595,8 @@ ignore_imports = [
     "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.filters",
     "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.validation",
     "products.cdp.backend.presentation.serializers -> products.cdp.backend.validation",
+    "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.flag_gated_templates",
+    "products.cdp.backend.presentation.icons -> products.cdp.backend.services.icons",
     # TODO: existing violations — fix by routing through facade
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",

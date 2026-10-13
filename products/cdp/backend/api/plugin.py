@@ -717,8 +717,9 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         validated_data["web_token"] = generate_random_token()
 
         # Try and create a hog function if possible, otherwise create plugin
-        from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
         from posthog.event_usage import report_team_action
+
+        from products.cdp.backend.legacy_plugins import hog_function_from_plugin_config
 
         report_team_action(
             self.context["get_team"](),
