@@ -1777,6 +1777,7 @@ export interface queryDatabaseLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
             | (Partial<import('~/types').DataWarehouseSavedQuery> & {
+                  deferCreatedToast?: boolean
                   folder_id?: string | null
                   types: string[][]
               })
@@ -1784,6 +1785,7 @@ export interface queryDatabaseLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: Partial<import('~/types').DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
