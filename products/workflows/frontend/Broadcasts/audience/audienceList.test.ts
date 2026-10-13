@@ -24,19 +24,28 @@ describe('audienceList', () => {
     it.each([
         {
             cohort: 'an uploaded list still matching',
-            state: { isStatic: true, isCalculating: true, failed: false },
+            state: { isStatic: true, isCalculating: true, calculatedBefore: false, failed: false },
             expected: '"List" is still matching people. You can launch when it finishes.',
         },
         {
             cohort: 'an uploaded list that failed to match',
-            state: { isStatic: true, isCalculating: false, failed: true },
+            state: { isStatic: true, isCalculating: false, calculatedBefore: true, failed: true },
             expected: '"List" couldn\'t match its people. Remove it from the recipients, or upload the list again.',
         },
-        { cohort: 'a matched list', state: { isStatic: true, isCalculating: false, failed: false }, expected: null },
+        {
+            cohort: 'a matched list',
+            state: { isStatic: true, isCalculating: false, calculatedBefore: true, failed: false },
+            expected: null,
+        },
         {
             cohort: 'a dynamic cohort recalculating',
-            state: { isStatic: false, isCalculating: true, failed: false },
+            state: { isStatic: false, isCalculating: true, calculatedBefore: true, failed: false },
             expected: null,
+        },
+        {
+            cohort: 'a new dynamic cohort before its first calculation',
+            state: { isStatic: false, isCalculating: true, calculatedBefore: false, failed: false },
+            expected: '"List" is still calculating who\'s in it. You can launch when it finishes.',
         },
     ])('decides whether $cohort blocks launch', ({ state, expected }) => {
         const cohort = { id: 42, name: 'List', count: null, importTotal: null, importUnmatched: null, ...state }

@@ -1,15 +1,10 @@
-import { router } from 'kea-router'
+import { useActions, useValues } from 'kea'
 
 import { IconSend } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonMenu } from '@posthog/lemon-ui'
 
-import {
-    MessageAudience,
-    MessageAudienceDestination,
-    captureMessageAudienceClicked,
-    messageAudienceAccessDisabledReason,
-    messageAudienceUrl,
-} from './messageAudience'
+import { MessageAudience, MessageAudienceDestination, messageAudienceAccessDisabledReason } from './messageAudience'
+import { messageAudienceOpenLogic } from './messageAudienceOpenLogic'
 
 const DESTINATION_LABELS: Record<MessageAudienceDestination, string> = {
     broadcast: 'Send a one-time email',
@@ -34,16 +29,16 @@ export function MessageAudienceButton({
     disabledReason,
     fullWidth,
 }: MessageAudienceButtonProps): JSX.Element {
-    const open = (destination: MessageAudienceDestination): void => {
-        captureMessageAudienceClicked(audience.source, destination)
-        router.actions.push(messageAudienceUrl(audience, destination))
-    }
+    const logic = messageAudienceOpenLogic({ audience })
+    const { opening } = useValues(logic)
+    const { open } = useActions(logic)
     const buttonProps = {
         type,
         size,
         disabledReason: disabledReason ?? messageAudienceAccessDisabledReason(),
         fullWidth,
         icon: <IconSend />,
+        loading: opening,
     }
 
     if (destinations.length === 1) {

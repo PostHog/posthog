@@ -15,6 +15,8 @@ export interface AudienceCohort {
     name: string
     isStatic: boolean
     isCalculating: boolean
+    // False until the first calculation finishes. A dynamic cohort has no stored members before that.
+    calculatedBefore: boolean
     failed: boolean
     count: number | null
     // Set for a cohort made from a list: how many people were on it and how many of them PostHog didn't find.

@@ -61,6 +61,7 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { messageAudienceOpenLogic } from 'products/workflows/frontend/MessageAudience/messageAudienceOpenLogic'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -68,9 +69,9 @@ import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import {
+    cohortBroadcastAudience,
     cohortBroadcastDisabledReason,
     createCohortDataNodeLogicKey,
-    urlForCohortBroadcast,
     urlForCohortWorkflow,
 } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
@@ -245,6 +246,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const accessDisabledReason = messageAudienceAccessDisabledReason()
     const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
+    const broadcastLogic = messageAudienceOpenLogic({ audience: cohortBroadcastAudience(cohort) })
+    const { opening: openingBroadcast } = useValues(broadcastLogic)
+    const { open: openBroadcast } = useActions(broadcastLogic)
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -296,14 +300,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                     <ScenePanelActionsSection>
                         <ButtonPrimitive
-                            onClick={() => {
-                                if (typeof cohort.id !== 'number') {
-                                    return
-                                }
-                                captureMessageAudienceClicked('cohort', 'broadcast')
-                                router.actions.push(urlForCohortBroadcast({ id: cohort.id, name: cohort.name }))
+                            onClick={() => openBroadcast('broadcast')}
+                            disabledReasons={{
+                                ...(broadcastDisabledReason ? { [broadcastDisabledReason]: true } : {}),
+                                'Checking whether this email can go out': openingBroadcast,
                             }}
-                            disabledReasons={broadcastDisabledReason ? { [broadcastDisabledReason]: true } : {}}
                             data-attr={`${RESOURCE_TYPE}-send-broadcast`}
                             tooltip="Send a one-time email to everyone in this cohort"
                             menuItem

@@ -9,7 +9,11 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { cohortBroadcastDisabledReason, urlForCohortBroadcast, urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
+import {
+    cohortBroadcastAudience,
+    cohortBroadcastDisabledReason,
+    urlForCohortWorkflow,
+} from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -27,6 +31,7 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -64,9 +69,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                             <SceneMenuBarItem
                                 onClick={() => {
                                     captureMessageAudienceClicked('cohort', 'broadcast')
-                                    router.actions.push(
-                                        urlForCohortBroadcast({ id: cohortIdNumber, name: cohort.name })
-                                    )
+                                    void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast')
                                 }}
                                 disabled={!!broadcastDisabledReason}
                                 tooltip={broadcastDisabledReason ?? undefined}
