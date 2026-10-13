@@ -8,8 +8,8 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_CLICKHOUSE_FLAG_EVALUATIONS, KAFKA_REALTIME_ONLY_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { parseRawClickHouseEvent } from '~/common/utils/event'
 import { parseJSON } from '~/common/utils/json-parse'
-import { clickHouseTimestampToDateTime } from '~/common/utils/utils'
 import { createFlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { getDefaultIngestionConsumerConfig, getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
@@ -104,12 +104,10 @@ describe('Flag evaluations shadow-routing E2E', () => {
             // event — the parity per-flag uniques depend on.
             expect(flagEvaluations[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
             expect(flagEvaluations[0].person_id).toBe(events[0].person_id)
-            const personProperties = parseJSON(flagEvaluations[0].person_properties)
-            expect(personProperties).toEqual(events[0].person_properties)
-            expect(personProperties.email).toBe('flag-caller@example.com')
-            expect(clickHouseTimestampToDateTime(flagEvaluations[0].person_created_at).toISO()).toBe(
-                events[0].person_created_at?.toISO()
-            )
+            const flagEvaluation = parseRawClickHouseEvent(flagEvaluations[0])
+            expect(flagEvaluation.person_properties).toEqual(events[0].person_properties)
+            expect(flagEvaluation.person_properties.email).toBe('flag-caller@example.com')
+            expect(flagEvaluation.person_created_at?.toISO()).toBe(events[0].person_created_at?.toISO())
             expect(flagEvaluations[0].person_mode).toBe(events[0].person_mode)
             // The MV stamps inserted_at with now64() when it processes the row.
             expect(flagEvaluations[0].inserted_at).not.toMatch(/^1970/)
