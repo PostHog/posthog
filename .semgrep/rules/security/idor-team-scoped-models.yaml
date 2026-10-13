@@ -394,6 +394,7 @@ rules:
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
+                              |SignalSpend
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -847,6 +848,7 @@ rules:
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
+                        |SignalSpend
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary

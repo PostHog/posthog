@@ -406,27 +406,33 @@ def _seed_check_lane(team: Team) -> None:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("run_count", "processed_signal_count", "signal_count", "expected_loop"),
+    ("run_count", "processed_signal_count", "signal_count", "expected_loop", "has_pending_driver"),
     [
         # Signals landed mid-run and carried the report to its next bucket: loop rather than make
         # them wait for a signal that arrives after the run.
-        (1, 1, 2, True),
-        (1, 1, 9, True),
+        (1, 1, 2, True, True),
+        (1, 1, 9, True, True),
+        (1, 1, 2, True, False),
         # Signals landed but the report is still short of its next bucket, so the run settles.
-        (2, 2, 3, False),
-        (3, 4, 9, False),
+        (2, 2, 3, False, False),
+        (3, 4, 9, False, False),
         # No new signals at all.
-        (2, 2, 2, False),
+        (2, 2, 2, False, False),
         # This pass covered the last bucket: the report stays READY however far past it grew.
-        (4, 10, 15, False),
+        (4, 10, 15, False, False),
         # Attempts are not passes: a report whose run_count was spent on runs that paused before
         # researching still loops when this pass leaves it at a bucket.
-        (9, 1, 2, True),
+        (9, 1, 2, True, True),
     ],
 )
 async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
-    ateam, run_count: int, processed_signal_count: int, signal_count: int, expected_loop: bool
-):
+    ateam: Team,
+    run_count: int,
+    processed_signal_count: int,
+    signal_count: int,
+    expected_loop: bool,
+    has_pending_driver: bool,
+) -> None:
     driver, pending_driver = uuid4(), uuid4()
     await database_sync_to_async(_seed_check_lane)(ateam)
     report = await database_sync_to_async(SignalReport.objects.create)(
@@ -436,7 +442,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
         run_count=run_count,
         total_weight=2.0,
         triggering_signal_id=driver,
-        pending_triggering_signal_id=pending_driver if expected_loop else None,
+        pending_triggering_signal_id=pending_driver if has_pending_driver else None,
     )
     report_id = str(report.id)
 
@@ -469,7 +475,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
     expected_status = SignalReport.Status.CANDIDATE if expected_loop else SignalReport.Status.READY
     assert refreshed.status == expected_status
-    assert refreshed.triggering_signal_id == (pending_driver if expected_loop else driver)
+    assert refreshed.triggering_signal_id == (pending_driver if has_pending_driver else driver)
     # Stamped by the pass that just completed, so the next bucket is measured against what this run
     # actually covered rather than against how many times the workflow has started.
     assert refreshed.signals_researched == processed_signal_count

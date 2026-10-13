@@ -1015,7 +1015,8 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.triggering_signal_id = report.pending_triggering_signal_id
+                if report.pending_triggering_signal_id is not None:
+                    report.triggering_signal_id = report.pending_triggering_signal_id
                 report.save(update_fields=[*candidate_fields, "triggering_signal_id"])
             else:
                 # Only a pass that settles writes its checks. A pass about to be re-researched is
