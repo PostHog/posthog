@@ -8,7 +8,11 @@ from django.dispatch import receiver
 from posthog.models import Team
 from posthog.settings import EE_AVAILABLE
 
-from products.authz.backend.facade.synchronization import schedule_organization_sync, synchronization_enabled
+from products.authz.backend.facade.synchronization import (
+    invalidate_authorization_session,
+    schedule_organization_sync,
+    synchronization_enabled,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 
 if TYPE_CHECKING:
@@ -35,6 +39,7 @@ def remember_organization(sender: type[Dashboard], instance: Dashboard, using: s
 def synchronize_dashboard(
     sender: type[Dashboard], instance: Dashboard, using: str, raw: bool = False, **kwargs: object
 ) -> None:
+    invalidate_authorization_session()
     if raw or not synchronization_enabled():
         return
     organization_id = (
@@ -48,6 +53,7 @@ def synchronize_dashboard(
 def synchronize_privilege(
     sender: type[DashboardPrivilege], instance: DashboardPrivilege, using: str, raw: bool = False, **kwargs: object
 ) -> None:
+    invalidate_authorization_session()
     if raw or not synchronization_enabled():
         return
     # The privilege contains a dashboard id, not a trusted tenant id.

@@ -37,6 +37,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
     mint_export_renderer_token,
 )
+from posthog.authz import check_object_access
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
@@ -69,6 +70,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.authz.backend.facade.enums import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
@@ -205,18 +207,8 @@ def _require_dashboard_access(
     required_level: AccessControlLevel,
 ) -> None:
     dashboard = cast(Dashboard, dashboard)
-    # Legacy check: remove once all users are on the new access control. It restricts editing only, so
-    # it must not gate a read.
-    if (
-        required_level == "editor"
-        and dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-    ):
-        if not view.user_permissions.dashboard(dashboard).can_edit:
-            raise PermissionDenied("You don't have edit permissions for this dashboard.")
-        return
-
-    access_level = user_access_control.get_user_access_level(dashboard)
-    if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, required_level):
+    action = Action.VIEW if required_level == "viewer" else Action.SHARE
+    if not check_object_access(view.request.user, dashboard, action):
         raise PermissionDenied(_denied_message("dashboard", required_level))
 
 

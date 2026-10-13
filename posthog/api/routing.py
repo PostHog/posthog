@@ -27,6 +27,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
+from posthog.authz import filter_dashboard_queryset
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -49,6 +50,7 @@ from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authz.backend.facade import api as authz
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -187,7 +189,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         completed and self.team is loaded by permission checks for free).
         """
         try:
-            return super().dispatch(request, *args, **kwargs)
+            with authz.authorization_session():
+                return super().dispatch(request, *args, **kwargs)
         finally:
             token = getattr(self, "_team_scope_token", None)
             if token is not None:
@@ -388,6 +391,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # mirroring the service-auth short-circuit in AccessControlPermission.
         if is_service_auth(self.request):
             return queryset
+
+        if self.scope_object == "dashboard":
+            return filter_dashboard_queryset(self.request.user, queryset)
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"

@@ -227,6 +227,8 @@ Without these values, the client uses the named store and its latest model.
 
 AccessControl, dashboard, project, organization, organization-membership, role, and role-membership saves and deletes enqueue reconciliation after the database transaction commits.
 Dashboard soft deletion and restoration use the same hook.
+Soft-deleted dashboards keep their authorization grants so editors can restore them.
+API queries and authorization listings omit deleted dashboards.
 Legacy dashboard collaborator privileges also trigger reconciliation.
 Rolled-back transactions enqueue nothing.
 The worker retries failed reconciliations and reads current database state, so a delayed event does not replay an obsolete grant.
@@ -243,7 +245,9 @@ If retries run out, bulk writes bypass model signals, or Redis loses the readine
 This is a development/pilot integration, not a production authorization rollout.
 It reconciles the whole organization and scans the store to compute its tuple diff.
 Use incremental projections before enabling it broadly.
-Existing endpoints still use Django permissions until their checks move to the authorization facade.
+Dashboard API permissions, list filtering, access-rule editing, sharing, and tile mutations use the authorization facade.
+Dashboard checks in insight placement, subscriptions, and AI tools use it too.
+Other resource types keep their existing authorization paths.
 Post-commit task publishing is not a transactional outbox.
 Add durable change capture before using the facade as the sole authorization check.
 
@@ -258,7 +262,9 @@ The `products.authz.backend.facade.api` decision methods use the `authz-rebac` m
 Missing, disabled, boolean, or unknown flag values use `v1`.
 The flag evaluates locally with the organization ID as its distinct ID and organization group key.
 Only the organization's `id` property is supplied, so use organization-ID targeting for the pilot.
-Each organization in a batch gets its own evaluation; results retain the input order.
+Only resource types in `V2_RESOURCES` in `products/authz/backend/logic/rollout.py` can use OpenFGA, including shadow comparisons.
+The allowlist contains dashboards; project, organization, and role checks always use `v1`.
+Each organization and resource type in a batch gets its own routing decision; results retain the input order.
 Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
@@ -278,6 +284,12 @@ An authoritative error propagates without falling back to the other engine.
 Optimize the legacy dashboard scan and shadow-check latency before using this path broadly.
 
 These methods require an explicit `Subject(user_id=...)`.
+`posthog/authz.py` adapts Django users, objects, and querysets to these contracts.
+Django viewsets bind an `authorization_session` to reuse legacy lookups within each request.
+Authorization-related model writes invalidate this lookup state; the session never caches OpenFGA decisions.
+Authenticated dashboard requests still enforce API scopes, project membership, and reauthentication through Django permissions.
+Public sharing and export authentication retain their existing read-only paths.
+Service credentials retain project-wide access within their API scopes because the facade does not support their principals yet.
 Request-context overrides and non-user principals are not wired yet and raise rather than being ignored.
 The relationship-write, subject-listing, and explanation methods remain unimplemented.
 Use the existing AccessControl write APIs as the database source of truth.

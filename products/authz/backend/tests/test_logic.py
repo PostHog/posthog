@@ -7,16 +7,13 @@ from django.test import SimpleTestCase
 from posthog import redis
 
 from products.authz.backend.facade import api
-from products.authz.backend.facade.contracts import Context, Resource, Subject
+from products.authz.backend.facade.contracts import CheckRequest, Context, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
-from products.authz.backend.logic import sync_state
+from products.authz.backend.logic import authorization, sync_state
 
 
 class TestAuthorizationFailures(SimpleTestCase):
     def setUp(self) -> None:
-        flag = patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2")
-        flag.start()
-        self.addCleanup(flag.stop)
         self.organization_id = uuid4()
         self.resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization_id))
         self.subject = Subject(user_id=1)
@@ -29,7 +26,9 @@ class TestAuthorizationFailures(SimpleTestCase):
     @patch("products.authz.backend.logic.authorization.get_openfga_client")
     def test_pending_reconciliation_denies_without_consulting_stale_grants(self, get_client: MagicMock) -> None:
         sync_state.mark_pending(self.organization_id)
-        assert not api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
+        assert not authorization.check(
+            [CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject)], None
+        )[0]
         get_client.assert_not_called()
 
     @patch("products.authz.backend.logic.authorization.get_openfga_client")
@@ -37,7 +36,7 @@ class TestAuthorizationFailures(SimpleTestCase):
         error = RuntimeError("Authorization service unavailable")
         get_client.return_value.client_batch_check.side_effect = error
         with self.assertRaises(RuntimeError):
-            api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
+            authorization.check([CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject)], None)
         get_client.return_value.close.assert_called_once()
 
     @patch("products.authz.backend.logic.authorization.get_openfga_client")
@@ -48,7 +47,9 @@ class TestAuthorizationFailures(SimpleTestCase):
             return [MagicMock(allowed=True, error=None)]
 
         get_client.return_value.client_batch_check.side_effect = commit
-        assert not api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
+        assert not authorization.check(
+            [CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject)], None
+        )[0]
 
     def test_context_and_principals_are_not_silently_ignored(self) -> None:
         with self.assertRaises(ValueError):

@@ -1,3 +1,5 @@
+from collections.abc import Collection
+
 from posthog.settings import EE_AVAILABLE
 from posthog.user_permissions import UserPermissions
 
@@ -27,14 +29,20 @@ class LegacyDashboardAuthorization:
 
     def check(self, dashboard_id: str, level: AccessControlLevelResource) -> bool:
         if dashboard_id not in self.dashboards:
-            self.dashboards[dashboard_id] = Dashboard.objects.filter(team_id=self.team.id, id=dashboard_id).first()
+            self.access.preload_access_levels(self.team, "dashboard", resource_id=dashboard_id)
+            self.dashboards[dashboard_id] = Dashboard.objects_including_soft_deleted.filter(
+                team_id=self.team.id, id=dashboard_id
+            ).first()
         dashboard = self.dashboards[dashboard_id]
         return dashboard is not None and self._check(dashboard, level)
 
     def ids(self, level: AccessControlLevelResource, limit: int | None) -> frozenset[str] | None:
         ids: set[str] = set()
         # ponytail: full dashboard scan; use queryset filtering before a production rollout.
-        for dashboard in Dashboard.objects.filter(team_id=self.team.id):
+        dashboards = list(Dashboard.objects.filter(team_id=self.team.id))
+        self.access.preload_object_access_controls(dashboards)
+        for dashboard in dashboards:
+            self.dashboards[str(dashboard.pk)] = dashboard
             if self._check(dashboard, level):
                 ids.add(str(dashboard.id))
                 if limit is not None and len(ids) > limit:
@@ -42,8 +50,14 @@ class LegacyDashboardAuthorization:
         return frozenset(ids)
 
 
+def active_authorization_dashboard_ids(team_id: int, ids: Collection[str]) -> frozenset[str]:
+    return frozenset(
+        str(id) for id in Dashboard.objects.filter(team_id=team_id, id__in=ids).values_list("id", flat=True)
+    )
+
+
 def authorization_dashboards(team_id: int) -> tuple[AuthorizationDashboard, ...]:
-    dashboards = Dashboard.objects.filter(team_id__exact=team_id)
+    dashboards = Dashboard.objects_including_soft_deleted.filter(team_id__exact=team_id)
     if EE_AVAILABLE:
         dashboards = dashboards.prefetch_related("privileges")
     return tuple(

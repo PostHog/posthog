@@ -236,7 +236,15 @@ class TestOpenFgaDashboardMirror(BaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=self.dashboard_id, deleted=True)
-        assert not self._check(Action.VIEW)
+        assert self._check(Action.EDIT)
+        assert (
+            str(self.dashboard_id)
+            not in api.list_resources(
+                resource=Resource(type=ResourceType.DASHBOARD, project_id=self.team.id),
+                action=Action.VIEW,
+                subject=self.subject,
+            ).ids
+        )
         with self.captureOnCommitCallbacks(execute=True):
             dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=self.dashboard_id, deleted=False)
         assert self._check(Action.EDIT)

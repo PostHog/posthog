@@ -15,11 +15,16 @@ from pydantic import BaseModel, ValidationError
 
 from posthog.schema import ApprovalResumePayload, AssistantTool, ClientToolResultPayload
 
+from posthog.authz import RESOURCE_ACTIONS, check_dashboard_category_access, check_object_access
 from posthog.models import Team, User
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
-from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    model_to_resource,
+)
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
@@ -320,7 +325,14 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             return
 
         for resource, required_level in required_access:
-            if not self.user_access_control.check_access_level_for_resource(resource, required_level):
+            has_access = (
+                check_dashboard_category_access(
+                    self._user, self._team, RESOURCE_ACTIONS[required_level], require_category=True
+                )
+                if resource == "dashboard"
+                else self.user_access_control.check_access_level_for_resource(resource, required_level)
+            )
+            if not has_access:
                 raise MaxToolAccessDeniedError(resource, required_level, action="use")
 
     async def check_object_access(
@@ -341,9 +353,14 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             resource: Resource name for error message. If None, derived from model._meta.model_name.
             action: Verb for error message ("read", "edit", "delete")
         """
-        has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_object)(
-            obj, required_level
-        )
+        if model_to_resource(obj) == "dashboard":
+            has_access = await database_sync_to_async(check_object_access)(
+                self._user, obj, RESOURCE_ACTIONS[required_level]
+            )
+        else:
+            has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_object)(
+                obj, required_level
+            )
         if not has_access:
             resource_name = resource or obj._meta.model_name
             raise MaxToolAccessDeniedError(resource_name, required_level, action=action)

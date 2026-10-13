@@ -9,7 +9,7 @@ from products.dashboards.backend.facade.authorization import LegacyDashboardAuth
 
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, ResourceType
-from . import authorization
+from . import authorization, request_context
 
 
 def dashboard_level(action: Action) -> AccessControlLevelResource:
@@ -112,14 +112,23 @@ class LegacyAuthorization:
         return ResourceIds(ids=ids or frozenset(), complete=ids is not None)
 
 
+def evaluator() -> LegacyAuthorization:
+    evaluators = request_context.legacy_evaluators.get()
+    if evaluators is None:
+        return LegacyAuthorization()
+    if not evaluators:
+        evaluators.append(LegacyAuthorization())
+    return evaluators[0]
+
+
 def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
     authorization.validate_context(context)
-    evaluator = LegacyAuthorization()
-    return [evaluator.check(request) for request in requests]
+    access = evaluator()
+    return [access.check(request) for request in requests]
 
 
 def list_resources(
     resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
 ) -> ResourceIds:
     authorization.validate_context(context)
-    return LegacyAuthorization().list_resources(resource, action, subject, limit)
+    return evaluator().list_resources(resource, action, subject, limit)

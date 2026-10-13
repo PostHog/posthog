@@ -6,6 +6,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_memberships
 
+from products.authz.backend.facade.enums import Action
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -334,10 +335,13 @@ class UserInsightPermissions:
 
     @cached_property
     def effective_privilege_level(self) -> PrivilegeLevel:
+        # The legacy authz adapter imports UserPermissions, so defer this import to avoid a cycle.
+        from posthog.authz import check_object_access
+
         if len(self.insight_dashboards) == 0:
             return PrivilegeLevel.CAN_EDIT
 
-        if any(self.p.dashboard(dashboard).can_edit for dashboard in self.insight_dashboards):
+        if any(check_object_access(self.p.user, dashboard, Action.EDIT) for dashboard in self.insight_dashboards):
             return PrivilegeLevel.CAN_EDIT
         else:
             return PrivilegeLevel.CAN_VIEW

@@ -53,6 +53,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
+from posthog.authz import check_object_access
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -135,6 +136,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.alerts.backend.facade.api import delete_insight_alerts
 from products.alerts.backend.presentation.views.insight_alerts import insight_alerts_prefetch, serialize_insight_alerts
+from products.authz.backend.facade.enums import Action
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
@@ -2251,9 +2253,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 ):
                     can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard_id
                 else:
-                    can_view_dashboard = self.user_access_control.check_access_level_for_object(
-                        dashboard_tile.dashboard, "viewer"
-                    )
+                    can_view_dashboard = check_object_access(request.user, dashboard_tile.dashboard, Action.VIEW)
 
                 if not can_view_dashboard:
                     dashboard_tile = None

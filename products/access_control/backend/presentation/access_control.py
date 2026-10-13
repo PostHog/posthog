@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.authz import check_object_access, object_access_level
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
@@ -37,10 +38,12 @@ from products.access_control.backend.facade.user_access_control import (
     get_field_access_control_map,
     highest_access_level,
     minimum_access_level,
+    model_to_resource,
     ordered_access_levels,
     resource_to_display_name,
 )
 from products.access_control.backend.models.access_control import AccessControl
+from products.authz.backend.facade.enums import Action
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -219,7 +222,12 @@ class AccessControlSerializer(serializers.ModelSerializer):
                 )
 
             # Check that they have the right access level for this specific resource object
-            if not access_control.check_can_modify_access_levels_for_object(the_object):
+            can_modify = (
+                check_object_access(self.context["request"].user, the_object, Action.MANAGE_ACCESS)
+                if resource == "dashboard"
+                else access_control.check_can_modify_access_levels_for_object(the_object)
+            )
+            if not can_modify:
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
 
             # Cap distinct objects with per-object overrides.
@@ -411,7 +419,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        user_access_level = user_access_control.get_user_access_level(obj)
+        user_access_level = (
+            object_access_level(request.user, obj)
+            if resource == "dashboard"
+            else user_access_control.get_user_access_level(obj)
+        )
 
         payload: dict[str, Any] = {
             "access_controls": serializer.data,
@@ -423,7 +435,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
-            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+            "user_can_edit_access_levels": check_object_access(request.user, obj, Action.MANAGE_ACCESS)
+            if resource == "dashboard"
+            else user_access_control.check_can_modify_access_levels_for_object(obj),
         }
 
         if not is_resource_level:
@@ -477,7 +491,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             if not project_access:
                 continue
 
-            access_level = user_uac.get_user_access_level(obj)
+            access_level = (
+                object_access_level(user, obj) if resource == "dashboard" else user_uac.get_user_access_level(obj)
+            )
             if access_level is None or access_level == "none":
                 continue
 
@@ -628,6 +644,13 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
         return None
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
+        resource = obj.resource if isinstance(obj, ObjectAccessRef) else model_to_resource(obj)
+        if resource == "dashboard":
+            request = self.context.get("request")
+            if request is not None:
+                return object_access_level(request.user, obj)
+            access = self.user_access_control
+            return object_access_level(access.user, obj) if access is not None else None
         if not self.user_access_control:
             return None
 

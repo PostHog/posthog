@@ -8,7 +8,7 @@ import structlog
 from posthog.ph_client import get_feature_flag_or_none
 
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
-from ..facade.enums import Action
+from ..facade.enums import Action, ResourceType
 from . import authorization, legacy_authorization
 
 logger = structlog.get_logger(__name__)
@@ -16,7 +16,12 @@ ROLLOUT_FLAG = "authz-rebac"
 RolloutMode = Literal["v1", "v1-shadow-log", "v2"]
 
 
-def mode(organization_id: UUID) -> RolloutMode:
+V2_RESOURCES = frozenset({ResourceType.DASHBOARD})
+
+
+def mode(organization_id: UUID, resource_type: ResourceType) -> RolloutMode:
+    if resource_type not in V2_RESOURCES:
+        return "v1"
     id = str(organization_id)
     variant = get_feature_flag_or_none(
         ROLLOUT_FLAG,
@@ -35,13 +40,13 @@ def mode(organization_id: UUID) -> RolloutMode:
 
 def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
     authorization.validate_context(context)
-    grouped: dict[UUID, list[tuple[int, CheckRequest]]] = defaultdict(list)
+    grouped: dict[tuple[UUID, ResourceType], list[tuple[int, CheckRequest]]] = defaultdict(list)
     for index, request in enumerate(requests):
         authorization.actor_key(request.subject)
-        grouped[authorization.organization_id(request.resource)].append((index, request))
+        grouped[(authorization.organization_id(request.resource), request.resource.type)].append((index, request))
     decisions = [False] * len(requests)
-    for org_id, entries in grouped.items():
-        rollout_mode = mode(org_id)
+    for (org_id, resource_type), entries in grouped.items():
+        rollout_mode = mode(org_id, resource_type)
         batch = [request for _, request in entries]
         primary = authorization if rollout_mode == "v2" else legacy_authorization
         results = primary.check(batch, context)
@@ -96,7 +101,7 @@ def list_resources(
     authorization.validate_context(context)
     authorization.actor_key(subject)
     org_id = authorization.organization_id(resource)
-    rollout_mode = mode(org_id)
+    rollout_mode = mode(org_id, resource.type)
     primary = authorization if rollout_mode == "v2" else legacy_authorization
     result = primary.list_resources(resource, action, subject, context, limit)
     if rollout_mode == "v1":

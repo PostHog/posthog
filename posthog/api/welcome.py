@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.authz import filter_dashboard_queryset
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -492,7 +493,7 @@ def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessContr
     # Apply per-object access control so restricted dashboard names/descriptions don't leak via
     # this aggregation endpoint (same pattern as the main dashboards viewset).
     try:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        queryset = filter_dashboard_queryset(access_control.user, queryset)
     except Exception:
         logger.exception(
             "welcome.dashboard_access_control_failed",

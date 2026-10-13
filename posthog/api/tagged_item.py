@@ -12,12 +12,14 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.authz import check_object_access
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.authz.backend.facade.enums import Action
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -419,10 +421,17 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user_access_control.preload_object_access_controls(cast(list, objects))
+        if scope_object != "dashboard":
+            user_access_control.preload_object_access_controls(cast(list, objects))
         for obj in objects:
-            user_access_level = user_access_control.get_user_access_level(obj)
-            if user_access_level and access_level_satisfied_for_resource(scope_object, user_access_level, "editor"):
+            if scope_object == "dashboard":
+                can_edit = check_object_access(request.user, obj, Action.EDIT)
+            else:
+                user_access_level = user_access_control.get_user_access_level(obj)
+                can_edit = user_access_level is not None and access_level_satisfied_for_resource(
+                    scope_object, user_access_level, "editor"
+                )
+            if can_edit:
                 editable_objects.append(obj)
             else:
                 errors.append({"id": obj.id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})

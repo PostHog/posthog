@@ -34,6 +34,7 @@ from posthog.schema import SubscriptionAIContextLimit
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.authz import check_object_access, filter_dashboard_queryset
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.dataclasses import frozen
@@ -51,6 +52,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import human_list, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authz.backend.facade.enums import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
@@ -177,7 +179,12 @@ _DELIVERY_TARGETS = _TargetLookups(
 
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
-    if not user_access_control.check_access_level_for_object(obj, "viewer"):
+    has_access = (
+        check_object_access(user_access_control.user, obj, Action.VIEW)
+        if isinstance(obj, Dashboard)
+        else user_access_control.check_access_level_for_object(obj, "viewer")
+    )
+    if not has_access:
         raise ValidationError(
             {field: [f"Viewer access to this {field} is required. Ask an admin to grant you access."]}
         )
@@ -186,6 +193,8 @@ def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight 
 def _viewable_queryset(
     user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
 ) -> QuerySet:
+    if resource == "dashboard":
+        return filter_dashboard_queryset(user_access_control.user, queryset)
     viewable = user_access_control.filter_queryset_by_access_level(
         queryset, include_all_if_admin=True, resource=resource
     )
@@ -1471,7 +1480,7 @@ class SubscriptionSerializer(SubscriptionWriteSerializer):
 def _blocked_target_ids(
     user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
 ) -> QuerySet:
-    if user_access_control.has_resource_access(resource):
+    if resource != "dashboard" and user_access_control.has_resource_access(resource):
         denied_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, frozenset())
         queryset = queryset.filter(id__in=denied_ids)
     return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset, resource).values("id")).values(
@@ -1495,16 +1504,6 @@ def _viewable_delivery_filter(user_access_control: UserAccessControl, team_id: i
 
 
 def _target_filter(user_access_control: UserAccessControl, team_id: int, targets: _TargetLookups) -> Q:
-    if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
-        return Q()
-    rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
-    has_object_rules = any(scope.get("insight") or scope.get("dashboard") for scope in rules)
-    denies_a_target_resource = not user_access_control.has_resource_access(
-        "insight"
-    ) or not user_access_control.has_resource_access("dashboard")
-    if not has_object_rules and not denies_a_target_resource:
-        return Q()
-
     team_dashboards = targets.dashboards.filter(team_id=team_id)
     blocked_insights = _blocked_target_ids(user_access_control, targets.insights.filter(team_id=team_id), "insight")
     blocked_dashboards = _blocked_target_ids(user_access_control, team_dashboards, "dashboard")
@@ -1798,7 +1797,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 dashboard = Dashboard.objects.filter(id=dashboard_id, team_id=self.team_id).first()
                 if dashboard is None:
                     raise ValidationError({"dashboard_tiles": ["Dashboard not found."]})
-                if not self.user_access_control.check_access_level_for_object(dashboard, "viewer"):
+                if not check_object_access(self.request.user, dashboard, Action.VIEW):
                     raise exceptions.PermissionDenied("You do not have access to this dashboard.")
                 tile_insight_ids = DashboardTile.objects.filter(
                     dashboard=dashboard,

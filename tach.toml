@@ -41,6 +41,7 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    "products.authz",
     # Facade-only: a Slack subscription asks whether the bot can answer a follow-up on its report.
     "products.slack_app",
     "products.cohorts",
@@ -83,6 +84,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.authz",
     "products.alerts_platform",
     "products.ai_training",
     "products.autoresearch",
@@ -729,6 +731,7 @@ layer = "modules"
 [[modules]]
 path = "products.product_analytics"
 depends_on = [
+    "products.authz",
     "products.cohorts",
     "ee",
     "posthog",

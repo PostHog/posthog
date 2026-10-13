@@ -6,7 +6,11 @@ from posthog.models import Team
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.authz.backend.facade.synchronization import schedule_organization_sync, synchronization_enabled
+from products.authz.backend.facade.synchronization import (
+    invalidate_authorization_session,
+    schedule_organization_sync,
+    synchronization_enabled,
+)
 
 
 @receiver(pre_save, sender=AccessControl)
@@ -44,6 +48,7 @@ def synchronize_access_control(
     raw: bool = False,
     **kwargs: object,
 ) -> None:
+    invalidate_authorization_session()
     if raw or not synchronization_enabled():
         return
     if isinstance(instance, AccessControl):
