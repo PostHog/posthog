@@ -302,8 +302,8 @@ sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.9.0",
 ]
-# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Dev only:
-# no image installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
+# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Only
+# Dockerfile.dagster-ml installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
 inbox-ranking = [
     "onnx~=1.21.0",
     "onnxruntime~=1.30.0",
