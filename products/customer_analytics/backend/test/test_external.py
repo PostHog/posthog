@@ -767,6 +767,23 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
         response = self.client.patch(self.url, data={"external_id": "acme-1", "properties": {}}, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @parameterized.expand(
+        [
+            ("write_scope", ["account:write"], status.HTTP_200_OK),
+            ("read_scope", ["account:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_project_secret_api_key_needs_account_write(self, _name: str, scopes: list[str], expected: int) -> None:
+        _, token = create_project_secret_api_key(self.team, label="props", scopes=scopes)
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}}, token=token)
+        self.assertEqual(response.status_code, expected)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_account_write_key_still_sets_values(self) -> None:
+        _, token = create_project_secret_api_key(self.team, label="props", scopes=["account:write"])
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}}, token=token)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_sets_values_by_definition_id(self):
         response = self._patch(
             {"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise", str(self.seats.id): 42}}

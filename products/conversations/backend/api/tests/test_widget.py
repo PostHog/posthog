@@ -36,6 +36,12 @@ def _verification_counter(outcome: str, source: str) -> float:
     )
 
 
+def _stale_counter() -> float:
+    from prometheus_client import REGISTRY
+
+    return REGISTRY.get_sample_value("conversations_signing_secret_stale_total") or 0.0
+
+
 class TestWidgetAPI(BaseTest):
     def setUp(self):
         super().setUp()
@@ -837,16 +843,16 @@ class TestWidgetIdentityVerification(BaseTest):
             # setUp signs the hash with the value held in team.secret_api_token; with the
             # kill switch off (#66179) that column must stop verifying — only a current
             # SigningSecret row may.
-            ("signing_secret_row_verifies", "matching", "current", status.HTTP_200_OK),
-            ("legacy_fallback_is_gone", "none", "current", status.HTTP_403_FORBIDDEN),
+            ("signing_secret_row_verifies", "matching", "current", status.HTTP_200_OK, 0.0),
+            ("legacy_fallback_is_gone", "none", "current", status.HTTP_403_FORBIDDEN, 0.0),
             # A stale row holds a retired key; accepting it under the switch would
             # silently un-revoke that key.
-            ("stale_row_stays_excluded", "stale", "retired", status.HTTP_403_FORBIDDEN),
+            ("stale_row_stays_excluded", "stale", "retired", status.HTTP_403_FORBIDDEN, 1.0),
         ]
     )
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
     def test_list_tickets_with_legacy_tokens_switched_off(
-        self, _name: str, row: str, sign_with: str, expected_status: int
+        self, _name: str, row: str, sign_with: str, expected_status: int, expected_stale_delta: float
     ) -> None:
         retired_secret = "a_retired_secret_key"
         if row != "none":
@@ -857,6 +863,7 @@ class TestWidgetIdentityVerification(BaseTest):
             self.identity_hash if sign_with == "current" else compute_identity_hash(self.distinct_id, retired_secret)
         )
         self._create_ticket()
+        before_stale = _stale_counter()
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
@@ -868,6 +875,7 @@ class TestWidgetIdentityVerification(BaseTest):
         )
 
         self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(_stale_counter() - before_stale, expected_stale_delta)
 
     def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
         # After the backfill both stores hold the same value, so the response is 200 either

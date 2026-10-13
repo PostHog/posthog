@@ -541,11 +541,7 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
         if (
             self.defer_migrated_team_tokens
             and settings.ACCEPT_TEAM_SECRET_TOKENS
-            and token
-            in (
-                psak.team.secret_api_token,
-                psak.team.secret_api_token_backup,
-            )
+            and token in (psak.team.secret_api_token, psak.team.secret_api_token_backup)
         ):
             return None
 

@@ -644,19 +644,20 @@ class ExternalAccountCustomPropertiesView(APIView):
     PATCH /api/customer_analytics/external/account/custom_property_values — Set an account's custom
     property values, addressing each property by its definition id (UUID).
 
-    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
+    Accepts the team secret_api_token or a project secret API key with the ``account:write``
+    scope as a Bearer token.
     """
 
-    authentication_classes: list = []
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
     throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
 
     @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        team, error = _authenticate_team_for_update(request)
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="patch").inc()
         return handle_account_set_properties(request, team)

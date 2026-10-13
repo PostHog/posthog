@@ -88,8 +88,8 @@ class TestExternalTicketAPI(BaseTest):
 
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
     def test_kill_switch_off_migrated_token_flows_through_its_psak_row(self) -> None:
-        # Flip semantics (#66179): the deferral above goes inert, so the same legacy string
-        # authenticates as a PSAK — reads keep working, the legacy-only PATCH stops.
+        # With the switch off (#66179), the legacy string authenticates through its PSAK
+        # row, so GET still returns 200 and PATCH returns 403.
         token = self.team.secret_api_token
         create_project_secret_api_key(
             self.team,
