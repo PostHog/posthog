@@ -59,6 +59,14 @@ export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
     return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
 }
 
+/** What a free-only scanner can still spend this period; an org limit below the free credits lowers it. */
+export function freeCreditsLeft(quota: VisionQuotaApi | null): number | null {
+    if (!quota) {
+        return null
+    }
+    return Math.max(0, Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity) - quota.credits_used)
+}
+
 /**
  * True when the org's whole limit is the free allocation, so it is on the free plan rather than
  * capped by choice. A zero limit is excluded: that is a deliberate spend cap, not a free plan.

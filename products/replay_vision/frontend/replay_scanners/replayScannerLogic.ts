@@ -420,16 +420,29 @@ export type GoalSpendMode = 'free' | 'budget'
 // Equals the free monthly credits (FREE_TIER_MONTHLY_CREDITS in backend/billing.py). Change both values together.
 export const DEFAULT_GOAL_BUDGET = 2500
 
-/** The budget the drafter sizes a scanner to: the free credits still left in free mode, else the typed budget. */
-export function goalDraftBudget(
+export interface GoalSpendChoice {
+    mode: GoalSpendMode
+    /** What the drafter sizes the scanner to: the free credits left in free mode, else the typed budget. */
+    budget: number | undefined
+    freeDisabledReason: string | null
+}
+
+/** One answer for the goal flow and the armed-goal draft, so neither drafts a free scanner with no free credits. */
+export function goalSpendChoice(
     mode: GoalSpendMode,
     budgetInput: number | null,
     freeCreditsLeft: number | null
-): number | undefined {
-    if (mode === 'free') {
-        return freeCreditsLeft ?? DEFAULT_GOAL_BUDGET
+): GoalSpendChoice {
+    const freeDisabledReason =
+        freeCreditsLeft != null && freeCreditsLeft <= 0
+            ? 'Your organization has used its free credits for this billing period'
+            : null
+    const effectiveMode = freeDisabledReason ? 'budget' : mode
+    return {
+        mode: effectiveMode,
+        budget: effectiveMode === 'free' ? (freeCreditsLeft ?? DEFAULT_GOAL_BUDGET) : (budgetInput ?? undefined),
+        freeDisabledReason,
     }
-    return budgetInput ?? undefined
 }
 
 // Admission needs the full price of a scan, so a remainder under one price admits nothing.
@@ -568,8 +581,10 @@ export interface replayScannerLogicActions {
     draftScannerFromGoal: (
         goal: string,
         monthlyCreditBudget?: number,
-        templateKey?: string
+        templateKey?: string,
+        freeOnly?: boolean
     ) => {
+        freeOnly: boolean
         goal: string
         monthlyCreditBudget: number | undefined
         templateKey: string | undefined
@@ -584,6 +599,7 @@ export interface replayScannerLogicActions {
     draftScannerFromGoalSuccess: (
         goalDraft: DraftScannerResponseApi | null,
         payload?: {
+            freeOnly: boolean
             goal: string
             monthlyCreditBudget: number | undefined
             templateKey: string | undefined
@@ -591,6 +607,7 @@ export interface replayScannerLogicActions {
     ) => {
         goalDraft: DraftScannerResponseApi | null
         payload?: {
+            freeOnly: boolean
             goal: string
             monthlyCreditBudget: number | undefined
             templateKey: string | undefined
@@ -986,10 +1003,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
-        draftScannerFromGoal: (goal: string, monthlyCreditBudget?: number, templateKey?: string) => ({
+        draftScannerFromGoal: (goal: string, monthlyCreditBudget?: number, templateKey?: string, freeOnly = false) => ({
             goal,
             monthlyCreditBudget,
             templateKey,
+            freeOnly,
         }),
         setGoalDraftInput: (goal: string) => ({ goal }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
@@ -2049,14 +2067,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
                     if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
                         actions.setGoalDraftInput(armedGoal)
-                        actions.draftScannerFromGoal(
-                            armedGoal,
-                            goalDraftBudget(
-                                values.goalSpendMode,
-                                values.goalBudgetInput,
-                                visionQuotaLogic.findMounted()?.values.freeCreditsLeft ?? null
-                            )
+                        const spend = goalSpendChoice(
+                            values.goalSpendMode,
+                            values.goalBudgetInput,
+                            visionQuotaLogic.findMounted()?.values.freeCreditsLeft ?? null
                         )
+                        actions.draftScannerFromGoal(armedGoal, spend.budget, undefined, spend.mode === 'free')
                     }
                     return
                 }
@@ -2267,8 +2283,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // The model the draft chose for the goal, and the credit cap set to the stated
                     // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
                     ...(goalDraft.model ? { model: goalDraft.model } : {}),
-                    // Only the goal flow sends a budget; the legacy AI box has no spend choice, so it never drafts a free one.
-                    ...(payload?.monthlyCreditBudget != null && values.goalSpendMode === 'free'
+                    ...(payload?.freeOnly
                         ? { free_only: true, credit_limit: null, credit_limit_enabled: false }
                         : goalDraft.credit_limit != null
                           ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }

@@ -19,6 +19,7 @@ import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
+    goalSpendChoice,
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
@@ -231,35 +232,43 @@ describe('replayScannerLogic', () => {
         })
 
         it.each([
-            { flow: 'goal flow, free', mode: 'free' as const, budget: 2500, freeOnly: true, creditLimit: null },
-            { flow: 'goal flow, budget', mode: 'budget' as const, budget: 4000, freeOnly: false, creditLimit: 4000 },
-            { flow: 'legacy box', mode: 'free' as const, budget: undefined, freeOnly: false, creditLimit: 4000 },
-        ])(
-            'applies the spend choice to the drafted scanner: $flow',
-            async ({ mode, budget, freeOnly, creditLimit }) => {
-                draftSpy.mockReturnValue([
-                    200,
-                    {
-                        name: 'Overview',
-                        description: 'Summarizes sessions.',
-                        scanner_type: 'summarizer',
-                        scanner_config: { prompt: 'Summarize the session.' },
-                        rationale: '',
-                        query: null,
-                        credit_limit: 4000,
-                    },
-                ])
-                router.actions.push(urls.replayVisionScannerTemplate('new'))
-                logic.actions.setGoalSpendMode(mode)
+            { flow: 'free', budget: 2500, freeOnly: true, creditLimit: null },
+            { flow: 'budget', budget: 4000, freeOnly: false, creditLimit: 4000 },
+        ])('applies the spend choice to the drafted scanner: $flow', async ({ budget, freeOnly, creditLimit }) => {
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Overview',
+                    description: 'Summarizes sessions.',
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Summarize the session.' },
+                    rationale: '',
+                    query: null,
+                    credit_limit: 4000,
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
 
-                await expectLogic(logic, () =>
-                    logic.actions.draftScannerFromGoal('what are users doing?', budget)
-                ).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('what are users doing?', budget, undefined, freeOnly)
+            ).toFinishAllListeners()
 
-                expect(!!logic.values.scanner?.free_only).toEqual(freeOnly)
-                expect(logic.values.scanner?.credit_limit ?? null).toEqual(creditLimit)
-            }
-        )
+            expect(!!logic.values.scanner?.free_only).toEqual(freeOnly)
+            expect(logic.values.scanner?.credit_limit ?? null).toEqual(creditLimit)
+        })
+
+        it.each([
+            { case: 'free credits left', mode: 'free' as const, left: 800, expected: { mode: 'free', budget: 800 } },
+            {
+                case: 'free credits used up',
+                mode: 'free' as const,
+                left: 0,
+                expected: { mode: 'budget', budget: 3000 },
+            },
+            { case: 'budget chosen', mode: 'budget' as const, left: 800, expected: { mode: 'budget', budget: 3000 } },
+        ])('picks the spend for a goal draft: $case', ({ mode, left, expected }) => {
+            expect(goalSpendChoice(mode, 3000, left)).toMatchObject(expected)
+        })
 
         it('keeps the default query (every session) when the draft has no session filter', async () => {
             draftSpy.mockReturnValue([

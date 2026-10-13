@@ -46,7 +46,7 @@ import { VisionUsageTab } from './components/VisionUsageTab'
 import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
-import { limitReachedTooltip } from './scannerCopy'
+import { limitReachedLabel, limitReachedTooltip } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
@@ -186,10 +186,8 @@ export function ReplayScannersScene(): JSX.Element {
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
                     {scanner.limit_reached && (
-                        <Tooltip title={limitReachedTooltip(scanner)}>
-                            <LemonTag type="danger">
-                                {scanner.free_only ? 'Free credits used' : 'Limit reached'}
-                            </LemonTag>
+                        <Tooltip title={limitReachedTooltip(scanner.free_only)}>
+                            <LemonTag type="danger">{limitReachedLabel(scanner.free_only)}</LemonTag>
                         </Tooltip>
                     )}
                 </div>

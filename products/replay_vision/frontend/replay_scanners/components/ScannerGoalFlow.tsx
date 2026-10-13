@@ -10,8 +10,8 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { creditsToUsd } from '../../utils/credits'
-import { GoalSpendMode, goalDraftBudget, replayScannerLogic } from '../replayScannerLogic'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { GoalSpendMode, goalSpendChoice, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, defaultScannerTemplates } from '../scannerTemplates'
 import { ScannerResumeDraftBanner } from './ScannerResumeDraftBanner'
 import { SCANNER_TEMPLATE_ICONS } from './scannerTemplateIcons'
@@ -35,11 +35,8 @@ export function ScannerGoalFlow(): JSX.Element {
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
-    const freeDisabledReason =
-        freeCreditsLeft != null && freeCreditsLeft < MIN_SCAN_BUDGET
-            ? 'Your organization has used its free credits for this billing period'
-            : null
-    const spendMode: GoalSpendMode = freeDisabledReason ? 'budget' : goalSpendMode
+    const spend = goalSpendChoice(goalSpendMode, goalBudgetInput, freeCreditsLeft)
+    const spendMode = spend.mode
     const budgetValid =
         spendMode === 'free' ||
         (goalBudgetInput != null && goalBudgetInput >= MIN_SCAN_BUDGET && goalBudgetInput <= MAX_SCAN_BUDGET)
@@ -60,11 +57,7 @@ export function ScannerGoalFlow(): JSX.Element {
         draft(goal, templateKey)
     }
     const draft = (goal: string, templateKey?: string): void => {
-        // The draft's success handler reads the stored mode, so a free mode that ran out is stored as budget first.
-        if (spendMode !== goalSpendMode) {
-            setGoalSpendMode(spendMode)
-        }
-        draftScannerFromGoal(goal, goalDraftBudget(spendMode, goalBudgetInput, freeCreditsLeft), templateKey)
+        draftScannerFromGoal(goal, spend.budget, templateKey, spendMode === 'free')
     }
     const startFromTypedGoal = (): void => {
         if (!typedGoalDisabledReason) {
@@ -135,7 +128,7 @@ export function ScannerGoalFlow(): JSX.Element {
                                         {
                                             value: 'free',
                                             label: 'Free',
-                                            disabledReason: freeDisabledReason ?? undefined,
+                                            disabledReason: spend.freeDisabledReason ?? undefined,
                                             'data-attr': 'vision-goal-flow-spend-free',
                                         },
                                         {
@@ -149,10 +142,8 @@ export function ScannerGoalFlow(): JSX.Element {
                             {spendMode === 'free' ? (
                                 <div className="text-xs text-muted">
                                     The scanner only uses your free monthly credits
-                                    {freeCreditsLeft != null
-                                        ? ` (${freeCreditsLeft.toLocaleString('en-US')} credits left)`
-                                        : ''}
-                                    . It pauses when they run out, so it never adds to your bill.
+                                    {freeCreditsLeft != null ? ` (${formatCreditCount(freeCreditsLeft)} left)` : ''}. It
+                                    pauses when they run out, so it never adds to your bill.
                                 </div>
                             ) : (
                                 <>
