@@ -825,6 +825,7 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
+                ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
@@ -969,11 +970,12 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         }
     }
     // Agent-recoverable command mistakes, so keep them out of the `internal` rate
-    // ops alerts on. `missing_scope` is the exception: no input the agent sends
-    // fixes it, the connection has to be reauthorized.
+    // ops alerts on. `missing_scope` and `tool_not_granted` are the exceptions: no
+    // input the agent sends fixes them, the grant has to change.
     if (error instanceof ExecCommandError) {
         return {
-            errorType: error.reason === 'missing_scope' ? 'permission' : 'validation',
+            errorType:
+                error.reason === 'missing_scope' || error.reason === 'tool_not_granted' ? 'permission' : 'validation',
             errorCode: error.reason,
         }
     }

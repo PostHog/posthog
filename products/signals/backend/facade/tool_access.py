@@ -24,8 +24,8 @@ from products.signals.backend.scout_harness.tool_catalogue import (
 from products.tasks.backend.facade import api as tasks_facade
 
 
-def resolve_scout_held_operations(*, sandbox_task_id: UUID, team_id: int) -> frozenset[str] | None:
-    """The operations a scout run may call, or None when no per-tool policy applies.
+def resolve_scout_held_tools(*, sandbox_task_id: UUID, team_id: int) -> frozenset[str] | None:
+    """The MCP tools a scout run holds, or None when no per-tool policy applies.
 
     None when the task has no stamped tool list, or when the team lacks `scouts-tool-access`.
     """
@@ -35,4 +35,10 @@ def resolve_scout_held_operations(*, sandbox_task_id: UUID, team_id: int) -> fro
     team = Team.objects.filter(id=team_id).first()
     if team is None or not scout_tool_access_enabled(team):
         return None
-    return scout_held_operations(scout_held_tools(allowlist))
+    return scout_held_tools(allowlist)
+
+
+def resolve_scout_held_operations(*, sandbox_task_id: UUID, team_id: int) -> frozenset[str] | None:
+    """The operations a scout run may call, or None when no per-tool policy applies."""
+    held_tools = resolve_scout_held_tools(sandbox_task_id=sandbox_task_id, team_id=team_id)
+    return scout_held_operations(held_tools) if held_tools is not None else None
