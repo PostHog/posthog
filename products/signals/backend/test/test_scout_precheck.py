@@ -21,7 +21,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.customer_analytics.backend.facade.testing import create_account
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
     PRECHECK_MAX_ROWS,
@@ -285,6 +285,10 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         Experiment.objects.filter(pk=experiment.pk).update(updated_at=NOW - timedelta(days=days_since_update))
 
+    def _seed_report(self, status: str, *, days_since_update: int) -> None:
+        report = SignalReport.objects.create(team=self.team, status=status, title="r")
+        SignalReport.objects.filter(pk=report.pk).update(updated_at=NOW - timedelta(days=days_since_update))
+
     @parameterized.expand(
         [
             ("customer_analytics_no_accounts", "signals-scout-customer-analytics", None, "skip"),
@@ -299,6 +303,10 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             ("tasks_absent", "signals-scout-tasks", None, "skip"),
             ("tasks_scout_runs_only", "signals-scout-tasks", "scout_run", "skip"),
             ("tasks_user_runs", "signals-scout-tasks", "user_run", "run"),
+            ("inbox_validation_absent", "signals-scout-inbox-validation", None, "skip"),
+            ("inbox_validation_old_resolution", "signals-scout-inbox-validation", "resolved_15d", "skip"),
+            ("inbox_validation_recent_unresolved", "signals-scout-inbox-validation", "ready_1d", "skip"),
+            ("inbox_validation_recent_resolution", "signals-scout-inbox-validation", "resolved_13d", "run"),
         ]
     )
     def test_system_table_defaults_skip_only_on_absence(self, _name, skill, seed, outcome) -> None:
@@ -325,6 +333,12 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             self._seed_task_run("signals_scout")
         elif seed == "user_run":
             self._seed_task_run("user_created")
+        elif seed == "resolved_15d":
+            self._seed_report(SignalReport.Status.RESOLVED, days_since_update=15)
+        elif seed == "ready_1d":
+            self._seed_report(SignalReport.Status.READY, days_since_update=1)
+        elif seed == "resolved_13d":
+            self._seed_report(SignalReport.Status.RESOLVED, days_since_update=13)
 
         with (
             patch(ROLLOUT_PERCENT, return_value=100),

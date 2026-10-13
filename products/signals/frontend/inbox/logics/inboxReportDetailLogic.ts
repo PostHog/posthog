@@ -305,9 +305,9 @@ export interface inboxReportDetailLogicValues {
     evidenceExpanded: boolean
     expandedTaskIds: string[]
     feedbackNoteDraft: string
-    feedbackNoteOpen: boolean
     feedbackNoteSent: boolean
     feedbackNoteSubmitting: boolean
+    feedbackSentNote: string | null
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
@@ -538,9 +538,6 @@ export interface inboxReportDetailLogicActions {
     openDraftThread: (draft: DraftThread) => {
         draft: DraftThread
     }
-    openFeedbackNote: () => {
-        value: true
-    }
     postReviewComment: (payload: {
         body: string
         inReplyTo?: string
@@ -747,7 +744,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             surface,
         }),
         // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
-        openFeedbackNote: true,
         setFeedbackNoteDraft: (draft: string) => ({ draft }),
         // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
         submitFeedbackNote: (note: string, surface: InboxReportActionSurface = 'detail_footer') => ({ note, surface }),
@@ -1014,22 +1010,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 rateReport: (_, { sentiment }) => sentiment,
             },
         ],
-        // Whether the optional note field is showing. Switching the rating closes an unsent note so
-        // the draft can't end up attached to a sentiment the reader has since changed their mind about.
-        feedbackNoteOpen: [
-            false,
-            {
-                openFeedbackNote: () => true,
-                rateReport: () => false,
-                submitFeedbackNote: () => false,
-            },
-        ],
+        // Switching the rating drops an unsent draft so it can't end up attached to a sentiment the
+        // reader has since changed their mind about.
         feedbackNoteDraft: [
             '',
             {
                 setFeedbackNoteDraft: (_, { draft }) => draft,
                 rateReport: () => '',
                 submitFeedbackNote: () => '',
+            },
+        ],
+        // The note as sent, so the row can show the reader what went through.
+        feedbackSentNote: [
+            null as string | null,
+            {
+                submitFeedbackNote: (_, { note }) => note.trim() || null,
+                rateReport: () => null,
             },
         ],
         feedbackNoteSent: [
