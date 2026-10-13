@@ -72,8 +72,9 @@ function MemberNotifications(): JSX.Element {
     return (
         <div className="deprecated-space-y-3">
             <LemonBanner type="info">
-                These settings belong to the person rather than to one organization, so an override you set here also
-                applies to that member's other organizations, if they belong to any.
+                An override you set here changes only the emails this organization sends. The member's other
+                organizations still use the member's own choice, which they can't change while your override is in
+                place.
             </LemonBanner>
 
             {NOTIFICATION_CONCEPTS.filter(
