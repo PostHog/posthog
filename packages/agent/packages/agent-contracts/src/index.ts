@@ -1,7 +1,4 @@
 export {
-  type AcpConversationNotification,
-  type AcpConversationSessionUpdate,
-  type AcpToolCallSessionUpdate,
   agentConversationEventToAcpNotification,
   agentConversationEventToSessionUpdate,
 } from "./acp-conversation";
