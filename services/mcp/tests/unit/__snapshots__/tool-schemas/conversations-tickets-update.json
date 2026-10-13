@@ -43,6 +43,17 @@
             ],
             "description": "User or role to assign. Pass null to remove the current assignee."
         },
+        "cc_participants": {
+            "description": "Email addresses to copy on every later reply. Replaces the current list. Only email tickets accept this. The requester and the support inbox are dropped, because replies already go to them.",
+            "items": {
+                "format": "email",
+                "maxLength": 254,
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+        },
         "id": {
             "description": "The ticket's UUID or its numeric ticket number.",
             "type": "string"
