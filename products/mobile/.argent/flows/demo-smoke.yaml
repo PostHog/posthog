@@ -73,6 +73,28 @@ steps:
     - await: { visible: { id: inbox-refresh } }
     - await: { idle: true }
 
+    - echo: On the inbox. Open Chats from the bottom bar. Expect the chats list
+    - tap: { id: inbox-nav-chat }
+    - await: { visible: { id: chats-new } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: chat-row-conversation-demo-chat-signup-drop }, contains: Why did signups drop } }
+
+    - echo: On Chats. Open Why did signups drop on Tuesday. Expect the chat sheet with that chat
+    - tap: { id: chat-row-conversation-demo-chat-signup-drop }
+    - await: { visible: { id: chat-header } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: chat-header }, contains: Why did signups drop } }
+
+    - echo: Chat open. Close it. Expect the chats list again
+    - tap: { id: chat-close }
+    - await: { visible: { id: chats-new } }
+    - await: { idle: true }
+
+    - echo: On Chats. Go to Home from the bottom bar. Expect the inbox
+    - tap: { id: inbox-nav-home }
+    - await: { visible: { id: inbox-refresh } }
+    - await: { idle: true }
+
     - echo: On the inbox. Open the menu. Expect Settings in it
     - tap: { id: inbox-more }
     - await: { visible: { id: nav-settings } }

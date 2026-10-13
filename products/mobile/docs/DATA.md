@@ -75,6 +75,17 @@ The screen waits for the report and the work log, for the Today page to answer, 
 The task fills in when it arrives.
 A failed background refetch keeps the cached report on screen.
 
+**Prefetch and refresh.**
+The inbox prefetches the report detail, work log and Today page of the first 10 rows, and of the rows that scroll into view plus 5 ahead.
+It also prefetches the signals of a report when the Today page answers 404 or 403, because the signals are the evidence then.
+It works on two reports at a time and skips done and dismissed rows.
+It uses a 5 minute stale time, so a refresh or a scroll does not fetch a report again within 5 minutes of its prefetch.
+A report the cache dropped while the app was idle is fetched again when its row comes into view.
+The screen and the prefetcher share the query factories in `src/features/report/queries.ts`, so they read and write the same cache entries.
+The report screen renders the cached copy at once and refetches it on every open, and on Prev/Next.
+A failed background refetch keeps the cached copy.
+`mobile_report_opened` carries `from_cache`, true when the report detail was in the cache when the screen opened.
+
 `reportView(...)` rules:
 
 - **Headline.** The title, split when it starts with a number token (`3,721`, `+2.3s`, `0 of 860`, `$184k`, `12%`). When the title has no number, the first sentence of the Today `lead` is used if it starts with one and is at most 120 characters. Otherwise the whole title is `rest`.
@@ -82,6 +93,8 @@ A failed background refetch keeps the cached report on screen.
 - **Accent and source.** As for inbox rows, from `source_products` and `status`.
 - **Evidence from the Today page.** The first error signal is a `trace`: `error` is its `headline`, frames come from the quiet `preview.block` lines (`file.ts:12  fn`), at most 4, and `footer` is its `meta` when set. Feedback signals become up to 3 `quotes` (`lead`, attributed "{source} · {meta}"). The first signal with a `recording` is the `replay`: meta "at {offset} · {headline}", url `{host}/project/{id}/replay/{session_id}?t={seek_seconds}`, count the larger of the recordings on the page and the distinct `session_id`s in the signals.
 - **Evidence from signals** (no page). The first error signal is a `trace` with its first line and the frames of its fenced stack (`fn in path line N`, closest to the error first). Feedback signals become quotes ("Ticket #N" when `extra.ticket_number` is set). The first signal with `extra.session_id` is the `replay`, without a seek time.
+- **Since.** `created_at` as activity time ("Mon 7:21 AM", "Today 9:04 AM", "Just now"). The byline under the lede reads it as "Since …".
+- **Owner.** `{ kind: 'user', name }` for a user claim; `{ kind: 'agent', name }` with "PostHog" for a task or system claim, or the MCP client ("Claude Code") for an external agent claim; `{ kind: 'none' }` when unclaimed. The owner chip under the lede shows it.
 - **Facts**, the rows the byline and chips do not show. The adapter emits only Impact, dropped when it has no source: the primary metric's value and title ("612 affected users", or "612 users" with the title under it when the metric has its own unit) and its caption; else the first Today impact number.
   The byline takes the source from `sourceProduct` and `sourceLabel`, so the facts carry no Source row.
 - **Sparkline.** The primary metric's `series`, averaged into at most 14 bars. `max` is the tallest bar. The baseline is the median of the first quarter of the bars; a bar departs when it is more than 15% of the series spread away from it, up or down. Every bar from the first departure on is hot, except a tail of two or more bars back at the baseline, which reads as recovered. The range label comes from the metric query's relative `date_from` ("Tue → now"), else from its `interval` times the series length.

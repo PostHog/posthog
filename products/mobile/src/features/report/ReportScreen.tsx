@@ -1,8 +1,10 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 
+import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
@@ -29,6 +31,7 @@ import { Evidence } from './Evidence'
 import { Facts } from './Facts'
 import { Headline, headlineText } from './Headline'
 import { useReportActions, useReportNeighbors } from './hooks'
+import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { TOP_CHROME_BOTTOM, TopChrome } from './TopChrome'
 
@@ -85,9 +88,15 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     const githubOnlyReviewers = useGithubOnlyReviewerCount(reportId)
     const [overlay, setOverlay] = useState<Overlay>('none')
     useMarkReadOnOpen(reportId)
+    const queryClient = useQueryClient()
+    const scope = useProjectScope()
+    const demo = useDataMode() === 'demo'
 
+    // Read in the effect, before this screen's own fetch lands, so `from_cache` shows whether the inbox prefetch hit.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: one event per opened report, not per scope or mode change.
     useEffect(() => {
-        track('mobile_report_opened', { report_id: reportId })
+        const fromCache = !demo && queryClient.getQueryData(reportDetailQuery(scope, reportId).queryKey) !== undefined
+        track('mobile_report_opened', { report_id: reportId, from_cache: fromCache })
     }, [reportId])
 
     const goBack = (): void => goBackOrInbox(router)

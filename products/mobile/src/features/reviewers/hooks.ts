@@ -5,7 +5,6 @@ import { NotSignedInError } from '@/api/client'
 import {
     type AvailableReviewersApi,
     fetchAvailableReviewers,
-    fetchReportArtefacts,
     type PaginatedApi,
     putReportReviewers,
     type ReportArtefactApi,
@@ -22,6 +21,8 @@ import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import { githubOnlyReviewers, reviewersFromArtefacts } from '@/model/adapters/report'
 import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { Person, QueryState, Reviewer } from '@/model/types'
+
+import { reportArtefactsQuery } from '../report/queries'
 
 /** `SignalReportArtefactWriteSerializer.MAX_ENTRIES`. GitHub-only reviewers count toward it. */
 export const MAX_REVIEWERS = 10
@@ -91,8 +92,7 @@ export function useGithubOnlyReviewerCount(reportId: string): number {
     const mode = useDataMode()
     const scope = useProjectScope()
     const count = useQuery({
-        queryKey: reportKeys.artefacts(scope, reportId),
-        queryFn: ({ signal }) => fetchReportArtefacts(reportId, signal),
+        ...reportArtefactsQuery(scope, reportId),
         enabled: mode === 'live' && scope !== null,
         select: (data) => githubOnlyReviewers(data.results).length,
     })
@@ -109,8 +109,7 @@ export function useReportReviewers(reportId: string): Reviewer[] | undefined {
     const scope = useProjectScope()
     const demo = useDemoReportQuery(reportId)
     const live = useQuery({
-        queryKey: reportKeys.artefacts(scope, reportId),
-        queryFn: ({ signal }) => fetchReportArtefacts(reportId, signal),
+        ...reportArtefactsQuery(scope, reportId),
         enabled: mode === 'live' && scope !== null,
         select: selectReviewers,
     })

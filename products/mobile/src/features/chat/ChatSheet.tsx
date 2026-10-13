@@ -12,8 +12,10 @@ import { reportWebUrl } from '@/model/adapters/report'
 import type { InboxItem, ReportView } from '@/model/types'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
+import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { Scrim } from '@/ui/Scrim'
+import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, motion, radii, shadows, type } from '@/ui/tokens'
 import { usePresence } from '@/ui/usePresence'
 import { useScreenInsets } from '@/ui/useScreenInsets'
@@ -35,15 +37,17 @@ const MAX_ATTACHED_REPORTS = 5
 
 interface ChatSheetProps {
     initialReportId?: string
+    /** Opens a stored conversation, as the Chats list does. */
+    initialConversationId?: string
     onClosed: () => void
 }
 
-export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactElement {
+export function ChatSheet({ initialReportId, initialConversationId, onClosed }: ChatSheetProps): ReactElement {
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
     const now = useNow()
     const inbox = useInboxItems()
-    const conversation = useConversation()
+    const conversation = useConversation({ initialConversationId })
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
@@ -78,7 +82,9 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
     // the keyboard. `height` is negative while the keyboard is open, and the keyboard covers the home indicator.
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
-    const canSend = text.trim().length > 0 && !conversation.isStreaming
+    const historyStatus = conversation.history.status
+    // A message sent before the stored conversation loads would land in a thread the person cannot see yet.
+    const canSend = text.trim().length > 0 && !conversation.isStreaming && historyStatus === 'idle'
     const webUrl = (reportId: string): string | undefined => (scope ? reportWebUrl(scope, reportId) : undefined)
 
     const rememberReport = useCallback((report: ReportView): void => {
@@ -128,7 +134,7 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
     }
     const send = (): void => {
         const message = text.trim()
-        if (!message || conversation.isStreaming) {
+        if (!message || conversation.isStreaming || historyStatus !== 'idle') {
             return
         }
         setText('')
@@ -179,7 +185,7 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
                                 <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
                                     {conversation.title ?? 'New chat'}
                                 </Text>
-                                {conversation.messages.length > 0 ? (
+                                {conversation.messages.length > 0 || historyStatus === 'error' ? (
                                     <Pressable44
                                         onPress={startNewChat}
                                         accessibilityLabel="New chat"
@@ -195,7 +201,20 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
                             </View>
                         </View>
                     </GestureDetector>
-                    {conversation.messages.length === 0 ? (
+                    {historyStatus === 'loading' ? (
+                        <LoadingView label="Loading chat" />
+                    ) : historyStatus === 'error' ? (
+                        <StateView
+                            icon={<WarningIcon size={28} color={colors.tertiary} />}
+                            title="Couldn't load this chat"
+                            message={conversation.history.error?.message}
+                            actionLabel="Try again"
+                            onAction={() => {
+                                conversation.reloadHistory().catch(() => undefined)
+                            }}
+                            testID="chat-history-error"
+                        />
+                    ) : conversation.messages.length === 0 ? (
                         <ChatEmptyState
                             reportCount={attached.length}
                             suggestedPrompts={suggestedPrompts}

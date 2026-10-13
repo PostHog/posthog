@@ -290,3 +290,27 @@ export interface ChatMessage {
     text: string
     at: string
 }
+
+export type ChatSessionStatus = 'working' | 'queued' | 'starting' | 'completed' | 'failed' | 'stopped' | 'idle'
+
+export interface ChatListItem {
+    /** Stable list key: `conversation:<id>` or `session:<id>`. */
+    id: string
+    kind: 'conversation' | 'session'
+    /** The conversation id, or the task id for a session. */
+    sourceId: string
+    /** Never empty: "Untitled chat" or "Untitled session" when the server has no title. */
+    title: string
+    /** ISO time of the last activity. The list sorts and groups by it. */
+    updatedAt: string
+    /** Sessions only; null for conversations. */
+    status: ChatSessionStatus | null
+    pullRequestUrl: string | null
+    /** The chat in the web app (`ai?chat=` or `ai?task=`). Undefined without a project scope, as in demo mode. */
+    webUrl?: string
+}
+
+export interface ChatGroup {
+    label: string
+    items: ChatListItem[]
+}

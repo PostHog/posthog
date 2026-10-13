@@ -1,6 +1,7 @@
 import { isRecord } from '@/lib/records'
 
 import { apiJson, apiStream, projectPath } from './client'
+import { type ProjectScope, scopeKey } from './reports'
 import { readSse, type SseEvent } from './sse'
 
 // Uses the LangGraph runtime (`ee/api/conversation.py`) because the sandbox runtime's endpoints declare no OAuth
@@ -242,4 +243,57 @@ export async function fetchConversation(conversationId: string, signal?: AbortSi
               .filter((message): message is ConversationMessage => message !== null)
         : []
     return { ...meta, messages }
+}
+
+/** `ConversationMinimalSerializer` in `ee/hogai/api/serializers.py`, keeping the fields the app reads. */
+export interface ConversationSummaryApi {
+    id: string
+    status: ConversationStatus
+    title: string | null
+    created_at: string | null
+    updated_at: string | null
+    type: string | null
+    /** The sandbox task this chat handed off to, if any. */
+    task: { id: string } | null
+}
+
+export const CONVERSATION_LIST_LIMIT = 30
+
+/** Query keys for the chats list. Every key carries the host and project so a project switch never shows stale data. */
+export const chatKeys = {
+    all: (scope: ProjectScope | null) => ['chats', ...scopeKey(scope)] as const,
+    conversations: (scope: ProjectScope | null) => [...chatKeys.all(scope), 'conversations'] as const,
+    sessions: (scope: ProjectScope | null, userId: number | undefined) =>
+        [...chatKeys.all(scope), 'sessions', userId ?? null] as const,
+}
+
+function nullableString(value: unknown): string | null {
+    return typeof value === 'string' ? value : null
+}
+
+function parseConversationSummary(value: unknown): ConversationSummaryApi | null {
+    const meta = parseMeta(value)
+    if (!meta || !isRecord(value)) {
+        return null
+    }
+    const task = isRecord(value.task) && typeof value.task.id === 'string' ? { id: value.task.id } : null
+    return {
+        ...meta,
+        created_at: nullableString(value.created_at),
+        updated_at: nullableString(value.updated_at),
+        type: nullableString(value.type),
+        task,
+    }
+}
+
+/** The caller's own titled chats, newest first. The server leaves out chats that have no title yet. */
+export async function listConversations(signal?: AbortSignal): Promise<ConversationSummaryApi[]> {
+    const body = await apiJson<unknown>(projectPath('conversations/'), {
+        query: { limit: CONVERSATION_LIST_LIMIT },
+        signal,
+    })
+    const results = isRecord(body) && Array.isArray(body.results) ? body.results : []
+    return results
+        .map(parseConversationSummary)
+        .filter((conversation): conversation is ConversationSummaryApi => conversation !== null)
 }

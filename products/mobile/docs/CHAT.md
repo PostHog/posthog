@@ -6,11 +6,13 @@ The chat sheet talks to PostHog AI about one or more inbox reports, or about the
 
 | File | Role |
 | --- | --- |
-| `src/api/conversations.ts` | Transport: request, SSE event parsing, typed message union, `fetchConversation` |
+| `src/api/conversations.ts` | Transport: request, SSE event parsing, typed message union, `fetchConversation`, `listConversations`, `chatKeys` |
 | `src/features/chat/conversation.ts` | Pure reducer that folds stream events into the thread |
 | `src/features/chat/contextPrompt.ts` | The prompt template, a port of the web's Today Ask prompt |
 | `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to thread copy |
-| `src/features/chat/hooks.ts` | `useConversation()`: send, stream, reconnect, stop, retry, reset, demo replies |
+| `src/features/chat/hooks.ts` | `useConversation({ initialConversationId? })`: send, stream, reconnect, stop, retry, reset, resume a stored chat, demo replies |
+| `src/demo/chatThreads.ts` | Stored demo conversations, keyed by the ids in `src/demo/chats.ts` |
+| `src/features/chats/` | The Chats screen: list, search, day groups and the `useChatList()` hook (see [DESIGN.md](DESIGN.md)) |
 | `src/features/chat/webLinks.ts` | Web app URLs for reports, the conversation, insights and reply links |
 | `src/features/chat/*.tsx` | `ChatSheet`, `Composer`, `ContextChip`, `MentionPopover`, `Thread`, `ChatMarkdown`, `ChatErrorBubble`, `ChatLinkCard`, `ChatProgressLine`, `ChatEmptyState` |
 
@@ -138,7 +140,30 @@ Answer my message as a question about this report.   (these reports, for several
 - **No report tools.** The LangGraph agent has no inbox MCP tools, so the prompt inlines each summary.
   The ported instructions still name those tools. See GAPS.md.
 - **Approvals, forms and charts** open in the web app.
-- **One conversation per sheet.** Closing the sheet drops the conversation; there is no history list.
+- **Sandbox sessions open in the web app.** The Chats list shows them, but the sheet only resumes LangGraph conversations.
+
+## Resuming a chat
+
+The Chats screen opens the sheet with `conversationId`.
+The hook loads `GET conversations/:id/` (or the demo thread), dispatches `hydrated`, and captures `mobile_chat_resumed`.
+While it loads, the sheet shows "Loading chat" and send is disabled.
+A failed load shows "Couldn't load this chat" with Try again; a 404 says the chat no longer exists.
+A stored conversation whose status is `in_progress` reattaches with `content: null` after loading, so the running turn plays to its end.
+New messages keep the stored id, so they append to that conversation on the server.
+New chat (the compose button) drops the stored id and starts a fresh conversation, as before.
+
+## Chats list
+
+`useChatList()` (`src/features/chats/hooks.ts`) merges two sources, like the web app's Chats pane:
+
+- `GET conversations/?limit=30`: the caller's own titled LangGraph conversations, newest first.
+- `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30`: the caller's sandbox sessions.
+  `created_by` takes the numeric user id, which `GET /api/users/@me/` returns as `id`; a session restored from before the app stored it skips this source until the account reloads.
+
+`chatListFromSources` (`src/model/adapters/chats.ts`) drops archived sessions, drops a conversation whose `task.id` is a listed session, sorts by last activity and keeps 30 rows.
+`chatGroups.ts` labels rows by local calendar day (Today, Yesterday, a weekday, "Oct 3", "Oct 3, 2025", Earlier) and filters titles on the device.
+When one source fails and the other loads, the list shows what loaded and a "Some chats didn't load." line; a 403 or 404 from tasks means the user has no sessions and shows no line.
+Regaining focus (closing the sheet) invalidates the list, so a chat that got its title while the sheet was open appears.
 
 ## Demo mode
 

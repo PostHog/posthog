@@ -24,6 +24,7 @@ import { INBOX_HEADER_BOTTOM, InboxHeader } from './InboxHeader'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
 import { NavMenu } from './NavMenu'
+import { usePrefetchReports } from './usePrefetchReports'
 
 function keyFor(item: InboxItem): string {
     return item.id
@@ -35,6 +36,7 @@ export function InboxScreen(): ReactElement {
     const now = useNow()
     const viewer = useViewer()
     const query = useInboxItems()
+    const prefetch = usePrefetchReports(query.data)
     const signedIn = useAuthStore((state) => state.signedIn)
     const demo = useDemoMode((state) => state.enabled)
     const exitDemo = useExitDemo()
@@ -123,6 +125,8 @@ export function InboxScreen(): ReactElement {
                 keyExtractor={keyFor}
                 renderItem={renderItem}
                 ListEmptyComponent={empty}
+                onViewableItemsChanged={prefetch.onViewableItemsChanged}
+                viewabilityConfig={prefetch.viewabilityConfig}
                 contentContainerStyle={[
                     styles.content,
                     { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
@@ -137,7 +141,14 @@ export function InboxScreen(): ReactElement {
                 }
             />
             <InboxHeader onRefresh={refresh} refreshing={query.isRefetching} onOpenMenu={() => setMenuOpen(true)} />
-            <BottomBar onChat={() => router.push('/chat')} onProducts={openProducts} productsDisabled={demo} />
+            <BottomBar
+                selected="home"
+                onHome={() => undefined}
+                onChats={() => router.replace('/chats')}
+                onNewChat={() => router.push('/chat')}
+                onProducts={openProducts}
+                productsDisabled={demo}
+            />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}

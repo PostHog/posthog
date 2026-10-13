@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useState } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { useDemoMode } from '@/demo/demoMode'
+import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { PostHogLogo } from '@/ui/icons/PostHogLogo'
@@ -13,7 +14,7 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useAuthStore } from './authStore'
 import { OAuthError } from './oauth'
-import { DEV_CLIENT_ID, REGIONS, type RegionId } from './regions'
+import { CLOUD_REGIONS, DEV_CLIENT_ID, REGIONS, type RegionId, SHOW_SIGNUP_LINK, signupUrl } from './regions'
 import { SignInField } from './SignInField'
 
 type SignInMode = 'oauth' | 'personal_api_key'
@@ -40,16 +41,17 @@ export function SignInScreen(): ReactElement {
     const [error, setError] = useState<{ message: string; retryable: boolean } | null>(null)
 
     const selected = REGIONS.find((option) => option.id === region)
+    const selfHosted = region === 'custom'
     const usingKey = __DEV__ && mode === 'personal_api_key'
 
     const submit = useAsyncAction(async () => {
         setError(null)
-        const host = region === 'custom' ? customHost : (selected?.host ?? '')
+        const host = selfHosted ? customHost : (selected?.host ?? '')
         try {
             if (usingKey) {
                 await signInWithPersonalApiKey(host, apiKey)
             } else {
-                await signIn(host, region === 'custom' ? clientId : (selected?.clientId ?? ''))
+                await signIn(host, selfHosted ? clientId : (selected?.clientId ?? ''))
             }
             setDemo(false)
             router.replace('/inbox')
@@ -65,61 +67,83 @@ export function SignInScreen(): ReactElement {
         router.replace('/inbox')
     }
 
+    const createAccount = (): void => {
+        if (!selected?.host) {
+            return
+        }
+        track('mobile_create_account_opened', { region })
+        Linking.openURL(signupUrl(selected.host)).catch(() => undefined)
+    }
+
     return (
         <ScrollView
             style={styles.screen}
             contentContainerStyle={[
                 styles.content,
-                { paddingTop: topOffset(insets, 120), paddingBottom: bottomOffset(insets, 38) },
+                { paddingTop: topOffset(insets, 96), paddingBottom: bottomOffset(insets, 38) },
             ]}
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustKeyboardInsets
             testID="sign-in-screen"
         >
-            <View style={styles.intro}>
+            <View style={styles.brand}>
                 <PostHogLogo height={28} />
-                <Text style={styles.sub}>Triage your inbox and hand reports to the PostHog agent.</Text>
             </View>
-            <View style={styles.form}>
-                <Text style={[type.eyebrow, styles.eyebrow]}>REGION</Text>
-                <SegmentedPill
-                    height={48}
-                    segments={REGIONS.map((option) => ({
-                        key: option.id,
-                        accessibilityLabel: option.id === 'custom' ? 'Custom host' : `${option.label} cloud`,
-                        selected: region === option.id,
-                        disabled: submit.pending,
-                        onPress: () => setRegion(option.id),
-                        testID: `region-${option.id}`,
-                        children: <Text style={styles.segmentText}>{option.label}</Text>,
-                    }))}
-                />
-                {region === 'custom' ? (
-                    <View style={styles.fields}>
-                        <SignInField
-                            label="Host"
-                            value={customHost}
-                            onChangeText={setCustomHost}
-                            placeholder="posthog.example.com"
-                            keyboardType="url"
-                            editable={!submit.pending}
-                            testID="sign-in-host"
-                        />
-                        {usingKey ? null : (
+            <View style={styles.card}>
+                <View style={styles.titleRow}>
+                    <Text style={styles.title}>Log in to </Text>
+                    <Text style={[styles.title, styles.titleChip]}>@PostHog</Text>
+                </View>
+                <Text style={styles.sub}>Let's go ship something.</Text>
+                <View style={styles.form}>
+                    {selfHosted ? (
+                        <>
                             <SignInField
-                                label="Client ID"
-                                value={clientId}
-                                onChangeText={setClientId}
-                                placeholder="OAuth client ID"
-                                hint="The client ID of the PostHog mobile app registered on this instance."
+                                label="Host"
+                                value={customHost}
+                                onChangeText={setCustomHost}
+                                placeholder="posthog.example.com"
+                                keyboardType="url"
                                 editable={!submit.pending}
-                                testID="sign-in-client-id"
+                                testID="sign-in-host"
                             />
-                        )}
-                    </View>
-                ) : null}
-                {usingKey ? (
-                    <View style={styles.fields}>
+                            {usingKey ? null : (
+                                <SignInField
+                                    label="Client ID"
+                                    value={clientId}
+                                    onChangeText={setClientId}
+                                    placeholder="OAuth client ID"
+                                    hint="The client ID of the PostHog mobile app registered on this instance."
+                                    editable={!submit.pending}
+                                    testID="sign-in-client-id"
+                                />
+                            )}
+                        </>
+                    ) : (
+                        <View style={styles.field}>
+                            <Text style={[type.eyebrow, styles.label]}>DATA REGION</Text>
+                            <SegmentedPill
+                                height={48}
+                                segments={CLOUD_REGIONS.map((option) => ({
+                                    key: option.id,
+                                    accessibilityLabel: `${option.label} cloud`,
+                                    selected: region === option.id,
+                                    disabled: submit.pending,
+                                    onPress: () => setRegion(option.id),
+                                    testID: `region-${option.id}`,
+                                    children: (
+                                        <Text style={styles.segmentText} numberOfLines={1}>
+                                            {option.flag} {option.label}
+                                        </Text>
+                                    ),
+                                }))}
+                            />
+                            <Text style={styles.hint}>
+                                Not sure? Check the address you use for PostHog: us.posthog.com or eu.posthog.com.
+                            </Text>
+                        </View>
+                    )}
+                    {usingKey ? (
                         <SignInField
                             label="Personal API key"
                             value={apiKey}
@@ -130,31 +154,29 @@ export function SignInScreen(): ReactElement {
                             editable={!submit.pending}
                             testID="sign-in-api-key"
                         />
-                    </View>
-                ) : null}
-                {signedOutReason === 'expired' && !error ? (
-                    <Text style={styles.notice} testID="sign-in-expired">
-                        Your session ended. Sign in again to continue.
-                    </Text>
-                ) : null}
-                {error ? (
-                    <View style={styles.errorBox} testID="sign-in-error">
-                        <Text style={styles.errorText}>{error.message}</Text>
-                        {error.retryable ? (
-                            <Pressable44
-                                onPress={() => void submit.run()}
-                                disabled={submit.pending}
-                                pressedBackground={colors.sunken}
-                                style={styles.retry}
-                                testID="sign-in-retry"
-                            >
-                                <Text style={styles.retryText}>Try again</Text>
-                            </Pressable44>
-                        ) : null}
-                    </View>
-                ) : null}
-            </View>
-            <View style={styles.actions}>
+                    ) : null}
+                    {signedOutReason === 'expired' && !error ? (
+                        <Text style={styles.notice} testID="sign-in-expired">
+                            Your session ended. Log in again to continue.
+                        </Text>
+                    ) : null}
+                    {error ? (
+                        <View style={styles.errorBox} testID="sign-in-error">
+                            <Text style={styles.errorText}>{error.message}</Text>
+                            {error.retryable ? (
+                                <Pressable44
+                                    onPress={() => void submit.run()}
+                                    disabled={submit.pending}
+                                    pressedBackground={colors.sunken}
+                                    style={styles.retry}
+                                    testID="sign-in-retry"
+                                >
+                                    <Text style={styles.retryText}>Try again</Text>
+                                </Pressable44>
+                            ) : null}
+                        </View>
+                    ) : null}
+                </View>
                 <View style={[styles.primary, submit.pending && styles.primaryPending]}>
                     <Pressable44
                         onPress={() => void submit.run()}
@@ -167,10 +189,16 @@ export function SignInScreen(): ReactElement {
                         {submit.pending ? (
                             <ActivityIndicator color={colors.white} />
                         ) : (
-                            <Text style={styles.primaryText}>{usingKey ? 'Sign in with key' : 'Sign in'}</Text>
+                            <Text style={styles.primaryText}>{usingKey ? 'Log in with key' : 'Log in'}</Text>
                         )}
                     </Pressable44>
                 </View>
+                {usingKey ? null : (
+                    <Text style={styles.browserNote}>
+                        Log in opens your browser, where you can use your password, Google, GitHub, GitLab or SSO.
+                    </Text>
+                )}
+                <View style={styles.divider} />
                 <Pressable44
                     onPress={tryDemo}
                     disabled={submit.pending}
@@ -180,23 +208,53 @@ export function SignInScreen(): ReactElement {
                 >
                     <Text style={styles.secondaryText}>Try the demo</Text>
                 </Pressable44>
-                {__DEV__ ? (
+                <View style={styles.links}>
                     <Pressable44
                         onPress={() => {
                             setError(null)
-                            setMode(usingKey ? 'oauth' : 'personal_api_key')
+                            setRegion(selfHosted ? 'us' : 'custom')
                         }}
                         disabled={submit.pending}
                         pressedBackground={colors.sunken}
                         style={styles.link}
-                        testID="sign-in-mode"
+                        testID="sign-in-self-hosted"
                     >
                         <Text style={styles.linkText}>
-                            {usingKey ? 'Sign in with PostHog instead' : 'Use a personal API key'}
+                            {selfHosted ? 'Use PostHog Cloud instead' : 'Use a self-hosted instance'}
                         </Text>
                     </Pressable44>
-                ) : null}
+                    {__DEV__ ? (
+                        <Pressable44
+                            onPress={() => {
+                                setError(null)
+                                setMode(usingKey ? 'oauth' : 'personal_api_key')
+                            }}
+                            disabled={submit.pending}
+                            pressedBackground={colors.sunken}
+                            style={styles.link}
+                            testID="sign-in-mode"
+                        >
+                            <Text style={styles.linkText}>
+                                {usingKey ? 'Log in with PostHog instead' : 'Use a personal API key'}
+                            </Text>
+                        </Pressable44>
+                    ) : null}
+                </View>
             </View>
+            {SHOW_SIGNUP_LINK && !selfHosted ? (
+                <Pressable44
+                    onPress={createAccount}
+                    disabled={submit.pending}
+                    accessibilityRole="link"
+                    pressedBackground={colors.pressed}
+                    style={styles.footer}
+                    testID="create-account"
+                >
+                    <Text style={styles.footerText}>
+                        New to PostHog? <Text style={styles.footerLink}>Create an account →</Text>
+                    </Text>
+                </Pressable44>
+            ) : null}
         </ScrollView>
     )
 }
@@ -210,23 +268,47 @@ const styles = StyleSheet.create({
         flexGrow: 1,
         paddingHorizontal: layout.detailGutter,
     },
-    intro: {
-        alignItems: 'flex-start',
+    brand: {
+        alignItems: 'center',
+        marginBottom: 28,
+    },
+    card: {
+        backgroundColor: colors.white,
+        borderRadius: radii.softCard,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+        padding: 24,
+    },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    title: {
+        ...type.headline,
+        color: colors.ink,
+    },
+    titleChip: {
+        color: colors.blue,
+        backgroundColor: colors.blueHighlight,
+        borderRadius: radii.markSmall,
+        paddingHorizontal: 6,
+        overflow: 'hidden',
     },
     sub: {
         ...type.body,
         color: colors.muted,
-        marginTop: 16,
+        textAlign: 'center',
+        marginTop: 6,
     },
     form: {
-        marginTop: 36,
-        gap: 10,
+        marginTop: 28,
+        gap: 16,
     },
-    fields: {
-        marginTop: 8,
-        gap: 14,
+    field: {
+        gap: 8,
     },
-    eyebrow: {
+    label: {
         color: colors.tertiary,
         paddingHorizontal: 4,
     },
@@ -234,21 +316,26 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: colors.ink,
     },
+    hint: {
+        ...type.metaSmall,
+        color: colors.secondary,
+        paddingHorizontal: 4,
+    },
     notice: {
         ...type.metaSmall,
         color: colors.muted,
         paddingHorizontal: 4,
-        marginTop: 4,
     },
     errorBox: {
-        marginTop: 4,
         gap: 10,
         alignItems: 'flex-start',
+        padding: 12,
+        borderRadius: radii.card,
+        backgroundColor: colors.sunken,
     },
     errorText: {
         ...type.metaSmall,
-        color: colors.orange,
-        paddingHorizontal: 4,
+        color: colors.ink,
     },
     retry: {
         height: 36,
@@ -264,12 +351,8 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: colors.ink,
     },
-    actions: {
-        marginTop: 'auto',
-        paddingTop: 36,
-        gap: 10,
-    },
     primary: {
+        marginTop: 20,
         height: 52,
         borderRadius: radii.card,
         backgroundColor: colors.orange,
@@ -287,8 +370,21 @@ const styles = StyleSheet.create({
         ...type.button,
         color: colors.white,
     },
+    browserNote: {
+        ...type.meta,
+        color: colors.secondary,
+        textAlign: 'center',
+        marginTop: 12,
+        paddingHorizontal: 4,
+    },
+    divider: {
+        marginVertical: 20,
+        borderTopWidth: 1,
+        borderStyle: 'dashed',
+        borderColor: colors.border,
+    },
     secondary: {
-        height: 52,
+        height: 48,
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.border,
@@ -300,6 +396,9 @@ const styles = StyleSheet.create({
         ...type.button,
         color: colors.ink,
     },
+    links: {
+        marginTop: 6,
+    },
     link: {
         height: 44,
         borderRadius: radii.card,
@@ -309,5 +408,23 @@ const styles = StyleSheet.create({
     linkText: {
         ...type.buttonSmall,
         color: colors.secondary,
+    },
+    footer: {
+        marginTop: 20,
+        minHeight: 44,
+        borderRadius: radii.card,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+    },
+    footerText: {
+        ...type.metaSmall,
+        color: colors.muted,
+        textAlign: 'center',
+    },
+    footerLink: {
+        ...type.bodySmallStrong,
+        fontSize: 14,
+        color: colors.ink,
     },
 })

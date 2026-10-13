@@ -34,12 +34,12 @@ Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host
 | --- | --- | --- |
 | US | `https://us.posthog.com` | `a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm` |
 | EU | `https://eu.posthog.com` | `1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU` |
-| Custom | typed by the user | defaults to `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` (the local dev app), editable |
+| Self-hosted (`custom` in the store) | typed by the user | defaults to `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` (the local dev app), editable |
 
 Redirect URI: `posthog://callback` (`makeRedirectUri({ scheme: 'posthog', path: 'callback' })`).
 Expo Go produces an `exp://` redirect that no app registers, so sign in needs a development build.
 
-Custom hosts must be https. Plain http is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`), which is also the only place the server allows http redirects.
+Self-hosted hosts must be https. Plain http is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`), which is also the only place the server allows http redirects.
 
 ## Scopes
 
@@ -106,11 +106,21 @@ Actions: `restore()`, `signIn(host, clientId)`, `signInWithPersonalApiKey(host, 
 `selectProject` resets every TanStack query, so no screen shows the previous project's data.
 `addSignOutTask(task)` registers work that needs the token during sign out (push unregistration uses it).
 
+## Sign-in screen
+
+The screen mirrors the web login page: data region, Log in, Try the demo.
+Log in always opens the system browser, where the user's password, Google, GitHub, GitLab or SSO login happens.
+The app never asks for an email or password itself.
+
+The app does not create accounts. The footer link "Create an account" opens `{host}/signup` in the browser for the selected cloud region.
+Store review may not allow a link out of the app for sign-up, so a build can hide the link with `EXPO_PUBLIC_SIGNUP_LINK=0`.
+The link is also hidden while "Use a self-hosted instance" is selected.
+
 ## Development sign in
 
 - **Local stack.** Run `python manage.py setup_tasks_oauth` in the main checkout.
   It creates the dev app `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` with `posthog://callback` among its redirect URIs.
-  In the app pick Custom, enter `http://localhost:8010`, keep the default client id.
+  In the app tap "Use a self-hosted instance", enter `http://localhost:8010`, keep the default client id.
   The dev app is not first-party, so the consent screen shows and access tokens last 1 hour, which exercises refresh often.
   - iOS simulator: `localhost` reaches the Mac.
   - Android emulator: run `adb reverse tcp:8010 tcp:8010` first, so `localhost` on the emulator reaches the Mac.
@@ -132,7 +142,7 @@ For a self-hosted instance or a new environment, create the app in Django admin 
 | Is first party | On only for apps PostHog ships. It skips the consent screen and gives 7 day access tokens. |
 | Scopes | Leave empty or `@default`, or list every scope above as the ceiling |
 
-Copy the generated client id into the Custom client id field on the sign-in screen.
+Copy the generated client id into the Client ID field that "Use a self-hosted instance" shows on the sign-in screen.
 
 ## Manual test
 

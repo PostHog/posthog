@@ -7,16 +7,45 @@ export interface Region {
     clientId: string
 }
 
+export interface CloudRegion extends Region {
+    id: Exclude<RegionId, 'custom'>
+    flag: string
+}
+
 export const US_CLIENT_ID = 'a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm'
 export const EU_CLIENT_ID = '1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU'
 // The OAuth app that `setup_tasks_oauth` creates for a local stack, so a dev build signs in there without typing an id.
 export const DEV_CLIENT_ID = 'DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ'
 
-export const REGIONS: readonly Region[] = [
-    { id: 'us', label: 'US', host: 'https://us.posthog.com', clientId: US_CLIENT_ID },
-    { id: 'eu', label: 'EU', host: 'https://eu.posthog.com', clientId: EU_CLIENT_ID },
-    { id: 'custom', label: 'Custom', host: '', clientId: '' },
+export const CLOUD_REGIONS: readonly CloudRegion[] = [
+    {
+        id: 'us',
+        label: 'United States',
+        flag: '\u{1F1FA}\u{1F1F8}',
+        host: 'https://us.posthog.com',
+        clientId: US_CLIENT_ID,
+    },
+    {
+        id: 'eu',
+        label: 'European Union',
+        flag: '\u{1F1EA}\u{1F1FA}',
+        host: 'https://eu.posthog.com',
+        clientId: EU_CLIENT_ID,
+    },
 ]
+
+// The id `custom` is persisted in AsyncStorage by the auth store, so it keeps its name while the label changes.
+export const REGIONS: readonly Region[] = [
+    ...CLOUD_REGIONS,
+    { id: 'custom', label: 'Self-hosted', host: '', clientId: '' },
+]
+
+// Store review may not allow a link that leaves the app to create an account, so a build can hide it.
+export const SHOW_SIGNUP_LINK = process.env.EXPO_PUBLIC_SIGNUP_LINK !== '0'
+
+export function signupUrl(host: string): string {
+    return `${host}/signup`
+}
 
 export function regionForHost(host: string): RegionId {
     return REGIONS.find((region) => region.host !== '' && region.host === host)?.id ?? 'custom'

@@ -135,7 +135,7 @@ export function retryUnlessMissing(failureCount: number, error: unknown): boolea
 
 type ScopeKey = readonly [string, number] | readonly ['none']
 
-function scopeKey(scope: ProjectScope | null): ScopeKey {
+export function scopeKey(scope: ProjectScope | null): ScopeKey {
     return scope ? [scope.host, scope.projectId] : ['none']
 }
 

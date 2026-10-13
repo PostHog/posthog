@@ -19,6 +19,8 @@ export interface OrganizationBasicApi {
 }
 
 export interface MeApi {
+    /** The numeric user id. Some list filters, such as `tasks/?created_by=`, take it instead of the UUID. */
+    id: number
     uuid: string
     distinct_id: string
     email: string

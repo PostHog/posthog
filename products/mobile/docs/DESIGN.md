@@ -56,8 +56,8 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `BottomSheet` | `ui/BottomSheet.tsx` | Grabber, radius 22, slides up 200ms, closes on scrim tap or a downward drag |
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
 | `ReportContextMenu` | `features/inbox/ReportContextMenu.tsx` | Inbox row long-press menu on `FloatingCard`; nav menu width; opens 8pt below the row, or above it when the bottom bar is in the way (`contextMenuPlacement.ts`) |
-| `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
 | `ReportMeta` | `features/report/ReportMeta.tsx` | Byline under the lede (source glyph and label · "Since …"), then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
+| `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
 | `BlurEdge` | `ui/BlurEdge.tsx` | Masked blur of the content under floating top chrome |
@@ -69,11 +69,19 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 ## Screens and states
 
 - **Inbox**: header with Refresh and More, rows, pull to refresh, floating nav pill (Home selected,
-  Chat, Products) and the Chat button. Chat in the pill opens the chat sheet, like the button.
-  Products opens the project's product library in the web app, and is dimmed in demo mode.
-  A long press on a row (or the screen reader's "Show report actions") opens a menu with Reassign,
-  Snooze, Chat and, for an unread report, Mark as read; each does what the report's action pill
-  does, without leaving the inbox. Loading, empty and error states are separate screens.
+  Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
+  opens a new chat sheet. Products opens the project's product library in the web app, and is
+  dimmed in demo mode. A long press on a row (or the screen reader's "Show report actions") opens a menu
+  with Reassign, Snooze, Chat and, for an unread report, Mark as read; each does what the report's
+  action pill does, without leaving the inbox. Loading, empty and error states are separate screens.
+- **Chats**: the mobile port of the web app's Chats pane. Header with the logomark, "Chats" and a
+  New chat button. A search field above the list filters titles on the device. Rows are grouped
+  under day labels (Today, Yesterday, a weekday, a date, Earlier) and use the inbox row geometry:
+  a chat bubble tile for a PostHog AI chat, a branch tile with a status dot for a sandbox session.
+  A chat row opens the chat sheet on that conversation. A session row opens the session in the web
+  app, and is dimmed in demo mode. The nav pill shows Chats selected. Loading, error, empty and
+  "No matches" are separate screens; when one of the two sources fails, a line above the list
+  says so and offers Try again.
 - **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
 - **Report**: top chrome, headline, lede, the byline with the Owner and Priority chips (`ReportMeta`),
   evidence (trace, quotes, replay), facts, sparkline, activity, and the action bar.

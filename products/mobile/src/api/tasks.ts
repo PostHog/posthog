@@ -141,3 +141,25 @@ export function sendTaskRunCommand(
         }
     )
 }
+
+/** `TaskBasicApi` in `products/tasks/frontend/generated/api.schemas.ts`, the `basic=true` list shape. */
+export interface TaskSummaryApi {
+    id: string
+    title: string
+    archived: boolean
+    latest_run: Pick<TaskRunApi, 'status' | 'output'> | null
+    created_at: string | null
+    updated_at: string | null
+    last_activity_at: string | null
+}
+
+export const SESSION_LIST_LIMIT = 30
+
+/** `created_by` filters on the numeric user id from `users/@me/`, not the UUID. */
+export async function listMySessions(userId: number, signal?: AbortSignal): Promise<TaskSummaryApi[]> {
+    const body = await apiJson<{ results?: TaskSummaryApi[] }>(projectPath('tasks/'), {
+        query: { created_by: userId, ordering: '-last_activity_at', basic: true, limit: SESSION_LIST_LIMIT },
+        signal,
+    })
+    return body.results ?? []
+}

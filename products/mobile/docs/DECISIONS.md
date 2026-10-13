@@ -159,6 +159,10 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Fallback rule.** Any briefing failure before a briefing loaded falls back to the reports list, not only a 404, so a Today outage never empties the inbox. A 403 counts as "no Today" too: a token without `today:read` gets one.
 - **Collecting briefings** show the reports list until the briefing has report items, and poll every 5 seconds like the web.
 - **Report screen waits** for the report, work log and Today page, and for signals only when there is no page. The task loads after and fills in, so the action bar can show "handed" from the claim before the run status arrives.
+- **Report prefetch is a window with a concurrency cap.** The inbox prefetches the first rows and the rows near the visible ones, two reports at a time, not the whole list at once.
+  Each report is 3 to 4 requests, so a full-list prefetch would load the phone's radio and the server for reports nobody opens.
+  The report screen still refetches on every open, because a fresh report matters more than a cache hit.
+  The cache only removes the loading screen.
 - **Headline number** comes from the title first, then from the Today lead's first sentence (at most 120 characters). A report with neither shows the title with no number.
 - **Hot bars** start at the first bar more than 15% of the spread away from the median of the first quarter, and a tail of two or more bars back at the baseline is cold. It matches the prototype's bars except one edge bar.
 - **Owner for an external agent claim** names the MCP client ("Claude Code") instead of "PostHog", because that agent is not the PostHog agent. Task and system claims say "PostHog".

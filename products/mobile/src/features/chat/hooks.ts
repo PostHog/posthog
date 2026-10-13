@@ -3,11 +3,13 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { ApiError } from '@/api/client'
 import {
+    type ConversationDetail,
     type ConversationEvent,
     fetchConversation,
     openConversationStream,
     readConversationStream,
 } from '@/api/conversations'
+import { demoConversationDetail } from '@/demo/chatThreads'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { sleep } from '@/lib/sleep'
@@ -39,6 +41,17 @@ const DEMO_REPLY_WITH_CONTEXT = DEMO_REPLY.replace(
 
 export type ChatPhase = 'idle' | 'streaming' | 'reconnecting'
 
+export interface ConversationHistory {
+    /** `idle` when there is nothing to load or the stored conversation has loaded. */
+    status: 'idle' | 'loading' | 'error'
+    error: ChatError | null
+}
+
+export interface ConversationOptions {
+    /** Resumes a stored conversation instead of starting a new one. */
+    initialConversationId?: string
+}
+
 export interface Conversation {
     conversationId: string
     messages: ChatEntry[]
@@ -46,14 +59,24 @@ export interface Conversation {
     isStreaming: boolean
     phase: ChatPhase
     error: ChatError | null
+    history: ConversationHistory
     send: (text: string, context: ChatContext) => Promise<void>
     retry: () => Promise<void>
     /** Stops reading the reply. The server has no cancel for app tokens, so the run finishes there. */
     stop: () => void
     reset: () => void
+    reloadHistory: () => Promise<void>
 }
 
 type TurnOutcome = { kind: 'done' } | { kind: 'stopped' } | { kind: 'busy' } | { kind: 'failed'; error: ChatError }
+
+type TurnWork = (
+    signal: AbortSignal,
+    dispatch: (action: ChatThreadAction) => void,
+    setPhase: (phase: ChatPhase) => void
+) => Promise<TurnOutcome>
+
+const NO_HISTORY: ConversationHistory = { status: 'idle', error: null }
 
 interface TurnRequest {
     conversationId: string
@@ -183,13 +206,19 @@ async function playDemoReply(
     return { kind: 'done' }
 }
 
-export function useConversation(): Conversation {
+export function useConversation(options: ConversationOptions = {}): Conversation {
+    const { initialConversationId } = options
     const demo = useDemoMode((state) => state.enabled)
     const [thread, dispatch] = useReducer(chatThreadReducer, initialChatThread)
     const [phase, setPhase] = useState<ChatPhase>('idle')
     const [error, setError] = useState<ChatError | null>(null)
-    const [conversationId, setConversationId] = useState<string>(() => randomUUID())
+    const [history, setHistory] = useState<ConversationHistory>(() =>
+        initialConversationId ? { status: 'loading', error: null } : NO_HISTORY
+    )
+    const [conversationId, setConversationId] = useState<string>(() => initialConversationId ?? randomUUID())
     const conversationIdRef = useRef(conversationId)
+    /** The stored conversation to load. `reset` clears it, so a new chat never reloads the old one. */
+    const storedId = useRef<string | null>(initialConversationId ?? null)
     const controller = useRef<AbortController | null>(null)
     /** Increments per run, so a run that `reset` or unmount abandoned cannot touch newer state. */
     const runId = useRef(0)
@@ -204,79 +233,126 @@ export function useConversation(): Conversation {
         []
     )
 
+    const runTurn = useCallback(async (work: TurnWork): Promise<void> => {
+        runId.current += 1
+        const run = runId.current
+        const guarded = (action: ChatThreadAction): void => {
+            if (runId.current === run) {
+                dispatch(action)
+            }
+        }
+        const guardedPhase = (next: ChatPhase): void => {
+            if (runId.current === run) {
+                setPhase(next)
+            }
+        }
+        const abort = new AbortController()
+        controller.current = abort
+        inFlight.current = true
+        setError(null)
+        setPhase('streaming')
+        try {
+            const outcome = await work(abort.signal, guarded, guardedPhase)
+            if (outcome.kind === 'stopped') {
+                guarded({ type: 'stopped' })
+            } else if (outcome.kind === 'busy' || outcome.kind === 'failed') {
+                const failure = outcome.kind === 'busy' ? toChatError(new ApiError(409, undefined)) : outcome.error
+                guarded({ type: 'failed', message: failure.message, at: now() })
+                if (runId.current === run) {
+                    setError(failure)
+                }
+            }
+        } finally {
+            if (runId.current === run) {
+                inFlight.current = false
+                controller.current = null
+                setPhase('idle')
+            }
+        }
+    }, [])
+
     const execute = useCallback(
-        async (prompt: { text: string; content: string; hasContext: boolean }, traceId: string): Promise<void> => {
-            runId.current += 1
-            const run = runId.current
-            const guarded = (action: ChatThreadAction): void => {
-                if (runId.current === run) {
-                    dispatch(action)
-                }
-            }
-            const guardedPhase = (next: ChatPhase): void => {
-                if (runId.current === run) {
-                    setPhase(next)
-                }
-            }
-            const abort = new AbortController()
-            controller.current = abort
-            inFlight.current = true
-            setError(null)
-            setPhase('streaming')
-            try {
-                const request = { conversationId: conversationIdRef.current, content: prompt.content, traceId }
-                let outcome = demo
-                    ? await playDemoReply(
-                          prompt.hasContext ? DEMO_REPLY_WITH_CONTEXT : DEMO_REPLY,
-                          abort.signal,
-                          guarded,
-                          prompt.hasContext
-                      )
-                    : await streamTurn(request, abort.signal, guarded, guardedPhase)
-                if (outcome.kind === 'busy') {
-                    // A stopped turn is still running on the server. Show its end, then send this message.
-                    guarded({ type: 'withdrawn' })
-                    const previous = await streamTurn(
-                        { ...request, content: null, traceId: randomUUID() },
-                        abort.signal,
+        (prompt: { text: string; content: string; hasContext: boolean }, traceId: string): Promise<void> =>
+            runTurn(async (signal, guarded, guardedPhase): Promise<TurnOutcome> => {
+                if (demo) {
+                    return playDemoReply(
+                        prompt.hasContext ? DEMO_REPLY_WITH_CONTEXT : DEMO_REPLY,
+                        signal,
                         guarded,
-                        guardedPhase
+                        prompt.hasContext
                     )
-                    if (previous.kind === 'stopped') {
-                        outcome = previous
-                    } else {
-                        const retryTrace = randomUUID()
-                        guarded({ type: 'sent', text: prompt.text, traceId: retryTrace, at: now() })
-                        outcome =
-                            previous.kind === 'done'
-                                ? await streamTurn(
-                                      { ...request, traceId: retryTrace },
-                                      abort.signal,
-                                      guarded,
-                                      guardedPhase
-                                  )
-                                : previous
-                    }
                 }
-                if (outcome.kind === 'stopped') {
-                    guarded({ type: 'stopped' })
-                } else if (outcome.kind === 'busy' || outcome.kind === 'failed') {
-                    const failure = outcome.kind === 'busy' ? toChatError(new ApiError(409, undefined)) : outcome.error
-                    guarded({ type: 'failed', message: failure.message, at: now() })
-                    if (runId.current === run) {
-                        setError(failure)
-                    }
+                const request = { conversationId: conversationIdRef.current, content: prompt.content, traceId }
+                const outcome = await streamTurn(request, signal, guarded, guardedPhase)
+                if (outcome.kind !== 'busy') {
+                    return outcome
                 }
-            } finally {
-                if (runId.current === run) {
-                    inFlight.current = false
-                    controller.current = null
-                    setPhase('idle')
+                // A stopped turn is still running on the server. Show its end, then send this message.
+                guarded({ type: 'withdrawn' })
+                const previous = await streamTurn(
+                    { ...request, content: null, traceId: randomUUID() },
+                    signal,
+                    guarded,
+                    guardedPhase
+                )
+                if (previous.kind === 'stopped') {
+                    return previous
                 }
-            }
-        },
-        [demo]
+                const retryTrace = randomUUID()
+                guarded({ type: 'sent', text: prompt.text, traceId: retryTrace, at: now() })
+                return previous.kind === 'done'
+                    ? streamTurn({ ...request, traceId: retryTrace }, signal, guarded, guardedPhase)
+                    : previous
+            }),
+        [demo, runTurn]
     )
+
+    const reloadHistory = useCallback(async (): Promise<void> => {
+        const id = storedId.current
+        if (!id) {
+            return
+        }
+        runId.current += 1
+        const run = runId.current
+        controller.current?.abort()
+        const abort = new AbortController()
+        controller.current = abort
+        inFlight.current = false
+        setPhase('idle')
+        setError(null)
+        setHistory({ status: 'loading', error: null })
+        let detail: ConversationDetail
+        try {
+            const found = demo ? demoConversationDetail(id) : await fetchConversation(id, abort.signal)
+            if (!found) {
+                throw new ApiError(404, undefined)
+            }
+            detail = found
+        } catch (failure) {
+            if (runId.current === run) {
+                controller.current = null
+                setHistory({ status: 'error', error: toChatError(failure) })
+            }
+            return
+        }
+        if (runId.current !== run) {
+            return
+        }
+        controller.current = null
+        dispatch({ type: 'hydrated', title: detail.title, messages: detail.messages, at: now() })
+        setHistory(NO_HISTORY)
+        track('mobile_chat_resumed')
+        if (detail.status === 'in_progress' && !demo) {
+            // The stored copy stops mid-turn. Reattaching makes the server replay that turn, so the person sees it finish.
+            await runTurn((signal, guarded, guardedPhase) =>
+                streamTurn({ conversationId: id, content: null, traceId: randomUUID() }, signal, guarded, guardedPhase)
+            )
+        }
+    }, [demo, runTurn])
+
+    useEffect(() => {
+        reloadHistory().catch(() => undefined)
+    }, [reloadHistory])
 
     const send = useCallback(
         async (text: string, context: ChatContext): Promise<void> => {
@@ -299,14 +375,19 @@ export function useConversation(): Conversation {
     )
 
     const retry = useCallback(async (): Promise<void> => {
+        if (inFlight.current) {
+            return
+        }
         const prompt = lastPrompt.current
-        if (!prompt || inFlight.current) {
+        if (!prompt) {
+            // A failed reattach to a resumed turn has no prompt to resend, so load the stored conversation again.
+            await reloadHistory()
             return
         }
         const traceId = randomUUID()
         dispatch({ type: 'retrying', traceId })
         await execute(prompt, traceId)
-    }, [execute])
+    }, [execute, reloadHistory])
 
     const stop = useCallback((): void => {
         controller.current?.abort()
@@ -318,11 +399,13 @@ export function useConversation(): Conversation {
         controller.current = null
         inFlight.current = false
         lastPrompt.current = null
+        storedId.current = null
         const next = randomUUID()
         conversationIdRef.current = next
         setConversationId(next)
         setPhase('idle')
         setError(null)
+        setHistory(NO_HISTORY)
         dispatch({ type: 'reset' })
     }, [])
 
@@ -333,9 +416,11 @@ export function useConversation(): Conversation {
         isStreaming: phase !== 'idle',
         phase,
         error,
+        history,
         send,
         retry,
         stop,
         reset,
+        reloadHistory,
     }
 }

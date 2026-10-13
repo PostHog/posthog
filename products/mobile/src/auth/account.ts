@@ -1,6 +1,8 @@
 import { fetchMe, fetchOrganization, type MeApi, type OrganizationApi } from '@/api/users'
 
 export interface AuthUser {
+    /** Undefined in a session persisted before the app stored it, until the next account reload. */
+    id?: number
     uuid: string
     distinctId: string
     email: string
@@ -45,7 +47,7 @@ export function buildAccount(me: MeApi, organizations: OrganizationApi[]): Accou
         }
     }
     return {
-        user: { uuid: me.uuid, distinctId: me.distinct_id, email: me.email, name: displayName(me) },
+        user: { id: me.id, uuid: me.uuid, distinctId: me.distinct_id, email: me.email, name: displayName(me) },
         organizations: organizations.map((organization) => ({ id: organization.id, name: organization.name })),
         projects,
         webTeamId: me.team?.id ?? null,

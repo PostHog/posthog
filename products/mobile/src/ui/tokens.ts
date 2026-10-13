@@ -24,6 +24,7 @@ export const colors = {
     blue: '#1D4AFF',
     blueLight: '#7C9BFF',
     blueHover: '#1639C9',
+    blueHighlight: 'rgba(29,74,255,0.10)',
     yellow: '#F9BD2B',
     diffGreen: '#1A7F37',
     diffRed: '#CF222E',

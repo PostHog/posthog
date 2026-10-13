@@ -2,9 +2,8 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import { useCallback, useMemo } from 'react'
 
 import { NotSignedInError } from '@/api/client'
-import { fetchReport, fetchReportArtefacts, fetchReportSignals, reportKeys, retryUnlessMissing } from '@/api/reports'
+import { reportKeys, retryUnlessMissing } from '@/api/reports'
 import { getTask, type TaskApi } from '@/api/tasks'
-import { fetchReportPage } from '@/api/today'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useDemoReportQuery } from '@/demo/hooks'
@@ -19,6 +18,7 @@ import { useMarkReadAction } from '../inbox/hooks'
 import { useSetPriorityAction } from '../priority/hooks'
 import { useSetReviewersAction } from '../reviewers/hooks'
 import { useSnoozeAction } from '../snooze/hooks'
+import { reportArtefactsQuery, reportDetailQuery, reportPageQuery, reportSignalsQuery } from './queries'
 
 /** `TaskSerializer` also returns who created the task, which names who handed the report off. */
 type TaskWithCreator = TaskApi & Pick<ReportTaskInput, 'created_by'>
@@ -30,27 +30,10 @@ function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportVie
     const active = enabled && scope !== null
     const [report, artefacts, page, signals] = useQueries({
         queries: [
-            {
-                queryKey: reportKeys.detail(scope, reportId),
-                queryFn: ({ signal }: { signal: AbortSignal }) => fetchReport(reportId, signal),
-                enabled: active,
-            },
-            {
-                queryKey: reportKeys.artefacts(scope, reportId),
-                queryFn: ({ signal }: { signal: AbortSignal }) => fetchReportArtefacts(reportId, signal),
-                enabled: active,
-            },
-            {
-                queryKey: reportKeys.page(scope, reportId),
-                queryFn: ({ signal }: { signal: AbortSignal }) => fetchReportPage(reportId, signal),
-                enabled: active,
-                retry: retryUnlessMissing,
-            },
-            {
-                queryKey: reportKeys.signals(scope, reportId),
-                queryFn: ({ signal }: { signal: AbortSignal }) => fetchReportSignals(reportId, signal),
-                enabled: active,
-            },
+            { ...reportDetailQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
+            { ...reportArtefactsQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
+            { ...reportPageQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
+            { ...reportSignalsQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
         ],
     })
     const taskId = report.data && artefacts.data ? reportTaskId(report.data, artefacts.data.results) : undefined
@@ -59,6 +42,8 @@ function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportVie
         queryFn: ({ signal }) => getTask(taskId as string, signal) as Promise<TaskWithCreator>,
         enabled: active && taskId !== undefined,
         retry: retryUnlessMissing,
+        // `useQuery` keeps its observer when Prev/Next changes `taskId`, so `refetchOnMount` cannot refresh the task.
+        staleTime: 0,
     })
 
     const pageSettled = page.isSuccess || page.isError
@@ -109,7 +94,9 @@ function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportVie
         return errorQuery(toError(failed), refetch)
     }
     if (view) {
-        return successQuery(view, { refetch })
+        const isRefetching =
+            (report.isFetching && report.data !== undefined) || (artefacts.isFetching && artefacts.data !== undefined)
+        return successQuery(view, { refetch, isRefetching })
     }
     return { ...loadingQuery<ReportView>(), refetch }
 }
@@ -131,8 +118,8 @@ export function useReportActions(reportId: string): ReportActions {
     const handoff = useHandoffActions(reportId)
     const snooze = useSnoozeAction(reportId)
     const reviewers = useSetReviewersAction(reportId)
-    const markRead = useMarkReadAction(reportId)
     const priority = useSetPriorityAction(reportId)
+    const markRead = useMarkReadAction(reportId)
     return {
         handOff: handoff.handOff.run,
         answerDecision: handoff.answerDecision.run,

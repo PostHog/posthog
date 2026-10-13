@@ -2,8 +2,9 @@ import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { errorQuery, successQuery } from '@/model/queryStates'
-import type { InboxItem, QueryState, ReportView } from '@/model/types'
+import type { ChatListItem, InboxItem, QueryState, ReportView } from '@/model/types'
 
+import { buildDemoChatList } from './chats'
 import { useDemoMode } from './demoMode'
 import { type DemoView, deriveDemoInbox, deriveDemoReport } from './derive'
 import { buildDemoFixtures, type DemoFixtures } from './fixtures'
@@ -50,4 +51,12 @@ export function useDemoReportQuery(reportId: string): QueryState<ReportView> {
         )
     }
     return successQuery(report, { isRefetching: isRefreshing, refetch: refresh })
+}
+
+export function useDemoChatsQuery(): QueryState<ChatListItem[]> {
+    const anchor = useDemoMode((state) => state.anchor)
+    const isRefreshing = useDemoMode((state) => state.isRefreshing)
+    const refresh = useDemoMode((state) => state.refresh)
+    const items = useMemo(() => buildDemoChatList(new Date(anchor)), [anchor])
+    return successQuery(items, { isRefetching: isRefreshing, refetch: refresh })
 }

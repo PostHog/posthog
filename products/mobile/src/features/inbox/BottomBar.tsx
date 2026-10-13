@@ -12,7 +12,10 @@ import { colors, radii, shadows, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 interface BottomBarProps {
-    onChat: () => void
+    selected: 'home' | 'chats'
+    onHome: () => void
+    onChats: () => void
+    onNewChat: () => void
     onProducts: () => void
     /** Dims the Products slot when there is no project to open in the web app. */
     productsDisabled?: boolean
@@ -44,21 +47,50 @@ function NavSlot({ label, Icon, onPress, disabled = false, testID }: NavSlotProp
     )
 }
 
-export function BottomBar({ onChat, onProducts, productsDisabled = false }: BottomBarProps): ReactElement {
+interface SelectedSlotProps {
+    label: string
+    Icon: ComponentType<IconProps>
+    testID: string
+}
+
+function SelectedSlot({ label, Icon, testID }: SelectedSlotProps): ReactElement {
+    return (
+        <View
+            style={[styles.slot, styles.slotSelected]}
+            accessibilityRole="tab"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: true }}
+            testID={testID}
+        >
+            <Icon size={22} />
+        </View>
+    )
+}
+
+export function BottomBar({
+    selected,
+    onHome,
+    onChats,
+    onNewChat,
+    onProducts,
+    productsDisabled = false,
+}: BottomBarProps): ReactElement {
     const insets = useScreenInsets()
     return (
         <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 34) }]}>
             <FadeEdge direction="up" solid={0.6} />
             <View style={[styles.nav, shadows.floatingBar]} accessibilityRole="tablist">
-                <View
-                    style={[styles.slot, styles.slotSelected]}
-                    accessibilityRole="tab"
-                    accessibilityLabel="Home"
-                    accessibilityState={{ selected: true }}
-                >
-                    <HomeIcon size={22} />
-                </View>
-                <NavSlot label="Chat" Icon={SpacesIcon} onPress={onChat} testID="inbox-nav-chat" />
+                {selected === 'home' ? (
+                    <SelectedSlot label="Home" Icon={HomeIcon} testID="inbox-nav-home" />
+                ) : (
+                    <NavSlot label="Home" Icon={HomeIcon} onPress={onHome} testID="inbox-nav-home" />
+                )}
+                {/* The testID keeps its old name because the Argent flows select this slot by it. */}
+                {selected === 'chats' ? (
+                    <SelectedSlot label="Chats" Icon={SpacesIcon} testID="inbox-nav-chat" />
+                ) : (
+                    <NavSlot label="Chats" Icon={SpacesIcon} onPress={onChats} testID="inbox-nav-chat" />
+                )}
                 <NavSlot
                     label="Products"
                     Icon={ViewsIcon}
@@ -68,7 +100,7 @@ export function BottomBar({ onChat, onProducts, productsDisabled = false }: Bott
                 />
             </View>
             <Pressable44
-                onPress={onChat}
+                onPress={onNewChat}
                 accessibilityLabel="Chat"
                 pressedBackground={colors.inkHover}
                 style={[styles.chat, shadows.fab]}

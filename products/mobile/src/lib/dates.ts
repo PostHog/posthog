@@ -2,6 +2,7 @@
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+const FULL_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -21,6 +22,10 @@ export function formatMonthDay(date: Date): string {
 
 export function weekdayName(date: Date): string {
     return WEEKDAYS[date.getDay()] ?? ''
+}
+
+export function fullWeekdayName(date: Date): string {
+    return FULL_WEEKDAYS[date.getDay()] ?? ''
 }
 
 export function calendarDaysBetween(from: Date, to: Date): number {

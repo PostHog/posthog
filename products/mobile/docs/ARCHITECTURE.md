@@ -11,8 +11,10 @@ products/mobile/
     index.tsx             Redirect to /inbox (demo mode or signed in) or /sign-in
     sign-in.tsx           -> src/auth/SignInScreen
     inbox.tsx             -> src/features/inbox/InboxScreen
+    chats.tsx             -> src/features/chats/ChatsScreen
     report/[id].tsx       -> src/features/report/ReportScreen
-    chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet)
+    chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
+                          `conversationId` resumes a stored chat)
     settings.tsx          -> src/features/settings/SettingsScreen
   src/
     api/                  client.ts (fetch wrapper: base URL, bearer, refresh on 401, mobile header),
@@ -28,17 +30,21 @@ products/mobile/
     demo/                 briefings.ts (raw prototype data), fixtures.ts (view models), derive.ts,
                           demoMode.ts (zustand store), hooks.ts (demo query hooks)
     features/
-      inbox/              InboxScreen, InboxRow, InboxHeader, BottomBar, NavMenu, hooks
-      report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity, hooks
-      priority/           PrioritySheet, hooks
+      inbox/              InboxScreen, InboxRow, InboxHeader, BottomBar, NavMenu, hooks,
+                          prefetchPlan (prefetch window and queue), usePrefetchReports
+      report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity,
+                          hooks, queries (query options shared by the screen and the inbox prefetch)
       handoff/            ActionBar and its cards, HandoffSheet, actionBarState, kickoff, prompt,
                           runStream (reducer), toolPolicy, permissionRequest, commands, useTaskRun,
                           useReportWithLiveRun, handoffStore, hooks
       snooze/             SnoozeSheet, CustomSnoozePicker (.web.tsx for web), snoozeTimes,
                           snoozeStore, snoozeEntries, reminders, hooks
       reviewers/          AssigneeSheet, hooks
+      priority/           PrioritySheet, hooks
       chat/               ChatSheet, Composer, MentionPopover, Thread, ChatEmptyState, ChatMarkdown,
                           conversation (reducer), contextPrompt, chatErrors, webLinks, hooks
+      chats/              ChatsScreen, ChatsHeader, ChatsSearchField, ChatsPartialNotice, ChatRow,
+                          chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting
       settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo
@@ -82,6 +88,8 @@ Hand-off and decision actions resolve on failure and surface the error through
 | Report page | `GET signals/reports/{id}/`, `/signals/`, `/artefacts/`, `GET today/reports/{id}/page/` | Signals only when the Today page is unavailable |
 | Current run | `GET tasks/{taskId}/` then `GET .../runs/{runId}/stream/` (SSE) | Polling the run on stream errors |
 | Chat | `POST conversations/` (SSE) | none |
+| Stored chat | `GET conversations/{id}/` | none |
+| Chats list | `GET conversations/?limit=30` and `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30` | The list shows whichever source loaded; a 403 or 404 from tasks means no sessions |
 | Reviewers | `GET signals/reports/available_reviewers/`, `PUT signals/reports/{id}/reviewers/` | none |
 | Priority | `POST signals/reports/{id}/artefacts/` (`priority_judgment`) | none |
 | Snooze | `POST signals/reports/{id}/state/` for "until more signals"; on-device store for times | none |
@@ -97,6 +105,7 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 | --- | --- | --- |
 | `useInboxItems()` | `features/inbox/hooks.ts` | `QueryState<InboxItem[]>` |
 | `useMarkReadAction(id)`, `useMarkReadOnOpen(id)` | `features/inbox/hooks.ts` | `AsyncAction<[]>`, `void` |
+| `usePrefetchReports(items)` | `features/inbox/usePrefetchReports.ts` | `{ onViewableItemsChanged, viewabilityConfig }` for the inbox `FlatList` |
 | `useReport(id)` | `features/report/hooks.ts` | `QueryState<ReportView>` |
 | `useReportWithLiveRun(id)` | `features/handoff/useReportWithLiveRun.ts` | `QueryState<ReportView>` with the live run merged in |
 | `useReportActions(id)` | `features/report/hooks.ts` | `ReportActions` (`handOff`, `answerDecision`, `undoDecision`, `snooze`, `setReviewers`, `setPriority`, `markRead`, `pending`) |
@@ -107,7 +116,8 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 | `useAvailableReviewers(query)` | `features/reviewers/hooks.ts` | `QueryState<Person[]>` |
 | `useSetReviewersAction(id)` | `features/reviewers/hooks.ts` | `AsyncAction<[string[]]>` (full replace) |
 | `useSetPriorityAction(id)` | `features/priority/hooks.ts` | `AsyncAction<[ReportPriority]>` |
-| `useConversation()` | `features/chat/hooks.ts` | `{ messages, phase, error, title, conversationId, send(text, context), retry, stop, reset }` |
+| `useConversation({ initialConversationId? })` | `features/chat/hooks.ts` | `{ messages, phase, error, title, conversationId, history, send(text, context), retry, stop, reset, reloadHistory }` |
+| `useChatList()` | `features/chats/hooks.ts` | `QueryState<ChatListItem[]>` plus `partialError` |
 | `usePushRegistration()`, `useNotificationRouting()` | `features/notifications/` | registers the device, routes taps |
 | `useViewer()` | `auth/useViewer.ts` | `{ name, projectName }` |
 

@@ -138,7 +138,7 @@ describe('chat thread reducer', () => {
         ])
     })
 
-    test('loading a stored conversation shows what the person typed, not the context block', () => {
+    test('loading a stored conversation shows its title and what the person typed, not the context block', () => {
         const messages: ConversationMessage[] = [
             {
                 type: 'human',
@@ -152,5 +152,6 @@ describe('chat thread reducer', () => {
         ]
         const state = play([{ type: 'hydrated', title: 'Signups', messages, at: AT }])
         expect(summary(state).map(({ text }) => text)).toEqual(['What caused this?', 'A deploy.'])
+        expect(state.title).toBe('Signups')
     })
 })
