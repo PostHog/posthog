@@ -34,15 +34,14 @@ All other Signals workflows (ingestion, grouping, summaries, scouts) stay on the
 
 ## ClickHouse identity
 
-Signals pipeline reads use `ClickHouseUser.SIGNALS` (`signals`) on the offline workload, including grouping, reingestion, source emission, inbox notifications, and ranking. Scout queries and interactive query routing keep their existing identities.
+Signals pipeline reads use the `signals` user on the offline workload.
+The video-export, self-driving, and Django/Celery workers need `CLICKHOUSE_SIGNALS_USER=signals` and `CLICKHOUSE_SIGNALS_PASSWORD_FILE=/var/run/secrets/clickhouse-auth/token`.
 
-The video-export and self-driving workers need `CLICKHOUSE_SIGNALS_USER=signals` and `CLICKHOUSE_SIGNALS_PASSWORD_FILE=/var/run/secrets/clickhouse-auth/token`. The Django Celery worker needs the same credentials for source retraction and report-merge tasks. These are named-user settings; each deployment keeps its default ClickHouse user for other work.
+Deploy the ClickHouse user and ServiceAccount mappings first, then chart credentials, then the application.
+Missing credentials fail queries.
+After rollout, verify `user` or `initial_user` is `signals` in `system.query_log` and check workflow completion and capacity errors.
 
-Provision the `signals` user and its namespace/ServiceAccount mappings in `posthog-cloud-infra` before deploying the chart credentials, then deploy the application. The existing ClickHouse client rereads the projected token on use. Missing credentials fail explicitly instead of using `default`.
-
-Local development and tests use the `signals` user in the Docker ClickHouse configuration. `.env.services` supplies its matching password to hobby workers, including ticket cleanup when Signals is disabled. Explicit environment credentials override development and test defaults.
-
-After rollout, inspect `system.query_log` for the exercised pipeline queries and verify `user` or `initial_user` is `signals`. Check workflow completion and capacity errors as well as query tags.
+Local development and tests use the Docker ClickHouse user; `.env.services` supplies hobby credentials.
 
 ## The ranking sweep schedule
 
