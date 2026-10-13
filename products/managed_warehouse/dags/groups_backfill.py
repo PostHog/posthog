@@ -1,9 +1,14 @@
-from typing import TYPE_CHECKING, cast
+import json
+from dataclasses import replace
+from typing import TYPE_CHECKING
+from uuid import uuid4
+
+from django.utils import timezone
 
 import psycopg
 from dagster import (
     AssetExecutionContext,
-    DagsterRun,
+    DagsterRunStatus,
     DefaultSensorStatus,
     DynamicPartitionsDefinition,
     RunRequest,
@@ -15,6 +20,7 @@ from dagster import (
     sensor,
 )
 from psycopg import sql
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
@@ -24,7 +30,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
 from posthog.dags.common.common import ACTIVE_RUN_STATUSES, dagster_tags, settings_with_log_comment
 from posthog.dags.events_backfill_to_duckling import (
-    BACKFILL_MONTHS_PER_TICK,
     DEFAULT_CLICKHOUSE_SETTINGS,
     DUCKLAKE_ALIAS,
     DUCKLING_BACKFILL_CONCURRENCY_TAG,
@@ -39,6 +44,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
     get_s3_url_for_clickhouse,
 )
+from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.backfill_status import record_backfill_finished, record_backfill_started
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
@@ -53,6 +59,12 @@ if TYPE_CHECKING:
 
 GROUPS_DATASET = ManagedWarehouseBackfillPartition.Dataset.GROUPS
 GROUPS_JOB_NAME = "duckling_groups_backfill_job"
+GROUPS_SNAPSHOT_TAG = "groups_backfill/snapshot"
+MAX_TEAMS_PER_TICK = 25
+MAX_RUN_REQUESTS_PER_TICK = 3
+RETRY_HISTORY_LIMIT = 6
+RETRY_BASE_SECONDS = 600
+STATE_COMMENT_PREFIX = "posthog_groups_backfill:"
 GROUPS_TAGS = {"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **DUCKLING_BACKFILL_CONCURRENCY_TAG}
 duckling_groups_partitions_def = DynamicPartitionsDefinition(name="duckling_groups_backfill")
 GROUPS_COLUMN_TYPES = {
@@ -69,7 +81,7 @@ GROUPS_COLUMN_TYPES = {
 def groups_snapshot_select_sql(team_id: int) -> str:
     if team_id <= 0:
         raise ValueError("Groups backfill requires a positive team ID")
-    # FINAL only deduplicates within a shard; argMax also reconciles versions across shards.
+    # Unmerged updates can leave multiple versions of the same group in ClickHouse.
     return f"""
         SELECT team_id, group_type_index, group_key,
             tupleElement(latest, 1) AS group_properties,
@@ -83,6 +95,7 @@ def groups_snapshot_select_sql(team_id: int) -> str:
             WHERE team_id = {int(team_id)}
             GROUP BY team_id, group_type_index, group_key
         )
+        ORDER BY group_type_index, group_key
     """
 
 
@@ -126,6 +139,8 @@ def ensure_groups_table(
 ) -> None:
     table = sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name)
     if config.delete_tables:
+        if table_name == "groups":
+            raise ValueError("Cannot drop the shared groups table; use a team snapshot replacement")
         conn.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(table))
     if config.create_tables_if_missing:
         conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(DUCKLAKE_ALIAS, "posthog")))
@@ -141,24 +156,103 @@ def ensure_groups_table(
             raise ValueError(f"Groups table schema mismatch: expected {GROUPS_COLUMN_TYPES}, got {actual}")
 
 
-def replace_groups_snapshot(
-    conn: psycopg.Connection[tuple[object, ...]], target: DucklingTarget, table_name: str, s3_glob: str
-) -> int:
-    files = _glob_run_files(conn, s3_glob)
-    # Keep the old snapshot visible if any file registration fails, including a disconnected session.
+@frozen
+class GroupsSnapshotTicket:
+    epoch: str
+    generation: int
+
+
+@frozen
+class GroupsSnapshotRegistration:
+    files_registered: int
+    superseded: bool = False
+
+
+@frozen
+class _GroupsSnapshotState:
+    epoch: str
+    issued: int
+    applied: dict[str, int]
+
+
+def _read_snapshot_state(conn: psycopg.Connection[tuple[object, ...]], table_name: str) -> _GroupsSnapshotState:
+    rows = conn.execute(
+        "SELECT comment FROM duckdb_tables() WHERE database_name = %s AND schema_name = 'posthog' AND table_name = %s",
+        (DUCKLAKE_ALIAS, table_name),
+    ).fetchall()
+    if len(rows) != 1:
+        raise ValueError("Groups table is missing from the catalog")
+    comment = rows[0][0]
+    if comment is None:
+        return _GroupsSnapshotState(epoch=uuid4().hex, issued=0, applied={})
+    if not isinstance(comment, str) or not comment.startswith(STATE_COMMENT_PREFIX):
+        raise ValueError("Groups table has unexpected snapshot metadata")
+    payload = json.loads(comment[len(STATE_COMMENT_PREFIX) :])
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid groups snapshot metadata")
+    epoch, issued, applied = payload.get("epoch"), payload.get("issued"), payload.get("applied")
+    if not isinstance(epoch, str) or type(issued) is not int or issued < 0 or not isinstance(applied, dict):
+        raise ValueError("Invalid groups snapshot metadata")
+    if any(not isinstance(k, str) or type(v) is not int or not 0 <= v <= issued for k, v in applied.items()):
+        raise ValueError("Invalid groups snapshot generations")
+    return _GroupsSnapshotState(epoch=epoch, issued=issued, applied=applied)
+
+
+def _write_snapshot_state(
+    conn: psycopg.Connection[tuple[object, ...]], table_name: str, state: _GroupsSnapshotState
+) -> None:
+    comment = STATE_COMMENT_PREFIX + json.dumps(
+        {"epoch": state.epoch, "issued": state.issued, "applied": state.applied}
+    )
+    conn.execute(
+        sql.SQL("COMMENT ON TABLE {} IS {}").format(
+            sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name), sql.Literal(comment)
+        )
+    )
+
+
+def _transaction_conflict(error: BaseException) -> bool:
+    return "transaction conflict" in str(error).lower()
+
+
+@retry(
+    retry=retry_if_exception(_transaction_conflict),
+    stop=stop_after_attempt(4),
+    wait=wait_random_exponential(multiplier=0.1, max=1),
+    reraise=True,
+)
+def reserve_groups_snapshot(conn: psycopg.Connection[tuple[object, ...]], table_name: str) -> GroupsSnapshotTicket:
     with conn.transaction():
-        if files:
-            rows = conn.execute(
-                "SELECT data_file, delete_file FROM ducklake_list_files(%s, %s, schema => 'posthog')",
-                (DUCKLAKE_ALIAS, table_name),
-            ).fetchall()
-            active_files = {str(row[0]): row[1] for row in rows}
-            registered = set(files).intersection(active_files)
-            # A committed-but-unacknowledged transaction must not register the same paths again.
-            if registered == set(files) and all(active_files[path] is None for path in files):
-                return len(files)
-            if registered:
-                raise ValueError("Groups export is partially registered; start a new backfill run")
+        state = _read_snapshot_state(conn, table_name)
+        state = replace(state, issued=state.issued + 1)
+        _write_snapshot_state(conn, table_name, state)
+    return GroupsSnapshotTicket(epoch=state.epoch, generation=state.issued)
+
+
+@retry(
+    retry=retry_if_exception(_transaction_conflict),
+    stop=stop_after_attempt(4),
+    wait=wait_random_exponential(multiplier=0.1, max=1),
+    reraise=True,
+)
+def replace_groups_snapshot(
+    conn: psycopg.Connection[tuple[object, ...]],
+    target: DucklingTarget,
+    table_name: str,
+    s3_glob: str,
+    ticket: GroupsSnapshotTicket,
+) -> GroupsSnapshotRegistration:
+    files = _glob_run_files(conn, s3_glob)
+    # The generation marker commits with the data, so disconnects and empty snapshots preserve ordering.
+    with conn.transaction():
+        state = _read_snapshot_state(conn, table_name)
+        applied = state.applied.get(str(target.team_id), 0)
+        if ticket.epoch != state.epoch or ticket.generation < applied:
+            return GroupsSnapshotRegistration(files_registered=0, superseded=True)
+        if ticket.generation == applied:
+            return GroupsSnapshotRegistration(files_registered=len(files))
+        if ticket.generation > state.issued:
+            raise ValueError("Groups snapshot generation was not reserved")
         conn.execute(
             sql.SQL("DELETE FROM {} WHERE team_id = %s").format(sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name)),
             (target.team_id,),
@@ -168,7 +262,10 @@ def replace_groups_snapshot(
                 "CALL ducklake_add_data_files(%s, %s, %s, schema => 'posthog', allow_missing => true)",
                 (DUCKLAKE_ALIAS, table_name, path),
             )
-    return len(files)
+        _write_snapshot_state(
+            conn, table_name, replace(state, applied={**state.applied, str(target.team_id): ticket.generation})
+        )
+    return GroupsSnapshotRegistration(files_registered=len(files))
 
 
 def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
@@ -179,42 +276,61 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
     target = _resolve_duckling_target(team_id)
     table_name = resolve_groups_table(team_id)
     tags = dagster_tags(context)
-
-    def export(client: "Client") -> str | None:
-        with tags_context(kind="dagster", dagster=tags):
-            return export_groups_to_duckling_s3(context, client, config, target)
-
-    s3_glob = (
-        _get_cluster()
-        .any_host_by_role(
-            fn=export, workload=Workload.OFFLINE if is_cloud() else Workload.DEFAULT, node_role=NodeRole.DATA
-        )
-        .result()
-    )
-    file_count = 0
-    if s3_glob is not None and not config.skip_ducklake_registration:
-        session = _DuckgresSession(context, target)
-        try:
+    session = None
+    registration = GroupsSnapshotRegistration(files_registered=0)
+    try:
+        ticket = None
+        if not (config.dry_run or config.skip_ducklake_registration):
+            session = _DuckgresSession(context, target)
             session.run("ensure groups table", lambda conn: ensure_groups_table(conn, table_name, config))
-            file_count = session.run(
-                "replace groups snapshot", lambda conn: replace_groups_snapshot(conn, target, table_name, s3_glob)
+            ticket = session.run("reserve groups snapshot", lambda conn: reserve_groups_snapshot(conn, table_name))
+
+        def export(client: "Client") -> str | None:
+            with tags_context(kind="dagster", dagster=tags):
+                return export_groups_to_duckling_s3(context, client, config, target)
+
+        s3_glob = (
+            _get_cluster()
+            .any_host_by_role(
+                fn=export, workload=Workload.OFFLINE if is_cloud() else Workload.DEFAULT, node_role=NodeRole.DATA
             )
-        finally:
+            .result()
+        )
+        if s3_glob is not None and session is not None and ticket is not None:
+            registration = session.run(
+                "replace groups snapshot",
+                lambda conn: replace_groups_snapshot(conn, target, table_name, s3_glob, ticket),
+            )
+    finally:
+        if session is not None:
             session.close()
-    context.add_output_metadata({"team_id": team_id, "groups_table": table_name, "files_registered": file_count})
-    if not config.dry_run and not config.skip_ducklake_registration:
+    context.add_output_metadata(
+        {
+            "team_id": team_id,
+            "groups_table": table_name,
+            "files_registered": registration.files_registered,
+            "superseded": registration.superseded,
+        }
+    )
+    if not config.dry_run and not config.skip_ducklake_registration and not registration.superseded:
         record_duckling_backfill_workload(
-            team_id=team_id, dataset=GROUPS_DATASET, mode="full", files_registered=file_count, partitions_exported=1
+            team_id=team_id,
+            dataset=GROUPS_DATASET,
+            mode="full",
+            files_registered=registration.files_registered,
+            partitions_exported=1,
         )
 
 
 @asset(partitions_def=duckling_groups_partitions_def, tags=GROUPS_TAGS)
 def duckling_groups_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     if config.dry_run or config.skip_ducklake_registration:
+        context.instance.add_run_tags(context.run.run_id, {GROUPS_SNAPSHOT_TAG: "false"})
         run_groups_backfill(context, config)
         return
     team_id = int(context.partition_key)
     run_id = context.run.run_id
+    context.instance.add_run_tags(run_id, {GROUPS_SNAPSHOT_TAG: "true"})
     record_backfill_started(team_id=team_id, dataset=GROUPS_DATASET, partition_key=context.partition_key, run_id=run_id)
     with track_duckling_backfill(team_id=team_id, dataset=GROUPS_DATASET, mode="full"):
         try:
@@ -234,39 +350,59 @@ duckling_groups_backfill_job = define_asset_job(
 )
 
 
-def _registers_snapshot(run: DagsterRun) -> bool:
-    ops = cast(dict[str, dict[str, dict[str, object]]], run.run_config.get("ops", {}))
-    config = ops.get("duckling_groups_backfill", {}).get("config", {})
-    return not (config.get("dry_run", False) or config.get("skip_ducklake_registration", False))
-
-
 @sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.RUNNING)
 def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    backfills = list_enabled_backfill_team_memberships("groups_full_backfill_sensor")
+    backfills = sorted(
+        list_enabled_backfill_team_memberships("groups_full_backfill_sensor"), key=lambda row: row.team_id
+    )
     if not backfills:
         return SensorResult(run_requests=[])
     _repair_stale_running_statuses(context, GROUPS_DATASET)
+    after_team = int(context.cursor or "0")
+    candidates = [row for row in backfills if row.team_id > after_team] or backfills
     existing = set(context.instance.get_dynamic_partitions("duckling_groups_backfill"))
     new_partitions: list[str] = []
     requests: list[RunRequest] = []
-    for membership in backfills:
+    for membership in candidates[:MAX_TEAMS_PER_TICK]:
+        after_team = membership.team_id
         key = str(membership.team_id)
-        runs = context.instance.get_runs(
-            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={"dagster/partition": key}), limit=1
+        active = context.instance.get_runs(
+            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={"dagster/partition": key}, statuses=ACTIVE_RUN_STATUSES),
+            limit=1,
         )
-        latest = runs[0] if runs else None
-        if latest is not None and _registers_snapshot(latest):
-            if latest.is_success:
-                continue
-        if latest is not None and latest.status in ACTIVE_RUN_STATUSES:
+        if active:
             continue
-        if len(requests) >= BACKFILL_MONTHS_PER_TICK:
-            break
+        history = context.instance.get_run_records(
+            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={"dagster/partition": key, GROUPS_SNAPSHOT_TAG: "true"}),
+            limit=RETRY_HISTORY_LIMIT,
+        )
+        latest = history[0] if history else None
+        if latest is not None and latest.dagster_run.is_success:
+            continue
+        if latest is not None:
+            failures = 0
+            for record in history:
+                if record.dagster_run.status not in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+                    break
+                failures += 1
+            retry_after = RETRY_BASE_SECONDS * 2 ** max(failures - 1, 0)
+            ended_at = latest.end_time or latest.update_timestamp.timestamp()
+            if timezone.now().timestamp() < ended_at + retry_after:
+                continue
         if key not in existing:
             new_partitions.append(key)
-        requests.append(RunRequest(partition_key=key, run_key=f"{key}_groups_{latest.run_id if latest else 'new'}"))
+        requests.append(
+            RunRequest(
+                partition_key=key,
+                run_key=f"{key}_groups_{latest.dagster_run.run_id if latest else 'new'}",
+                tags={GROUPS_SNAPSHOT_TAG: "true"},
+            )
+        )
+        if len(requests) >= MAX_RUN_REQUESTS_PER_TICK:
+            break
     return SensorResult(
         run_requests=requests,
+        cursor=str(after_team),
         dynamic_partitions_requests=[duckling_groups_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],

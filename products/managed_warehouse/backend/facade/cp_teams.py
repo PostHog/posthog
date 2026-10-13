@@ -2,46 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Protocol
-
-from products.managed_warehouse.backend.facade.contracts import (
-    ManagedWarehouseTableNames,
-    ManagedWarehouseTeamMembership,
-)
-
-
-class _ControlPlaneTeam(Protocol):
-    @property
-    def team_id(self) -> int: ...
-
-    @property
-    def organization_id(self) -> str: ...
-
-    @property
-    def schema_name(self) -> str: ...
-
-    @property
-    def enabled(self) -> bool: ...
-
-    @property
-    def backfill_enabled(self) -> bool: ...
-
-    @property
-    def earliest_event_date(self) -> date | None: ...
-
-    @property
-    def resolved_events_table(self) -> str: ...
-
-    @property
-    def resolved_persons_table(self) -> str: ...
-
-    @property
-    def resolved_groups_table(self) -> str: ...
-
-    @property
-    def resolved_data_imports_schema(self) -> str: ...
-
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
 
 __all__ = [
     "clear_team_membership_cache",
@@ -51,23 +12,6 @@ __all__ = [
     "list_org_team_memberships",
     "list_team_memberships",
 ]
-
-
-def _to_membership(row: _ControlPlaneTeam) -> ManagedWarehouseTeamMembership:
-    return ManagedWarehouseTeamMembership(
-        team_id=row.team_id,
-        organization_id=row.organization_id,
-        schema_name=row.schema_name,
-        enabled=row.enabled,
-        backfill_enabled=row.backfill_enabled,
-        table_names=ManagedWarehouseTableNames(
-            events_table=row.resolved_events_table,
-            persons_table=row.resolved_persons_table,
-            data_imports_schema=row.resolved_data_imports_schema,
-            groups_table=row.resolved_groups_table,
-        ),
-        earliest_event_date=row.earliest_event_date,
-    )
 
 
 def clear_team_membership_cache() -> None:
@@ -90,25 +34,25 @@ def list_org_team_memberships(
     from products.managed_warehouse.backend import cp_teams
 
     rows = cp_teams.list_org_teams(organization_id, use_cache=use_cache)
-    return [_to_membership(row) for row in rows] if rows is not None else None
+    return [row.to_membership() for row in rows] if rows is not None else None
 
 
 def get_org_team_membership(organization_id: str, team_id: int) -> ManagedWarehouseTeamMembership | None:
     from products.managed_warehouse.backend import cp_teams
 
     row = cp_teams.get_team(organization_id, team_id)
-    return _to_membership(row) if row is not None else None
+    return row.to_membership() if row is not None else None
 
 
 def list_team_memberships(*, use_cache: bool = True) -> list[ManagedWarehouseTeamMembership] | None:
     from products.managed_warehouse.backend import cp_teams
 
     rows = cp_teams.list_member_teams(use_cache=use_cache)
-    return [_to_membership(row) for row in rows] if rows is not None else None
+    return [row.to_membership() for row in rows] if rows is not None else None
 
 
 def list_enabled_backfill_team_memberships() -> list[ManagedWarehouseTeamMembership] | None:
     from products.managed_warehouse.backend import cp_teams
 
     rows = cp_teams.list_enabled_backfills()
-    return [_to_membership(row) for row in rows] if rows is not None else None
+    return [row.to_membership() for row in rows] if rows is not None else None

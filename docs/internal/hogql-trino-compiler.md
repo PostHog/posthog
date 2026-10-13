@@ -197,16 +197,19 @@ Source metadata describes what HogQL means. Target mappings describe where the c
 ## Managed warehouse groups
 
 `duckling_groups_backfill_job` exports a full ClickHouse groups snapshot for each enabled team to Parquet and registers the files in DuckLake.
-The full-backfill sensor discovers teams whose managed warehouse is ready and retries failed runs.
+The full-backfill sensor rotates through at most 25 teams per tick, schedules at most three runs, and retries failures with exponential backoff from 10 to 320 minutes.
 The partition key is the team ID; rerun that partition in Dagster to refresh the snapshot.
 There is no daily groups top-up sensor.
 
 The table name is `posthog.groups_<schema_name>`, derived from the control-plane team membership, including teams with grandfathered events or persons table names.
 Legacy teams without a membership use `posthog.groups` for manual runs.
 The export keeps the latest row per `(team_id, group_type_index, group_key)` using `_timestamp` and `_offset`.
+The export sorts rows by group type and key for Parquet encoding and pruning.
 A successful registration replaces the team's snapshot in one transaction, including clearing old rows when the source is empty.
+A generation reserved before export is committed with the rows in the table's `posthog_groups_backfill:` comment. Older exports are rejected after a newer snapshot commits, and a new epoch fences exports from before a table reset.
+The legacy shared `groups` table cannot be dropped with `delete_tables`.
 Failed exports leave the previous snapshot in place.
-Dry runs and S3-only exports do not mark the warehouse groups snapshot complete.
+Dry runs and S3-only exports are tagged as previews and do not mark the warehouse groups snapshot complete or hide prior snapshot history. Active runs are checked separately.
 Backfill lifecycle and metrics are recorded with dataset `groups`; the warehouse status UI continues to report events, persons, and sources.
 
 Both Django and pure Trino compilation map `groups` and `raw_groups` to the provisioned groups table.

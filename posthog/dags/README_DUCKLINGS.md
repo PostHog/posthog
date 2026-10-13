@@ -47,7 +47,14 @@ Duckling RDS Catalog (PostgreSQL)
 `duckling_groups_backfill_job` runs a full snapshot per team using the team ID as its partition key.
 `duckling_groups_full_backfill_sensor` discovers teams with backfills enabled in a ready warehouse and retries failed runs.
 Rerun a team partition manually to refresh its groups; there is no daily groups top-up sensor.
-The export uses the latest group properties from ClickHouse and replaces the team's DuckLake snapshot in a transaction.
+Each sensor tick checks at most 25 teams, schedules at most three runs, and advances a cursor so repeated failures cannot block discovery.
+Failed snapshots retry with exponential backoff from 10 minutes to a maximum of 320 minutes.
+The sensor checks active runs separately from real snapshot history; previews do not hide a successful or active snapshot.
+The export uses the latest group properties from ClickHouse, sorts by group type and key, and replaces the team's DuckLake snapshot in a transaction.
+Before exporting, the job reserves a generation in the table comment. Registration commits that generation with the rows, so an older export cannot overwrite a newer snapshot, including an empty one.
+A table reset starts a new generation epoch. The `posthog_groups_backfill:` table comment is reserved for snapshot state; do not edit it manually.
+Output metadata reports `superseded: true` when a newer snapshot or table reset prevents registration.
+`delete_tables` is refused for the legacy shared `groups` table.
 The job shares the events/persons backfill concurrency limit and supports `dry_run` and `skip_ducklake_registration`.
 Groups snapshots require `cleanup_existing_partition_data: true`.
 
