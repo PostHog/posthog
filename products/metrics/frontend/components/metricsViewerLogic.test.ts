@@ -101,16 +101,18 @@ describe('metricsViewerLogic', () => {
     })
 
     // Regression: the builder used to pick an aggregation from the metric type. An unaggregated
-    // clause must stay one line per series, whatever the metric is.
-    it.each(['requests_total', 'queue_depth', 'request_duration'])(
-        'selecting %s leaves the clause without operations',
-        (metricName) => {
-            logic.actions.setMetricName(metricName)
-            expect(logic.values.aggregation).toBeNull()
-            expect(logic.values.rangeFunction).toBeNull()
-            expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({ aggregation: 'none' })
-        }
-    )
+    // counter or gauge must stay one line per series. A histogram is the exception: its scalar
+    // value is the running sum of observations, so only its buckets chart something useful.
+    it.each<[string, string | null, Record<string, unknown>]>([
+        ['requests_total', null, { aggregation: 'none' }],
+        ['queue_depth', null, { aggregation: 'none' }],
+        ['request_duration', 'histogram_p95', { aggregation: 'histogram_quantile', quantile: 0.95 }],
+    ])('selecting %s applies aggregation %s', (metricName, expected, payloadFields) => {
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.aggregation).toBe(expected)
+        expect(logic.values.rangeFunction).toBeNull()
+        expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject(payloadFields)
+    })
 
     it('keeps the operations when the metric changes', () => {
         logic.actions.setMetricName('requests_total')
@@ -119,6 +121,41 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.rangeFunction).toBe('rate')
         expect(logic.values.aggregation).toBe('max')
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.aggregation).toBe('max')
+    })
+
+    it.each<[string, string[], string | null]>([
+        ['without a group-by', [], null],
+        ['with a group-by', ['container'], 'sum'],
+    ])(
+        'drops a histogram percentile when the metric changes to one without buckets, %s',
+        (_name, groupBy, expected) => {
+            logic.actions.setMetricName('request_duration')
+            logic.actions.setGroupByKeys(groupBy)
+            logic.actions.setMetricName('queue_depth')
+            expect(logic.values.aggregation).toBe(expected)
+            expect(logic.values.groupByKeys).toEqual(groupBy)
+        }
+    )
+
+    // The backend rejects a histogram percentile after a range function, so the later pick replaces the earlier one.
+    it.each<[string, () => void, string | null, string | null]>([
+        [
+            'a histogram percentile after a range function',
+            () => {
+                logic.actions.setRangeFunction('rate')
+                logic.actions.setAggregation('histogram_p99')
+            },
+            null,
+            'histogram_p99',
+        ],
+        ['a range function after a histogram percentile', () => logic.actions.setRangeFunction('rate'), 'rate', null],
+    ])('picking %s drops the other operation', (_name, pick, rangeFunction, aggregation) => {
+        logic.actions.setMetricName('request_duration')
+        pick()
+        expect(logic.values.rangeFunction).toBe(rangeFunction)
+        expect(logic.values.aggregation).toBe(aggregation)
     })
 
     it('sends a range function without an aggregation as per-series rates', () => {
@@ -141,10 +178,14 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.groupByKeys).toEqual([])
     })
 
-    it('adds a sum aggregation when grouping a clause without one', () => {
-        logic.actions.setMetricName('queue_depth')
+    it.each([
+        ['queue_depth', 'sum'],
+        ['request_duration', 'histogram_p95'],
+    ])('adds an aggregation when grouping %s without one: %s', (metricName, expected) => {
+        logic.actions.setMetricName(metricName)
+        logic.actions.setAggregation(null)
         logic.actions.setGroupByKeys(['container'])
-        expect(logic.values.aggregation).toBe('sum')
+        expect(logic.values.aggregation).toBe(expected)
         expect(logic.values.groupByKeys).toEqual(['container'])
     })
 
@@ -432,6 +473,16 @@ describe('metricsViewerLogic', () => {
 
         expect(metricsCharacterizeCreate).not.toHaveBeenCalled()
         expect(logic.values.anomalyReport).toBeNull()
+    })
+
+    // The endpoint has no viewer shorthand: an unmapped value fails validation and the badge silently disappears.
+    it('asks the anomaly badge for the histogram percentile the chart shows', () => {
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.anomalyQuery).toEqual({
+            metricName: 'request_duration',
+            aggregation: 'histogram_quantile',
+            quantile: 0.95,
+        })
     })
 
     // Without an AbortController, a superseded characterize call keeps running server-side
@@ -1003,6 +1054,23 @@ describe('metricsViewerLogic', () => {
         it.each<[string, MetricsQuery]>([
             ['builder', SAVED_QUERY],
             [
+                'builder histogram percentile',
+                {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [
+                        {
+                            name: 'a',
+                            metricName: 'request_duration',
+                            aggregation: 'histogram_quantile',
+                            metricType: 'histogram',
+                            quantile: 0.99,
+                            groupBy: [{ key: 'container' }],
+                        },
+                    ],
+                    dateRange: { date_from: '-6h' },
+                },
+            ],
+            [
                 'PromQL',
                 {
                     kind: NodeKind.MetricsQuery,
@@ -1122,7 +1190,10 @@ describe('isBuilderCompatibleQuery', () => {
         ['a range function', queryWith({ aggregation: undefined, rangeFunction: 'rate' }), true],
         ['p95', queryWith({ aggregation: 'quantile', quantile: 0.95 }), true],
         ['another quantile', queryWith({ aggregation: 'quantile', quantile: 0.99 }), false],
-        ['histogram_quantile', queryWith({ aggregation: 'histogram_quantile', quantile: 0.95 }), false],
+        ['histogram p50', queryWith({ aggregation: 'histogram_quantile', quantile: 0.5 }), true],
+        ['histogram p95', queryWith({ aggregation: 'histogram_quantile', quantile: 0.95 }), true],
+        ['histogram p99', queryWith({ aggregation: 'histogram_quantile', quantile: 0.99 }), true],
+        ['another histogram quantile', queryWith({ aggregation: 'histogram_quantile', quantile: 0.9 }), false],
         ['a scoped filter', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'resource' }] }), false],
         ['a scoped group-by', queryWith({ groupBy: [{ key: 'k', scope: 'attribute' }] }), false],
         ['auto scopes', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'auto' }] }), true],
