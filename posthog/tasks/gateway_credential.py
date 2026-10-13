@@ -22,6 +22,7 @@ from posthog.models.team.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
+    _RefreshMemo,
     drain_gateway_credential_last_used,
     project_gateway_credential,
     refresh_all_gateway_credentials,
@@ -62,12 +63,13 @@ def update_gateway_credential_cache_task(credential_kind: str, credential_id: st
 def reproject_user_gateway_credentials_task(user_id: int) -> None:
     """Re-project a user's OAuth credentials after a user/membership/RBAC change.
     Project secret keys have no user, so they're unaffected and not touched here."""
+    memo = _RefreshMemo()
     for token in (
         OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
         .select_related("user", "application")
         .filter(user_id=user_id)
     ):
-        project_gateway_credential(token)
+        project_gateway_credential(token, memo)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -79,11 +81,12 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
     No FK binding any more: a secret key resolves by its canonical (project-root) team, so
     catch the team and its child envs; an OAuth token resolves by its application's org, so
     catch every token in the team's organization (all resolve to this same gateway)."""
+    memo = _RefreshMemo()
     for secret_key in ProjectSecretAPIKey.objects.select_related("team").filter(
         Q(team_id=team_id) | Q(team__parent_team_id=team_id),
         scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
     ):
-        project_gateway_credential(secret_key)
+        project_gateway_credential(secret_key, memo)
 
     organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
     if organization_id is None:
@@ -93,7 +96,7 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
         .select_related("user", "application")
         .filter(application__organization_id=organization_id)
     ):
-        project_gateway_credential(token)
+        project_gateway_credential(token, memo)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

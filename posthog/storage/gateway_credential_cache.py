@@ -26,6 +26,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import OperationalError
+from django.db.models import Min, Q, Sum
 from django.utils import timezone
 
 import structlog
@@ -38,6 +39,7 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
+from posthog.models.team.team_event_volume import TeamEventVolume
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
@@ -113,16 +115,23 @@ def validate_overspend_allowance_usd(value: Decimal) -> Decimal:
 Credential = ProjectSecretAPIKey | OAuthAccessToken
 
 
+TeamEventVolumeSnapshot = dict[str, int | str | None]
+
+
 class _RefreshMemo:
-    """Per-run memo for the batch refresh: caches the per-(org, user) / (team, user) OAuth
-    auth checks so a full re-projection does O(distinct users) lookups, not O(credentials).
-    Single-credential callers pass no memo and are unaffected."""
+    """Per-run memo for the batch refresh.
+
+    It caches OAuth checks and volume snapshots by canonical team. A volume write marks success
+    only after Redis accepts it, so a later credential retries a failed write.
+    """
 
     def __init__(self) -> None:
         self._memberships: dict[tuple[Any, Any], Any] = {}
         self._access: dict[tuple[Any, Any], bool] = {}
         self._teams: dict[Any, Team | None] = {}
         self._org_roots: dict[Any, int | None] = {}
+        self._event_volume_snapshots: dict[int, TeamEventVolumeSnapshot] = {}
+        self._event_volume_projected: set[int] = set()
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -145,6 +154,19 @@ class _RefreshMemo:
         if organization_id not in self._org_roots:
             self._org_roots[organization_id] = load()
         return self._org_roots[organization_id]
+
+    def event_volume_snapshot(
+        self, team_id: int, load: Callable[[], TeamEventVolumeSnapshot]
+    ) -> TeamEventVolumeSnapshot:
+        if team_id not in self._event_volume_snapshots:
+            self._event_volume_snapshots[team_id] = load()
+        return self._event_volume_snapshots[team_id]
+
+    def event_volume_projected(self, team_id: int) -> bool:
+        return team_id in self._event_volume_projected
+
+    def mark_event_volume_projected(self, team_id: int) -> None:
+        self._event_volume_projected.add(team_id)
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -371,6 +393,24 @@ def _load_gateway_credential(hash_key: KeyType) -> dict[str, Any] | HyperCacheSt
         return HyperCacheStoreMissing()
 
 
+def _never_load_team_event_volume(_team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
+    return HyperCacheStoreMissing()
+
+
+TEAM_EVENT_VOLUME_CACHE_TTL = 60 * 60 * 3
+TEAM_EVENT_VOLUME_LAST_SUCCESS_KEY = "ai-gateway:team-event-volume-last-success"
+TEAM_EVENT_VOLUME_LAST_SUCCESS_TTL = 60 * 60 * 72
+
+team_event_volume_hypercache = HyperCache(
+    namespace="team_metadata",
+    value="llm_gateway_event_volume.json",
+    load_fn=_never_load_team_event_volume,
+    cache_ttl=TEAM_EVENT_VOLUME_CACHE_TTL,
+    cache_alias=(AI_GATEWAY_DEDICATED_CACHE_ALIAS if AI_GATEWAY_DEDICATED_CACHE_ALIAS in settings.CACHES else None),
+    s3_enabled=False,
+)
+
+
 # Write-only from Django (the Go gateway reads Redis directly). Don't call
 # get_from_cache — its lazy-fill ignores _ttl_for_credential and would write the 7-day
 # default, defeating the secret-key cap. load_fn exists only because HyperCache requires one.
@@ -383,6 +423,63 @@ gateway_credential_hypercache = HyperCache(
     cache_miss_ttl=GATEWAY_CREDENTIAL_CACHE_MISS_TTL,
     cache_alias=(AI_GATEWAY_DEDICATED_CACHE_ALIAS if AI_GATEWAY_DEDICATED_CACHE_ALIAS in settings.CACHES else None),
 )
+
+
+def set_team_event_volume_last_success(computed_at: datetime) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    get_client(settings.AI_GATEWAY_REDIS_URL).set(
+        TEAM_EVENT_VOLUME_LAST_SUCCESS_KEY,
+        computed_at.astimezone(UTC).isoformat(),
+        ex=TEAM_EVENT_VOLUME_LAST_SUCCESS_TTL,
+    )
+
+
+def get_team_event_volume_last_success() -> datetime | None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return None
+    raw = get_client(settings.AI_GATEWAY_REDIS_URL).get(TEAM_EVENT_VOLUME_LAST_SUCCESS_KEY)
+    if raw is None:
+        return None
+    try:
+        value = raw.decode() if isinstance(raw, bytes) else str(raw)
+        computed_at = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return computed_at.astimezone(UTC) if computed_at.tzinfo is not None else None
+
+
+def _team_event_volume_snapshot(team_id: int) -> TeamEventVolumeSnapshot:
+    child_team_ids = Team.objects.filter(parent_team_id=team_id).values("id")
+    volume = (
+        TeamEventVolume.objects.unscoped()
+        .filter(Q(team_id=team_id) | Q(team_id__in=child_team_ids))
+        .aggregate(events_last_year=Sum("events_last_year"), computed_at=Min("computed_at"))
+    )
+    total = volume["events_last_year"]
+    computed_at = volume["computed_at"]
+    if computed_at is None:
+        computed_at = get_team_event_volume_last_success()
+    return {
+        "team_id": team_id,
+        "events_last_year": max(0, total) if isinstance(total, int) else 0,
+        "projected_at": timezone.now().astimezone(UTC).isoformat(),
+        "computed_at": computed_at.astimezone(UTC).isoformat() if isinstance(computed_at, datetime) else None,
+    }
+
+
+def project_team_event_volume(team_id: int, memo: "_RefreshMemo | None" = None) -> None:
+    if memo is not None and memo.event_volume_projected(team_id):
+        return
+
+    snapshot = (
+        memo.event_volume_snapshot(team_id, lambda: _team_event_volume_snapshot(team_id))
+        if memo
+        else _team_event_volume_snapshot(team_id)
+    )
+    team_event_volume_hypercache.set_cache_value_redis_only(team_id, snapshot, ttl=TEAM_EVENT_VOLUME_CACHE_TTL)
+    if memo is not None:
+        memo.mark_event_volume_projected(team_id)
 
 
 def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> None:
@@ -400,6 +497,8 @@ def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | Non
     if ttl <= 0:  # OAuth token expired since the policy check — clear, don't write a 1s blob
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
+
+    project_team_event_volume(policy["team_id"], memo)
 
     # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
     # which Django treats as evict-immediately.

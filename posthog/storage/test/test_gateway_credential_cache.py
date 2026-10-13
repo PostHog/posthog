@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -20,6 +20,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
+from posthog.models.team.team_event_volume import TeamEventVolume
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, generate_random_token_secret, hash_key_value
 from posthog.redis import get_client
@@ -31,6 +32,9 @@ from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
     GATEWAY_KNOWN_TIERS,
     OVERSPEND_ALLOWANCE_KEY,
+    TEAM_EVENT_VOLUME_CACHE_TTL,
+    TEAM_EVENT_VOLUME_LAST_SUCCESS_KEY,
+    TEAM_EVENT_VOLUME_LAST_SUCCESS_TTL,
     TIER_KEY,
     clear_gateway_credential,
     credential_hash,
@@ -39,6 +43,8 @@ from posthog.storage.gateway_credential_cache import (
     gateway_credential_hypercache as hypercache,
     project_gateway_credential,
     refresh_all_gateway_credentials,
+    set_team_event_volume_last_success,
+    team_event_volume_hypercache as event_volume_hypercache,
     validate_overspend_allowance_usd,
 )
 from posthog.storage.test.cluster_cache import reject_multi_key_commands
@@ -62,6 +68,7 @@ class GatewayCredentialTestMixin(BaseTest):
         super().setUp()
         # LocMemCache persists across tests in-process; isolate each test.
         hypercache.cache_client.clear()
+        event_volume_hypercache.cache_client.clear()
 
     def _make_secret_key(self, scopes: list[str], token: str | None = None) -> tuple[ProjectSecretAPIKey, str]:
         token = token or generate_random_token_secret()
@@ -102,6 +109,10 @@ class GatewayCredentialTestMixin(BaseTest):
         if cache_hash is None:
             return None
         raw = hypercache.cache_client.get(hypercache.get_cache_key(cache_hash))
+        return None if raw is None or raw == "__missing__" else json.loads(raw)
+
+    def _read_event_volume_blob(self, team_id: int) -> dict | None:
+        raw = event_volume_hypercache.cache_client.get(event_volume_hypercache.get_cache_key(team_id))
         return None if raw is None or raw == "__missing__" else json.loads(raw)
 
 
@@ -243,6 +254,118 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         # but not for a tier already stamped into a live scoped-token structure,
         # which degrades to unknown with no signal.
         self.assertEqual(GATEWAY_KNOWN_TIERS, {"free", "pro", "enterprise"})
+
+
+class TestGatewayTeamEventVolume(GatewayCredentialTestMixin):
+    def test_writes_last_success_to_dedicated_redis(self):
+        computed_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        with (
+            override_settings(AI_GATEWAY_REDIS_URL="redis://gateway"),
+            patch.object(gateway_credential_cache, "get_client") as get_client,
+        ):
+            set_team_event_volume_last_success(computed_at)
+
+        get_client.assert_called_once_with("redis://gateway")
+        get_client.return_value.set.assert_called_once_with(
+            TEAM_EVENT_VOLUME_LAST_SUCCESS_KEY,
+            computed_at.isoformat(),
+            ex=TEAM_EVENT_VOLUME_LAST_SUCCESS_TTL,
+        )
+        self.assertGreater(TEAM_EVENT_VOLUME_LAST_SUCCESS_TTL, 48 * 60 * 60)
+
+    def test_does_not_write_last_success_without_dedicated_redis(self):
+        with (
+            override_settings(AI_GATEWAY_REDIS_URL=None),
+            patch.object(gateway_credential_cache, "get_client") as get_client,
+        ):
+            set_team_event_volume_last_success(timezone.now())
+
+        get_client.assert_not_called()
+
+    def test_projects_root_and_child_volume_with_oldest_freshness(self):
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        newer = timezone.now()
+        older = newer - timedelta(hours=1)
+        TeamEventVolume.objects.unscoped().create(team=self.team, events_last_year=7, computed_at=newer)
+        TeamEventVolume.objects.unscoped().create(team=child, events_last_year=11, computed_at=older)
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+
+        with patch.object(
+            event_volume_hypercache,
+            "set_cache_value_redis_only",
+            wraps=event_volume_hypercache.set_cache_value_redis_only,
+        ) as write:
+            project_gateway_credential(credential)
+
+        blob = self._read_event_volume_blob(self.team.id)
+        assert blob is not None
+        self.assertEqual(set(blob), {"team_id", "events_last_year", "projected_at", "computed_at"})
+        self.assertEqual(blob["team_id"], self.team.id)
+        self.assertEqual(blob["events_last_year"], 18)
+        self.assertEqual(datetime.fromisoformat(blob["computed_at"]), older)
+        self.assertEqual(datetime.fromisoformat(blob["projected_at"]).tzinfo, UTC)
+        self.assertEqual(
+            event_volume_hypercache.get_cache_key(self.team.id),
+            f"cache/teams/{self.team.id}/team_metadata/llm_gateway_event_volume.json",
+        )
+        self.assertEqual(write.call_args.kwargs["ttl"], TEAM_EVENT_VOLUME_CACHE_TTL)
+
+    @parameterized.expand(
+        [
+            ("marker_absent", None),
+            ("marker_present", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)),
+        ]
+    )
+    def test_projects_zero_when_no_volume_rows_exist(self, _name: str, last_success: datetime | None) -> None:
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+
+        with patch.object(gateway_credential_cache, "get_team_event_volume_last_success", return_value=last_success):
+            project_gateway_credential(credential)
+
+        blob = self._read_event_volume_blob(self.team.id)
+        assert blob is not None
+        self.assertEqual(blob["events_last_year"], 0)
+        self.assertEqual(
+            blob["computed_at"],
+            last_success.isoformat() if last_success is not None else None,
+        )
+        self.assertEqual(datetime.fromisoformat(blob["projected_at"]).tzinfo, UTC)
+
+    def test_retries_volume_write_before_writing_credential(self):
+        first, _ = self._make_secret_key([GATEWAY_SCOPE])
+        second, _ = self._make_secret_key([GATEWAY_SCOPE])
+        memo = gateway_credential_cache._RefreshMemo()
+        write_volume = event_volume_hypercache.set_cache_value_redis_only
+
+        attempts = 0
+
+        def fail_once(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise ConnectionError("redis down")
+            return write_volume(*args, **kwargs)
+
+        with (
+            patch.object(event_volume_hypercache, "set_cache_value_redis_only", side_effect=fail_once),
+            patch.object(
+                gateway_credential_cache,
+                "_team_event_volume_snapshot",
+                wraps=gateway_credential_cache._team_event_volume_snapshot,
+            ) as snapshot,
+            patch.object(
+                hypercache, "set_cache_value_redis_only", wraps=hypercache.set_cache_value_redis_only
+            ) as write_credential,
+        ):
+            with self.assertRaises(ConnectionError):
+                project_gateway_credential(first, memo)
+            write_credential.assert_not_called()
+            project_gateway_credential(second, memo)
+
+        self.assertEqual(attempts, 2)
+        snapshot.assert_called_once_with(self.team.id)
+        self.assertIsNotNone(self._read_event_volume_blob(self.team.id))
+        self.assertIsNotNone(self._read_blob(credential_hash(second)))
 
 
 class TestOverspendAllowanceFormatting(BaseTest):
@@ -514,9 +637,10 @@ class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
         writes: list[str] = []
 
         def flaky_set(key: str, value: object, timeout: float | None = None) -> None:
-            writes.append(key)
-            if fails(len(writes)):
-                raise error()
+            if key.endswith("/gateway_credential.json"):
+                writes.append(key)
+                if fails(len(writes)):
+                    raise error()
             real_set(key, value, timeout=timeout)
 
         with patch.object(client, "set", side_effect=flaky_set):
