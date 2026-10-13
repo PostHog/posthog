@@ -11,6 +11,7 @@ import {
 } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import hooks_experimentCreate from '@/tools/experiments/createExperimentHooks'
+import hooks_experimentGet from '@/tools/experiments/getExperimentHooks'
 import hooks_experimentList from '@/tools/experiments/listExperimentsHooks'
 import hooks_experimentUpdate from '@/tools/experiments/updateExperimentHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
@@ -570,15 +571,21 @@ const experimentGet = (): ToolBase<ReturnType<typeof ExperimentGetSchema>, WithP
     withUiApp('experiment', {
         name: 'experiment-get',
         schema: ExperimentGetSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentGetSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
-            })
-            const filtered = omitResponseFields(result, ['saved_metrics.*.effective_query', 'health']) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
-        },
+        handler: withToolHooks(
+            hooks_experimentGet,
+            async (context: Context, params: z.infer<ReturnType<typeof ExperimentGetSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.Experiment>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
+                })
+                const filtered = omitResponseFields(result, [
+                    'saved_metrics.*.effective_query',
+                    'health',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+            }
+        ),
     })
 
 const ExperimentHoldoutsCreateSchema = () => {

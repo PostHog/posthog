@@ -71,6 +71,23 @@ export function summarizeVariantDetails<T extends { parameters?: unknown }>(
     }
 }
 
+/** Adds `variant_screenshot_urls`, the public image URLs of `variant_screenshot_media_ids`, keyed by variant key. */
+export function withVariantScreenshotUrls<T extends { parameters?: unknown }>(
+    experiment: T,
+    publicBaseUrl: string
+): T & { variant_screenshot_urls: Record<string, string[]> } {
+    const mediaIds = asRecord(asRecord(experiment.parameters).variant_screenshot_media_ids)
+    const urls = Object.fromEntries(
+        Object.entries(mediaIds).map(([variantKey, ids]) => [
+            variantKey,
+            (Array.isArray(ids) ? ids : [ids])
+                .filter((id): id is string => typeof id === 'string' && id !== '')
+                .map((id) => `${publicBaseUrl}/uploaded_media/${encodeURIComponent(id)}`),
+        ])
+    )
+    return { ...experiment, variant_screenshot_urls: urls }
+}
+
 function variantKeysWhere(value: unknown, predicate: (entry: unknown) => boolean): string[] {
     return Object.entries(asRecord(value))
         .filter(([, entry]) => predicate(entry))
