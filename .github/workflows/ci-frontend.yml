@@ -1,8 +1,9 @@
 name: Frontend CI
 on:
     pull_request:
-        # PRs run a narrowed jest selection, draft or ready, over three shards. The
-        # merge queue's trunk-merge/** run is the full matrix that gates master.
+        # PRs run a narrowed jest selection, draft or ready, on as many shards as
+        # the selection needs. The merge queue's trunk-merge/** run is the full
+        # matrix that gates master.
         # When selection can't be trusted, a ready PR falls back to the full matrix
         # and a draft skips jest instead, deferring to its ready run. To force the
         # full matrix on a PR, add the `run-ci-frontend` label. The `no-ci` label
@@ -432,26 +433,9 @@ jobs:
                       ' /tmp/changed.txt | tr '\n' ' ' | sed 's/ $//'
                   )
 
-                  if [[ -z "$CHANGED_FILES" ]]; then
-                      # No frontend source changes (e.g. PR only edits backend or docs)
-                      # but `frontend_code` paths-filter still flagged the PR. Skip jest.
-                      {
-                          echo "mode=selective"
-                          echo 'matrix={"include":[]}'
-                          echo "should_run=false"
-                          echo "changed_files="
-                          echo "changed_file_count=$changed_count"
-                          echo "selected_file_count=0"
-                          echo "shard_count=0"
-                          echo "full_run_reason_category="
-                          echo "full_run_reason_detail="
-                      } >> "$GITHUB_OUTPUT"
-                      echo "Selective mode: no frontend source files changed, skipping jest"
-                      exit 0
-                  fi
-
                   # The script counts the tests --findRelatedTests will run and sizes the
-                  # matrix so the slowest shard meets its wall target.
+                  # matrix so the slowest shard meets its wall target. An empty list means
+                  # no changed file reaches the jest module graph, and jest is skipped.
                   CHANGED_FILES="$CHANGED_FILES" CHANGED_FILE_COUNT="$changed_count" \
                       node .github/scripts/jest-select.js || fall_back selector_crash "jest-select.js exited $?"
 

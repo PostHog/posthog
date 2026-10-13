@@ -5,15 +5,10 @@ const assert = require('node:assert/strict')
 
 const { planShards, planOutputs, TARGET_WALL_SECONDS, TEST_FILES_PER_SHARD, MAX_SHARDS } = require('./jest-select.js')
 
-test('planShards gives a small selection one shard under the target', () => {
-    const plan = planShards(150)
-
-    assert.equal(plan.shardCount, 1)
-    assert.ok(plan.estimatedSeconds <= TARGET_WALL_SECONDS, `${plan.estimatedSeconds}s`)
-})
-
 test('planShards adds a shard as soon as one would exceed the target', () => {
-    assert.equal(planShards(TEST_FILES_PER_SHARD).shardCount, 1)
+    const full = planShards(TEST_FILES_PER_SHARD)
+    assert.equal(full.shardCount, 1)
+    assert.ok(full.estimatedSeconds <= TARGET_WALL_SECONDS, `${full.estimatedSeconds}s`)
     assert.equal(planShards(TEST_FILES_PER_SHARD + 1).shardCount, 2)
 
     const plan = planShards(2000)
