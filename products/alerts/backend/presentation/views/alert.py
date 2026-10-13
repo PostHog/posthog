@@ -1875,7 +1875,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 is_agent_billable=not is_impersonated(request),
                 evaluation_delay_intervals=serializer.validated_data["evaluation_delay_intervals"],
             )
-        except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
+        except (AlertExtractionError, DelayedEvaluationUnavailable) as e:
+            # The frontend reads this code to skip error tracking for a configuration or data gap the user can fix.
+            raise ValidationError(str(e), code="alert_not_evaluable")
+        except (ValueError, IndexError) as e:
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)
