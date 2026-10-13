@@ -1,4 +1,3 @@
-import datetime as dt
 from typing import Any, Literal
 from uuid import UUID
 
@@ -33,7 +32,7 @@ from products.replay_vision.backend.quota import (
     QuotaState,
     ScannerBudget,
     compute_scanner_budget,
-    org_credit_cap,
+    org_credit_cap_for,
     quota_state_for_cap,
 )
 from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL, CREATE_OBSERVATION_TIMEOUT
@@ -190,6 +189,24 @@ class _OrgLimitRefused(Exception):
         self.quota = quota
 
 
+def _skip_for_quota(
+    scanner: ReplayScanner, inputs: CreateObservationInputs, quota: QuotaState
+) -> CreateObservationOutput:
+    record_quota_exhausted_skip(scanner.scanner_type)
+    activity.logger.info(
+        "Skipping observation: monthly quota exhausted",
+        extra={
+            "scanner_id": str(inputs.scanner_id),
+            "team_id": inputs.team_id,
+            "session_id": inputs.session_id,
+            "credit_limit": quota.credit_limit,
+            "credits_used": quota.credits_used,
+        },
+    )
+    _capture_scan_blocked(scanner=scanner, reason="quota", triggered_by=inputs.triggered_by, quota=quota)
+    return CreateObservationOutput(observation_id=None, was_created=False, scanner_type=scanner.scanner_type)
+
+
 def _try_cached_org_admission(organization_id: UUID, cost: int, cap: OrgCreditCap) -> bool:
     """The org-level twin of `_try_cached_admission`; also misses when billing changed the limit."""
     fresh_after = timezone.now() - ADMISSION_BUDGET_TTL
@@ -213,20 +230,22 @@ def _admit_within_org_limit(organization_id: UUID, cost: int, cap: OrgCreditCap)
         return None
     if _try_cached_org_admission(organization_id, cost, cap):
         return None
-    # An epoch stamp reads as stale, so a new row refreshes before anything admits on it.
-    ReplayVisionOrgAdmissionBudget.objects.bulk_create(
-        [
-            ReplayVisionOrgAdmissionBudget(
-                organization_id=organization_id,
-                period_start=cap.period.start,
-                credit_limit=cap.credit_limit,
-                credits_used=0,
-                refreshed_at=dt.datetime.fromtimestamp(0, tz=dt.UTC),
-            )
-        ],
-        ignore_conflicts=True,
-    )
-    ReplayVisionOrgAdmissionBudget.objects.select_for_update().filter(organization_id=organization_id).first()
+    locked = ReplayVisionOrgAdmissionBudget.objects.select_for_update().filter(organization_id=organization_id)
+    if locked.first() is None:
+        # A racing creator waits on the unique key and then takes the row lock below.
+        ReplayVisionOrgAdmissionBudget.objects.bulk_create(
+            [
+                ReplayVisionOrgAdmissionBudget(
+                    organization_id=organization_id,
+                    period_start=cap.period.start,
+                    credit_limit=cap.credit_limit,
+                    credits_used=0,
+                    refreshed_at=timezone.now(),
+                )
+            ],
+            ignore_conflicts=True,
+        )
+        locked.first()
     quota = quota_state_for_cap(organization_id, cap)
     admitted = not quota.would_exceed(cost)
     ReplayVisionOrgAdmissionBudget.objects.filter(organization_id=organization_id).update(
@@ -339,21 +358,13 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         priced_model = scanner.model
 
     organization_id = scanner.team.organization_id
-    with bounded_queries(CREATE_OBSERVATION_TIMEOUT):
-        cap = org_credit_cap(organization_id)
-        quota = quota_state_for_cap(organization_id, cap)
-    if quota.would_exceed(observation_credits_for_model(priced_model)):
-        record_quota_exhausted_skip(scanner.scanner_type)
-        activity.logger.info(
-            "Skipping observation: monthly quota exhausted",
-            extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
-        )
-        _capture_scan_blocked(scanner=scanner, reason="quota", triggered_by=inputs.triggered_by, quota=quota)
-        return CreateObservationOutput(
-            observation_id=None,
-            was_created=False,
-            scanner_type=scanner.scanner_type,
-        )
+    cap = org_credit_cap_for(scanner.team.organization, organization_id)
+    # Unlocked pre-check, so an exhausted org skips the snapshot and admission work.
+    if cap.credit_limit is not None:
+        with bounded_queries(CREATE_OBSERVATION_TIMEOUT):
+            quota = quota_state_for_cap(organization_id, cap)
+        if quota.would_exceed(observation_credits_for_model(priced_model)):
+            return _skip_for_quota(scanner, inputs, quota)
     # Learned rules are not scanner config, so a backfill runs with the current ones rather than frozen ones.
     snapshot_dict["learned_ruleset_ids"] = current_ruleset_ids(scanner.team_id, scanner.id)
 
@@ -372,9 +383,6 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         "backfill": backfill,
     }
 
-    # Resolved before the transaction to shrink the in-transaction window; the period is stable for
-    # the admission decision.
-    period = cap.period if scanner.credit_limit is not None else None
     # Priced from `priced_model` (the frozen snapshot model for backfills), matching what the
     # observation will actually charge, not the scanner's current model.
     cost = observation_credits_for_model(priced_model)
@@ -389,8 +397,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             # Capped scanners admit against the cached admission budget so concurrent applies cannot
             # overshoot the cap. The scanner row always locks before the org row, so they cannot deadlock.
             if scanner.credit_limit is not None:
-                assert period is not None
-                refused_budget = _admit_within_cap(scanner, cost, period)
+                refused_budget = _admit_within_cap(scanner, cost, cap.period)
                 if refused_budget is not None:
                     # A retry's own first insert counts as in-flight spend, so reclaim it instead of
                     # stranding it PENDING. Only the own-reclaim case returns here; any other existing
@@ -454,23 +461,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         reclaimed_output = _reclaim_own_pending_insert(inputs)
         if reclaimed_output is not None:
             return reclaimed_output
-        record_quota_exhausted_skip(scanner.scanner_type)
-        activity.logger.info(
-            "Skipping observation: monthly quota exhausted at admission",
-            extra={
-                "scanner_id": str(inputs.scanner_id),
-                "team_id": inputs.team_id,
-                "session_id": inputs.session_id,
-                "credit_limit": refused.quota.credit_limit,
-                "credits_used": refused.quota.credits_used,
-            },
-        )
-        _capture_scan_blocked(scanner=scanner, reason="quota", triggered_by=inputs.triggered_by, quota=refused.quota)
-        return CreateObservationOutput(
-            observation_id=None,
-            was_created=False,
-            scanner_type=scanner.scanner_type,
-        )
+        return _skip_for_quota(scanner, inputs, refused.quota)
     except IntegrityError as e:
         # Only swallow the dedup case; FK / CHECK violations should fail the activity.
         if not isinstance(e.__cause__, psycopg.errors.UniqueViolation):

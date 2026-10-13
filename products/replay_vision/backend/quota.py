@@ -224,8 +224,7 @@ def _current_period_bounds(organization: Organization | None, now: datetime) -> 
 
 def current_period_bounds(organization_id: UUID) -> BillingPeriod:
     """The org's active billing period when synced and current, else the current calendar month."""
-    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
-    return _current_period_bounds(organization, datetime.now(UTC))
+    return org_credit_cap(organization_id).period
 
 
 @dataclass(frozen=True)
@@ -495,6 +494,11 @@ def _org_credit_limit(organization: Organization | None, organization_id: UUID) 
 def org_credit_cap(organization_id: UUID) -> OrgCreditCap:
     """One org read; billing is the source of truth once synced, else the env cap and calendar months."""
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
+    return org_credit_cap_for(organization, organization_id)
+
+
+def org_credit_cap_for(organization: Organization | None, organization_id: UUID) -> OrgCreditCap:
+    """`org_credit_cap` for a caller that already loaded the org's `usage`."""
     return OrgCreditCap(
         period=_current_period_bounds(organization, datetime.now(UTC)),
         credit_limit=_org_credit_limit(organization, organization_id),
