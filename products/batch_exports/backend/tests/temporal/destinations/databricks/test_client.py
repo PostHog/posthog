@@ -270,31 +270,41 @@ class TestConnect:
 
 
 class TestQueryBuilders:
-    async def test_merge_query_with_schema_evolution(self, client: DatabricksClient):
+    @pytest.mark.parametrize("versioned", [True, False])
+    async def test_merge_query_with_schema_evolution(self, client: DatabricksClient, versioned: bool) -> None:
         merge_key = ["team_id", "distinct_id"]
-        update_key = ["person_version", "person_distinct_id_version"]
-        merge_query = client._get_merge_query_with_schema_evolution(
-            target_table="test_target",
-            source_table="test_source",
-            merge_key=merge_key,
-            update_key=update_key,
+        update_key = ["person_version", "person_distinct_id_version"] if versioned else []
+        with patch.object(client, "execute_async_query", new_callable=AsyncMock) as execute:
+            await client.amerge_tables(
+                target_table="test_target",
+                source_table="test_source",
+                merge_key=merge_key,
+                update_key=update_key,
+                source_table_fields=[],
+            )
+        merge_query = execute.call_args.args[0]
+        expected_condition = (
+            " AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`)"
+            if versioned
+            else ""
         )
         assert (
             merge_query
-            == """
+            == f"""
         MERGE WITH SCHEMA EVOLUTION INTO `test_target` AS target
         USING `test_source` AS source
         ON target.`team_id` = source.`team_id` AND target.`distinct_id` = source.`distinct_id`
-        WHEN MATCHED AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`) THEN
+        WHEN MATCHED{expected_condition} THEN
             UPDATE SET *
         WHEN NOT MATCHED THEN
             INSERT *
         """
         )
 
-    async def test_merge_query_without_schema_evolution(self, client: DatabricksClient):
+    @pytest.mark.parametrize("versioned", [True, False])
+    async def test_merge_query_without_schema_evolution(self, client: DatabricksClient, versioned: bool) -> None:
         merge_key = ["team_id", "distinct_id"]
-        update_key = ["person_version", "person_distinct_id_version"]
+        update_key = ["person_version", "person_distinct_id_version"] if versioned else []
         merge_query = client._get_merge_query_without_schema_evolution(
             target_table="test_target",
             source_table="test_source",
@@ -315,13 +325,18 @@ class TestQueryBuilders:
                 "properties",
             ],
         )
+        expected_condition = (
+            " AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`)"
+            if versioned
+            else ""
+        )
         assert (
             merge_query
-            == """
+            == f"""
         MERGE INTO `test_target` AS target
         USING `test_source` AS source
         ON target.`team_id` = source.`team_id` AND target.`distinct_id` = source.`distinct_id`
-        WHEN MATCHED AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`) THEN
+        WHEN MATCHED{expected_condition} THEN
             UPDATE SET
                 target.`team_id` = source.`team_id`, target.`distinct_id` = source.`distinct_id`, target.`person_version` = source.`person_version`, target.`person_distinct_id_version` = source.`person_distinct_id_version`, target.`properties` = source.`properties`
         WHEN NOT MATCHED THEN

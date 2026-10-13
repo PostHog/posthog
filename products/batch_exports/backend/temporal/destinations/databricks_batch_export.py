@@ -29,11 +29,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsModel,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
     DatabricksBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -823,7 +826,6 @@ class DatabricksClient:
         """
 
         assert merge_key, "Merge key must be defined"
-        assert update_key, "Update key must be defined"
 
         if with_schema_evolution is True:
             self.logger.info(
@@ -882,12 +884,14 @@ class DatabricksClient:
     ) -> str:
         merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
         update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+        if update_condition:
+            update_condition = f" AND ({update_condition})"
 
         return f"""
         MERGE WITH SCHEMA EVOLUTION INTO `{target_table}` AS target
         USING `{source_table}` AS source
         ON {merge_condition}
-        WHEN MATCHED AND ({update_condition}) THEN
+        WHEN MATCHED{update_condition} THEN
             UPDATE SET *
         WHEN NOT MATCHED THEN
             INSERT *
@@ -904,6 +908,8 @@ class DatabricksClient:
     ) -> str:
         merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
         update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+        if update_condition:
+            update_condition = f" AND ({update_condition})"
         update_clause = ", ".join(
             [
                 f"target.`{field[0]}` = source.`{field[0]}`"
@@ -922,7 +928,7 @@ class DatabricksClient:
         MERGE INTO `{target_table}` AS target
         USING `{source_table}` AS source
         ON {merge_condition}
-        WHEN MATCHED AND ({update_condition}) THEN
+        WHEN MATCHED{update_condition} THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED THEN
@@ -1035,7 +1041,7 @@ class TableSettings(t.NamedTuple):
 
 
 def _get_databricks_table_settings(
-    model: BatchExportModel | None,
+    model: AnyBatchExportModel,
     record_batch_schema: pa.Schema,
     use_variant_type: bool,
 ) -> TableSettings:
@@ -1058,7 +1064,7 @@ def _get_databricks_table_settings(
         json_type = "STRING"
         known_variant_columns = []
 
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events" and model.schema is None):
+    if isinstance(model, BatchExportEventsModel):
         table_fields = _events_table_fields(json_type)
 
         # Staging and copying are two activities, so a deploy of a schema change between them could
@@ -1081,24 +1087,6 @@ def _get_databricks_table_settings(
         )
 
     return TableSettings(table_fields, record_batch_schema, known_variant_columns)
-
-
-def _get_databricks_merge_config(
-    model: BatchExportModel | None,
-) -> tuple[bool, list[str], list[str]]:
-    requires_merge = False
-    merge_key = []
-    update_key = []
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            requires_merge = True
-            merge_key = ["team_id", "distinct_id"]
-            update_key = ["person_version", "person_distinct_id_version"]
-        elif model.name == "sessions":
-            requires_merge = True
-            merge_key = ["team_id", "session_id"]
-            update_key = ["end_timestamp"]
-    return requires_merge, merge_key, update_key
 
 
 async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> DatabricksIntegration:
@@ -1300,7 +1288,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
     )
 
     async with Heartbeater():
-        model = inputs.batch_export_model
+        model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_DATABRICKS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1330,7 +1318,9 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             use_variant_type=inputs.use_variant_type,
         )
 
-        requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
+        requires_merge = model.incremental_mode == IncrementalMode.MERGE
+        merge_key = list(model.primary_key) if requires_merge else []
+        update_key = list(model.version_key) if requires_merge else []
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         # include attempt in the stage table & volume names to avoid collisions if multiple attempts are running at the
@@ -1375,7 +1365,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 consumer = DatabricksConsumer(
                     client=databricks_client,
                     volume_path=volume_path,
-                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                    model=model.name,
                 )
 
                 transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
