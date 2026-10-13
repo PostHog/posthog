@@ -327,6 +327,8 @@ Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY
 
 The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
 
+A run whose whole sandbox stops usually still ends as completed, with `termination_reason` set to `sandbox_gone`. The `error_message` property on `task_run_completed` carries the sandbox exit reason. Exit code 137 there usually means the sandbox ran out of memory.
+
 Cloud Claude and Codex sessions deliver each watchdog warning separately to subagents and their parent. Codex uses native MCP tool hooks for shell calls, including the final result of an `exec_command` completed through `write_stdin`. Claude shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM. Codex hook payloads carry the command output without its exit status, so a Codex command counts as stopped when a kill record lands between its start and shortly after its end. A quick rerun of a long Codex command waits for that record before it starts.
 
 Codex trusts only the PostHog memory hooks through session configuration. It does not store hook trust in the user's config file. The local tools MCP server opts out of Codex's tool catalog cache, so a subagent thread starts it before its first shell command instead of lazily on its first MCP tool call. Codex hook payloads do not include an `exec_command` `workdir`, so a Codex retry count is keyed by the thread directory and the command text. Put `cd <directory> &&` in the command to scope a retry count to a directory.

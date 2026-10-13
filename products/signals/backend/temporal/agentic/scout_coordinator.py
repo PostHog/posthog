@@ -7,11 +7,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, DateTimeField, Max, PositiveSmallIntegerField, Q, Value, When
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from croniter import CroniterError, croniter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -30,6 +32,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.report_check_execution import run_due_report_checks
+from products.signals.backend.scout_authorship import BACKGROUND_RUN_METADATA
 from products.signals.backend.scout_harness.config_registry import (
     MAX_RUN_INTERVAL_MINUTES,
     MIN_RUN_INTERVAL_MINUTES,
@@ -62,6 +65,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.team_limits import (
     DAILY_BUDGET_WINDOW,
     BackgroundBackoff,
+    BackgroundBudget,
     BackgroundEnrollment,
     Enrollment,
     _canonicalize_team_config_keys,
@@ -101,6 +105,10 @@ MAX_RUNS_PER_TICK = 1000
 # `dispatch_ticks_per_interval`) lives in `scout_harness/limits.py` so the failure breaker can
 # size lanes off the cadence dispatch actually produces; it is imported above.
 TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
+
+# One event per region per tick that runs the background lane, to chart its backlog and time to first run.
+BACKGROUND_TICK_EVENT = "signals_scout_background_tick"
+BACKGROUND_TICK_DISTINCT_ID = "internal_signals_scout_coordinator"
 
 
 @dataclass
@@ -479,6 +487,16 @@ class _DueRun:
     skill_name: str
 
 
+@dataclass(frozen=True)
+class _BackgroundDueRun:
+    run: _DueRun
+    never_run: bool
+    backed_off: bool
+    band: int | None
+    # Seconds since the config became due. A never-run config counts from its creation.
+    due_age_s: float
+
+
 def _collect_planned_runs(
     enrollment: Enrollment,
     team_configs: dict[int, dict] | None = None,
@@ -592,23 +610,111 @@ def _collect_planned_runs(
             team_count=skipped_without_consent,
         )
 
+    background_due: list[_BackgroundDueRun] = []
+    runs_last_24h: int | None = None
     if background is not None and background.enabled:
-        due.extend(_collect_background_runs(background, background_team_ids, team_configs, default_team_config, now))
+        background_due = _collect_background_runs(
+            background, background_team_ids, team_configs, default_team_config, now
+        )
+        admitted = [d.run for d in background_due]
+        if background.budget is not None and background_due:
+            runs_last_24h = _background_runs_since(background, background_team_ids, now - DAILY_BUDGET_WINDOW)
+            admitted = _apply_background_budget(background_due, background.budget, runs_last_24h)
+        due.extend(admitted)
 
-    if not due:
-        return []
-
-    # Only count runs for teams that actually have a resolved daily budget — for the default
-    # rollout (no `max_runs_per_day` set anywhere) this skips the aggregate query entirely.
-    capped_team_ids = {
-        d.team_id for d in due if _resolve_max_runs_per_day(d.team_id, team_configs, default_team_config) is not None
-    }
-    runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
-    selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
+    selected: list[_DueRun] = []
+    if due:
+        # Only count runs for teams that actually have a resolved daily budget — for the default
+        # rollout (no `max_runs_per_day` set anywhere) this skips the aggregate query entirely.
+        capped_team_ids = {
+            d.team_id
+            for d in due
+            if _resolve_max_runs_per_day(d.team_id, team_configs, default_team_config) is not None
+        }
+        runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
+        selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
+    if background is not None and background.enabled:
+        _capture_background_tick(background_due, selected, background.budget, runs_last_24h)
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
+
+
+def _background_runs_since(background: BackgroundEnrollment, listed_team_ids: set[int], since: datetime) -> int:
+    """Background runs that started since `since` in this region, in one aggregate query.
+
+    Counts the bridge rows stamped with the background origin, so a run still counts after a person
+    takes its config over. The team and skill filters keep the read on the per-scout run index. A
+    run dispatched this tick is not counted until its row lands; the tick allowance bounds that window.
+    """
+    if not listed_team_ids:
+        return 0
+    return SignalScoutRun.all_teams.filter(
+        team_id__in=listed_team_ids,
+        skill_name=background.skill_name,
+        created_at__gte=since,
+        metadata__contains=BACKGROUND_RUN_METADATA,
+    ).count()
+
+
+def _apply_background_budget(
+    background_due: list[_BackgroundDueRun], budget: BackgroundBudget, runs_last_24h: int
+) -> list[_DueRun]:
+    """The due background runs the lane budget admits this tick, highest priority first.
+
+    Coverage before cadence (never run first), then engaged before backed off, then most overdue,
+    with band and config pk as deterministic tiebreaks.
+
+    The rest stay unstamped, so they are still due next tick: the deferred runs are the queue, and
+    nothing new is stored. A deferred config keeps its backoff level, because only a stamp moves it.
+    """
+    allowance = budget.tick_allowance(runs_last_24h)
+    ordered = sorted(
+        background_due,
+        key=lambda d: (not d.never_run, d.backed_off, -d.run.overdue_s, d.band or 0, d.run.config_pk),
+    )
+    if len(ordered) > allowance:
+        logger.info(
+            "signals_scout coordinator: background budget defers due runs",
+            due=len(ordered),
+            allowance=allowance,
+            runs_last_24h=runs_last_24h,
+            max_runs_per_day=budget.max_runs_per_day,
+        )
+    return [d.run for d in ordered[:allowance]]
+
+
+def _capture_background_tick(
+    background_due: list[_BackgroundDueRun],
+    selected: list[_DueRun],
+    budget: BackgroundBudget | None,
+    runs_last_24h: int | None,
+) -> None:
+    """Log and capture the backlog of the background lane for this tick.
+
+    `dispatched` counts the background runs that also pass the shared tick caps, so `due`,
+    `dispatched`, and `deferred` always add up.
+    """
+    selected_pks = {d.config_pk for d in selected}
+    dispatched = sum(1 for d in background_due if d.run.config_pk in selected_pks)
+    properties = {
+        "region": settings.CLOUD_DEPLOYMENT,
+        "due": len(background_due),
+        "dispatched": dispatched,
+        "deferred": len(background_due) - dispatched,
+        "runs_last_24h": runs_last_24h,
+        "max_runs_per_day": budget.max_runs_per_day if budget is not None else None,
+        "never_run_due": sum(1 for d in background_due if d.never_run),
+        "oldest_due_age_s": max((d.due_age_s for d in background_due), default=0.0),
+    }
+    logger.info("signals_scout coordinator: background tick", **properties)
+    try:
+        posthoganalytics.capture(
+            event=BACKGROUND_TICK_EVENT, distinct_id=BACKGROUND_TICK_DISTINCT_ID, properties=properties
+        )
+    except Exception:
+        logger.warning("signals_scout coordinator: failed to capture background tick event")
 
 
 def _allocate_tick_budget(
@@ -1065,7 +1171,7 @@ def _collect_background_runs(
     team_configs: dict[int, dict],
     default_team_config: dict,
     now: datetime,
-) -> list[_DueRun]:
+) -> list[_BackgroundDueRun]:
     """Due runs for background configs on listed teams whose organization approved AI data processing.
 
     Checks consent again at dispatch, because an organization can withdraw it after its config was
@@ -1094,7 +1200,7 @@ def _collect_background_runs(
             team_id__in=listed_team_ids, name=background.skill_name, is_latest=True, deleted=False
         ).values_list("team_id", flat=True)
     )
-    due: list[_DueRun] = []
+    due: list[_BackgroundDueRun] = []
     live_skills = {background.skill_name}
     engaged = (
         _engaged_team_ids(
@@ -1112,17 +1218,28 @@ def _collect_background_runs(
             continue
         if background.skill_name in _resolve_withheld_skills(config.team_id, team_configs, default_team_config):
             continue
+        backoff = background.backoff if config.team_id not in engaged else None
+        never_run = config.last_run_at is None
         if not config.enabled:
-            due.extend(_collect_probe_runs([config], live_skills, now))
-            continue
-        interval_minutes = None
-        if background.backoff is not None and config.team_id not in engaged:
-            interval_minutes = background.backoff.effective_interval_minutes(
-                config.run_interval_minutes, config.background_backoff_level
+            runs = _collect_probe_runs([config], live_skills, now)
+        else:
+            interval_minutes = None
+            if backoff is not None:
+                interval_minutes = backoff.effective_interval_minutes(
+                    config.run_interval_minutes, config.background_backoff_level
+                )
+            overdue_s = _overdue_seconds(config, now, config.team.timezone_info, interval_minutes=interval_minutes)
+            runs = [] if overdue_s is None else [_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name)]
+        for run in runs:
+            due.append(
+                _BackgroundDueRun(
+                    run=run,
+                    never_run=never_run,
+                    backed_off=backoff is not None and bool(config.background_backoff_level),
+                    band=config.background_band,
+                    due_age_s=(now - config.created_at).total_seconds() if never_run else max(0.0, run.overdue_s),
+                )
             )
-        overdue_s = _overdue_seconds(config, now, config.team.timezone_info, interval_minutes=interval_minutes)
-        if overdue_s is not None:
-            due.append(_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name))
     return due
 
 
