@@ -229,6 +229,25 @@ def lock_dag_placements_shared(team_id: int, dag_id: UUID) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock_shared(%s, hashtext(%s))", [team_id, _placement_lock_key(dag_id)])
 
 
+def orphaned_table_nodes() -> QuerySet[Node]:
+    return Node.objects.filter(
+        type=NodeType.TABLE,
+        saved_query__isnull=True,
+        metric_id__isnull=True,
+        outgoing_edges__isnull=True,
+    )
+
+
+def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
+    orphaned_table_nodes().filter(team_id=team_id, id__in=list(node_ids)).delete()
+
+
+def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
+    source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
+    nodes.delete()
+    delete_orphaned_table_nodes(team_id, source_ids)
+
+
 def replace_incoming_edges(
     target: Node,
     dependency_names: Iterable[str],
@@ -253,7 +272,9 @@ def replace_incoming_edges(
     with transaction.atomic():
         lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
-        Edge.objects.filter(team=team, target=target).delete()
+        previous_edges = Edge.objects.filter(team=team, target=target)
+        previous_source_ids = list(previous_edges.values_list("source_id", flat=True))
+        previous_edges.delete()
         for dependency_name in dependency_names:
             try:
                 source = resolve_dependency_to_node(dependency_name, team, database, dag)
@@ -275,6 +296,7 @@ def replace_incoming_edges(
                 target=target,
                 properties=extra_properties or {},
             )
+        delete_orphaned_table_nodes(team.pk, previous_source_ids)
     return unresolved
 
 
@@ -538,7 +560,7 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
                 tuple(dependents),
                 fallback_node_id=_oldest_node_id(nodes),
             )
-        nodes.delete()
+        delete_nodes(saved_query.team_id, nodes)
     for dag in dags:
         maybe_reconcile_dag(dag)
 
