@@ -27,6 +27,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -128,7 +129,9 @@ def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None] 
     Unlike the review path's variant this returns None instead of raising: a missing installation is a
     skip-this-report condition for the batch, not a failure.
     """
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.BATCH
+    )
     if github is None:
         return None
     return github.get_access_token(), github.github_installation_id
