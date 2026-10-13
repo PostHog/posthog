@@ -5,7 +5,8 @@ import {
   buildPosthogPropertyHeaderRecord,
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
-  POSTHOG_SESSION_ID_HEADER,
+  buildPosthogSessionHeaderLines,
+  buildPosthogSessionHeaderRecord,
 } from "@posthog/agent-contracts/posthog-property-headers";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
@@ -142,8 +143,16 @@ export function buildGatewayEnv(
       ai_product: aiProduct,
       team_id: projectId,
     };
-    customHeaders = buildPosthogPropertiesHeaderLines(properties);
-    openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
+    customHeaders = [
+      buildPosthogPropertiesHeaderLines(properties),
+      buildPosthogSessionHeaderLines(taskId),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    openaiCustomHeaders = {
+      ...buildPosthogPropertiesHeaderRecord(properties),
+      ...buildPosthogSessionHeaderRecord(taskId),
+    };
     // The Go gateway writes this into the OpenAI body's `service_tier`, which
     // is the only way a Codex run reaches the flex or priority queue: Codex
     // itself omits a tier its model catalogue does not advertise. Codex-only,
@@ -166,8 +175,8 @@ export function buildGatewayEnv(
       gatewayProperties,
       projectId,
     );
-    // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
-    // blob keys, so the session id would be silently dropped there.
+    // Only the legacy gateway reads the session id from a property. The Go
+    // path above sends it as a header, because its blob drops $-prefixed keys.
     openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
       {
         ...gatewayProperties,
@@ -240,7 +249,7 @@ export function buildPiProviderRoute(
           ai_product: target.aiProduct,
           team_id: config.projectId,
         }),
-        ...(taskId ? { [POSTHOG_SESSION_ID_HEADER]: taskId } : {}),
+        ...buildPosthogSessionHeaderRecord(taskId),
       },
       model: piModelIdForRoute(model, true),
       isAiGateway: true,

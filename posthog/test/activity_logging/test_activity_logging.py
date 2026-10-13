@@ -13,7 +13,7 @@ from unittest.mock import patch
 from django.db import transaction
 from django.db.utils import IntegrityError
 from django.http import HttpRequest
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -786,7 +786,7 @@ class TestActivityLogVisibilityManager(BaseTest):
         self.assertEqual(filtered.count(), 4)
 
 
-class TestActivityTriggerContext(BaseTest):
+class TestActivityTriggerContext(SimpleTestCase):
     def tearDown(self):
         activity_storage.clear_trigger()
         super().tearDown()

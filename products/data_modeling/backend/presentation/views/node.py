@@ -10,7 +10,7 @@ from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from rest_framework import filters, request, response, serializers, status, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import PageNumberPagination
@@ -19,7 +19,6 @@ from temporalio.common import RetryPolicy
 from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
@@ -33,7 +32,6 @@ from products.data_modeling.backend.facade.api import (
     unsuspend_nodes,
 )
 from products.data_modeling.backend.facade.models import (
-    DAG,
     SAVED_QUERY_NODE_TYPES,
     DataModelingJob,
     DataModelingJobEngine,
@@ -96,11 +94,9 @@ class NodeSerializer(serializers.ModelSerializer):
     last_run_error = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
-    dag_name = serializers.SerializerMethodField(read_only=True)
     lineage_issue = serializers.SerializerMethodField(read_only=True)
     origin = serializers.SerializerMethodField(read_only=True)
     warehouse_table_id = serializers.SerializerMethodField(read_only=True)
-    dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
 
     class Meta:
         model = Node
@@ -108,8 +104,6 @@ class NodeSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "type",
-            "dag",
-            "dag_name",
             "description",
             "saved_query_id",
             "metric_id",
@@ -137,7 +131,6 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_status",
             "user_tag",
             "sync_interval",
-            "dag_name",
             "saved_query_id",
             "metric_id",
             "lineage_issue",
@@ -210,9 +203,6 @@ class NodeSerializer(serializers.ModelSerializer):
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
 
-    def get_dag_name(self, node: Node) -> str:
-        return node.dag.name
-
     @extend_schema_field(LineageIssueSerializer(allow_null=True))
     def get_lineage_issue(self, node: Node) -> dict[str, Any] | None:
         return node.lineage_issue
@@ -249,19 +239,13 @@ class NodeSerializer(serializers.ModelSerializer):
         # editing managed nodes or moving any node into a managed DAG via the API.
         if self.instance is not None and self.instance.dag.is_managed:
             raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
-        target_dag = attrs.get("dag")
-        if target_dag is not None and target_dag.is_managed:
-            raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
         if self.instance is not None and self.instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
         node_type = attrs.get("type")
-        if node_type is not None:
+        if node_type is not None and self.instance is not None:
             # A full PUT round-trips the node's own type, so a type equal to the current one is
             # not a retype and must not be rejected.
-            if self.instance is None:
-                if node_type != NodeType.TABLE:
-                    raise serializers.ValidationError("Only table nodes can be created through the API.")
-            elif node_type != self.instance.type:
+            if node_type != self.instance.type:
                 raise serializers.ValidationError("A node's type cannot be changed through the API.")
         return attrs
 
@@ -351,13 +335,21 @@ class LineageResponseSerializer(serializers.Serializer):
     edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
 
 
-class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class NodeViewSet(
+    MetricNodeVisibilityMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     scope_object = "INTERNAL"
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
     pagination_class = NodePagination
     filter_backends = [filters.SearchFilter]
-    search_fields = ["name", "dag__name"]
+    search_fields = ["name"]
     ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -420,17 +412,6 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
         return super().retrieve(request, *args, **kwargs)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="dag",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Scope the lineage counts to this DAG.",
-            )
-        ]
-    )
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.facade.models import Graph
 
@@ -440,8 +421,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         page = self.paginate_queryset(queryset)
         nodes = page if page is not None else queryset
 
-        dag_id = self._get_dag_id_param()
-        graph = Graph(team_id=self.team_id, dag_id=dag_id, hidden_types=self._hidden_node_types())
+        graph = Graph(team_id=self.team_id, hidden_types=self._hidden_node_types())
         node_ids = [str(n.id) for n in nodes]
         counts = graph.batch_counts(node_ids)
 
@@ -452,21 +432,10 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
             return self.get_paginated_response(serializer.data)
         return response.Response(serializer.data)
 
-    def _get_dag_id_param(self) -> str | None:
-        dag_id = self.request.query_params.get("dag")
-        if dag_id:
-            try:
-                UUID(dag_id)
-            except ValueError:
-                return None
-        return dag_id
-
     def safely_get_queryset(self, queryset):
-        qs = _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id)))
-        dag_id = self._get_dag_id_param()
-        if dag_id:
-            qs = qs.filter(dag_id=dag_id)
-        return qs.order_by(self.ordering)
+        return _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id))).order_by(
+            self.ordering
+        )
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:

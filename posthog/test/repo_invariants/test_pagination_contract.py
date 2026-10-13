@@ -140,7 +140,6 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.dashboards.backend.api.dashboard_templates.DashboardTemplateViewSet",
     "products.data_catalog.backend.presentation.views.MetricViewSet",
     "products.data_catalog.backend.presentation.views.RelationshipProposalViewSet",
-    "products.data_modeling.backend.presentation.views.edge.EdgeViewSet",
     "products.data_modeling.backend.presentation.views.node.NodeViewSet",
     "products.data_quality.backend.presentation.views.DataQualityCheckViewSet",
     "products.data_quality.backend.presentation.views.DataQualityRunViewSet",
