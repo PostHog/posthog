@@ -437,8 +437,8 @@ async fn test_secret_api_token_authentication_invalid_token() {
 
 /// ACCEPT_TEAM_SECRET_TOKENS=false (the legacy-removal kill switch, #66179): the
 /// posthog_team lookup is skipped, so a legacy secret token only authenticates through a
-/// backfilled PSAK mirror row holding the same string. The tests above run with the
-/// default (true) and cover the unchanged legacy path.
+/// backfilled PSAK mirror row holding the same string. The default (true) path is covered
+/// by `test_secret_api_token_authentication_valid_token`.
 #[rstest::rstest]
 #[case::with_mirror_row(true, 200)]
 #[case::without_mirror_row(false, 401)]

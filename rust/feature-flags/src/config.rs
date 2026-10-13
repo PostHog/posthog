@@ -1423,6 +1423,10 @@ mod tests {
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
+        // Legacy tokens must stay accepted by default: a default of false would 401
+        // every legacy token without a mirror row while CI stays green, because the
+        // integration tests build their config from default_test_config() instead.
+        assert_eq!(config.accept_team_secret_tokens, FlexBool(true));
     }
 
     #[test]

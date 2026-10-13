@@ -181,11 +181,9 @@ pub async fn validate_secret_api_token(
     }
 }
 
-/// Load token auth data from PostgreSQL, trying Team secret tokens first then ProjectSecretAPIKeys.
-///
-/// `accept_team_secret_tokens` is the legacy-removal kill switch (PostHog/posthog#66179):
-/// when false the posthog_team lookup is skipped and migrated legacy tokens match their
-/// backfilled PSAK mirror rows instead.
+/// Load token auth data from PostgreSQL: posthog_team secret tokens first when
+/// `accept_team_secret_tokens` is true (see `Config::accept_team_secret_tokens`), then
+/// ProjectSecretAPIKeys.
 ///
 /// Extracted from `validate_secret_api_token_for_team` for testability.
 async fn load_token_from_pg(
@@ -248,7 +246,10 @@ async fn load_token_from_pg(
             }))
         }
         None => {
-            warn!("phs_ token not found in team or project secret API key tables");
+            warn!(
+                checked_posthog_team = accept_team_secret_tokens,
+                "phs_ token not found in project secret API key table"
+            );
             Ok(None)
         }
     }
