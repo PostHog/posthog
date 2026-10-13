@@ -55,6 +55,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `Scrim` | `ui/Scrim.tsx` | Fades with the overlay; optional tap to close |
 | `BottomSheet` | `ui/BottomSheet.tsx` | Grabber, radius 22, slides up 200ms, closes on scrim tap or a downward drag |
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
+| `ReportContextMenu` | `features/inbox/ReportContextMenu.tsx` | Inbox row long-press menu on `FloatingCard`; nav menu width; opens 8pt below the row, or above it when the bottom bar is in the way (`contextMenuPlacement.ts`) |
 | `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
@@ -69,7 +70,9 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 - **Inbox**: header with Refresh and More, rows, pull to refresh, floating nav pill (Home selected,
   Chat, Products) and the Chat button. Chat in the pill opens the chat sheet, like the button.
   Products opens the project's product library in the web app, and is dimmed in demo mode.
-  Loading, empty and error states are separate screens.
+  A long press on a row (or the screen reader's "Show report actions") opens a menu with Reassign,
+  Snooze, Chat and, for an unread report, Mark as read; each does what the report's action pill
+  does, without leaving the inbox. Loading, empty and error states are separate screens.
 - **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
 - **Report**: top chrome, headline, lede, evidence (trace, quotes, replay), facts, sparkline,
   activity, and the action bar.

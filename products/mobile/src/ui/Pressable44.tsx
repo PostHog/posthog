@@ -1,16 +1,18 @@
-import type { ReactElement } from 'react'
+import type { ReactElement, Ref } from 'react'
 import {
     type GestureResponderEvent,
     Pressable,
     type PressableProps,
     type PressableStateCallbackType,
     type StyleProp,
+    type View,
     type ViewStyle,
 } from 'react-native'
 
 import { type HapticKind, haptic } from '@/lib/haptics'
 
 export interface Pressable44Props extends Omit<PressableProps, 'style'> {
+    ref?: Ref<View>
     style?: StyleProp<ViewStyle>
     pressedBackground?: string
     pressedStyle?: StyleProp<ViewStyle>

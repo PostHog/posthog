@@ -8,13 +8,18 @@ import { IconTile } from '@/ui/IconTile'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, type } from '@/ui/tokens'
 
+import type { RowAnchor } from './contextMenuPlacement'
+import { useRowMenuTrigger } from './useRowMenuTrigger'
+
 interface InboxRowProps {
     item: InboxItem
     now: Date
     onOpen: (reportId: string) => void
+    onLongPress: (item: InboxItem, anchor: RowAnchor) => void
 }
 
-export const InboxRow = memo(function InboxRow({ item, now, onOpen }: InboxRowProps): ReactElement {
+export const InboxRow = memo(function InboxRow({ item, now, onOpen, onLongPress }: InboxRowProps): ReactElement {
+    const menuTrigger = useRowMenuTrigger(item, onLongPress)
     const { Icon } = sourceInfo(item.sourceProduct)
     const done = item.state === 'done' || item.state === 'dismissed'
     const muted = done || item.state === 'snoozed'
@@ -22,6 +27,7 @@ export const InboxRow = memo(function InboxRow({ item, now, onOpen }: InboxRowPr
         item.state === 'snoozed' && item.snoozeLabel ? item.snoozeLabel : formatRelativeAgo(item.updatedAt, now)
     return (
         <Pressable44
+            {...menuTrigger}
             onPress={() => onOpen(item.reportId)}
             pressedBackground={colors.sunken}
             style={styles.row}

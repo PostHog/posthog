@@ -1,6 +1,8 @@
 export type AnalyticsEvent =
     | 'mobile_signed_in'
     | 'mobile_inbox_opened'
+    | 'mobile_inbox_report_menu_opened'
+    | 'mobile_inbox_report_menu_action'
     | 'mobile_report_opened'
     | 'mobile_report_handed_off'
     | 'mobile_decision_answered'
