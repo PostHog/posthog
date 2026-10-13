@@ -505,11 +505,11 @@ class TestValidateSchemaAndUpdateTable:
             pytest.param(False, ExternalDataSchema.SyncType.INCREMENTAL, 1_200, 1_200, id="first_sync_incremental"),
             pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, id="later_full_refresh"),
             pytest.param(
-                True, ExternalDataSchema.SyncType.FULL_REFRESH, None, 200, id="full_refresh_without_log_count"
+                True, ExternalDataSchema.SyncType.FULL_REFRESH, None, 200, id="full_refresh_falls_back_to_run_count"
             ),
         ],
     )
-    def test_a_run_over_several_attempts_stores_the_table_size_not_the_last_attempts_rows(
+    def test_stores_the_delta_log_count_and_never_counts_the_files_of_a_full_refresh(
         self, team, table_exists, sync_type, live_row_count, expected_row_count
     ):
         schema, job = self._schema_and_job(team)
@@ -520,7 +520,7 @@ class TestValidateSchemaAndUpdateTable:
 
         with (
             patch.object(DataWarehouseTable, "get_columns", return_value={}),
-            patch.object(DataWarehouseTable, "get_count", side_effect=AssertionError("must not count the files")),
+            patch.object(DataWarehouseTable, "get_count") as get_count,
         ):
             async_to_sync(validate_schema_and_update_table)(
                 run_id=str(job.id),
@@ -532,6 +532,7 @@ class TestValidateSchemaAndUpdateTable:
                 live_row_count=live_row_count,
             )
 
+        get_count.assert_not_called()
         schema.refresh_from_db()
         assert schema.table is not None
         assert schema.table.row_count == expected_row_count

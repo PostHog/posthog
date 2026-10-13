@@ -487,11 +487,6 @@ async def validate_schema_and_update_table(
                 )
                 _record_storage_delta(job, _storage_delta_mib(None, live_size_mib))
                 _record_query_folder_pointer(_schema_id, team_id, None, queryable_folder, run_id, logger)
-                if row_count == 0:
-                    # table_params holds 0 for a table an earlier attempt already filled. get_count()
-                    # can block long enough for the pooled connection to go stale, as above.
-                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})", live_row_count)
-                    retry_on_db_connection_drop(lambda: table.save(update_fields=["row_count"]))
                 table_created = table
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
