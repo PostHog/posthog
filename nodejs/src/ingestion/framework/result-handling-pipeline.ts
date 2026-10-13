@@ -30,7 +30,7 @@ export type PipelineConfig<R extends string = never> = {
 
 /**
  * Unified result handling pipeline that wraps any chunk-processing pipeline and handles
- * non-success results (DLQ, DROP, REDIRECT) by adding side effects.
+ * non-success results (DLQ, DROP, REDIRECT, TIMEOUT) by adding side effects.
  *
  * The redirect type R flows through — redirect results are kept in the output
  * with the redirect side effect attached.
