@@ -1,4 +1,5 @@
 import datetime as dt
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -13,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -1945,3 +1947,22 @@ class TestBuildMetricQueryRunner(APIBaseTest):
             interval=interval,
         )
         self.assertIs(type(runner), expected)
+
+
+class TestQuerySettingsPassthrough(APIBaseTest):
+    def test_query_settings_reach_execute_hogql_query(self):
+        anchor = timezone.now().replace(microsecond=0)
+        custom = HogQLGlobalSettings(max_execution_time=7, timeout_overflow_mode="throw")
+        with patch(
+            "products.metrics.backend.metric_query_runner.execute_hogql_query",
+            return_value=SimpleNamespace(results=[]),
+        ) as execute:
+            MetricQueryRunner(
+                team=self.team,
+                metric_name="m1",
+                aggregation="sum",
+                date_from=anchor - dt.timedelta(hours=1),
+                date_to=anchor,
+                query_settings=custom,
+            ).run()
+        assert execute.call_args.kwargs["settings"] is custom

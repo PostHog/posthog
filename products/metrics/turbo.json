@@ -1,5 +1,7 @@
 {
-    "extends": ["//"],
+    "extends": [
+        "//"
+    ],
     "tasks": {
         "backend:contract-check": {
             "inputs": [
@@ -10,7 +12,10 @@
                 "backend/tasks/**",
                 "backend/temporal/**",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/temporal/**",
+                "backend/alert_source_cycle.py",
+                "backend/alert_checkpoint.py"
             ],
             "outputs": [],
             "cache": true

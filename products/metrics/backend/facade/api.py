@@ -300,7 +300,9 @@ def _evaluate_formula(
     return result
 
 
-def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
+def run_metric_query(
+    *, team: Team, request: MetricQueryRequest, query_settings: HogQLGlobalSettings | None = None
+) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
     series with empty labels, so consumers never branch on single-vs-multi.
@@ -334,6 +336,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
             range_function=clause.range_function.value if clause.range_function is not None else None,
+            query_settings=query_settings,
         )
         rows = runner.run()
         if runner_aggregation is None:

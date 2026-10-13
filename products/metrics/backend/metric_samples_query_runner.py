@@ -8,6 +8,8 @@ the `metrics` view.
 import datetime as dt
 from collections.abc import Sequence
 
+from posthog.hogql.constants import HogQLGlobalSettings
+
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
@@ -34,6 +36,7 @@ def build_metric_query_runner(
     quantile: float | None = None,
     metric_type: str | None = None,
     range_function: str | None = None,
+    query_settings: HogQLGlobalSettings | None = None,
 ) -> MetricQueryRunner:
     """Return the runner for the table that holds all points of the range."""
     runner = MetricQueryRunner(
@@ -48,6 +51,7 @@ def build_metric_query_runner(
         quantile=quantile,
         metric_type=metric_type,
         range_function=range_function,
+        query_settings=query_settings,
     )
     if not reads_metrics4_only(runner.scan_from):
         return runner
@@ -63,4 +67,5 @@ def build_metric_query_runner(
         quantile=quantile,
         metric_type=metric_type,
         range_function=range_function,
+        query_settings=query_settings,
     )
