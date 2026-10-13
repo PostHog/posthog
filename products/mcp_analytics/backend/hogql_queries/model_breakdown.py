@@ -56,6 +56,8 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
                 "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
+            parse_expr("properties.$mcp_tool_name IS NOT NULL"),
+            parse_expr("properties.$mcp_tool_name != ''"),
         ]
         exprs.extend(shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts))
         return ast.And(exprs=exprs)

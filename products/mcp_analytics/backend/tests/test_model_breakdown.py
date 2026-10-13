@@ -43,6 +43,8 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
             distinct_id="d6",
             properties={"$mcp_llm_model": "Unknown", "$mcp_llm_model_source": "self_reported"},
         )
+        self._emit(distinct_id="d7", properties={"$mcp_llm_model": "claude-sonnet-5", "$mcp_tool_name": ""})
+        self._emit(distinct_id="d8", properties={"$mcp_llm_model": "claude-sonnet-5", "$mcp_tool_name": None})
         flush_persons_and_events()
 
         rows = self._breakdown()
