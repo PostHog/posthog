@@ -54,7 +54,7 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
             <SceneMenuBarSubMenu label="Tile density">
                 <SceneMenuBarRadioGroup
                     value={dashboard.customization?.tile_spacing ?? 'standard'}
-                    onValueChange={(value) => changeDashboardTileSpacing(value as DashboardTileSpacing)}
+                    onValueChange={(value: unknown) => changeDashboardTileSpacing(value as DashboardTileSpacing)}
                 >
                     {(Object.keys(DASHBOARD_TILE_SPACING_LABELS) as DashboardTileSpacing[]).map((spacing) => (
                         <SceneMenuBarRadioItem
@@ -71,7 +71,9 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
                 <SceneMenuBarSubMenu label="When you move a tile">
                     <SceneMenuBarRadioGroup
                         value={dashboard.customization?.layout_compaction ?? DashboardGridCompaction.Vertical}
-                        onValueChange={(value) => changeDashboardGridCompaction(value as DashboardGridCompaction)}
+                        onValueChange={(value: unknown) =>
+                            changeDashboardGridCompaction(value as DashboardGridCompaction)
+                        }
                     >
                         {Object.values(DashboardGridCompaction).map((mode) => (
                             <SceneMenuBarRadioItem
