@@ -178,6 +178,7 @@ class TestSignalsProductModuleIntegrity:
             "stamp_dispatched_signals_scout_runs_activity",
             "run_due_signal_report_checks_activity",
             "evaluate_signals_scout_precheck_activity",
+            "check_signals_scout_config_runnable_activity",
             "run_signals_scout_activity",
             "cancel_failed_scout_trial_activity",
             "load_scout_trial_evaluation_activity",
