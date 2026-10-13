@@ -537,6 +537,14 @@ class TestStarExpansion:
         assert not result.eligible
         assert any(expected in blocker for blocker in result.blockers), result.blockers
 
+    def test_an_unresolved_query_is_not_blamed_on_the_key_type(self) -> None:
+        result = self._check(
+            "SELECT timestamp, uuid FROM no_such_table",
+            IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",)),
+        )
+
+        assert not any("could not be determined" in blocker for blocker in result.blockers), result.blockers
+
     @parameterized.expand(
         [
             (
@@ -561,14 +569,6 @@ class TestStarExpansion:
             ),
         ]
     )
-    def test_an_unresolved_query_is_not_blamed_on_the_key_type(self) -> None:
-        result = self._check(
-            "SELECT timestamp, uuid FROM no_such_table",
-            IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",)),
-        )
-
-        assert not any("could not be determined" in blocker for blocker in result.blockers), result.blockers
-
     def test_a_configured_key_that_is_not_a_date_or_datetime_is_blocked(
         self, _name: str, query: str, config: IncrementalConfig
     ) -> None:
