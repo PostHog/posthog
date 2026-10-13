@@ -394,6 +394,10 @@ class FeatureFlagActionBase(BaseAction):
     # `owner_in_scope` reads it; an owner-scoped subclass sets it.
     owner_scope: Optional[str] = None
 
+    # The write this action gates, named so the same write can be recognised across families.
+    # Two families name one operation with two keys, and only the operation makes them comparable.
+    gated_operation: str
+
     # Subclasses define the target state
     target_active_state: bool
 
@@ -588,6 +592,7 @@ class EnableFeatureFlagAction(FeatureFlagActionBase):
     key = "feature_flag.enable"
     version = 1
     description = "Enable a feature flag"
+    gated_operation = "enable"
     target_active_state = True
     gate_on_create = True
 
@@ -609,6 +614,7 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
     key = "feature_flag.disable"
     version = 1
     description = "Disable a feature flag"
+    gated_operation = "disable"
     target_active_state = False
 
     @classmethod
@@ -639,6 +645,9 @@ class UpdateFeatureFlagAction(BaseAction):
 
     # Which product's flags this family governs, or None for the flags no product owns.
     owner_scope: Optional[str] = None
+
+    # The write this action gates. See `FeatureFlagActionBase.gated_operation`.
+    gated_operation = "update"
 
     GATEABLE_FIELDS: dict[str, dict[str, str]] = {
         "rollout_percentage": {
