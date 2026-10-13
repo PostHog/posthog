@@ -38,6 +38,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.approvals.backend.exceptions import ApprovalRequired as ApprovalRequired
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
@@ -352,6 +353,11 @@ def ship_variant(
         release_condition_description=release_condition_description,
     )
     return update_flag(flag, {"filters": new_filters}, team=team, user=user, request=request)
+
+
+def find_flag_by_key(*, team_id: int, key: str) -> FeatureFlag | None:
+    """The team's live (not soft-deleted) flag with this key, or None."""
+    return FeatureFlag.objects.filter(team_id=team_id, key=key, deleted=False).first()
 
 
 def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:
