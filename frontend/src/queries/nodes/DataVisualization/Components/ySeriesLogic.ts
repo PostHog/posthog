@@ -31,9 +31,9 @@ export interface ySeriesLogicValues {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
         excludeFromTotal: boolean
-        valueLabels: 'auto' | 'hide' | 'show'
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }
     displayAllErrors: Record<string, any>
@@ -43,9 +43,9 @@ export interface ySeriesLogicValues {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
             excludeFromTotal: boolean
-            valueLabels: 'auto' | 'hide' | 'show'
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -59,9 +59,9 @@ export interface ySeriesLogicValues {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
             excludeFromTotal: boolean
-            valueLabels: 'auto' | 'hide' | 'show'
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -120,18 +120,18 @@ export interface ySeriesLogicActions {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
         excludeFromTotal: boolean
-        valueLabels: 'auto' | 'hide' | 'show'
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         values?: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
             excludeFromTotal: boolean
-            valueLabels: 'auto' | 'hide' | 'show'
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -163,9 +163,9 @@ export interface ySeriesLogicActions {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
             excludeFromTotal: boolean
-            valueLabels: 'auto' | 'hide' | 'show'
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }>
     ) => {
@@ -173,9 +173,9 @@ export interface ySeriesLogicActions {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
             excludeFromTotal: boolean
-            valueLabels: 'auto' | 'hide' | 'show'
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }>
     }
@@ -224,18 +224,18 @@ export interface ySeriesLogicActions {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
         excludeFromTotal: boolean
-        valueLabels: 'auto' | 'hide' | 'show'
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
             excludeFromTotal: boolean
-            valueLabels: 'auto' | 'hide' | 'show'
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -243,18 +243,18 @@ export interface ySeriesLogicActions {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
         excludeFromTotal: boolean
-        valueLabels: 'auto' | 'hide' | 'show'
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
             excludeFromTotal: boolean
-            valueLabels: 'auto' | 'hide' | 'show'
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
