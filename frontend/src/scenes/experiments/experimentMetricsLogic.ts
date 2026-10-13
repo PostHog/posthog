@@ -117,16 +117,13 @@ const metricErrorEntries = (recalculation: RecalculationPayload): Record<string,
     (recalculation.metric_errors as Record<string, MetricErrorEntry> | null) ?? {}
 
 /**
- * Metric uuids a run resolved: a result, or a failure a new run cannot fix. A retriable failure reads as a
- * gap and heals; an entry without the flag predates it and counts as covered, so an old run never heals in a loop.
+ * Metric uuids the run has an entry for: a result or an error. A failure, retriable or not, counts as
+ * covered, because only a manual retry or a manual recalculation runs a failed metric again.
  */
-const coveredMetricUuids = (recalculation: RecalculationPayload): string[] => {
-    const errors = metricErrorEntries(recalculation)
-    const retriable = new Set(Object.keys(errors).filter((uuid) => errors[uuid]?.retriable === true))
-    return [...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid), ...Object.keys(errors)].filter(
-        (uuid) => !retriable.has(uuid)
-    )
-}
+const coveredMetricUuids = (recalculation: RecalculationPayload): string[] => [
+    ...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid),
+    ...Object.keys(metricErrorEntries(recalculation)),
+]
 
 /**
  * The trigger that fills a gap, by where the latest payload came from. A real run is healed in place:
@@ -148,13 +145,10 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
 
     const coveredUuids = new Set(coveredMetricUuids(recalculation))
 
-    return (
-        recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
-        currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
-    )
+    return currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
 }
 
-type MetricErrorState = { detail: string } | null
+type MetricErrorState = { detail: string; retriable: boolean } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
 /**
@@ -198,7 +192,7 @@ const resolveResultByUuid = (
 }
 
 /**
- * Resolver: a metric's failure as `{ detail }` (the MetricErrorState shape), or null. `metric_errors`
+ * Resolver: a metric's failure as `{ detail, retriable }` (the MetricErrorState shape), or null. `metric_errors`
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
  * failed row's error_message.
  */
@@ -211,7 +205,7 @@ const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<
     )
     return (uuid) => {
         const message = metricErrors[uuid]?.message ?? failedResultMessageByUuid.get(uuid)
-        return message ? { detail: message } : null
+        return message ? { detail: message, retriable: metricErrors[uuid]?.retriable === true } : null
     }
 }
 

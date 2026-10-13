@@ -1,24 +1,42 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { ACCURACY_CUTOFFS, PooledConfusion, percent } from '../onlinePerformance'
-import { MetricCard } from './MetricCard'
+import { ACCURACY_CUTOFFS, confusionDateRange, percent } from '../onlinePerformance'
+import { eventName } from '../pipelineQuestion'
+import { SectionCard } from './SectionCard'
 
-function dateRange({ firstDate, lastDate }: PooledConfusion): string {
-    const last = dayjs(lastDate).format('MMM D, YYYY')
-    return firstDate === lastDate ? last : `${dayjs(firstDate).format('MMM D')} to ${last}`
+function Cell({ count, label, tint }: { count: number; label: string; tint: string }): JSX.Element {
+    return (
+        <div className={`rounded p-3 min-w-0 ${tint}`}>
+            <div className="text-xl @xl:text-2xl font-semibold tabular-nums">{count.toLocaleString()}</div>
+            <div className="text-xs text-secondary">{label}</div>
+        </div>
+    )
 }
 
-function Cell({ count, label }: { count: number; label: string }): JSX.Element {
+function Rate({
+    label,
+    value,
+    detail,
+    tooltip,
+}: {
+    label: string
+    value: number | null
+    detail: string
+    tooltip: string
+}): JSX.Element {
     return (
-        <td className="border p-2 text-right">
-            <div className="text-base font-semibold tabular-nums">{count.toLocaleString()}</div>
-            <div className="text-xs text-muted">{label}</div>
-        </td>
+        <div className="min-w-0 max-w-32 self-center">
+            <Tooltip title={tooltip}>
+                <div className="text-xs font-semibold text-muted cursor-help">{label}</div>
+            </Tooltip>
+            <div className="text-lg font-bold tabular-nums">{value != null ? percent(value) : '—'}</div>
+            <div className="text-xs text-secondary">{detail}</div>
+        </div>
     )
 }
 
@@ -26,14 +44,17 @@ function Cell({ count, label }: { count: number; label: string }): JSX.Element {
 export function ConfusionMatrixCard(): JSX.Element {
     const { pipeline, accuracyCutoff, championConfusion: confusion } = useValues(autoresearchPipelineLogic)
     const { setAccuracyCutoff } = useActions(autoresearchPipelineLogic)
-    const target = pipeline?.target_event ?? 'the target event'
+    const target = pipeline ? eventName(pipeline.target_event) : 'the target event'
 
     return (
-        <section className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold mb-0">
-                    Who the model flagged{confusion ? `, ${dateRange(confusion)}` : ''}
-                </h3>
+        <SectionCard
+            title="Who the model flagged"
+            description={
+                confusion
+                    ? `People scored ${confusion.firstDate === confusion.lastDate ? 'on' : 'from'} ${confusionDateRange(confusion)}`
+                    : undefined
+            }
+            actions={
                 <LemonSegmentedButton
                     size="small"
                     value={accuracyCutoff}
@@ -41,7 +62,8 @@ export function ConfusionMatrixCard(): JSX.Element {
                     options={ACCURACY_CUTOFFS.map(({ key, label }) => ({ value: key, label }))}
                     data-attr="autoresearch-model-accuracy-cutoff"
                 />
-            </div>
+            }
+        >
             {!confusion ? (
                 <p className="text-sm text-muted mb-0">
                     Precision and recall start from the next checked date. Dates checked before that have no counts.
@@ -60,37 +82,33 @@ export function ConfusionMatrixCard(): JSX.Element {
                             scores did.
                         </LemonBanner>
                     ) : (
-                        <div className="flex flex-wrap items-start gap-4">
-                            <table className="text-sm border-collapse">
-                                <thead>
-                                    <tr>
-                                        <th />
-                                        <th className="p-2 text-right font-semibold">Did {target}</th>
-                                        <th className="p-2 text-right font-semibold">Didn't</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <th className="p-2 text-left font-semibold">Flagged</th>
-                                        <Cell count={confusion.tp} label="Correct" />
-                                        <Cell count={confusion.fp} label="False alarm" />
-                                    </tr>
-                                    <tr>
-                                        <th className="p-2 text-left font-semibold">Not flagged</th>
-                                        <Cell count={confusion.fn} label="Missed" />
-                                        <Cell count={confusion.tn} label="Correct" />
-                                    </tr>
-                                </tbody>
-                            </table>
-                            <div className="grid grid-cols-2 gap-2 min-w-60">
-                                <MetricCard
+                        <div className="@container">
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-stretch">
+                                <div />
+                                <div className="text-sm font-semibold">Did it</div>
+                                <div className="text-sm font-semibold">Didn't</div>
+                                <div />
+
+                                <div className="text-sm font-semibold self-center">Flagged</div>
+                                <Cell count={confusion.tp} label="Caught" tint="bg-success-highlight" />
+                                <Cell count={confusion.fp} label="False alarm" tint="bg-warning-highlight" />
+                                <Rate
                                     label="Hit rate"
-                                    value={confusion.precision != null ? percent(confusion.precision) : '—'}
+                                    value={confusion.precision}
+                                    detail={`${confusion.tp.toLocaleString()} of ${confusion.flagged.toLocaleString()} flagged`}
                                     tooltip={`Precision: the share of flagged people who did ${target}.`}
                                 />
-                                <MetricCard
+
+                                <div className="text-sm font-semibold self-center">Not flagged</div>
+                                <Cell count={confusion.fn} label="Missed" tint="bg-danger-highlight" />
+                                <Cell count={confusion.tn} label="Correctly ignored" tint="bg-surface-secondary" />
+                                <div />
+
+                                <div />
+                                <Rate
                                     label="Coverage"
-                                    value={confusion.recall != null ? percent(confusion.recall) : '—'}
+                                    value={confusion.recall}
+                                    detail={`${confusion.tp.toLocaleString()} of ${(confusion.tp + confusion.fn).toLocaleString()} who did it`}
                                     tooltip={`Recall: the share of everyone who did ${target} that the model flagged.`}
                                 />
                             </div>
@@ -98,6 +116,6 @@ export function ConfusionMatrixCard(): JSX.Element {
                     )}
                 </>
             )}
-        </section>
+        </SectionCard>
     )
 }

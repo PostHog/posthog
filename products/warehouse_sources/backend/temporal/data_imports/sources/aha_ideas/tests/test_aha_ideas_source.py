@@ -1,50 +1,52 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.source import AhaIdeasSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahaideas import (
     AhaIdeasSourceConfig,
 )
 
 
 class TestAhaIdeasSource:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.source = AhaIdeasSource()
         self.team_id = 123
         self.config = AhaIdeasSourceConfig(subdomain="acme", api_key="key")
 
-    def test_subdomain_listed_as_connection_host_field(self):
+    def test_subdomain_listed_as_connection_host_field(self) -> None:
         # The API key is sent to <subdomain>.aha.io, so retargeting the subdomain must re-require it.
         assert self.source.connection_host_fields == ["subdomain"]
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "status_code, expected_valid, expected_message",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Aha! API key"),
-            ((False, 403), False, "Could not connect to Aha! with the provided account domain and API key"),
-            ((False, None), False, "Could not connect to Aha! with the provided account domain and API key"),
+            (200, True, None),
+            (401, False, "Invalid Aha! API key"),
+            (403, False, "Could not connect to Aha! with the provided account domain and API key"),
+            (None, False, "Could not connect to Aha! with the provided account domain and API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.source.validate_aha_ideas_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(
+        self, status_code: int | None, expected_valid: bool, expected_message: str | None
+    ) -> None:
+        script = [ConnectionResetError("reset")] if status_code is None else [ScriptedResponse(status=status_code)]
+        with scripted_network(script) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("acme", "key")
+        assert network.requests_log
+        assert all(request.path == "/api/v1/me" for request in network.requests_log)
+        assert all(request.headers["authorization"] == "Bearer key" for request in network.requests_log)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.source.validate_aha_ideas_credentials"
-    )
-    def test_validate_credentials_surfaces_bad_subdomain(self, mock_validate):
-        mock_validate.side_effect = ValueError("Invalid Aha! account domain: 'a/b'.")
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials_surfaces_bad_subdomain(self) -> None:
+        self.config = AhaIdeasSourceConfig(subdomain="a/b", api_key="key")
+        with scripted_network([]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert "Invalid Aha! account domain" in (error_message or "")
+        assert network.requests_log == []

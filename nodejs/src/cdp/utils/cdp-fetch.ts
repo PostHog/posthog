@@ -84,6 +84,16 @@ export function isConnectionLevelError(error: any): boolean {
 // attempt to a host fails, and the per-address reasons (ECONNREFUSED, ETIMEDOUT, ...) live in
 // `errors`. Without unpacking them, the customer-facing log reads "AggregateError: " with no way
 // to tell a DNS failure from a refused connection.
+// AbortSignal.timeout rejects with a TimeoutError. undici reports some aborts as an
+// AbortError, and can wrap either one in `cause`.
+const TIMEOUT_ERROR_NAMES = ['TimeoutError', 'AbortError']
+
+export const isTimeoutError = (error: unknown): boolean => {
+    const name = (error as { name?: string } | null)?.name
+    const causeName = (error as { cause?: { name?: string } } | null)?.cause?.name
+    return TIMEOUT_ERROR_NAMES.includes(name ?? '') || TIMEOUT_ERROR_NAMES.includes(causeName ?? '')
+}
+
 export function fetchErrorDetail(error: Error): string {
     const causes =
         error instanceof AggregateError && error.errors.length > 0
