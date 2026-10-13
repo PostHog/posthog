@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconExternal, IconPullRequest } from '@posthog/icons'
@@ -48,6 +48,7 @@ import {
     pullRequestDetailLogic,
     latestRunPerWorkflow,
 } from './pullRequestDetailLogic'
+import { repoScopeLogic } from './repoScopeLogic'
 
 export const scene: SceneExport<PullRequestDetailLogicProps> = {
     component: PullRequestDetailScene,
@@ -407,6 +408,8 @@ function PrWorkflowsTable({
 }
 
 export function PullRequestDetailScene(): JSX.Element {
+    // Remembers this repository, so the product root reopens it.
+    useMountedLogic(repoScopeLogic)
     const {
         lifecycle,
         lifecycleLoading,

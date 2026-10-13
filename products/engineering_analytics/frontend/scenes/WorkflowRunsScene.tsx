@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
@@ -42,6 +42,7 @@ import { githubCommitUrl, githubWorkflowUrl } from '../lib/github'
 import { jobCacheKey } from '../lib/jobs'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { withScope } from '../lib/scope'
+import { repoScopeLogic } from './repoScopeLogic'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
 /** Spend by runner tier: tier, job count, cost (or 'free'), share bar scaled to billable spend. */
@@ -96,6 +97,8 @@ function runRowKey(run: WorkflowRunRow): string {
 }
 
 export function WorkflowRunsScene(): JSX.Element {
+    // Remembers this repository, so the product root reopens it.
+    useMountedLogic(repoScopeLogic)
     const {
         runRows,
         runsLoading,

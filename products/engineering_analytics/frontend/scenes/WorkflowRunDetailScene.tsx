@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
@@ -26,6 +26,7 @@ import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
 import { withScope } from '../lib/scope'
+import { repoScopeLogic } from './repoScopeLogic'
 import { WorkflowRunDetailLogicProps, workflowRunDetailLogic } from './workflowRunDetailLogic'
 
 export const scene: SceneExport<WorkflowRunDetailLogicProps> = {
@@ -41,6 +42,8 @@ export const scene: SceneExport<WorkflowRunDetailLogicProps> = {
 }
 
 export function WorkflowRunDetailScene(): JSX.Element {
+    // Remembers this repository, so the product root reopens it.
+    useMountedLogic(repoScopeLogic)
     const {
         run,
         runLoading,
