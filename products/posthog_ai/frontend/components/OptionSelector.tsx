@@ -186,6 +186,7 @@ export function OptionSelector({
                                 value={customInput}
                                 onChange={setCustomInput}
                                 onPressEnter={handleCustomSubmit}
+                                disabled={disabled}
                                 autoFocus={true}
                             />
                         ) : (
@@ -202,7 +203,7 @@ export function OptionSelector({
                         })}
                     >
                         {onSkip && (
-                            <LemonButton type="secondary" size="small" onClick={onSkip}>
+                            <LemonButton type="secondary" size="small" onClick={onSkip} disabled={disabled}>
                                 Skip question
                             </LemonButton>
                         )}

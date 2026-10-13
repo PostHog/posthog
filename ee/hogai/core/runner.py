@@ -529,9 +529,9 @@ class BaseAgentRunner(ABC):
                                 original_tool_call_id=interrupt.value.original_tool_call_id,
                                 message_id=message_id,
                             )
-                            yield AssistantEventType.APPROVAL, approval_payload
                             # Store approval card metadata for persistence (page reload)
                             await self._store_approval_card_data(approval_payload)
+                            yield AssistantEventType.APPROVAL, approval_payload
                         else:
                             interrupt_message = interrupt.value
                             interrupt_messages.append(interrupt_message)
@@ -590,6 +590,7 @@ class BaseAgentRunner(ABC):
                 if message.id is not None:
                     self._stream_processor.mark_id_as_streamed(message.id)
 
+            await self._conversation.arefresh_from_db(fields=["approval_decisions"])
             await self._expire_pending_approvals(
                 keep={
                     proposal_id
@@ -806,7 +807,6 @@ class BaseAgentRunner(ABC):
         if not action or not proposal_id:
             return
 
-        await self._conversation.arefresh_from_db(fields=["approval_decisions"])
         if proposal_id not in self._conversation.approval_decisions:
             return
 
@@ -827,9 +827,6 @@ class BaseAgentRunner(ABC):
         ]
 
     async def _expire_pending_approvals(self, keep: set[str]) -> None:
-        if not self._pending_proposal_ids(keep):
-            return
-        await self._conversation.arefresh_from_db(fields=["approval_decisions"])
         expired_ids = self._pending_proposal_ids(keep)
         for proposal_id in expired_ids:
             self._conversation.approval_decisions[proposal_id]["decision_status"] = ApprovalDecisionStatus.AUTO_REJECTED
