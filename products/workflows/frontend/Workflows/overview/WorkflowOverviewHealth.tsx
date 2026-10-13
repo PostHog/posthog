@@ -58,8 +58,17 @@ function rateItem(
     }
 }
 
+// A failed step does not fail the run when the step continues on error, so the run status filter would miss it.
+function loggedErrorsUrl(id: string, dateFrom?: string | null, dateTo?: string | null): string {
+    const search = new URLSearchParams({ inv_problems: '1', inv_date_from: dateFrom ?? '-7d' })
+    if (dateTo) {
+        search.set('inv_date_to', dateTo)
+    }
+    return `${urls.workflow(id, 'invocations')}?${search.toString()}`
+}
+
 export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const { healthTotals, healthTotalsLoading, failedRuns, stepTotalsLoading } = useValues(
+    const { healthTotals, healthTotalsLoading, failedRuns, stepTotalsLoading, params } = useValues(
         workflowOverviewLogic({ id, logicKey })
     )
     const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id }))
@@ -98,11 +107,11 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
                         detail={
                             (failedRuns ?? 0) > 0 ? (
                                 <Link
-                                    to={urls.workflow(id, 'invocations')}
+                                    to={loggedErrorsUrl(id, params.dateFrom, params.dateTo)}
                                     data-attr="workflow-overview-health-failures"
                                 >
                                     {started > 0 ? `${percentage((failedRuns ?? 0) / started, 1)} of started. ` : ''}
-                                    View invocations
+                                    View runs with errors
                                 </Link>
                             ) : (
                                 'No errors'
