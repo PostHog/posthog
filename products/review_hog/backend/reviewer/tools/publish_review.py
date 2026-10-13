@@ -261,8 +261,9 @@ def publish_review(
     repository = f"{owner}/{repo}"
     if not publishable:
         logger.info("No publishable issues found, skipping review")
-        # A clean Standard turn posts no findings, so the 👍 is the sign that the review ran.
-        if standard:
+        # A clean Standard turn posts no findings, so the 👍 is the sign that the review ran. Once any turn
+        # published findings, the 👍 stays off, because a later clean turn does not clear those findings.
+        if standard and report.published_head_sha is None:
             add_pr_reaction(repository, pr_number, "+1", token=token, installation_id=installation_id)
         if large_pr_parts is not None:
             # Not a published turn: the watermark stays unset, so a later turn on this head can still publish.
