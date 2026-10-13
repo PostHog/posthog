@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
+from posthog.dataclasses import frozen
+
 from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.network import MultiHeadNetwork, export_onnx
@@ -52,13 +54,20 @@ def _auc(y: np.ndarray, scores: np.ndarray) -> float | None:
     return float(roc_auc_score(y, scores))
 
 
+@frozen
+class GradedHeads:
+    holdout_network: MultiHeadNetwork
+    trained: list[NetworkHead]
+    skipped: list[str]
+
+
 def _graded_heads(
     table: ExampleTable,
     inputs: NetworkInputs,
     heads: Sequence[Head],
     config: NetworkConfig,
     train_rows: np.ndarray,
-) -> tuple[MultiHeadNetwork, list[NetworkHead], list[str]]:
+) -> GradedHeads:
     """The train-only network, each head it can grade, and each head with nothing to fit."""
     all_rows = np.arange(len(inputs))
     holdout_network = _fit(inputs, heads, config, table.labels, train_rows)
@@ -96,7 +105,7 @@ def _graded_heads(
             holdout_team_ids=table.team_ids(test),
         )
         trained.append(NetworkHead(metrics=metrics, calibration=calibration))
-    return holdout_network, trained, skipped
+    return GradedHeads(holdout_network=holdout_network, trained=trained, skipped=skipped)
 
 
 def train_network(
@@ -106,14 +115,14 @@ def train_network(
     output_heads = tuple(head.name for head in heads)
     train_rows = table.network_train_rows()
     refit_rows = np.flatnonzero((~np.isnan(table.labels)).any(axis=1))
-    holdout_network, trained, skipped = (
-        _graded_heads(table, inputs, heads, config, train_rows) if len(train_rows) else (None, [], list(output_heads))
-    )
+    graded = _graded_heads(table, inputs, heads, config, train_rows) if len(train_rows) else None
+    trained = graded.trained if graded is not None else []
+    skipped = graded.skipped if graded is not None else list(output_heads)
     model_onnx = holdout_model_onnx = None
-    if holdout_network is not None and trained:
+    if graded is not None and trained:
         # Refit on everything before shipping: the holdout only exists to grade the recipe.
         model_onnx = _onnx_bytes(_fit(inputs, heads, config, table.labels, refit_rows))
-        holdout_model_onnx = _onnx_bytes(holdout_network)
+        holdout_model_onnx = _onnx_bytes(graded.holdout_network)
     return TrainedNetwork(
         output_heads=output_heads,
         model_onnx=model_onnx,

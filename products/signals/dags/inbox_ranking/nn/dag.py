@@ -27,6 +27,7 @@ import dagster
 import pyarrow as pa
 
 from posthog import settings
+from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import Extras
 from products.signals.backend.ranking.overrides import read_ranking_overrides
@@ -88,9 +89,16 @@ NETWORK_CONFIG = NetworkConfig()
 NN_ASSET_KWARGS: dict[str, Any] = {**COMMON_ASSET_KWARGS, "group_name": "inbox_ranking_nn"}
 
 
+@frozen
+class DayInputs:
+    extras: Extras
+    labels: pa.Table
+    embeddings: pa.Table
+
+
 def _day_inputs(
     context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
-) -> tuple[Extras, pa.Table, pa.Table] | None:
+) -> DayInputs | None:
     """The report vectors, and the labels and embeddings snapshots the project vectors read, all from
     dt=D; None when either snapshot is missing. One embeddings snapshot serves every moment of the
     window, as in the main training job: each vector carries the moment it landed."""
@@ -104,7 +112,7 @@ def _day_inputs(
         missing = [name for name, table in ((EMBEDDINGS_TABLE, embeddings), (LABELS_TABLE, labels)) if table is None]
         context.log.warning(f"no {', '.join(missing)} snapshot for dt={partition_key}; nn skips this partition")
         return None
-    return report_vectors(embeddings), labels, embeddings
+    return DayInputs(extras=report_vectors(embeddings), labels=labels, embeddings=embeddings)
 
 
 @dagster.asset(
@@ -132,9 +140,8 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     if day is None:
         context.add_output_metadata({"skipped": dagster.MetadataValue.bool(True)})
         return
-    extras, _, _ = day
     snapshots, excluded = drop_without_training_consent(snapshots, training_consent_team_ids())
-    examples = build_examples(snapshots, extras, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS)
+    examples = build_examples(snapshots, day.extras, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS)
     if examples.rows_without_team:
         context.log.warning(f"{examples.rows_without_team} moments have no team and no project vectors; dropped")
 
@@ -184,9 +191,8 @@ def train_candidate(
     if day is None:
         return {"skipped": dagster.MetadataValue.bool(True)}
     examples = examples_from_arrow(arrow)
-    extras, labels, embeddings = day
-    inputs = network_inputs(examples.table, extras, labels, embeddings)
-    del extras, labels, embeddings, day
+    inputs = network_inputs(examples.table, day.extras, day.labels, day.embeddings)
+    del day
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
         train_network,
@@ -292,8 +298,9 @@ def decide_champion(
             return {}
         table = examples_from_arrow(arrow).table
         holdout = subset(table, np.flatnonzero(table.holdout.any(axis=1)))
-        extras, labels, embeddings = day
-        return champion_grades(champion, holdout_model, holdout, network_inputs(holdout, extras, labels, embeddings))
+        return champion_grades(
+            champion, holdout_model, holdout, network_inputs(holdout, day.extras, day.labels, day.embeddings)
+        )
 
     return decide_family_champion(
         context,
