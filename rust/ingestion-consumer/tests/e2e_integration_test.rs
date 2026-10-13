@@ -125,26 +125,42 @@ async fn produce_in_one_transaction(
         .iter()
         .map(|&(distinct_id, seq)| (format!("{token}:{distinct_id}"), distinct_id, seq))
         .collect::<Vec<_>>();
-    let records: Vec<(&str, &str, usize)> = records
+    let records: Vec<(i32, &str, &str, usize)> = records
         .iter()
-        .map(|(key, distinct_id, seq)| (key.as_str(), *distinct_id, *seq))
+        .map(|(key, distinct_id, seq)| (partition, key.as_str(), *distinct_id, *seq))
         .collect();
-    produce_keyed_in_one_transaction(topic, partition, token, &records).await;
+    produce_keyed_in_one_transaction(topic, token, &records).await;
 }
 
-/// Like `produce_in_one_transaction`, with each record's Kafka key given as
-/// `(key, distinct_id, seq)`.
+/// Visitors A and B take turns behind one Kafka key, as cookieless visitors
+/// behind one `token:ip` key do.
+fn alternating_visitors(
+    partition: i32,
+    key: &str,
+    first_seq: usize,
+) -> [(i32, &str, &str, usize); 4] {
+    [
+        (partition, key, "visitor-a", first_seq),
+        (partition, key, "visitor-b", first_seq + 1),
+        (partition, key, "visitor-a", first_seq + 2),
+        (partition, key, "visitor-b", first_seq + 3),
+    ]
+}
+
+/// Like `produce_in_one_transaction`, with each record given as
+/// `(partition, key, distinct_id, seq)`.
 async fn produce_keyed_in_one_transaction(
     topic: &str,
-    partition: i32,
     token: &str,
-    records: &[(&str, &str, usize)],
+    records: &[(i32, &str, &str, usize)],
 ) {
     let topic = topic.to_string();
     let token = token.to_string();
-    let records: Vec<(String, String, usize)> = records
+    let records: Vec<(i32, String, String, usize)> = records
         .iter()
-        .map(|&(key, distinct_id, seq)| (key.to_string(), distinct_id.to_string(), seq))
+        .map(|&(partition, key, distinct_id, seq)| {
+            (partition, key.to_string(), distinct_id.to_string(), seq)
+        })
         .collect();
     // The transaction calls block, so keep them off the test's runtime thread,
     // which also serves the fake workers.
@@ -160,7 +176,7 @@ async fn produce_keyed_in_one_transaction(
             .init_transactions(timeout)
             .expect("init transactions");
         producer.begin_transaction().expect("begin transaction");
-        for (key, distinct_id, seq) in &records {
+        for (partition, key, distinct_id, seq) in &records {
             let value = format!(r#"{{"seq":{seq}}}"#);
             let headers = OwnedHeaders::new()
                 .insert(Header {
@@ -176,7 +192,7 @@ async fn produce_keyed_in_one_transaction(
                     BaseRecord::to(&topic)
                         .key(key.as_str())
                         .payload(&value)
-                        .partition(partition)
+                        .partition(*partition)
                         .headers(headers),
                 )
                 .map_err(|(err, _)| err)
@@ -242,6 +258,9 @@ struct FakeWorker {
     pub time_out_once: Arc<Mutex<Option<String>>>,
     /// (distinct_id, seq) pairs that arrived in a sub-batch marked as replay.
     pub replayed: Arc<Mutex<Vec<(String, usize)>>>,
+    /// When true, a replay sub-batch is dropped without an ack, as a worker
+    /// stuck on it would leave it.
+    pub hold_replays: Arc<AtomicBool>,
     /// When set, the next sub-batch is ingested in full but reports one
     /// message fewer than sent — a partial-acceptance contract violation.
     pub underreport_once: Arc<AtomicBool>,
@@ -282,6 +301,7 @@ impl FakeWorker {
         let underreport_once = Arc::new(AtomicBool::new(false));
         let time_out_once = Arc::new(Mutex::new(None));
         let replayed = Arc::new(Mutex::new(Vec::new()));
+        let hold_replays = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(AtomicUsize::new(0));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
@@ -329,6 +349,7 @@ impl FakeWorker {
             underreport_once: Arc::clone(&underreport_once),
             time_out_once: Arc::clone(&time_out_once),
             replayed: Arc::clone(&replayed),
+            hold_replays: Arc::clone(&hold_replays),
             arrived: Arc::clone(&arrived),
             gate: Arc::clone(&gate),
             delivery_log,
@@ -358,6 +379,7 @@ impl FakeWorker {
             underreport_once,
             time_out_once,
             replayed,
+            hold_replays,
             arrived,
             gate,
             _task: task,
@@ -407,6 +429,7 @@ struct FakeWorkerGrpc {
     underreport_once: Arc<AtomicBool>,
     time_out_once: Arc<Mutex<Option<String>>>,
     replayed: Arc<Mutex<Vec<(String, usize)>>>,
+    hold_replays: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
     gate: Arc<tokio::sync::Mutex<()>>,
     delivery_log: Option<DeliveryLog>,
@@ -433,6 +456,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let underreport_once = Arc::clone(&self.underreport_once);
         let time_out_once = Arc::clone(&self.time_out_once);
         let replayed = Arc::clone(&self.replayed);
+        let hold_replays = Arc::clone(&self.hold_replays);
         let arrived = Arc::clone(&self.arrived);
         let gate = Arc::clone(&self.gate);
         let delivery_log = self.delivery_log.clone();
@@ -472,6 +496,9 @@ impl WorkerIngestService for FakeWorkerGrpc {
                 if reject_4xx.load(Ordering::SeqCst) {
                     nack(&tx, sub_batch.seq, "poison batch");
                     return;
+                }
+                if sub_batch.replay && hold_replays.load(Ordering::SeqCst) {
+                    continue;
                 }
                 let entries: Vec<(String, usize)> = sub_batch
                     .messages
@@ -680,23 +707,30 @@ impl Harness {
         .await
     }
 
-    /// One key-table consumer with one worker and one partition, sending
-    /// `soft_budget` on every request.
-    async fn start_budgeted(topic: &str, soft_budget: Duration, pack_targets: PackTargets) -> Self {
+    /// One key-table consumer with one worker, sending a soft budget on every
+    /// request.
+    async fn start_budgeted(topic: &str, partitions: i32) -> Self {
         Self::start_inner(
             SchedulerKind::KeyTable,
             topic,
+            partitions,
             1,
-            1,
-            // A poll can end after one message, so the next polls must reach
-            // the packer while that message waits for the rest of its run.
-            4,
+            // A poll can end after one message, so later polls must reach the
+            // packer while the first waits for its run. Every poll under a
+            // held request also stays in flight, and a full cap stops polling.
+            512,
             Duration::from_secs(60),
             fast_registry_config(),
             0,
             ComponentOptions::new(),
-            pack_targets,
-            Some(soft_budget),
+            // A request waits for four events per partition, which one
+            // `alternating_visitors` call per partition fills.
+            PackTargets {
+                events: NonZeroUsize::new(4 * partitions as usize),
+                bytes: None,
+                latency_budget: Duration::from_secs(5),
+            },
+            Some(Duration::from_millis(500)),
         )
         .await
     }
@@ -1118,27 +1152,13 @@ async fn messages_per_distinct_id_arrive_in_order(
 #[tokio::test]
 async fn a_partial_ack_redelivers_only_the_timed_out_messages() {
     let topic = format!("e2e-partial-{}", Uuid::new_v4());
-    // The packer holds the key's run until four events are ready, so all four
-    // ride one request however the consumer's polls split them.
-    let pack_targets = PackTargets {
-        events: NonZeroUsize::new(4),
-        bytes: None,
-        latency_budget: Duration::from_secs(5),
-    };
-    let harness = Harness::start_budgeted(&topic, Duration::from_millis(500), pack_targets).await;
+    let harness = Harness::start_budgeted(&topic, 1).await;
     *harness.workers[0].time_out_once.lock().unwrap() = Some("visitor-a".to_string());
 
-    let key = "tok:203.0.113.7";
     produce_keyed_in_one_transaction(
         &topic,
-        0,
         "tok",
-        &[
-            (key, "visitor-a", 0),
-            (key, "visitor-b", 1),
-            (key, "visitor-a", 2),
-            (key, "visitor-b", 3),
-        ],
+        &alternating_visitors(0, "tok:203.0.113.7", 0),
     )
     .await;
     // A commit means every resend settled, so a late duplicate is in the log.
@@ -1164,6 +1184,213 @@ async fn a_partial_ack_redelivers_only_the_timed_out_messages() {
         "only the timed-out messages are redelivered, marked as replay"
     );
 
+    harness.stop().await;
+}
+
+/// A consumer crash after a partial ack, while its resend is unacked, loses
+/// none of the timed-out messages. The partial ack completed the poll's other
+/// messages, so a commit past a timed-out offset would skip it on restart.
+#[tokio::test]
+async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
+    let topic = format!("e2e-partial-crash-{}", Uuid::new_v4());
+    let mut harness = Harness::start_budgeted(&topic, 1).await;
+    *harness.workers[0].time_out_once.lock().unwrap() = Some("visitor-a".to_string());
+    // The resend never settles, so it is still in flight at the crash.
+    harness.workers[0]
+        .hold_replays
+        .store(true, Ordering::SeqCst);
+
+    produce_keyed_in_one_transaction(
+        &topic,
+        "tok",
+        &alternating_visitors(0, "tok:203.0.113.7", 0),
+    )
+    .await;
+    wait_until(
+        Duration::from_secs(15),
+        "the resend to reach the worker",
+        || harness.workers[0].arrived_count() >= 2,
+    )
+    .await;
+    assert!(
+        harness.workers[0].seqs_for("visitor-a").is_empty(),
+        "visitor A's messages timed out"
+    );
+
+    // The consumer commits asynchronously, so a wrong commit can land after
+    // the crash and go unseen by the restart.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        harness.committed_offset(0),
+        None,
+        "nothing commits while a timed-out message waits for its resend"
+    );
+
+    harness.crash_consumer();
+    harness.restart_consumer(fast_registry_config()).await;
+
+    wait_until(
+        Duration::from_secs(30),
+        "the offsets to commit after the restart",
+        || {
+            harness
+                .committed_offset(0)
+                .is_some_and(|offset| offset >= 4)
+        },
+    )
+    .await;
+    assert_eq!(
+        harness.workers[0].seqs_for("visitor-a"),
+        vec![0, 2],
+        "the restarted consumer delivers the timed-out messages"
+    );
+
+    harness.stop().await;
+}
+
+/// A partial ack that arrives after its partition was revoked resends nothing.
+/// The new owner replays the partition from its committed offset, so a resend
+/// by the old owner would deliver the timed-out messages twice.
+#[tokio::test]
+async fn a_partial_ack_after_a_revoke_resends_nothing() {
+    let topic = format!("e2e-partial-revoke-{}", Uuid::new_v4());
+    let harness = Harness::start_budgeted(&topic, 2).await;
+    *harness.workers[0].time_out_once.lock().unwrap() = Some("visitor-a".to_string());
+    let partitions = [
+        TopicPartition::new(topic.clone(), 0),
+        TopicPartition::new(topic.clone(), 1),
+    ];
+    let records: Vec<_> = alternating_visitors(0, "tok:203.0.113.7", 0)
+        .into_iter()
+        .chain(alternating_visitors(1, "tok:203.0.113.8", 10))
+        .collect();
+
+    // The consumer stops polling Kafka after an empty poll while a poll is in
+    // flight, and only a polling consumer takes part in a rebalance, so a
+    // trickle keeps it polling. A cold producer's first send can miss the
+    // first 100 ms poll window, so the producer connects first.
+    let producer = make_producer();
+    producer
+        .client()
+        .fetch_metadata(Some(&topic), Duration::from_secs(5))
+        .expect("trickle producer metadata");
+
+    // Hold the first request in flight across the rebalance. The worker stream
+    // keeps one request unacked, so the trickle's requests wait behind it.
+    let gate = harness.workers[0].block().await;
+    produce_keyed_in_one_transaction(&topic, "tok", &records).await;
+    let trickling = Arc::new(AtomicBool::new(true));
+    let trickle = tokio::spawn({
+        let trickling = Arc::clone(&trickling);
+        let topic = topic.clone();
+        async move {
+            let mut seq = 1000usize;
+            while trickling.load(Ordering::SeqCst) {
+                produce(&producer, &topic, 0, "tok", "trickle", seq).await;
+                seq += 1;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    });
+    wait_until(
+        Duration::from_secs(15),
+        "a request to reach the worker",
+        || harness.workers[0].arrived_count() > 0,
+    )
+    .await;
+    let generations: Vec<u64> = partitions
+        .iter()
+        .map(|partition| harness.ledger.generation(partition))
+        .collect();
+
+    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
+    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
+    let probe2 = CancellationToken::new();
+    Arc::clone(&registry2).start_probing(probe2.clone());
+    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
+        Arc::clone(&registry2),
+        RoutingStrategy::default(),
+    ));
+    let transport2 = Arc::new(test_transport());
+    let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
+    let handle2 = manager2.register("consumer", ComponentOptions::new());
+    let shutdown2 = handle2.shutdown_token();
+    let (batcher, outputs) = common::batcher(
+        SchedulerKind::KeyTable,
+        &dispatcher2,
+        Arc::clone(&transport2),
+        handle2.clone(),
+        harness.deferred_flush_timeout,
+        Duration::from_millis(200),
+        harness.pack_targets,
+        harness.soft_budget,
+    );
+    let consumer2 = IngestionConsumer::from_parts(
+        make_kafka_consumer(&topic, &harness.group_id, None),
+        batcher,
+        outputs,
+        transport2,
+        worker_urls,
+        IngestionConsumerOptions {
+            batch_size: 50,
+            batch_size_bytes: 0,
+            batch_timeout: Duration::from_millis(100),
+            max_in_flight_batches: harness.max_in_flight,
+            group_id: "e2e-test".to_string(),
+            debug_recorder: None,
+        },
+        handle2,
+    );
+    let task2 = tokio::spawn(async move { consumer2.process().await });
+
+    // An eager rebalance revokes both of the first consumer's partitions. The
+    // held request fences at the transport's 10 s ack timeout and comes back
+    // as a replay, so the rebalance must land first.
+    wait_until(
+        Duration::from_secs(8),
+        "the rebalance to revoke both partitions",
+        || {
+            partitions
+                .iter()
+                .zip(&generations)
+                .all(|(partition, before)| harness.ledger.generation(partition) > *before)
+        },
+    )
+    .await;
+    trickling.store(false, Ordering::SeqCst);
+    trickle.await.expect("trickle task");
+    drop(gate);
+
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            records
+                .iter()
+                .all(|(_, _, visitor, seq)| delivered.contains(&(visitor.to_string(), *seq)))
+        },
+    )
+    .await;
+    assert!(
+        harness.workers[0].time_out_once.lock().unwrap().is_none(),
+        "the held request was acked as partial"
+    );
+    assert_eq!(
+        *harness.workers[0].replayed.lock().unwrap(),
+        Vec::<(String, usize)>::new(),
+        "the old owner resends nothing for a revoked partition"
+    );
+
+    shutdown2.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(3), task2).await;
+    probe2.cancel();
     harness.stop().await;
 }
 
