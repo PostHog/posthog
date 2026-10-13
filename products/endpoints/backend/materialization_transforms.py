@@ -574,24 +574,41 @@ def _select_alias_conflict(select: ast.SelectQuery, vars_in_context: list[Materi
     return None
 
 
-def _context_select(
-    ast_node: ast.SelectQuery | ast.SelectSetQuery, cte_name: Optional[str]
-) -> Optional[ast.SelectQuery]:
-    """The SELECT a variable's columns get added to — the CTE body for CTE-bound variables,
-    else the top-level query — mirroring the contexts the transformer visits."""
-    if cte_name is None:
-        return ast_node if isinstance(ast_node, ast.SelectQuery) else None
-    if isinstance(ast_node, ast.SelectQuery) and ast_node.ctes and cte_name in ast_node.ctes:
-        body = ast_node.ctes[cte_name].expr
-        return body if isinstance(body, ast.SelectQuery) else None
-    return None
+class _AliasConflictFinder(TraversingVisitor):
+    """Walk every SELECT with the same CTE context the transformer uses, so the pre-flight
+    covers each SELECT that gets variable columns: nested JOIN subqueries and UNION legs too."""
+
+    def __init__(self, contexts: dict[Optional[str], list[MaterializableVariable]]):
+        super().__init__()
+        self._contexts = contexts
+        self._current_cte_name: Optional[str] = None
+        self.conflict: Optional[str] = None
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for cte_name, cte in (node.ctes or {}).items():
+            prev_cte = self._current_cte_name
+            self._current_cte_name = cte_name
+            self.visit(cte.expr)
+            self._current_cte_name = prev_cte
+
+        original_ctes = node.ctes
+        node.ctes = None
+        try:
+            super().visit_select_query(node)
+        finally:
+            node.ctes = original_ctes
+
+        vars_in_context = self._contexts.get(self._current_cte_name)
+        if self.conflict is None and vars_in_context:
+            self.conflict = _select_alias_conflict(node, vars_in_context)
 
 
 def _find_alias_conflict(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
 ) -> Optional[str]:
     """Pre-flight equivalent of the transformer's per-context alias-conflict check: group
-    variables by their context and run the shared conflict check on each.
+    variables by their context and run the shared conflict check on each SELECT the
+    transformer adds columns to.
 
     A variable whose code_name collides with a SELECT alias for a different expression
     can't be materialized (the table would need two columns of that name). This is the one
@@ -601,11 +618,9 @@ def _find_alias_conflict(
     contexts: dict[Optional[str], list[MaterializableVariable]] = {}
     for var in result_vars:
         contexts.setdefault(var.cte_name, []).append(var)
-    for cte_name, vars_in_context in contexts.items():
-        select = _context_select(ast_node, cte_name)
-        if select is not None and (conflict := _select_alias_conflict(select, vars_in_context)) is not None:
-            return _alias_conflict_reason(conflict)
-    return None
+    finder = _AliasConflictFinder(contexts)
+    finder.visit(ast_node)
+    return _alias_conflict_reason(finder.conflict) if finder.conflict is not None else None
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:
