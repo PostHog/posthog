@@ -577,14 +577,18 @@ class TestConsolidateDags(BaseTest):
     def test_managed_dag_never_touched(self):
         target = DAG.get_or_create_default(self.team)
         managed = DAG.get_or_create_revenue_analytics(self.team)
-        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
-        managed_query.managed_viewset = DataWarehouseManagedViewSet.objects.create(
+        viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
-        managed_query.save(update_fields=["managed_viewset"])
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
+        unplaced_managed_query = self._query("stripe.prod.charge_revenue_view", "SELECT 1")
+        for query in (managed_query, unplaced_managed_query):
+            query.managed_viewset = viewset
+            query.save(update_fields=["managed_viewset"])
         self._node(managed, managed_query)
         source = DAG.objects.create(team=self.team, name="posthog_team")
         self._node(source, managed_query)
+        self._node(source, unplaced_managed_query)
         moved = self._query("only_in_source", "SELECT 1")
         self._node(source, moved)
 
@@ -598,6 +602,7 @@ class TestConsolidateDags(BaseTest):
         )
         self.assertFalse(DAG.objects.filter(id=source.id).exists())
         self.assertTrue(Node.objects.filter(dag=target, saved_query=moved).exists())
+        self.assertTrue(Node.objects.filter(dag=target, saved_query=unplaced_managed_query).exists())
 
     @parameterized.expand(
         [
