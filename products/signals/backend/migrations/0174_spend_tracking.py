@@ -50,7 +50,6 @@ class Migration(migrations.Migration):
                 ("source_id", models.CharField(max_length=255)),
                 ("is_task", models.BooleanField(default=False)),
                 ("token_cost_microusd", models.BigIntegerField(blank=True, null=True)),
-                ("needs_refresh", models.BooleanField(default=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
@@ -74,11 +73,6 @@ class Migration(migrations.Migration):
             options={
                 "indexes": [
                     models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
-                    models.Index(
-                        condition=models.Q(("needs_refresh", True)),
-                        fields=["updated_at"],
-                        name="signals_spend_pending_idx",
-                    ),
                 ],
                 "constraints": [
                     models.UniqueConstraint(

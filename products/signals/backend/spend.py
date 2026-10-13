@@ -1,15 +1,20 @@
+import asyncio
+from datetime import timedelta
+from functools import partial
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 import structlog
+from asgiref.sync import async_to_sync
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend, SignalSpendMetadata
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 
 logger = structlog.get_logger(__name__)
@@ -39,17 +44,29 @@ def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
     return str(signal_id) if signal_id else None
 
 
-def mark_spend_metadata_dirty(*, team_id: int, signal_id: str, emitted: bool = False) -> None:
-    if not emitted:
-        SignalSpendMetadata.objects.for_team(team_id).filter(signal_id=signal_id).update(
-            needs_refresh=True, updated_at=timezone.now()
-        )
-        return
+@frozen
+class SignalSpendUpdate:
+    team_id: int
+    signal_id: str
+
+
+async def schedule_signal_spend_update(*, team_id: int, signal_id: str) -> None:
+    from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 — keeps Temporal off Django startup
+
+    from posthog.temporal.common.client import async_connect  # noqa: PLC0415 — keeps Temporal off Django startup
+
     try:
-        with transaction.atomic():
-            SignalSpendMetadata.objects.for_team(team_id).update_or_create(
-                team_id=team_id, signal_id=signal_id, defaults={"needs_refresh": True}
-            )
+        client = await asyncio.wait_for(async_connect(), timeout=5)
+        await client.start_workflow(
+            "update-signal-spend",
+            SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
+            id=f"signal-spend-{team_id}-{signal_id}",
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            start_signal="refresh",
+            execution_timeout=timedelta(minutes=15),
+            rpc_timeout=timedelta(seconds=5),
+        )
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="persist_metadata", team_id=team_id, signal_id=signal_id
@@ -76,47 +93,21 @@ def record_llm_spend(
                     "signal_id": signal_id,
                     "stage": stage,
                     "token_cost_microusd": token_cost_microusd,
-                    "needs_refresh": False,
                     "accounting_failed": token_cost_microusd is None,
                 },
             )
             if not created and token_cost_microusd is not None:
                 SignalSpend.objects.for_team(team_id).filter(id=spend.id).update(
                     token_cost_microusd=token_cost_microusd,
-                    needs_refresh=False,
                     accounting_failed=False,
                     updated_at=timezone.now(),
                 )
-            mark_spend_metadata_dirty(team_id=team_id, signal_id=str(spend.signal_id))
         if token_cost_microusd is None:
             logger.warning("signals.spend.generation_unaccounted", stage=stage, team_id=team_id, signal_id=signal_id)
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage=stage, team_id=team_id, signal_id=signal_id, request_id=request_id
         )
-
-
-def record_task_spend(
-    *,
-    team_id: int,
-    run_id: str,
-    stage: str,
-    signal_id: str | None = None,
-    scout_run_id: str | None = None,
-    task_id: str | None = None,
-) -> None:
-    if signal_id is None and scout_run_id is None:
-        return
-    if (signal_id is None) == (scout_run_id is None):
-        raise ValueError("A task's spend must have exactly one owner")
-    SignalSpend.objects.for_team(team_id).get_or_create(
-        team_id=team_id,
-        source_id=run_id,
-        is_task=True,
-        defaults={"signal_id": signal_id, "scout_run_id": scout_run_id, "task_id": task_id, "stage": stage},
-    )
-    if signal_id:
-        mark_spend_metadata_dirty(team_id=team_id, signal_id=signal_id)
 
 
 def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, SignalSpendSummary]:
@@ -160,34 +151,60 @@ def signal_spend_totals(*, team_id: int, signal_ids: list[str]) -> dict[str, flo
 
 
 def refresh_task_spend(*, spend_id: UUID, team_id: int) -> None:
-    from products.tasks.backend.facade.billing import (
-        get_task_run_token_cost_microusd,  # noqa: PLC0415 — keeps task cost services off startup
-    )
+    try:
+        from products.tasks.backend.facade.billing import (
+            get_task_run_token_cost_microusd,  # noqa: PLC0415 — keeps task cost services off startup
+        )
 
-    with transaction.atomic():
-        spend = SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend_id)
-        cost = get_task_run_token_cost_microusd(team_id=team_id, run_id=UUID(spend.source_id))
-        if cost is not None:
-            spend.token_cost_microusd = cost
-        spend.accounting_failed = cost is None
-        spend.needs_refresh = cost is None
-        spend.save(update_fields=["token_cost_microusd", "accounting_failed", "needs_refresh", "updated_at"])
+        with transaction.atomic():
+            spend = SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend_id)
+            cost = get_task_run_token_cost_microusd(team_id=team_id, run_id=UUID(spend.source_id))
+            if cost is not None:
+                spend.token_cost_microusd = cost
+            spend.accounting_failed = cost is None
+            spend.save(update_fields=["token_cost_microusd", "accounting_failed", "updated_at"])
+            if cost is None:
+                logger.warning(
+                    "signals.spend.generation_unaccounted",
+                    stage=spend.stage,
+                    team_id=team_id,
+                    signal_id=str(spend.signal_id) if spend.signal_id else None,
+                    scout_run_id=str(spend.scout_run_id) if spend.scout_run_id else None,
+                    request_id=spend.source_id,
+                )
+            if spend.scout_run_id:
+                scout_run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(id=spend.scout_run_id)
+                scout_run.total_spend = cost_to_spend(spend.token_cost_microusd or 0, task_count=1)
+                scout_run.metadata = {
+                    **(scout_run.metadata or {}),
+                    "spend_accounting_failed_stages": [spend.stage] if spend.accounting_failed else [],
+                }
+                scout_run.save(update_fields=["total_spend", "metadata"])
         if spend.signal_id:
-            mark_spend_metadata_dirty(team_id=team_id, signal_id=str(spend.signal_id))
-        if cost is None:
-            logger.warning(
-                "signals.spend.generation_unaccounted",
-                stage=spend.stage,
-                team_id=team_id,
-                signal_id=str(spend.signal_id) if spend.signal_id else None,
-                scout_run_id=str(spend.scout_run_id) if spend.scout_run_id else None,
-                request_id=spend.source_id,
-            )
-        if spend.scout_run_id:
-            scout_run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(id=spend.scout_run_id)
-            scout_run.total_spend = cost_to_spend(spend.token_cost_microusd or 0, task_count=1)
-            scout_run.metadata = {
-                **(scout_run.metadata or {}),
-                "spend_accounting_failed_stages": [spend.stage] if spend.accounting_failed else [],
-            }
-            scout_run.save(update_fields=["total_spend", "metadata"])
+            async_to_sync(schedule_signal_spend_update)(team_id=team_id, signal_id=str(spend.signal_id))
+    except Exception:
+        logger.exception(
+            "signals.spend.accounting_failed", stage="task_cost_update", team_id=team_id, spend_id=str(spend_id)
+        )
+
+
+def record_task_spend(
+    *,
+    team_id: int,
+    run_id: str,
+    stage: str,
+    signal_id: str | None = None,
+    scout_run_id: str | None = None,
+    task_id: str | None = None,
+) -> None:
+    if signal_id is None and scout_run_id is None:
+        return
+    if (signal_id is None) == (scout_run_id is None):
+        raise ValueError("A task's spend must have exactly one owner")
+    spend, _ = SignalSpend.objects.for_team(team_id).get_or_create(
+        team_id=team_id,
+        source_id=run_id,
+        is_task=True,
+        defaults={"signal_id": signal_id, "scout_run_id": scout_run_id, "task_id": task_id, "stage": stage},
+    )
+    transaction.on_commit(partial(refresh_task_spend, spend_id=spend.id, team_id=team_id))

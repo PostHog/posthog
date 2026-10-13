@@ -41,7 +41,7 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import mark_spend_metadata_dirty, signal_spend_summaries
+from products.signals.backend.spend import schedule_signal_spend_update, signal_spend_summaries
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -842,7 +842,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         "deleted": True,
                     }
                     metadata["match_metadata"] = asdict(match_result.match_metadata)
-                    mark_spend_metadata_dirty(team_id=input.team_id, signal_id=input.signal_id, emitted=True)
                     emit_embedding_request(
                         content=input.description,
                         team_id=input.team_id,
@@ -1003,7 +1002,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             ts = input.timestamp or timezone.now()
 
-            mark_spend_metadata_dirty(team_id=input.team_id, signal_id=input.signal_id, emitted=True)
             emit_embedding_request(
                 content=input.description,
                 team_id=input.team_id,
@@ -1040,6 +1038,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
             quota_gate.enforced or daily_gate.limited
         )
+        await schedule_signal_spend_update(team_id=input.team_id, signal_id=input.signal_id)
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report

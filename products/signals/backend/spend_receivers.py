@@ -1,14 +1,14 @@
+from functools import partial
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models.signals import post_save
-from django.utils import timezone
 
 import structlog
 
 from products.signals.backend.models import SignalReportTask, SignalScoutRun, SignalSpend
-from products.signals.backend.spend import record_task_spend, report_triggering_signal
+from products.signals.backend.spend import record_task_spend, refresh_task_spend, report_triggering_signal
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
     connect_task_run_cost_updated,
@@ -78,10 +78,14 @@ def scout_run_created(*, instance: SignalScoutRun, created: bool, **kwargs: obje
 
 def task_cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
     try:
-        with transaction.atomic():
-            SignalSpend.objects.for_team(team_id).filter(source_id=str(run_id), is_task=True).update(
-                needs_refresh=True, updated_at=timezone.now()
-            )
+        spend_id = (
+            SignalSpend.objects.for_team(team_id)
+            .filter(source_id=str(run_id), is_task=True)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if spend_id is not None:
+            transaction.on_commit(partial(refresh_task_spend, spend_id=spend_id, team_id=team_id))
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="task_cost_update", team_id=team_id, run_id=str(run_id)

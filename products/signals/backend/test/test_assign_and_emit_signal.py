@@ -17,7 +17,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSpendMetadata
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.temporal.grouping import (
@@ -65,11 +65,17 @@ def patch_side_effects():
     """Mock only the external side effects (Kafka, analytics, ClickHouse). The Postgres state
     machine is the SUT and is exercised against a real DB."""
     with (
+        patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=AsyncMock())) as connect_mock,
         patch(f"{GROUPING_MODULE_PATH}.emit_embedding_request") as emit_mock,
         patch(f"{GROUPING_MODULE_PATH}.posthoganalytics.capture") as capture_mock,
         patch(f"{GROUPING_MODULE_PATH}.soft_delete_report_signals") as soft_delete_mock,
     ):
-        yield {"emit": emit_mock, "capture": capture_mock, "soft_delete": soft_delete_mock}
+        yield {
+            "emit": emit_mock,
+            "capture": capture_mock,
+            "soft_delete": soft_delete_mock,
+            "temporal": connect_mock.return_value,
+        }
 
 
 def _existing_match(report_id: str) -> ExistingReportMatch:
@@ -118,7 +124,7 @@ def _build_input(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_new_match_creates_potential_report_below_threshold(ateam):
+async def test_new_match_creates_potential_report_below_threshold(ateam, patch_side_effects):
     """A first signal below weight threshold creates a POTENTIAL report, not promoted yet."""
     input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
 
@@ -130,13 +136,9 @@ async def test_new_match_creates_potential_report_below_threshold(ateam):
     assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD * 0.5)
     assert report.signal_count == 1
     assert report.promoted_at is None
-    assert await database_sync_to_async(
-        lambda: (
-            SignalSpendMetadata.objects.for_team(ateam.id)
-            .filter(signal_id=input_.signal_id, needs_refresh=True)
-            .exists()
-        )
-    )()
+    start = patch_side_effects["temporal"].start_workflow
+    start.assert_awaited_once()
+    assert start.call_args.kwargs["id"] == f"signal-spend-{ateam.id}-{input_.signal_id}"
 
 
 @pytest.mark.asyncio

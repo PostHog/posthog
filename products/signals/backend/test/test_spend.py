@@ -7,7 +7,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from django.db import connection
+from django.db import connection, transaction
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -29,16 +29,11 @@ from products.ml_inference.backend.facade.contracts import DecisionResult, NoulA
 from products.signals.backend.emission.pipeline import check_actionability
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend, SignalSpendMetadata
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
-from products.signals.backend.spend import (
-    mark_spend_metadata_dirty,
-    record_llm_spend,
-    signal_spend_summaries,
-    signal_spend_totals,
-)
-from products.signals.backend.spend_tasks import reconcile_signal_spend
+from products.signals.backend.spend import record_llm_spend, signal_spend_summaries, signal_spend_totals
+from products.signals.backend.spend_metadata import refresh_signal_spend_metadata
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.temporal.llm import call_llm
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
@@ -52,14 +47,19 @@ class TestSpendPricing(SimpleTestCase):
 
 
 class TestSignalSpend(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.temporal = AsyncMock()
+        self.connect = patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=self.temporal))
+        self.connect.start()
+        self.addCleanup(self.connect.stop)
+
     @parameterized.expand([("generation",), ("task",)])
     def test_clickhouse_spend_retries_until_visible_and_tracks_later_costs(self, source: str) -> None:
         driver = str(uuid4())
         record_llm_spend(
             "first", token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability"
         )
-        mark_spend_metadata_dirty(team_id=self.team.id, signal_id=driver, emitted=True)
-        entry = SignalSpendMetadata.objects.for_team(self.team.id).get(signal_id=driver)
         now = timezone.now()
         metadata = {"report_id": "moved-report", "deleted": True, "extra": {"example": 1}, "total_spend": 0}
         rows: dict[str, list] = {}
@@ -67,31 +67,20 @@ class TestSignalSpend(BaseTest):
         scope = MagicMock()
         scope.__enter__.return_value = producer
         with (
-            patch("products.signals.backend.spend_tasks.get_client", return_value=FakeRedis()),
             patch("products.signals.backend.spend_metadata.producer_scope", return_value=scope) as produce_scope,
             patch(
                 "products.signals.backend.spend_metadata.execute_hogql_query",
                 side_effect=lambda **kwargs: Mock(results=rows.get(kwargs["placeholders"]["model_name"].value, [])),
             ),
         ):
-            reconcile_signal_spend()
-            entry.refresh_from_db()
-            self.assertTrue(entry.needs_refresh)
-            assert not SignalSpend.objects.for_team(self.team.id).get(source_id="first").needs_refresh
+            assert not refresh_signal_spend_metadata(team_id=self.team.id, signal_id=driver)
             for model in EmbeddingModelName:
                 rows[model.value] = [(driver, ("Example finding", json.dumps(metadata), now, [0.5]))]
-
             produce_scope.side_effect = RuntimeError("Kafka unavailable")
-            with capture_logs() as logs:
-                reconcile_signal_spend()
-            entry.refresh_from_db()
-            self.assertTrue(entry.needs_refresh)
-            assert any(log.get("stage") == "persist_metadata" for log in logs)
+            with self.assertRaises(RuntimeError):
+                refresh_signal_spend_metadata(team_id=self.team.id, signal_id=driver)
             produce_scope.side_effect = None
-
-            reconcile_signal_spend()
-            entry.refresh_from_db()
-            self.assertTrue(entry.needs_refresh)
+            assert not refresh_signal_spend_metadata(team_id=self.team.id, signal_id=driver)
             assert producer.produce.call_count == len(EmbeddingModelName)
             for call in producer.produce.call_args_list:
                 payload = call.kwargs["data"]
@@ -105,23 +94,8 @@ class TestSignalSpend(BaseTest):
                 assert payload["timestamp"] == now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                 rows[payload["model_name"]] = [(driver, (payload["content"], payload["metadata"], now, [0.5]))]
             producer.reset_mock()
-            reconcile_signal_spend()
-            entry.refresh_from_db()
-            self.assertFalse(entry.needs_refresh)
+            assert refresh_signal_spend_metadata(team_id=self.team.id, signal_id=driver)
             producer.produce.assert_not_called()
-
-            def concurrent_update(**kwargs: object) -> bool:
-                mark_spend_metadata_dirty(team_id=self.team.id, signal_id=driver)
-                return True
-
-            mark_spend_metadata_dirty(team_id=self.team.id, signal_id=driver)
-            with patch(
-                "products.signals.backend.spend_tasks.refresh_signal_spend_metadata", side_effect=concurrent_update
-            ):
-                reconcile_signal_spend()
-            entry.refresh_from_db()
-            self.assertTrue(entry.needs_refresh)
-
             if source == "generation":
                 record_llm_spend(
                     "later",
@@ -136,7 +110,7 @@ class TestSignalSpend(BaseTest):
                 run = self._run(report=report)
                 self._set_task_cost(run, 123)
                 expected = 4.0246
-            reconcile_signal_spend()
+            assert not refresh_signal_spend_metadata(team_id=self.team.id, signal_id=driver)
             assert producer.produce.call_count == len(EmbeddingModelName)
             for call in producer.produce.call_args_list:
                 payload = call.kwargs["data"]
@@ -146,12 +120,18 @@ class TestSignalSpend(BaseTest):
                 None, token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="summarization"
             )
             producer.reset_mock()
-            reconcile_signal_spend()
+            assert not refresh_signal_spend_metadata(team_id=self.team.id, signal_id=driver)
             assert producer.produce.call_count == len(EmbeddingModelName)
             assert all(
                 json.loads(call.kwargs["data"]["metadata"])["spend_accounting_failed_stages"] == ["summarization"]
                 for call in producer.produce.call_args_list
             )
+        with patch(
+            "products.signals.backend.signal_metadata.execute_hogql_query",
+            return_value=Mock(results=[(driver, "Example finding", json.dumps(metadata), now, now)]),
+        ):
+            signal = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]
+            assert signal["total_spend"] == metadata["total_spend"]
 
     @parameterized.expand([("priced", 12_345), ("free", 0), ("cancelled", None), ("missing_id", None)])
     async def test_generation_waits_for_spend_without_regenerating(self, outcome: str, cost: int | None) -> None:
@@ -191,7 +171,6 @@ class TestSignalSpend(BaseTest):
         spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
         assert spend.token_cost_microusd == cost
         assert spend.accounting_failed is (cost is None)
-        assert spend.needs_refresh is False
         assert spend.stage == "summarization"
 
     @parameterized.expand([("invalid_json",), ("invalid_message",)])
@@ -308,9 +287,6 @@ class TestSignalSpend(BaseTest):
         assert await database_sync_to_async(
             lambda: signal_spend_totals(team_id=self.team.id, signal_ids=drivers)
         )() == {drivers[0]: 0.0246 if mode == "gateway" else 0, drivers[1]: 0.0123 if mode == "gateway" else 0}
-        assert not await database_sync_to_async(
-            lambda: SignalSpend.objects.for_team(self.team.id).filter(needs_refresh=True).exists()
-        )()
         assert len(rows) == 3
         assert sorted(str(row["signal_id"]) for row in rows) == sorted([drivers[0], drivers[0], drivers[1]])
         assert all(row["stage"] == "actionability" for row in rows)
@@ -417,7 +393,8 @@ class TestSignalSpend(BaseTest):
             state["token_cost"] = {"model-a": {"provider-a": {"cost_microusd": cost}}}
         run.state = state
         run.save(update_fields=["state"])
-        task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=self.team.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=self.team.id)
 
     def test_late_task_cost_updates_charge_driver_once_and_preserve_fractional_cents(self) -> None:
         driver, other = str(uuid4()), str(uuid4())
@@ -426,21 +403,25 @@ class TestSignalSpend(BaseTest):
         implementation = self._run(report=report, stage="implementation")
         self._set_task_cost(research, 10_001)
         self._set_task_cost(implementation, 25_002)
-        reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 11.5003}
 
         report.triggering_signal_id = other
         report.save(update_fields=["triggering_signal_id"])
         self._set_task_cost(research, 10_004)
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 11.5003}
-        reconcile_signal_spend()
-        reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 11.5006}
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
+        self.temporal.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            try:
+                with transaction.atomic():
+                    task_run_cost_updated.send(sender=TaskRun, run_id=research.id, team_id=self.team.id)
+                    raise RuntimeError("roll back task cost")
+            except RuntimeError:
+                pass
+        self.temporal.start_workflow.assert_not_called()
 
         rerun = self._run(task=implementation.task, stage="implementation")
         self._set_task_cost(rerun, 1)
-        reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 15.5007}
 
     def test_one_shot_receipts_preserve_known_spend_and_record_failed_stage(self) -> None:
@@ -460,39 +441,35 @@ class TestSignalSpend(BaseTest):
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 0.001}
         assert signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver].failed_stages == []
         record_llm_spend(None, token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="summarization")
-        now = timezone.now()
-        with patch(
-            "products.signals.backend.signal_metadata.execute_hogql_query",
-            return_value=Mock(results=[(driver, "Example finding", json.dumps({"total_spend": 0}), now, now)]),
-        ):
-            signal = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]
-            assert signal["total_spend"] == 0.001
-            assert signal["spend_accounting_failed_stages"] == ["summarization"]
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         assert signal_spend_totals(team_id=other_team.id, signal_ids=[driver]) == {}
 
-    def test_scout_persists_spend_in_cents_after_failed_run_settles(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_scout_persists_spend_in_cents_after_failed_run_settles(self, settled_before_owner: bool) -> None:
         task_run = self._run()
-        scout = SignalScoutRun.objects.for_team(self.team.id).create(
-            team=self.team,
-            task_run=task_run,
-            skill_name="example-scout",
-            skill_version=1,
-        )
+        if settled_before_owner:
+            self._set_task_cost(task_run, 123_456)
+        with self.captureOnCommitCallbacks(execute=True):
+            scout = SignalScoutRun.objects.for_team(self.team.id).create(
+                team=self.team,
+                task_run=task_run,
+                skill_name="example-scout",
+                skill_version=1,
+            )
+        assert scout.total_spend is None
+        scout.refresh_from_db()
+        assert scout.total_spend == (Decimal("16.3456") if settled_before_owner else Decimal("4"))
         task_run.status = TaskRun.Status.FAILED
         task_run.save(update_fields=["status"])
         self._set_task_cost(task_run, 123_456)
-        reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
         self._set_task_cost(task_run, None)
-        reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
         assert scout.metadata is not None
         assert scout.metadata["spend_accounting_failed_stages"] == ["scout"]
         self._set_task_cost(task_run, 123_457)
-        reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3457")
         assert scout.metadata is not None
