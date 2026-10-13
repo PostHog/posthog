@@ -221,7 +221,7 @@ if (not empty(inputs.email)) {
     userData.emails_sha256 := [sha256Hex(lower(trim(inputs.email)))]
 }
 if (not empty(inputs.externalId)) {
-    userData.external_ids_sha256 := [sha256Hex(trim(inputs.externalId))]
+    userData.external_ids_sha256 := [sha256Hex(trim(toString(inputs.externalId)))]
 }
 // OpenAI can only attribute a conversion that carries at least one strong identifier;
 // IP address and user agent alone are not enough
