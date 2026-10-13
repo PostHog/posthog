@@ -110,6 +110,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     <div className="flex items-end gap-1.5">
                         <Textarea
                             value={feedbackNoteDraft}
+                            disabled={feedbackNoteSubmitting}
                             onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
                                 setFeedbackNoteDraft(event.target.value)
                             }

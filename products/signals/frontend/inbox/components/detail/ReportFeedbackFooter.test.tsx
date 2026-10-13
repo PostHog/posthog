@@ -107,7 +107,24 @@ describe('ReportFeedbackFooter', () => {
 
         await user.click(screen.getByLabelText('This report was not useful'))
         expect(await screen.findByText('What was off?')).toBeVisible()
-        await user.type(screen.getByLabelText('Add a note about this report'), 'The repro steps were wrong{Enter}')
+        let finishRequest!: () => void
+        const responseReady = new Promise<void>((resolve) => {
+            finishRequest = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/feedback/': async () => {
+                    await responseReady
+                    return [200, { forwarded: false }]
+                },
+            },
+        })
+        const note = screen.getByLabelText('Add a note about this report')
+        await user.type(note, 'The repro steps were wrong{Enter}')
+        await waitFor(() => expect(note).toBeDisabled())
+        await user.type(note, 'More text')
+        expect(note).toHaveValue('The repro steps were wrong')
+        finishRequest()
 
         await waitFor(() =>
             expect(captureInboxReportFeedbackNote).toHaveBeenCalledWith(

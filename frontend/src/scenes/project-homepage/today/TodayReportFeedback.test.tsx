@@ -65,4 +65,34 @@ describe('TodayReportFeedback', () => {
             expect(screen.getByLabelText('This report was useful')).toHaveAttribute('aria-pressed', 'false')
         )
     })
+
+    it.each([200, 500])('disables note editing while a save is pending (HTTP %s)', async (status) => {
+        await userEvent.click(screen.getByLabelText('This report was not useful'))
+        const note = await screen.findByLabelText('Add a note about this report')
+        let finishRequest!: () => void
+        const responseReady = new Promise<void>((resolve) => {
+            finishRequest = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/feedback/': async () => {
+                    await responseReady
+                    return [status, { forwarded: false }]
+                },
+            },
+        })
+
+        await userEvent.type(note, 'This report needs more detail{Enter}')
+        await waitFor(() => expect(note).toBeDisabled())
+        await userEvent.type(note, 'More text')
+        expect(note).toHaveValue('This report needs more detail')
+        finishRequest()
+
+        if (status === 200) {
+            expect(await screen.findByText('Note added: This report needs more detail')).toBeVisible()
+        } else {
+            await waitFor(() => expect(note).toBeEnabled())
+            expect(note).toHaveValue('This report needs more detail')
+        }
+    })
 })

@@ -135,6 +135,7 @@ export function ReportFeedbackFooter({
                         <div className="min-w-0 flex-1">
                             <LemonTextArea
                                 value={feedbackNoteDraft}
+                                disabled={feedbackNoteSubmitting}
                                 // Capped here rather than with `maxLength`, whose counter footer would
                                 // make the small field a block.
                                 onChange={(value) => setFeedbackNoteDraft(value.slice(0, FEEDBACK_NOTE_MAX_LENGTH))}
