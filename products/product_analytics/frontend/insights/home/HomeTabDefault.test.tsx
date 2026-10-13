@@ -50,7 +50,7 @@ describe('HomeTabDefault query reuse', () => {
         const { rerender } = render(<HomeTabDefault />)
         const collection = dataNodeCollectionLogic({ key: homeTabDataCollectionId(teamLogic.values.currentTeamId) })
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(11))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(15))
         await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
         expect(
             within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
@@ -60,18 +60,18 @@ describe('HomeTabDefault query reuse', () => {
         expect(savedInsightsLogic.isMounted()).toBe(true)
         await act(async () => rerender(<HomeTabDefault />))
 
-        expect(mockedQuery).toHaveBeenCalledTimes(11)
+        expect(mockedQuery).toHaveBeenCalledTimes(15)
         expect(
             within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
         ).toBeInTheDocument()
 
         await act(async () => homeTabDefaultLogic.actions.setDates('-30d', null))
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(22))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(30))
         await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
 
         expect(
             mockedQuery.mock.calls
-                .slice(11)
+                .slice(15)
                 .every(([query]) => isInsightQueryNode(query) && query.dateRange?.date_from === '-30d')
         ).toBe(true)
         expect(
@@ -83,14 +83,14 @@ describe('HomeTabDefault query reuse', () => {
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
         const { container } = render(<HomeTabDefault />)
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(6))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(10))
         expect(container.querySelectorAll('[data-attr="insight-sample-data-state"]')).toHaveLength(5)
 
         await act(async () => {
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: true, is_demo: false })
         })
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(11))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(15))
         expect(container.querySelector('[data-attr="insight-sample-data-state"]')).toBeNull()
     })
 })
