@@ -1269,7 +1269,7 @@ export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
 export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
     image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
     purpose: zod
-        .enum(['email', 'canvas'])
+        .enum(['email', 'canvas', 'experiment'])
         .optional()
         .describe(
             'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'

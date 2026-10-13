@@ -8,6 +8,7 @@ function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
     return {
         api: {
             request: requestMock,
+            publicBaseUrl: 'https://us.posthog.com',
             getProjectBaseUrl: (projectId: string) => `https://us.posthog.com/project/${projectId}`,
         } as any,
         stateManager: { getProjectId: vi.fn().mockResolvedValue('42') } as any,
@@ -68,7 +69,11 @@ describe('experiment-get-by-flag-key', () => {
         const request = vi
             .fn()
             .mockResolvedValueOnce({ results: [flag(7, 'new-checkout', [11])] })
-            .mockResolvedValueOnce({ ...experiment(11, 'new-checkout'), metrics: [] })
+            .mockResolvedValueOnce({
+                ...experiment(11, 'new-checkout'),
+                metrics: [],
+                parameters: { variant_screenshot_media_ids: { test: ['media-1'] } },
+            })
 
         const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
 
@@ -76,7 +81,13 @@ describe('experiment-get-by-flag-key', () => {
         expect(request).toHaveBeenCalledTimes(2)
         expect(request).toHaveBeenNthCalledWith(1, FLAG_LIST)
         expect(request).toHaveBeenNthCalledWith(2, EXPERIMENT_GET(11))
-        expect(result).toMatchObject({ id: 11, feature_flag_key: 'new-checkout', metrics: [], found: true })
+        expect(result).toMatchObject({
+            id: 11,
+            feature_flag_key: 'new-checkout',
+            metrics: [],
+            variant_screenshot_urls: { test: ['https://us.posthog.com/uploaded_media/media-1'] },
+            found: true,
+        })
         expect((result as { _posthogUrl?: string })._posthogUrl).toContain('/experiments/11')
     })
 
