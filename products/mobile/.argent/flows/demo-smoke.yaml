@@ -75,7 +75,7 @@ steps:
 
     - echo: On the inbox. Open Chats from the bottom bar. Expect the chats list
     - tap: { id: inbox-nav-chat }
-    - await: { visible: { id: chats-new } }
+    - await: { visible: { id: chats-screen } }
     - await: { idle: true }
     - assert: { text: { in: { id: chat-row-conversation-demo-chat-signup-drop }, contains: Why did signups drop } }
 
@@ -87,7 +87,7 @@ steps:
 
     - echo: Chat open. Close it. Expect the chats list again
     - tap: { id: chat-close }
-    - await: { visible: { id: chats-new } }
+    - await: { visible: { id: chats-screen } }
     - await: { idle: true }
 
     - echo: On Chats. Go to Home from the bottom bar. Expect the inbox

@@ -179,7 +179,7 @@ export function ChatsScreen(): ReactElement {
                     />
                 }
             />
-            <ChatsHeader onNewChat={newChat} />
+            <ChatsHeader />
             <BottomBar
                 selected="chats"
                 onHome={() => router.replace('/inbox')}
