@@ -7,7 +7,7 @@ way to pick them from a diff.
 
 So CI runs this directory unconditionally on every backend-touching PR, including
 products-only diffs and drafts, as a step of the `repo-checks` job in
-`.github/workflows/ci-backend.yml`. There is no Postgres or ClickHouse in that
+`.depot/workflows/ci-backend.yml`. There is no Postgres or ClickHouse in that
 job, and the Core Django shards skip this directory.
 
 Rules: no database or ClickHouse fixtures. A test whose input is a bounded set of
