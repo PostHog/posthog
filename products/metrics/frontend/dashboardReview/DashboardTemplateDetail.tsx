@@ -41,8 +41,9 @@ function PreviewDashboard({ dashboardId }: { dashboardId: number }): JSX.Element
 }
 
 export function DashboardTemplateDetail(): JSX.Element {
-    const { template, templateLoading, previewDashboardId, previewDashboardIdLoading, previewError, reviewable } =
-        useValues(metricsDashboardReviewSceneLogic)
+    const { template, templateLoading, previewDashboardId, previewLoading, previewError, reviewable } = useValues(
+        metricsDashboardReviewSceneLogic
+    )
     const { approveTemplate, rejectTemplate } = useActions(metricsDashboardReviewSceneLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -134,7 +135,7 @@ export function DashboardTemplateDetail(): JSX.Element {
             <GenerationChecks template={template} />
             {previewDashboardId ? (
                 <PreviewDashboard dashboardId={previewDashboardId} />
-            ) : previewDashboardIdLoading ? (
+            ) : previewLoading ? (
                 <LemonSkeleton className="h-96" />
             ) : previewError ? (
                 <LemonBanner type="info">{previewError}</LemonBanner>
