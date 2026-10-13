@@ -17,6 +17,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: session_replay
+scout-precheck-query: |
+  SELECT 1 AS has_recordings
+  FROM raw_session_replay_events
+  WHERE min_first_timestamp > {now} - INTERVAL 30 DAY
+    AND min_first_timestamp <= {now} + INTERVAL 1 DAY
+  LIMIT 1
 ---
 
 # Signals scout: session replay
@@ -48,6 +54,8 @@ Four mechanical traps that produce silently-wrong results — every replay query
 4. **Client clocks lie** — real sessions and events arrive dated years into the future. Upper-bound every recency window (`<= now() + INTERVAL 1 DAY`, on `events.timestamp` too) and never trust `ORDER BY ... DESC LIMIT 1` to mean "latest" without it.
 
 ## Quick close-out: is replay even in use?
+
+A scheduled run can start with a `<precheck_result>` block. The block means that at least one recording started in the last 30 days, so skip the zero-in-30d close-out. It holds no count, so still run the count below to tell a capture cliff from recordings that flow.
 
 One cheap count tells you the posture:
 
