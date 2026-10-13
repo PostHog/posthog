@@ -1,29 +1,52 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
-import { summarizeReadStates } from "./reportReadState";
+import {
+  markReadOptimistically,
+  restoreReadState,
+  summarizeReadStates,
+} from "./reportReadState";
 
-describe("summarizeReadStates", () => {
-  it("counts only a state the server returned as false as unread", () => {
+describe("reportReadState", () => {
+  it("counts only a fresh, successful false as unread", () => {
     const states = summarizeReadStates(
-      ["read", "unread", "failed"],
+      ["read", "unread", "failed", "cached", "stale-after-error"],
       [
-        { data: true, isFetchedAfterMount: true },
-        { data: false, isFetchedAfterMount: true },
-        { data: undefined, isFetchedAfterMount: true },
+        { data: true, isError: false, isFetchedAfterMount: true },
+        { data: false, isError: false, isFetchedAfterMount: true },
+        { data: undefined, isError: true, isFetchedAfterMount: true },
+        { data: false, isError: false, isFetchedAfterMount: false },
+        { data: false, isError: true, isFetchedAfterMount: true },
       ],
     );
     expect([...states.unread]).toEqual(["unread"]);
-    expect(states.settled).toBe(true);
   });
 
   it("is not settled while a cached state waits for the server", () => {
     const states = summarizeReadStates(
       ["a", "b"],
       [
-        { data: false, isFetchedAfterMount: false },
-        { data: true, isFetchedAfterMount: true },
+        { data: false, isError: false, isFetchedAfterMount: false },
+        { data: true, isError: false, isFetchedAfterMount: true },
       ],
     );
     expect(states.settled).toBe(false);
-    expect([...states.unread]).toEqual(["a"]);
   });
+
+  it.each([
+    [false, false],
+    [undefined, undefined],
+  ])(
+    "puts back %s after a failed write so the next open retries",
+    async (previous, restored) => {
+      const queryClient = new QueryClient();
+      const key = ["reports", "read", "r"];
+      if (previous !== undefined) queryClient.setQueryData(key, previous);
+
+      const saved = await markReadOptimistically(queryClient, key);
+      expect(queryClient.getQueryData(key)).toBe(true);
+
+      await restoreReadState(queryClient, key, saved);
+      expect(queryClient.getQueryData(key)).toBe(restored);
+    },
+  );
 });
