@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconGear, IconPlusSmall, IconReceipt } from '@posthog/icons'
 import {
@@ -52,7 +51,7 @@ export function TodayOrgMenu(): JSX.Element {
     const { isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
     const { openOrgSwitcher, closeOrgSwitcher } = useActions(newAccountMenuLogic)
     // A switch reloads the page when it succeeds. Until then, a second pick would race the first.
-    const [switching, setSwitching] = useState(false)
+    const { isSwitchingOrganization: switching } = useValues(userLogic)
 
     const organizations = [...(currentOrganization ? [currentOrganization] : []), ...otherOrganizations].sort((a, b) =>
         a.name.localeCompare(b.name)
@@ -93,7 +92,6 @@ export function TodayOrgMenu(): JSX.Element {
                         value={currentOrganization?.id ?? ''}
                         onValueChange={(id) => {
                             if (id !== currentOrganization?.id && !switching) {
-                                setSwitching(true)
                                 closeOrgSwitcher()
                                 updateCurrentOrganization(id as string)
                             }

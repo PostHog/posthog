@@ -77,6 +77,7 @@ export interface userLogicValues {
     credentialReviewDismissedInSession: boolean
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
     isImpersonationUpgradeInProgress: boolean
+    isSwitchingOrganization: boolean
     isProvisionedUser: boolean
     isUserDetailsSubmitting: boolean
     isUserDetailsValid: boolean
@@ -252,6 +253,9 @@ export interface userLogicActions {
         enabled: boolean
         teamIds: number[]
         types: string[]
+    }
+    updateCurrentOrganizationFailure: () => {
+        value: true
     }
     updateCurrentOrganization: (
         organizationId: string,
@@ -435,6 +439,7 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
+        updateCurrentOrganizationFailure: true,
         logout: (preserveLocation = false, nextUrl?: string, reason?: string) => ({
             preserveLocation,
             nextUrl,
@@ -627,6 +632,13 @@ export const userLogic = kea<userLogicType>([
                 }),
             },
         ],
+        isSwitchingOrganization: [
+            false,
+            {
+                updateCurrentOrganization: () => true,
+                updateCurrentOrganizationFailure: () => false,
+            },
+        ],
         isImpersonationUpgradeInProgress: [
             false,
             {
@@ -813,7 +825,13 @@ export const userLogic = kea<userLogicType>([
             }
             await breakpoint(10)
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
-            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            try {
+                await api.update('api/users/@me/', { set_current_organization: organizationId })
+            } catch {
+                actions.updateCurrentOrganizationFailure()
+                lemonToast.error('Could not switch organization. Try again.')
+                return
+            }
 
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 
