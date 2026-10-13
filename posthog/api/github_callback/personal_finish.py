@@ -20,6 +20,7 @@ from posthog.api.github_callback.types import (
     is_valid_github_installation_id,
 )
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.user_integration import (
@@ -135,6 +136,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 headers={"Authorization": f"Bearer {authorization.access_token}"},
                 params={"per_page": 100},
                 timeout=10,
+                priority=Priority.CRITICAL,
             )
             if response.status_code != 200:
                 logger.warning("github_link: failed to list user installations", status_code=response.status_code)
