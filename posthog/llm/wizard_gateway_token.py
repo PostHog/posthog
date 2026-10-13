@@ -11,7 +11,6 @@ attempt fast instead of retrying into the CLI's timeout.
 """
 
 import json
-import hashlib
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -154,12 +153,13 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
 # {"models": [...], "efforts": [...], "programs": [...]}. A flag that is off,
 # unreadable or out of contract never refuses a mint: no readable prompt mints an
 # unpinned token, and no readable allowlist falls back to the defaults below. An
-# operator turns the prompt pin off by switching its flag off.
+# operator turns the prompt off by switching its flag off. The prompt text goes
+# to the gateway in the mint body and never to the wizard.
 WIZARD_SYSTEM_PROMPT_FLAG = "wizard-ai-gateway-system-prompt"
 WIZARD_GATEWAY_ALLOWLIST_FLAG = "wizard-gateway-allowlist"
 
-# The gateway refuses a run whose prompt lacks the abort marker, so a prompt
-# without it would pin every token to a prompt the gateway cannot use.
+# The wizard ends a run on the abort marker, so a prompt without it would give
+# every token a prompt that run cannot end on.
 _ABORT_MARKER = "[posthog:abort]"
 _MAX_PROMPT_BYTES = 4000
 
@@ -167,8 +167,8 @@ _MAX_PROMPT_BYTES = 4000
 # The models are every one the wizard CLI dispatches (its *_MODEL constants in
 # src/lib/constants.ts), so widen them here when one is added. The efforts are
 # every one the CLI can declare; "max" is absent because the CLI cannot send it.
-# Programs have no in-code default, as the setting they came from had none: an
-# unreadable allowlist refuses every program as `program_unknown`.
+# The programs are every one the wizard CLI can run, so an unreadable allowlist
+# still admits them.
 WIZARD_DEFAULT_MODELS: tuple[str, ...] = (
     "claude-sonnet-5",
     "claude-haiku-4-5",
@@ -179,19 +179,39 @@ WIZARD_DEFAULT_MODELS: tuple[str, ...] = (
     "gpt-6-sol",
 )
 WIZARD_DEFAULT_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh")
-WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = ()
+WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (
+    "posthog-integration",
+    "revenue-analytics-setup",
+    "warehouse-source",
+    "error-tracking-upload-source-maps",
+    "error-tracking",
+    "audit",
+    "events-audit",
+    "posthog-doctor",
+    "web-analytics-doctor",
+    "migration",
+    "self-driving",
+    "agent-skill",
+    "mcp-add",
+    "mcp-remove",
+    "mcp-tutorial",
+    "mcp-analytics",
+    "replay-vision",
+    "ai-observability",
+    "metrics",
+    "slack",
+    "feature-flags",
+)
 
 
 @frozen
 class WizardSystemPrompt:
-    """The operator prompt a token is pinned to. `sha256` is the digest of the
-    exact UTF-8 bytes of `text`, with no trimming, and `bytes` is the length of
-    those same bytes."""
+    """The operator prompt a token carries. `text` goes to the gateway only, in
+    the mint body, and is never logged or returned to the wizard; `version` is
+    the one field the wizard sees."""
 
     text: str
     version: int
-    sha256: str
-    bytes: int
 
 
 @frozen
@@ -250,13 +270,10 @@ def _parse_system_prompt(raw: dict) -> WizardSystemPrompt | None:
     if not isinstance(text, str) or not text or _ABORT_MARKER not in text:
         _reject_system_prompt("text must be non-empty and hold the abort marker")
         return None
-    encoded = text.encode("utf-8")
-    if len(encoded) > _MAX_PROMPT_BYTES:
+    if len(text.encode("utf-8")) > _MAX_PROMPT_BYTES:
         _reject_system_prompt(f"text is over {_MAX_PROMPT_BYTES} bytes")
         return None
-    return WizardSystemPrompt(
-        text=text, version=version, sha256=hashlib.sha256(encoded).hexdigest(), bytes=len(encoded)
-    )
+    return WizardSystemPrompt(text=text, version=version)
 
 
 def _reject_system_prompt(problem: str) -> None:
@@ -513,8 +530,8 @@ def mint_wizard_gateway_token(
         "allowed_efforts": list(policy.efforts),
     }
     if policy.prompt is not None:
-        body["allowed_system_prompt_sha256"] = policy.prompt.sha256
-        body["allowed_system_prompt_bytes"] = policy.prompt.bytes
+        # The gateway stores the text on the token and injects it into every call.
+        body["system_prompt"] = policy.prompt.text
     try:
         response = requests.post(
             f"{base_url}/v1/tokens",

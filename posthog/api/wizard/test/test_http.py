@@ -1,5 +1,4 @@
 import json
-import hashlib
 from datetime import timedelta
 from decimal import Decimal
 
@@ -246,7 +245,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     MINTED = {"token": "phe_test_token", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "50"}
     PROMPT_TEXT = "You are the wizard. [posthog:abort] é"
-    PROMPT_SHA256 = hashlib.sha256(PROMPT_TEXT.encode("utf-8")).hexdigest()
 
     def setUp(self):
         super().setUp()
@@ -978,7 +976,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.llm.wizard_gateway_token.requests.post")
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_the_flags_set_the_token_pins_and_the_prompt_the_wizard_gets(
+    def test_the_flags_set_the_token_pins_and_the_prompt_stays_off_the_client(
         self, mock_authentication, mock_flag, mock_post, mock_authorized
     ):
         self._mock_oauth(mock_authentication)
@@ -995,10 +993,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         body = mock_post.call_args.kwargs["json"]
         assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
         assert body["allowed_efforts"] == ["none", "low"]
-        assert body["allowed_system_prompt_sha256"] == self.PROMPT_SHA256
-        assert body["allowed_system_prompt_bytes"] == len(self.PROMPT_TEXT.encode("utf-8"))
-        assert response.json()["system_prompt"] == self.PROMPT_TEXT
+        assert body["system_prompt"] == self.PROMPT_TEXT
+        # The client gets the version and never the text.
         assert response.json()["system_prompt_version"] == 4
+        assert "system_prompt" not in response.json()
+        assert self.PROMPT_TEXT not in response.content.decode()
         # One read per flag per request, however many places use the policy.
         assert len(self._flag_reads(WIZARD_SYSTEM_PROMPT_FLAG)) == 1
         assert len(self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG)) == 1
@@ -1055,8 +1054,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         body = mock_post.call_args.kwargs["json"]
-        assert "allowed_system_prompt_sha256" not in body
-        assert "allowed_system_prompt_bytes" not in body
+        assert "system_prompt" not in body
         assert "system_prompt" not in response.json()
         assert "system_prompt_version" not in response.json()
         # The allowlist is untouched.
@@ -1082,7 +1080,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         mock_post.return_value.json.return_value = self.MINTED
         self.flag_payloads[WIZARD_GATEWAY_ALLOWLIST_FLAG] = payload
 
-        # The default program list is empty, so name the program the default checks against.
+        # One default program, so the refused program is known to be outside the defaults.
         with patch("posthog.llm.wizard_gateway_token.WIZARD_DEFAULT_PROGRAMS", ("integration",)):
             response = self.client.post(
                 self.GATEWAY_TOKEN_URL,

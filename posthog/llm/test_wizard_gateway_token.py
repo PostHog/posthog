@@ -1,5 +1,4 @@
 import json
-import hashlib
 from datetime import timedelta
 from decimal import Decimal
 
@@ -50,18 +49,15 @@ MINT_SETTINGS = {
     "WIZARD_GATEWAY_TOKEN_TTL_SECONDS": 86400,
 }
 
+# Trailing whitespace and an accent: the mint must carry the text byte for byte.
 PROMPT_TEXT = "You are the wizard. [posthog:abort]\n é"
-# The digest of PROMPT_TEXT's exact UTF-8 bytes, trailing whitespace and accent included.
-# 38 characters, 39 bytes: the accent takes two.
-PROMPT_BYTES = 39
-PROMPT_SHA256 = "c867f9376c437a24e8faf32bdb93dd7131d2a5dec65eb93b6c61c33db8584c86"
 
 POLICY = WizardGatewayPolicy(
     # Mixed case, a provider prefix, a duplicate and stray spaces: the mint sends the gateway's spelling.
     models=("OpenAI/GPT-5.6-Luna", "gpt-5.6-luna", " Claude-Sonnet-5 "),
     efforts=("none", "high"),
     programs=("integration", "audit"),
-    prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4, sha256=PROMPT_SHA256, bytes=PROMPT_BYTES),
+    prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4),
 )
 
 PROMPT_PAYLOAD = {"version": 4, "text": PROMPT_TEXT}
@@ -117,8 +113,7 @@ class TestMintWizardGatewayToken:
             "user": "user_1",
             "allowed_models": ["gpt-5.6-luna", "claude-sonnet-5"],
             "allowed_efforts": ["none", "high"],
-            "allowed_system_prompt_sha256": PROMPT_SHA256,
-            "allowed_system_prompt_bytes": PROMPT_BYTES,
+            "system_prompt": PROMPT_TEXT,
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
@@ -526,20 +521,18 @@ class TestWizardGatewayPolicy:
             models=("OpenAI/GPT-5.6-Luna", "claude-sonnet-5"),
             efforts=("none", "high"),
             programs=("integration", "audit"),
-            prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4, sha256=PROMPT_SHA256, bytes=PROMPT_BYTES),
+            prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4),
         )
         assert sorted(call.args[0] for call in read.call_args_list) == sorted(
             [WIZARD_GATEWAY_ALLOWLIST_FLAG, WIZARD_SYSTEM_PROMPT_FLAG]
         )
 
-    def test_the_digest_covers_the_exact_bytes(self):
+    def test_the_prompt_text_is_kept_untrimmed(self):
         text = "  [posthog:abort] \n"
         with self._flags(prompt={"version": 1, "text": text}):
             policy = wizard_gateway_policy(distinct_id="d1")
         assert policy.prompt is not None
         assert policy.prompt.text == text
-        assert policy.prompt.sha256 == hashlib.sha256(text.encode("utf-8")).hexdigest()
-        assert policy.prompt.bytes == len(text.encode("utf-8"))
 
     def test_a_json_string_payload_reads_like_an_object(self):
         with self._flags(prompt=json.dumps(PROMPT_PAYLOAD), allowlist=json.dumps(ALLOWLIST_PAYLOAD)):
@@ -616,7 +609,7 @@ class TestWizardGatewayPolicy:
         assert policy.prompt is not None
         assert self._rejects("allowlist") == before + (1 if counted else 0)
 
-    def test_a_mint_without_a_prompt_omits_both_prompt_pins(self):
+    def test_a_mint_without_a_prompt_omits_the_prompt(self):
         unpinned = WizardGatewayPolicy(
             models=POLICY.models, efforts=POLICY.efforts, programs=POLICY.programs, prompt=None
         )
@@ -628,8 +621,7 @@ class TestWizardGatewayPolicy:
             mint_wizard_gateway_token(obo="7", user="user_1", policy=unpinned)
 
         body = post.call_args.kwargs["json"]
-        assert "allowed_system_prompt_sha256" not in body
-        assert "allowed_system_prompt_bytes" not in body
+        assert "system_prompt" not in body
         assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
 
 

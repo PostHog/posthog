@@ -367,8 +367,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             "team_id": team.id,
         }
         if policy.prompt is not None:
-            # The gateway checks the first system unit of every call against the pinned digest.
-            payload["system_prompt"] = policy.prompt.text
+            # The client gets the version only. The gateway holds the text and injects it.
             payload["system_prompt_version"] = policy.prompt.version
         return Response(payload, status=status.HTTP_201_CREATED)
 
