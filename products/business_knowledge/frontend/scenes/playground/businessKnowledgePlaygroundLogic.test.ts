@@ -20,7 +20,6 @@ import type {
     PlaygroundChatListApi,
     SandboxRunApi,
 } from '../../generated/api.schemas'
-import { askPlaygroundChat, createPlaygroundChat, getPlaygroundChat, listPlaygroundChats } from '../../api'
 import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundLogic'
 
 jest.mock('../../api', () => ({
