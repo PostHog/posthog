@@ -301,6 +301,26 @@ class TestConversionGoalWrites(APIBaseTest):
         assert "event" not in stored
         assert stored["conversion_goal_id"] == goal["conversion_goal_id"]
 
+    @parameterized.expand([("ActionsNode", {"id": "7"}), ("DataWarehouseNode", {"table_name": "example_orders"})])
+    def test_update_kind_requires_a_complete_replacement(self, kind: str, target: dict) -> None:
+        goal = self.create_goal("Sign ups").json()["goal"]
+
+        response = self.client.patch(
+            f"{self.base_url}/{goal['conversion_goal_id']}/update",
+            {"goal": {"kind": kind, **target}},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        body = response.json()
+        assert body["code"] == "conversion_goal_kind_change_invalid"
+        assert body["attr"] == "goal"
+        assert "Changing kind replaces the conversion goal" in body["detail"]
+        assert "conversion_goal_name: Field required" in body["detail"]
+        assert "schema_map: Field required" in body["detail"]
+        assert "'EventsNode'" not in body["detail"]
+        assert self.stored_goals() == [goal]
+
     def test_error_message_describes_the_shape_that_was_sent(self):
         response = self.client.post(
             f"{self.base_url}/create",
