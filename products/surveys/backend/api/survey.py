@@ -117,7 +117,7 @@ DEFAULT_BASE_LANGUAGE = "en"
 # Sentinel keys we explicitly reject — these used to appear in customer data and never
 # resolved to anything in the SDK. Block them at the API so they don't keep accumulating.
 REJECTED_TRANSLATION_KEYS = frozenset({"default", "original", "base"})
-SURVEY_APPEARANCE_HTML_FIELDS = (
+SURVEY_SCREEN_TEXT_FIELDS = (
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
@@ -135,9 +135,7 @@ SURVEY_QUESTION_HTML_FIELDS = (
 SURVEY_TRANSLATION_HTML_FIELDS = (
     "name",
     "description",
-    "thankYouMessageHeader",
-    "thankYouMessageDescription",
-    "thankYouMessageCloseButtonText",
+    *SURVEY_SCREEN_TEXT_FIELDS,
     *SURVEY_QUESTION_HTML_FIELDS,
 )
 
@@ -149,7 +147,7 @@ def _normalize_language_code(raw: str) -> str:
 
 def sanitize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
     sanitized_appearance = dict(appearance)
-    for field in SURVEY_APPEARANCE_HTML_FIELDS:
+    for field in SURVEY_SCREEN_TEXT_FIELDS:
         field_value = sanitized_appearance.get(field)
         if isinstance(field_value, str) and nh3.is_html(field_value):
             sanitized_appearance[field] = nh3_clean_with_allow_list(field_value)
@@ -224,9 +222,7 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
     [
         "name",
-        "thankYouMessageHeader",
-        "thankYouMessageDescription",
-        "thankYouMessageCloseButtonText",
+        *SURVEY_SCREEN_TEXT_FIELDS,
     ]
 )
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -234,11 +230,6 @@ FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "targeting_flag_filters",
 ]
 SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
-SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
-    "thankYouMessageHeader",
-    "thankYouMessageDescription",
-    "thankYouMessageCloseButtonText",
-)
 SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
     "id",
     "type",
@@ -278,7 +269,7 @@ class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
         appearance = draft.get("appearance")
         if isinstance(appearance, dict):
             draft["appearance"] = {
-                field: appearance[field] for field in SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS if field in appearance
+                field: appearance[field] for field in SURVEY_SCREEN_TEXT_FIELDS if field in appearance
             }
 
         questions = draft.get("questions")
@@ -302,6 +293,15 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     )
     thankYouMessageCloseButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated thank-you close button text."
+    )
+    introScreenHeader = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen header."
+    )
+    introScreenDescription = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen description."
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
 
 
@@ -1122,6 +1122,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
+        intro_screen_description_content_type = value.get("introScreenDescriptionContentType")
+        if intro_screen_description_content_type and intro_screen_description_content_type not in ["text", "html"]:
+            raise serializers.ValidationError("introScreenDescriptionContentType must be one of ['text', 'html']")
+
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
@@ -1246,13 +1250,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Translation for '{raw_lang_code}' must be an object")
 
             cleaned_translation: dict[str, str] = {}
-            for field in [
-                "name",
-                "description",
-                "thankYouMessageHeader",
-                "thankYouMessageDescription",
-                "thankYouMessageCloseButtonText",
-            ]:
+            for field in ["name", "description", *SURVEY_SCREEN_TEXT_FIELDS]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(
