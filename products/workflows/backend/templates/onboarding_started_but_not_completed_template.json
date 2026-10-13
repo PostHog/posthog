@@ -19,71 +19,7 @@
     "updated_at": "2025-12-30T15:01:55.145049Z",
     "trigger": {
         "type": "event",
-        "filters": {
-            "events": [
-                {
-                    "id": "$pageview",
-                    "name": "$pageview",
-                    "type": "events",
-                    "uuid": "37df72f6-ef0c-464b-ae70-3db19665ddc2",
-                    "order": 0,
-                    "properties": [
-                        {
-                            "key": "$current_url",
-                            "type": "event",
-                            "value": "messaging/campaigns",
-                            "operator": "icontains"
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": ["sara@posthog.com"],
-                            "operator": "exact"
-                        }
-                    ]
-                }
-            ],
-            "source": "events",
-            "actions": [],
-            "bytecode": [
-                "_H",
-                1,
-                32,
-                "$pageview",
-                32,
-                "event",
-                1,
-                1,
-                11,
-                32,
-                "%messaging/campaigns%",
-                32,
-                "$current_url",
-                32,
-                "properties",
-                1,
-                2,
-                2,
-                "toString",
-                1,
-                18,
-                32,
-                "sara@posthog.com",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                11,
-                3,
-                2,
-                3,
-                2
-            ]
-        }
+        "filters": {}
     },
     "trigger_masking": {
         "ttl": null,
@@ -149,7 +85,7 @@
         {
             "id": "trigger_node",
             "name": "Onboarding started",
-            "description": "User has started onboarding.",
+            "description": "Pick the event that marks the start of onboarding.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -157,71 +93,7 @@
             "type": "trigger",
             "config": {
                 "type": "event",
-                "filters": {
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "name": "$pageview",
-                            "type": "events",
-                            "uuid": "37df72f6-ef0c-464b-ae70-3db19665ddc2",
-                            "order": 0,
-                            "properties": [
-                                {
-                                    "key": "$current_url",
-                                    "type": "event",
-                                    "value": "messaging/campaigns",
-                                    "operator": "icontains"
-                                },
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["sara@posthog.com"],
-                                    "operator": "exact"
-                                }
-                            ]
-                        }
-                    ],
-                    "source": "events",
-                    "actions": [],
-                    "bytecode": [
-                        "_H",
-                        1,
-                        32,
-                        "$pageview",
-                        32,
-                        "event",
-                        1,
-                        1,
-                        11,
-                        32,
-                        "%messaging/campaigns%",
-                        32,
-                        "$current_url",
-                        32,
-                        "properties",
-                        1,
-                        2,
-                        2,
-                        "toString",
-                        1,
-                        18,
-                        32,
-                        "sara@posthog.com",
-                        32,
-                        "email",
-                        32,
-                        "properties",
-                        32,
-                        "person",
-                        1,
-                        3,
-                        11,
-                        3,
-                        2,
-                        3,
-                        2
-                    ]
-                }
+                "filters": {}
             },
             "output_variable": null
         },

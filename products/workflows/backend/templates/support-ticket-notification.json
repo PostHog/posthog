@@ -87,7 +87,6 @@
             "config": {
                 "inputs": {
                     "slack_workspace": {
-                        "value": 54567,
                         "templating": "hog"
                     },
                     "channel": {
@@ -105,7 +104,7 @@
                         "value": [
                             {
                                 "text": {
-                                    "text": "🎫 *New support ticket created*\n\n*User:* {person.name}\n*Email:* {person.email}\n\nA user has submitted a new support request.",
+                                    "text": "🎫 *New support ticket created*\n\n*User:* {person.name}\n*Email:* {person.properties.email}\n\nA user has submitted a new support request.",
                                     "type": "mrkdwn"
                                 },
                                 "type": "section"
@@ -122,7 +121,7 @@
                                         "type": "button"
                                     },
                                     {
-                                        "url": "{source.url}",
+                                        "url": "{project.url}/support/tickets/{event.properties.ticket_number}",
                                         "text": {
                                             "text": "Open ticket",
                                             "type": "plain_text"
