@@ -9,12 +9,15 @@ dataclasses. Never return ORM instances or import DRF.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import overload
+from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
 from ..logic import authorization, openfga_status, rollout, synchronization
 from . import contracts
 from .enums import Action, Level, SubjectType
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def synchronize_organization(organization_id: UUID) -> None:
@@ -92,6 +95,42 @@ def list_resources(
     was capped, so fail closed and return nothing.
     """
     return rollout.list_resources(resource, action, subject, context, limit)
+
+
+def filter(
+    *,
+    resource: contracts.Resource,
+    action: Action,
+    subject: contracts.Subject | None = None,
+    context: contracts.Context | None = None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
+) -> contracts.AccessFilter:
+    """Return the filter that narrows every `resource.type` row in its project to the rows the subject may `action` on.
+
+    Apply it next to your own query: `apply_filter` for a QuerySet, `filter_to_expr` for HogQL,
+    `access_filter.allows(id)` for one object. Set `creator_exempt` when the rows have a creator column and
+    the subject keeps its own rows. Pass the request's `user_access_control` when you hold one, so the
+    legacy rules are not loaded again. It goes away once the facade has a request-scoped session.
+    """
+    return rollout.filters([resource], action, subject, context, creator_exempt, user_access_control)[0]
+
+
+def filters(
+    resources: Sequence[contracts.Resource],
+    /,
+    *,
+    action: Action,
+    subject: contracts.Subject | None = None,
+    context: contracts.Context | None = None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
+) -> list[contracts.AccessFilter]:
+    """`filter` for several resource types at once, one result per resource, in order.
+
+    Use it when one request narrows many types, such as the HogQL schema build, so the rules load once.
+    """
+    return rollout.filters(resources, action, subject, context, creator_exempt, user_access_control)
 
 
 def list_subjects(

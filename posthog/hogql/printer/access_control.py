@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from posthog.scopes import APIScopeObject
 
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
+    from products.authz.backend.facade.contracts import AccessFilter
 
 
 def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optional["AccessControlFilterWarning"]:
@@ -42,16 +42,10 @@ def build_access_control_guard(
     table_type: ast.TableOrSelectType,
     context: HogQLContext,
 ) -> Optional[ast.Expr]:
-    """
-    Build the WHERE clause AST node that restricts the table to the access-controlled objects the
-    current user may read. Returns None if no filtering is needed.
+    """Build the WHERE guard that narrows the table to the rows the current user may query, or None.
 
-    Mirrors `UserAccessControl.filter_queryset_by_access_level`, the REST equivalent, branch for
-    branch: with no resource-level access the rows are narrowed to the user's explicit grants,
-    otherwise the objects denied to them are removed, and either way the objects they created stay
-    visible. The id sets live on UserAccessControl (`allowlisted_resource_ids_by_scope` /
-    `blocked_resource_ids_by_scope`) — single source of truth, shared with the cache-key fingerprint
-    in query_runner.py.
+    The decision comes from the authz facade as an `AccessFilter`. This function only turns it into
+    an expression, because only the table knows its id and creator columns.
     """
     resource = table.access_scope
     if not resource:
@@ -64,36 +58,62 @@ def build_access_control_guard(
     if not context.database or not context.database.user_access_control:
         return None
 
+    from products.authz.backend.facade import api as authz  # noqa: PLC0415
+    from products.authz.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authz.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
+
     user_access_control = context.database.user_access_control
-
-    allowlisted_ids = user_access_control.allowlisted_resource_ids_by_scope.get(resource)
-    if allowlisted_ids:
-        # No resource-level access at all: only the explicitly granted objects are readable.
-        guard: ast.Expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=_id_as_string(id_field, table_type),
-            right=ast.Constant(value=sorted(allowlisted_ids), is_sensitive=True),
-            type=ast.BooleanType(),
-        )
-    else:
-        blocked_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, frozenset())
-        if not blocked_ids:
-            return None
-        guard = ast.CompareOperation(
-            op=ast.CompareOperationOp.NotIn,
-            left=_id_as_string(id_field, table_type),
-            right=ast.Constant(value=sorted(blocked_ids), is_sensitive=True),
-            type=ast.BooleanType(),
-        )
-
-    creator_exemption = _build_creator_exemption(table, table_type, user_access_control)
-    if creator_exemption is not None:
-        guard = ast.Or(exprs=[guard, creator_exemption], type=ast.BooleanType())
+    user_id = user_access_control.user.pk
+    creator_field = table.access_control_creator_id
+    access_filter = authz.filter(
+        resource=Resource(type=ResourceType(resource), project_id=context.team_id),
+        action=Action.QUERY,
+        subject=Subject(user_id=user_id),
+        creator_exempt=creator_field is not None and creator_field in table.fields,
+        user_access_control=user_access_control,
+    )
+    guard = filter_to_expr(access_filter, id_field, table_type, creator_field, user_id)
+    if guard is None:
+        return None
 
     # Surface that this query is subject to filtering so callers don't mistake a possibly-partial
     # result for the full set. Note the guard applying doesn't mean rows were actually excluded —
     # the user's blocked objects may not have matched the query anyway.
     context.access_control_restricted_resources.add(resource)
+
+    return guard
+
+
+def filter_to_expr(
+    access_filter: "AccessFilter",
+    id_field: str,
+    table_type: ast.TableOrSelectType,
+    creator_field: Optional[str],
+    subject_user_id: Optional[int],
+) -> Optional[ast.Expr]:
+    """Translate an authz filter into the WHERE guard for one table, or None when nothing is restricted.
+
+    Pure: it knows the column names and the AST, and nothing about the rules. Mirrors
+    `posthog.models.access_filter.apply_filter`, the QuerySet adapter.
+    """
+    from products.authz.backend.facade.enums import FilterKind  # noqa: PLC0415
+
+    if access_filter.kind == FilterKind.ALL:
+        return None
+
+    if access_filter.kind == FilterKind.NONE:
+        guard: ast.Expr = ast.Constant(value=False)
+    else:
+        guard = ast.CompareOperation(
+            op=ast.CompareOperationOp.In if access_filter.kind == FilterKind.ONLY else ast.CompareOperationOp.NotIn,
+            left=_id_as_string(id_field, table_type),
+            right=ast.Constant(value=sorted(access_filter.ids), is_sensitive=True),
+            type=ast.BooleanType(),
+        )
+
+    if access_filter.creator_exempt and creator_field is not None and subject_user_id is not None:
+        exemption = _build_creator_exemption(creator_field, table_type, subject_user_id)
+        guard = ast.Or(exprs=[guard, exemption], type=ast.BooleanType())
 
     return guard
 
@@ -107,26 +127,22 @@ def _id_as_string(id_field: str, table_type: ast.TableOrSelectType) -> ast.Expr:
 
 
 def _build_creator_exemption(
-    table: PostgresTable,
+    creator_field: str,
     table_type: ast.TableOrSelectType,
-    user_access_control: "UserAccessControl",
-) -> Optional[ast.Expr]:
-    """`created_by_id = <current user>`, the REST creator exemption, or None when it can't apply.
+    subject_user_id: int,
+) -> ast.Expr:
+    """`created_by_id = <current user>`, the REST creator exemption.
 
     A NULL creator must not exempt the row, hence the ifNull: without it the comparison is NULL and
     takes the whole OR with it.
     """
-    creator_field = table.access_control_creator_id
-    if creator_field is None or creator_field not in table.fields:
-        return None
-
     return ast.Call(
         name="ifNull",
         args=[
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=[creator_field], type=ast.FieldType(name=creator_field, table_type=table_type)),
-                right=ast.Constant(value=user_access_control.user.pk),
+                right=ast.Constant(value=subject_user_id),
                 type=ast.BooleanType(),
             ),
             ast.Constant(value=False),

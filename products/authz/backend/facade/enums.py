@@ -53,6 +53,20 @@ class ResourceType(StrEnum):
     PROJECT = "project"
     ROLE = "role"
     # Keep in sync with ACCESS_CONTROL_RESOURCES in products/access_control/backend/facade/user_access_control.py.
+    # Also cover every `access_scope` a HogQL PostgresTable declares. These are not in that tuple:
+    ACCOUNT = "account"
+    ALERT = "alert"
+    ANNOTATION = "annotation"
+    AUTORESEARCH = "autoresearch"
+    BATCH_EXPORT = "batch_export"
+    CANVAS = "canvas"
+    CUSTOMER_TASK = "customer_task"
+    DATASET = "dataset"
+    HOG_FUNCTION = "hog_function"
+    INTEGRATION = "integration"
+    SESSION_RECORDING_PLAYLIST = "session_recording_playlist"
+    TASK = "task"
+    USAGE_METRIC = "usage_metric"
     ACTION = "action"
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_CATALOG = "data_catalog"
@@ -106,3 +120,12 @@ class SubjectType(StrEnum):
     PROJECT_SECRET_KEY = "project_secret_key"
     SERVICE = "service"
     ROLE = "role"
+
+
+class FilterKind(StrEnum):
+    """How an `AccessFilter` narrows the rows of one resource type."""
+
+    ALL = "all"
+    NONE = "none"
+    ONLY = "only"
+    EXCEPT = "except"

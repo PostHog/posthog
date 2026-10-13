@@ -10,13 +10,14 @@ variant — same syntax, same ``is_dataclass()`` compatibility (so
 validation on construction.
 """
 
+import hashlib
 from dataclasses import field, fields
 from typing import Self
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import Action, Level, ResourceType
+from .enums import Action, FilterKind, Level, ResourceType
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -123,6 +124,55 @@ class ResourceIds:
 
     ids: frozenset[str]
     complete: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessFilter:
+    """The rows of one resource type a subject may act on, as a residual the caller pushes into its own query.
+
+    `kind` says how `ids` apply: ALL and NONE carry no ids, ONLY keeps just `ids`, EXCEPT drops `ids`.
+    `creator_exempt` means rows the subject created stay visible whatever `kind` says. The adapter that
+    applies the filter supplies the creator column, because only the enforcement point knows it.
+    `complete=False` means the id set was capped. The filter is then NONE, so the caller fails closed.
+    """
+
+    resource_type: ResourceType
+    action: Action
+    kind: FilterKind
+    ids: frozenset[str] = frozenset()
+    creator_exempt: bool = False
+    complete: bool = True
+
+    def __post_init__(self) -> None:
+        if self.kind in (FilterKind.ALL, FilterKind.NONE) and self.ids:
+            raise ValueError(f"An {self.kind.value} filter carries no ids, got {len(self.ids)}.")
+        if self.kind in (FilterKind.ONLY, FilterKind.EXCEPT) and not self.ids:
+            raise ValueError(f"An {self.kind.value} filter needs at least one id.")
+        if not self.complete and self.kind != FilterKind.NONE:
+            raise ValueError("A capped filter must be NONE so the caller fails closed.")
+
+    @property
+    def restricts(self) -> bool:
+        """Whether applying the filter can remove rows."""
+        return self.kind != FilterKind.ALL
+
+    def allows(self, id: str, *, created_by_user_id: int | None = None, subject_user_id: int | None = None) -> bool:
+        """Whether one row passes the filter. Same rule as the QuerySet and HogQL adapters, for one object."""
+        if self.creator_exempt and subject_user_id is not None and created_by_user_id == subject_user_id:
+            return True
+        if self.kind == FilterKind.ALL:
+            return True
+        if self.kind == FilterKind.NONE:
+            return False
+        return (id in self.ids) == (self.kind == FilterKind.ONLY)
+
+    def fingerprint(self) -> str:
+        """Stable digest of the decision, for query cache keys."""
+        payload = "|".join(
+            (self.resource_type.value, self.action.value, self.kind.value, ",".join(sorted(self.ids)))
+            + (("creator",) if self.creator_exempt else ())
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 @dataclass(frozen=True, kw_only=True)
