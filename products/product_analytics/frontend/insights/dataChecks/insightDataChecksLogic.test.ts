@@ -6,6 +6,8 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
+import type { InsightVizNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { InsightShortId } from '~/types'
 
@@ -109,6 +111,60 @@ describe('insightDataChecksLogic', () => {
             expect.objectContaining({ filterTestAccounts: true, dateRange: { date_from: '-30d' } }),
         ])
         expect(logic.values.status).toBe('warning')
+    })
+
+    it('sends the parts of the query that decide which events the chart reads', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        const onChrome = { key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }
+        const modifiers = { personsOnEventsMode: 'person_id_override_properties_joined' }
+        insightDataLogic(props).actions.setQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'signed up',
+                        name: 'Sign up',
+                        math: 'total',
+                        properties: [onChrome],
+                    },
+                ],
+                dateRange: { date_from: '-30d' },
+                filterTestAccounts: true,
+                funnelsFilter: { funnelAggregateByHogQL: 'properties.$session_id', funnelVizType: 'steps' },
+                breakdownFilter: { breakdown_type: 'event', breakdown: '$os' },
+                modifiers,
+            },
+        } as InsightVizNode)
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(sentSources.at(-1)).toEqual({
+            kind: NodeKind.FunnelsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: 'signed up', math: 'total', properties: [onChrome] }],
+            dateRange: { date_from: '-30d' },
+            filterTestAccounts: true,
+            funnelsFilter: { funnelAggregateByHogQL: 'properties.$session_id' },
+            modifiers,
+        })
+    })
+
+    it.each([
+        ['again after a person refreshes the chart', 'force_blocking' as const, 2],
+        ['once when the chart loads again for the same query', 'blocking' as const, 1],
+    ])('checks %s', async (_name, refresh, requests) => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            vizData.actions.loadDataSuccess(
+                {},
+                { refresh, queryId: 'chart', pollOnly: false, overrideQuery: undefined }
+            )
+        }).toFinishAllListeners()
+
+        expect(dataChecks).toHaveBeenCalledTimes(requests)
     })
 
     it.each([

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconMinus, IconWarning } from '@posthog/icons'
 
 import { AgentPromptButton } from 'lib/components/AgentPromptButton/AgentPromptButton'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
@@ -94,6 +95,7 @@ export function InsightDataCheckRow({
                                     labelMode="destination"
                                     defaultAgentKey="posthog-ai"
                                     data-attr="insight-data-check-fix-with-ai"
+                                    menuClassName={CLICK_OUTSIDE_BLOCK_CLASS}
                                     onRun={({ agentKey }) => reportFixPromptSent(check, agentKey)}
                                     actions={[
                                         {

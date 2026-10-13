@@ -599,7 +599,9 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
-                                        {!inSharedMode && <InsightDataChecks insightProps={insightProps} />}
+                                        {context?.showDataChecks && !inSharedMode && (
+                                            <InsightDataChecks insightProps={insightProps} />
+                                        )}
                                     </div>
                                 </div>
                             )}

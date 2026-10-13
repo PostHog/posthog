@@ -20,15 +20,18 @@ import type {
     BreakdownFilter,
     DateRange,
     EventsNode,
+    FunnelsFilter,
     HogQLQueryModifiers,
     InsightQueryNode,
     Node,
+    RefreshType,
 } from '~/queries/schema/schema-general'
 import {
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import type { InsightLogicProps, InsightModel } from '~/types'
@@ -53,6 +56,7 @@ export interface DataChecksQuery {
         properties?: unknown
         filterTestAccounts?: boolean
         aggregation_group_type_index?: number | null
+        funnelsFilter?: Pick<FunnelsFilter, 'funnelAggregateByHogQL'>
         breakdownFilter?: Pick<BreakdownFilter, 'breakdown_type' | 'breakdown'>
         modifiers?: HogQLQueryModifiers
     }
@@ -68,6 +72,7 @@ export type InsightDataChecksStatus = 'unavailable' | 'checking' | 'failed' | In
 export interface insightDataChecksLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     query: Node | null // insightDataLogic
+    queryChanged: boolean // insightDataLogic
     insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     insightDataLoading: boolean // insightVizDataLogic
     checkedQuery: DataChecksQuery | null
@@ -90,13 +95,6 @@ export interface insightDataChecksLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
-    loadDataFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    } // insightVizDataLogic
     loadDataSuccess: (
         response:
             | Record<string, any>
@@ -120,7 +118,7 @@ export interface insightDataChecksLogicActions {
                   overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
                   pollOnly: boolean
                   queryId: string
-                  refresh: import('~/queries/schema').RefreshType | undefined
+                  refresh: RefreshType | undefined
               }
             | undefined
     ) => {
@@ -128,7 +126,7 @@ export interface insightDataChecksLogicActions {
             overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
-            refresh: import('~/queries/schema').RefreshType | undefined
+            refresh: RefreshType | undefined
         }
         response:
             | Record<string, any>
@@ -151,8 +149,8 @@ export interface insightDataChecksLogicActions {
     updateQuerySource: (querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate) => {
         querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate
     } // insightVizDataLogic
-    checkData: () => {
-        value: true
+    checkData: (again?: boolean) => {
+        again: boolean
     }
     filterOutInternalUsers: () => {
         value: true
@@ -189,18 +187,19 @@ export interface insightDataChecksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         checkedQuery: (query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => DataChecksQuery | null
-        result: (dataChecksRun: DataChecksRun | null) => InsightDataChecksApi | null
         status: (
             checkedQuery: DataChecksQuery | null,
             requestedQuery: DataChecksQuery | null,
             dataChecksRunLoading: boolean,
             dataChecksRun: DataChecksRun | null
         ) => InsightDataChecksStatus
+        result: (dataChecksRun: DataChecksRun | null, status: InsightDataChecksStatus) => InsightDataChecksApi | null
         checks: (result: InsightDataChecksApi | null) => InsightDataCheckApi[]
         findings: (checks: InsightDataCheckApi[]) => InsightDataCheckApi[]
         promptContext: (
             checkedQuery: DataChecksQuery | null,
             insight: Partial<InsightModel<Node<Record<string, any>>>>,
+            queryChanged: any,
             result: InsightDataChecksApi | null
         ) => DataCheckPromptContext | null
     }
@@ -213,6 +212,8 @@ export type insightDataChecksLogicType = MakeLogicType<
     insightDataChecksLogicMeta
 >
 
+const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blocking']
+
 export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = kea<insightDataChecksLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -220,7 +221,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     connect((props: InsightLogicProps) => ({
         values: [
             insightDataLogic(props),
-            ['query'],
+            ['query', 'queryChanged'],
             insightVizDataLogic(props),
             ['insightDataLoading'],
             insightLogic(props),
@@ -230,13 +231,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         ],
         actions: [
             insightVizDataLogic(props),
-            ['loadDataFailure', 'loadDataSuccess', 'updateQuerySource'],
+            ['loadDataSuccess', 'updateQuerySource'],
             featureFlagLogic,
             ['setFeatureFlags'],
         ],
     })),
     actions({
-        checkData: true,
+        checkData: (again: boolean = false) => ({ again }),
         filterOutInternalUsers: true,
         reportDataChecksViewed: true,
         reportFixPromptSent: (check: InsightDataCheckApi, destination: string) => ({ check, destination }),
@@ -280,7 +281,8 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     return null
                 }
                 // A trends chart broken down by cohort reads only the people in those cohorts.
-                const breakdownFilter = isTrendsQuery(source) ? source.breakdownFilter : null
+                const breakdownFilter = isTrendsQuery(source) || isFunnelsQuery(source) ? source.breakdownFilter : null
+                const countedBy = isFunnelsQuery(source) ? source.funnelsFilter?.funnelAggregateByHogQL : null
                 return {
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -295,9 +297,11 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                         dateRange: source.dateRange,
                         properties: source.properties,
                         filterTestAccounts: source.filterTestAccounts,
-                        aggregation_group_type_index: isFunnelsQuery(source)
-                            ? source.aggregation_group_type_index
-                            : undefined,
+                        aggregation_group_type_index:
+                            isFunnelsQuery(source) || isLifecycleQuery(source)
+                                ? source.aggregation_group_type_index
+                                : undefined,
+                        funnelsFilter: countedBy ? { funnelAggregateByHogQL: countedBy } : undefined,
                         breakdownFilter:
                             breakdownFilter?.breakdown_type === 'cohort'
                                 ? {
@@ -310,11 +314,6 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 }
             },
             { resultEqualityCheck: objectsEqual },
-        ],
-        result: [
-            (s) => [s.dataChecksRun],
-            (dataChecksRun: DataChecksRun | null): InsightDataChecksApi | null =>
-                dataChecksRun?.ok ? dataChecksRun.result : null,
         ],
         status: [
             (s) => [s.checkedQuery, s.requestedQuery, s.dataChecksRunLoading, s.dataChecksRun],
@@ -337,6 +336,11 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 return dataChecksRun.denied ? 'unavailable' : 'failed'
             },
         ],
+        result: [
+            (s) => [s.dataChecksRun, s.status],
+            (dataChecksRun: DataChecksRun | null, status: InsightDataChecksStatus): InsightDataChecksApi | null =>
+                dataChecksRun?.ok && status !== 'checking' ? dataChecksRun.result : null,
+        ],
         checks: [
             (s) => [s.result],
             (result: InsightDataChecksApi | null): InsightDataCheckApi[] => result?.checks ?? [],
@@ -347,10 +351,11 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 checks.filter((check) => check.level === 'warning' || check.level === 'problem'),
         ],
         promptContext: [
-            (s) => [s.checkedQuery, s.insight, s.result],
+            (s) => [s.checkedQuery, s.insight, s.queryChanged, s.result],
             (
                 checkedQuery: DataChecksQuery | null,
                 insight: Partial<InsightModel>,
+                queryChanged: boolean,
                 result: InsightDataChecksApi | null
             ): DataCheckPromptContext | null => {
                 if (!result || !checkedQuery) {
@@ -358,9 +363,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 }
                 const names = checkedQuery.source.series.map((series) => series.event)
                 return {
-                    insightUrl: insight.short_id
-                        ? urls.absolute(urls.currentProject(urls.insightView(insight.short_id)))
-                        : null,
+                    insightUrl:
+                        insight.short_id && !queryChanged
+                            ? urls.absolute(urls.currentProject(urls.insightView(insight.short_id)))
+                            : null,
                     events: names.every((name): name is string => !!name) ? [...new Set(names)] : 'all',
                     eventsChecked: result.events_checked,
                     sampled: result.sample_rate < 1,
@@ -371,9 +377,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     listeners(({ actions, values }) => ({
         // The chart can load more than once for one query, and the answer for that query is already on its way.
         // One run at a time: a run for an older query keeps its queries on the server until it ends.
-        checkData: () => {
+        checkData: ({ again }) => {
             const query = values.checkedQuery
-            if (query && query !== values.requestedQuery && !values.dataChecksRunLoading) {
+            if (query && (again || query !== values.requestedQuery) && !values.dataChecksRunLoading) {
                 actions.loadDataChecks(query)
             }
         },
@@ -389,12 +395,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 actions.checkData()
             }
         },
-        loadDataSuccess: () => {
-            actions.checkData()
-        },
-        // The checks read the events directly, so they can run when the chart itself fails.
-        loadDataFailure: () => {
-            actions.checkData()
+        // A person refreshes the chart after a fix in the project's filter, which leaves the query as it was.
+        loadDataSuccess: ({ payload }) => {
+            actions.checkData(FORCED_REFRESHES.includes(payload?.refresh))
         },
         filterOutInternalUsers: () => {
             actions.updateQuerySource({ filterTestAccounts: true })
