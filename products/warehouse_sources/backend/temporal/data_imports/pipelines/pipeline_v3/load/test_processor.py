@@ -1995,8 +1995,6 @@ class TestTableHandleReuse:
 
 
 class TestCompactionDuringLoad:
-    _loader = TestTableHandleReuse._loader
-
     @parameterized.expand(
         [
             ("a_long_load_compacts_between_batches", False, 1),
@@ -2014,7 +2012,7 @@ class TestCompactionDuringLoad:
             ),
         ):
             write_deltalake(tmp, TestTableHandleReuse._SEED)
-            with self._loader(tmp, []):
+            with TestTableHandleReuse()._loader(tmp, []):
                 for index in range(1, 11):
                     process_message(
                         TestTableHandleReuse._batch(
