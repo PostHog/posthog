@@ -303,6 +303,18 @@ describe('entityFilterLogic', () => {
             }
         )
 
+        it('drops the event when an event becomes a data warehouse series', () => {
+            logic.actions.setLocalSeries([{ uuid: 'uuid-0', node: eventNode }])
+            logic.actions.updateSeriesEntity(0, { kind: NodeKind.DataWarehouseNode, key: 'payments', name: 'payments' })
+
+            expect(logic.values.series[0]).toMatchObject({
+                kind: NodeKind.DataWarehouseNode,
+                id: 'payments',
+                table_name: 'payments',
+            })
+            expect(logic.values.series[0]).not.toHaveProperty('event')
+        })
+
         const eventPropertyMath = {
             ...eventNode,
             math: 'sum',

@@ -367,6 +367,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     }
 
                     if (isWarehouseSeriesNodeKind(kind)) {
+                        // The schema forbids unknown keys, so an event left over from an events series fails the query.
+                        delete next.event
                         applySeriesKey(next, kind, typeof key === 'undefined' ? seriesNodeKey(current) : key)
                         dataWarehousePopoverFields.forEach(({ key: fieldKey }) => {
                             const value = extra[fieldKey]
