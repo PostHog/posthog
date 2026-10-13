@@ -14,6 +14,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -373,6 +374,7 @@ export function UpdateEmailPreferences(): JSX.Element {
     } = useActions(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { searchParams } = useValues(router)
+    const workflowSuggestionsEnabled = useFeatureFlag('SELF_OPTIMISING_WORKFLOWS')
     const highlight = searchParams.highlight as NotificationBlock | undefined
     const dataLoaded = !userLoading && !currentOrganizationLoading && !!user && !!currentOrganization
 
@@ -647,7 +649,9 @@ export function UpdateEmailPreferences(): JSX.Element {
     }
 
     const visibleBlocks = NOTIFICATION_BLOCK_ORDER.filter(
-        (block) => block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)
+        (block) =>
+            (block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)) &&
+            (block !== NotificationBlock.WorkflowSuggestions || workflowSuggestionsEnabled)
     )
     const highlightedBlock = highlight && visibleBlocks.includes(highlight) ? highlight : null
     const highlightRef = useRef<HTMLDivElement>(null)
