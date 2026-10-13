@@ -26,8 +26,8 @@
             "type": "string"
         },
         "client_provenance": {
-            "description": "Filter by the client that created the task\n\n* `posthog_desktop` - PostHog Desktop",
-            "enum": ["posthog_desktop"],
+            "description": "Filter by the client that created the task\n\n* `posthog_desktop` - PostHog Desktop\n* `posthog_mobile` - PostHog Mobile\n* `posthog_web` - PostHog Web",
+            "enum": ["posthog_desktop", "posthog_mobile", "posthog_web"],
             "type": "string"
         },
         "commented_by": {

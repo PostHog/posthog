@@ -20,6 +20,13 @@ scout-role: operational
 metadata:
   owner_team: signals
   scope: inbox_validation
+scout-precheck-query: |
+  SELECT id, title, updated_at
+  FROM system.inbox_reports
+  WHERE status = 'resolved'
+    AND updated_at > {now} - INTERVAL 14 DAY
+  ORDER BY updated_at DESC
+  LIMIT 20
 ---
 
 # Signals scout: inbox validation
@@ -52,6 +59,8 @@ Two cheap reads decide whether this run does any work:
 
 - `inbox-reports-list {"status": "resolved", "ordering": "-updated_at", "limit": 20}` — recently resolved reports.
 - `scout-report-check-list` on the ones you do not recognize — a report that already carries an active check is covered, whoever attached it.
+
+A scheduled run can start with a `<precheck_result>` block. Each row is a resolved report whose `updated_at` falls in the last 14 days, newest first, the same as the first page of the `inbox-reports-list` read above. When the block is present, use it in place of that read for the quick close-out, and still page past it when all 20 rows are covered.
 
 If no report's `updated_at` falls in the last 14 days, there is nothing to do. If the project has no resolved reports at all, write `not-in-use:inbox_validation:team{team_id}` ("checked at {timestamp}, no resolved reports yet — nothing to follow up"). Close out empty. Don't sweep cold history: a report resolved more than 14 days before you first saw it is backlog, not a follow-up — leave it alone.
 

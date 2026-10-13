@@ -1,7 +1,5 @@
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -14,11 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adjust imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adjust import (
     MAX_HISTORY_DAYS,
     MAX_PAGES_PER_WINDOW,
-    REPORT_URL,
     AdjustCredentialsError,
     AdjustResumeConfig,
     AdjustRetryableError,
-    adjust_source,
     build_report_params,
     date_windows,
     extract_rows,
@@ -29,7 +25,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adj
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.settings import ADJUST_REPORTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.source import AdjustSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adjust import AdjustSourceConfig
 
 TODAY = date(2024, 6, 30)
 
@@ -80,13 +85,18 @@ class _FakeResumeManager(ResumableSourceManager[AdjustResumeConfig]):
         self.saved.append(data)
 
 
-def _params(url: str) -> dict[str, str]:
-    return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
-
-
 def _page(rows: list[dict[str, Any]], next_url: str | None = None) -> _FakeResponse:
     pagination = {"next": next_url} if next_url else None
     return _FakeResponse(json_data={"rows": rows, "totals": {}, "pagination": pagination})
+
+
+def _scripted_page(rows: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    pagination = {"next": next_url} if next_url else None
+    return ScriptedResponse(json={"rows": rows, "totals": {}, "pagination": pagination})
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(AdjustSource(), AdjustSourceConfig(api_token="token"))
 
 
 def _run_get_rows(
@@ -157,18 +167,32 @@ class TestBuildReportParams:
 class TestRequest:
     @parameterized.expand([(429,), (500,), (502,), (503,)])
     def test_throttle_and_5xx_are_retryable(self, status: int) -> None:
-        session = _FakeSession([_FakeResponse(status_code=status)])
-        with pytest.raises(AdjustRetryableError):
-            adjust._request(cast(requests.Session, session), REPORT_URL, mock.MagicMock())
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                always(ScriptedResponse(status=status)),
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, AdjustRetryableError)
+        assert len(result.requests) > 1
 
     @parameterized.expand([(400,), (401,), (403,), (404,), (422,)])
     def test_client_errors_raise_http_error_with_url(self, status: int) -> None:
-        session = _FakeSession([_FakeResponse(status_code=status, text="nope")])
-        with pytest.raises(requests.HTTPError) as exc:
-            adjust._request(cast(requests.Session, session), REPORT_URL, mock.MagicMock())
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                # A JSON body that is not an object: the error message must still build.
+                [ScriptedResponse(status=status, body=b"null")],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, requests.HTTPError)
         # get_non_retryable_errors matches on the status text plus the host, so both must be present.
-        assert str(status) in str(exc.value)
-        assert "https://automate.adjust.com" in str(exc.value)
+        assert str(status) in str(result.raised)
+        assert "https://automate.adjust.com" in str(result.raised)
 
     @parameterized.expand(
         [
@@ -178,20 +202,38 @@ class TestRequest:
         ]
     )
     def test_error_body_detail_is_surfaced(self, _name: str, body: dict[str, Any], expected: str) -> None:
-        session = _FakeSession([_FakeResponse(status_code=400, json_data=body)])
-        with pytest.raises(requests.HTTPError) as exc:
-            adjust._request(cast(requests.Session, session), REPORT_URL, mock.MagicMock())
-        assert expected in str(exc.value)
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                [ScriptedResponse(status=400, json=body)],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert expected in str(result.raised)
 
     def test_non_json_error_body_does_not_break_error_construction(self) -> None:
-        session = _FakeSession([_FakeResponse(status_code=400, json_data=ValueError("no json"), text="<html>")])
-        with pytest.raises(requests.HTTPError):
-            adjust._request(cast(requests.Session, session), REPORT_URL, mock.MagicMock())
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                [ScriptedResponse(status=400, body=b"<html>")],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_non_dict_payload_raises(self) -> None:
-        session = _FakeSession([_FakeResponse(json_data=[{"day": "2024-01-01"}])])
-        with pytest.raises(ValueError):
-            adjust._request(cast(requests.Session, session), REPORT_URL, mock.MagicMock())
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                [ScriptedResponse(json=[{"day": "2024-01-01"}])],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, ValueError)
 
 
 class TestExtractRows:
@@ -282,16 +324,17 @@ class TestGetRows:
         assert len(batches) == MAX_PAGES_PER_WINDOW
 
     def test_resume_skips_windows_already_completed(self) -> None:
-        session = _FakeSession([_page([{"day": "2024-06-05"}]) for _ in range(2)])
-        manager = _FakeResumeManager(AdjustResumeConfig(next_start_date="2024-05-28"))
-        _run_get_rows(
-            session,
-            manager=manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-05-01",
-        )
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                [_scripted_page([{"day": "2024-06-05"}]) for _ in range(2)],
+                resume_state=AdjustResumeConfig(next_start_date="2024-05-28"),
+                incremental_field="day",
+                db_incremental_field_last_value="2024-05-01",
+            )
 
-        assert [_params(url)["date_period"] for url in session.requested_urls] == [
+        assert result.raised is None
+        assert result.params("date_period") == [
             "2024-05-28:2024-06-26",
             "2024-06-27:2024-06-30",
         ]
@@ -300,55 +343,58 @@ class TestGetRows:
         # The tracked session owns 429/5xx retries. Anything that reaches get_rows has already been
         # retried, so it must propagate for Temporal to retry the job rather than being re-looped
         # here (which would multiply the request count against Adjust's rate limit).
-        session = _FakeSession([_FakeResponse(status_code=429), _page([{"day": "2024-06-30"}])])
-        with pytest.raises(AdjustRetryableError):
-            _run_get_rows(session, should_use_incremental_field=True, db_incremental_field_last_value="2024-06-30")
-        assert len(session.requested_urls) == 1
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                always(ScriptedResponse(status=429)),
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, AdjustRetryableError)
+        assert len(result.requests) == 4
 
 
 class TestValidateCredentials:
-    def _validate(self, response: _FakeResponse, app_tokens: str | None = None) -> bool:
-        session = _FakeSession([response])
-        with mock.patch.object(adjust, "make_tracked_session", return_value=session):
+    def _validate(self, response: ScriptedResponse, app_tokens: str | None = None) -> bool:
+        with scripted_network(always(response)):
             return validate_credentials("token", app_tokens)
 
     def test_probe_is_minimal_and_includes_app_token_filter(self) -> None:
-        session = _FakeSession([_FakeResponse(json_data={"rows": []})])
-        with mock.patch.object(adjust, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={"rows": []})]) as network:
             validate_credentials("token", "abc123")
 
-        params = _params(session.requested_urls[0])
-        assert params["dimensions"] == "day"
-        assert params["metrics"] == "installs"
-        assert params["app_token__in"] == "abc123"
+        assert network.requests_log[0].param("dimensions") == "day"
+        assert network.requests_log[0].param("metrics") == "installs"
+        assert network.requests_log[0].param("app_token__in") == "abc123"
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_throttle_and_5xx_are_retryable(self, status: int) -> None:
         with pytest.raises(AdjustRetryableError):
-            self._validate(_FakeResponse(status_code=status))
+            self._validate(ScriptedResponse(status=status))
 
     @parameterized.expand([(401, "API token"), (403, "denied access"), (400, "app tokens"), (404, "app tokens")])
     def test_rejections_are_credential_errors_with_specific_messages(self, status: int, expected: str) -> None:
         with pytest.raises(AdjustCredentialsError) as exc:
-            self._validate(_FakeResponse(status_code=status))
+            self._validate(ScriptedResponse(status=status))
         assert expected in str(exc.value)
 
     def test_unexpected_status_does_not_blame_the_token(self) -> None:
         with pytest.raises(AdjustCredentialsError) as exc:
-            self._validate(_FakeResponse(status_code=418))
+            self._validate(ScriptedResponse(status=418))
         assert "unexpected response (HTTP 418)" in str(exc.value)
 
     def test_malformed_app_token_fails_before_any_request(self) -> None:
-        session = _FakeSession([])
-        with mock.patch.object(adjust, "make_tracked_session", return_value=session):
+        with scripted_network([]) as network:
             with pytest.raises(AdjustCredentialsError):
                 validate_credentials("token", "abc 123")
-        assert session.requested_urls == []
+        assert network.requests_log == []
 
     def test_transport_errors_propagate(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch.object(adjust, "make_tracked_session", return_value=session):
+        def reset_connection(_request: RecordedRequest) -> ScriptedResponse:
+            raise ConnectionResetError("boom")
+
+        with scripted_network(reset_connection):
             with pytest.raises(requests.ConnectionError):
                 validate_credentials("token")
 
@@ -356,14 +402,17 @@ class TestValidateCredentials:
 class TestAdjustSource:
     @parameterized.expand([(name,) for name in ADJUST_REPORTS])
     def test_source_response_shape(self, name: str) -> None:
-        response = adjust_source(
-            api_token="token",
-            app_tokens=None,
-            report=name,
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeResumeManager(),
-        )
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                name,
+                [_scripted_page([])],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == name
         assert response.primary_keys == ADJUST_REPORTS[name].primary_keys
         # Windows are walked oldest-first and each report is sorted by day, so rows arrive ascending.
@@ -378,20 +427,13 @@ class TestAdjustSource:
         validate_incremental_sync(True, response)
 
     def test_items_streams_rows(self) -> None:
-        session = _FakeSession([_page([{"day": "2024-06-30", "installs": "3"}])])
-        with (
-            mock.patch.object(adjust, "make_tracked_session", return_value=session),
-            mock.patch.object(adjust, "_today", return_value=TODAY),
-        ):
-            response = adjust_source(
-                api_token="token",
-                app_tokens=None,
-                report="daily_report",
-                logger=mock.MagicMock(),
-                resumable_source_manager=_FakeResumeManager(),
-                should_use_incremental_field=True,
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                [_scripted_page([{"day": "2024-06-30", "installs": "3"}])],
+                incremental_field="day",
                 db_incremental_field_last_value="2024-06-30",
             )
-            batches = list(cast(Iterable[Any], response.items()))
 
-        assert batches == [[{"day": "2024-06-30", "installs": "3"}]]
+        assert result.raised is None
+        assert result.items == [[{"day": "2024-06-30", "installs": "3"}]]

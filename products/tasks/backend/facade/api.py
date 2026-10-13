@@ -514,6 +514,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "benjamin_enabled",
         "claude_model_access",
         "claude_subscription_user_id",
+        "codex_max_subagents",
         "codex_model_access",
         "codex_subscription_user_id",
         "context_window",
@@ -922,6 +923,7 @@ def _task_detail_to_dto(
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=None if task.is_scout_experiment else task.origin_key,
+        client_provenance=task.client_provenance,
     )
 
 

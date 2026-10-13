@@ -504,6 +504,11 @@ describe('SqlLineGraph', () => {
                 ],
                 expectedLabels: ['Floor', 'Ceiling'],
             },
+            {
+                name: 'renders a calculated reference line for each series',
+                goalLines: [{ label: 'Average', value: 0, calculation: 'mean' as const, scope: 'series' as const }],
+                expectedLabels: ['Average · a'],
+            },
         ])('$name', async ({ goalLines, expectedLabels }) => {
             renderLine(
                 { yAxis: [{ column: 'a' }], goalLines },
