@@ -657,12 +657,6 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch and is never inherited from project defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project eligibility: PostHog staff PATCH `\/api\/instance_settings\/CLICKHOUSE_NATIVE_EVENTS_TEAMS\/` with a `value` array of project IDs, then set this modifier in `\/api\/projects\/{project_id}\/query\/` requests. Eligibility permits per-query opt-in; it does not switch all project reads.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1614,12 +1608,6 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch and is never inherited from project defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project eligibility: PostHog staff PATCH `\/api\/instance_settings\/CLICKHOUSE_NATIVE_EVENTS_TEAMS\/` with a `value` array of project IDs, then set this modifier in `\/api\/projects\/{project_id}\/query\/` requests. Eligibility permits per-query opt-in; it does not switch all project reads.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2330,12 +2318,6 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch and is never inherited from project defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project eligibility: PostHog staff PATCH `\/api\/instance_settings\/CLICKHOUSE_NATIVE_EVENTS_TEAMS\/` with a `value` array of project IDs, then set this modifier in `\/api\/projects\/{project_id}\/query\/` requests. Eligibility permits per-query opt-in; it does not switch all project reads.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3031,12 +3013,6 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch and is never inherited from project defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project eligibility: PostHog staff PATCH `\/api\/instance_settings\/CLICKHOUSE_NATIVE_EVENTS_TEAMS\/` with a `value` array of project IDs, then set this modifier in `\/api\/projects\/{project_id}\/query\/` requests. Eligibility permits per-query opt-in; it does not switch all project reads.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3751,12 +3727,6 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch and is never inherited from project defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project eligibility: PostHog staff PATCH `\/api\/instance_settings\/CLICKHOUSE_NATIVE_EVENTS_TEAMS\/` with a `value` array of project IDs, then set this modifier in `\/api\/projects\/{project_id}\/query\/` requests. Eligibility permits per-query opt-in; it does not switch all project reads.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4188,12 +4158,6 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch and is never inherited from project defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project eligibility: PostHog staff PATCH `\/api\/instance_settings\/CLICKHOUSE_NATIVE_EVENTS_TEAMS\/` with a `value` array of project IDs, then set this modifier in `\/api\/projects\/{project_id}\/query\/` requests. Eligibility permits per-query opt-in; it does not switch all project reads.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4446,12 +4410,6 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                useNewEventsCluster: zod
-                    .union([zod.boolean(), zod.null()])
-                    .optional()
-                    .describe(
-                        'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch and is never inherited from project defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project eligibility: PostHog staff PATCH `\/api\/instance_settings\/CLICKHOUSE_NATIVE_EVENTS_TEAMS\/` with a `value` array of project IDs, then set this modifier in `\/api\/projects\/{project_id}\/query\/` requests. Eligibility permits per-query opt-in; it does not switch all project reads.'
-                    ),
                 useNewEventsSchema: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()

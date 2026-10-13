@@ -21,6 +21,19 @@ HOGQL_MODIFIERS_HELP_TEXT = (
     "replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
 )
 
+BatchExportHogQLQueryModifiers = pydantic.create_model(
+    "BatchExportHogQLQueryModifiers",
+    __config__=HogQLQueryModifiers.model_config,
+    **typing.cast(
+        dict[str, typing.Any],
+        {
+            name: (field.annotation, field)
+            for name, field in HogQLQueryModifiers.model_fields.items()
+            if name != "useNewEventsCluster"
+        },
+    ),
+)
+
 
 def check_hogql_batch_exports_enabled(team: Team) -> None:
     """Raise if HogQL-powered batch exports are not enabled for the team."""
@@ -56,7 +69,7 @@ def check_high_frequency_batch_exports_enabled(team: Team) -> None:
         raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
 
 
-@extend_schema_field(HogQLQueryModifiers)  # type: ignore[arg-type]
+@extend_schema_field(BatchExportHogQLQueryModifiers)
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
 
@@ -73,6 +86,10 @@ class HogQLModifiersField(serializers.JSONField):
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
         else:
+            if modifiers.useNewEventsCluster:
+                raise serializers.ValidationError(
+                    "Native events cluster queries are only supported by the synchronous query API"
+                )
             self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)
 
