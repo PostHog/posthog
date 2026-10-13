@@ -17,11 +17,11 @@ from slack_sdk.web.slack_response import SlackResponse
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
-from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 
+from products.cdp.backend.filters import compile_filters_bytecode
 from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS, update_alert
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.tasks.tasks import dispatch_error_tracking_alert_deliveries

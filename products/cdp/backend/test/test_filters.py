@@ -7,15 +7,14 @@ from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 
-from posthog.cdp.filters import (
+from products.actions.backend.models.action import Action
+from products.cdp.backend.filters import (
     RUNTIME_CONTRACT,
     build_behavioral_event_expr,
     cohort_filters_to_expr,
     compile_filters_bytecode,
     hog_function_filters_to_expr,
 )
-
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.execute import execute_bytecode

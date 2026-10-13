@@ -27,6 +27,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.utils import pluralize
 
@@ -468,7 +469,9 @@ def _auth(team_id: int, repository: str) -> tuple[str, str | None] | None:
     `first_for_team_repository` probes the GitHub API, so this costs a call per invocation — fine at
     the refresh cadence (`STATUS_EDIT_MIN_INTERVAL`), and every call is egress-gated regardless.
     """
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.CRITICAL
+    )
     if github is None:
         return None
     return github.get_access_token(), github.github_installation_id
@@ -482,7 +485,9 @@ def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | No
     answer the run already has. GitHub still enforces access on the edit itself, so a mid-run
     revocation surfaces there and is swallowed like any other status-comment failure.
     """
-    github = GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
+    github = GitHubIntegration(
+        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.CRITICAL
+    )
     return github.get_access_token(), github.github_installation_id
 
 
