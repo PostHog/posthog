@@ -6032,8 +6032,6 @@ function MarkdownNotebookEditor({
         }
     }, [jupyterMode, jupyterStore])
 
-    // A markdown cell in edit mode is text with the caret in it. Escape and the run keys there act
-    // on the cell, as in Jupyter, instead of typing; every other key keeps its text-editing meaning.
     const handleJupyterTextKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
         if (!jupyterMode || mode !== 'edit' || insertMenu || event.target !== event.currentTarget) {
             return false
@@ -6055,7 +6053,7 @@ function MarkdownNotebookEditor({
             null,
             Date.now()
         )
-        if (!command) {
+        if (!command || command === 'run-and-advance') {
             return false
         }
         event.preventDefault()
