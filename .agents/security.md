@@ -2,12 +2,25 @@
 
 ## Routing security fixes
 
-Choose the repository by **merge status and disclosure risk**, not by whether the code touches security. Before creating a branch or PR, check whether the affected code is already on `master` or deployed, and whether a public diff, test, or description would reveal an exploitable weakness before the fix is deployed.
+**Security fixes land in `PostHog/posthog` by default.**
+`PostHog/posthog-private` is only for severe vulnerabilities that need an embargo.
+An embargo is expensive: team-security pauses the private sync, disables the merge queue, and ships the fix through the security sync flow.
+Most security fixes do not justify that cost.
 
-- **Only in an open, unmerged public PR:** fix the problem in that same PR before merge, including its tests. Do not open a private PR for a weakness the public PR would introduce.
-- **Existing exploitable weakness that needs a private deployment:** develop the fix against **`PostHog/posthog-private`** on a **`security/`** branch when publishing the patch would reveal the weakness before it is fixed in production. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
-- **Safe to describe publicly:** make a routine, non-secret fix in **`PostHog/posthog`** when its code, tests, and PR text do not give someone a usable way to exploit code that is still live. A small change is not automatically safe to publish.
-- **Unsure about disclosure risk:** keep the details private and seek a security review before publishing. Do not choose the private repo solely because a change touches access control, authentication, or another security-sensitive area.
+Before you create a branch or PR, choose the route:
+
+- **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit live code today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution, or exposure of credentials or secrets. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, and missing rate limits.
+
+A public security fix is a normal fix with a neutral description.
+Describe what the change does, not how to exploit the old behavior.
+Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
+
+Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
+When you ask, say why the finding looks severe enough for an embargo.
+If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
 
 Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
 
@@ -180,7 +193,7 @@ A refused resource produces no user-visible error, so the feature simply does no
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every signed-in user, and for every visitor on login, signup, password reset and email verification. A self-hosted install only reports it, because its violations reach nobody. Other signed-out pages follow the `csp-enforce-other-signed-out-pages` flag, drawn per page load because a signed-out visitor has no user to bucket. They stay report-only while the flag is off. Embeddable documents, such as shared dashboards, always stay report-only.
+- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, always stay report-only.
 - **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 

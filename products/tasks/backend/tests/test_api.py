@@ -528,7 +528,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure")
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", None)
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
@@ -12249,7 +12249,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertTrue(asyncio.run(_watched()))
 
 
-class TestTaskRunRedisStreamKeepalive(TestCase):
+class TestTaskRunRedisStreamKeepalive(SimpleTestCase):
     def test_read_stream_entries_yields_keepalive_sentinel_when_idle(self):
         class StubRedis:
             def __init__(self):

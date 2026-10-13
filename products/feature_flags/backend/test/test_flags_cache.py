@@ -4305,7 +4305,7 @@ class TestBlankInactiveFiltersInPayload(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestExtractCohortIdsFromFlagFilters(BaseTest):
+class TestExtractCohortIdsFromFlagFilters(SimpleTestCase):
     def test_extracts_cohort_ids_from_active_flag(self):
         flags_data = [
             {
