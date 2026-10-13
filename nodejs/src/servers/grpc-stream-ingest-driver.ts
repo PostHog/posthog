@@ -60,17 +60,17 @@ export class GrpcStreamIngestDriver implements StreamIngestDriver {
             await Promise.all(result.sideEffects ?? [])
             await this.promiseScheduler.waitForAll()
         })()
-        const timedOut: MessageCoordinates[] = []
+        const unfinished: MessageCoordinates[] = []
         for (const { result: elementResult, context } of result.elements) {
             if (isTimeoutResult(elementResult)) {
-                timedOut.push({ partition: context.message.partition, offset: context.message.offset })
+                unfinished.push({ partition: context.message.partition, offset: context.message.offset })
             }
         }
         return {
             streamId: result.batchContext.grpcStreamId,
             seq: result.batchContext.grpcSeq,
-            accepted: result.elements.length - timedOut.length,
-            timedOut,
+            accepted: result.elements.length - unfinished.length,
+            unfinished,
             settled,
         }
     }

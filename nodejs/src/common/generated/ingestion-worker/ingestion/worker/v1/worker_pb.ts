@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf
 export const file_ingestion_worker_v1_worker: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKgAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQSFgoOc29mdF9idWRnZXRfbXMYBiABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUiLwoKTWVzc2FnZVJlZhIRCglwYXJ0aXRpb24YASABKAUSDgoGb2Zmc2V0GAIgASgDIoEBChRJbmdlc3RTdHJlYW1SZXNwb25zZRIxCgVyZWFkeRgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtUmVhZHlIABIvCgNhY2sYAiABKAsyIC5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoQWNrSABCBQoDbXNnIg0KC1N0cmVhbVJlYWR5IqQBCgtTdWJCYXRjaEFjaxILCgNzZXEYASABKAQSMwoGc3RhdHVzGAIgASgOMiMuaW5nZXN0aW9uLndvcmtlci52MS5TdWJCYXRjaFN0YXR1cxIQCghhY2NlcHRlZBgDIAEoDRINCgVlcnJvchgEIAEoCRIyCgl0aW1lZF9vdXQYBSADKAsyHy5pbmdlc3Rpb24ud29ya2VyLnYxLk1lc3NhZ2VSZWYqoQEKDlN1YkJhdGNoU3RhdHVzEiAKHFNVQl9CQVRDSF9TVEFUVVNfVU5TUEVDSUZJRUQQABIXChNTVUJfQkFUQ0hfU1RBVFVTX09LEAESGwoXU1VCX0JBVENIX1NUQVRVU19GQUlMRUQQAhIZChVTVUJfQkFUQ0hfU1RBVFVTX0JVU1kQAxIcChhTVUJfQkFUQ0hfU1RBVFVTX1BBUlRJQUwQBDJ3CgxXb3JrZXJJbmdlc3QSZwoMSW5nZXN0U3RyZWFtEiguaW5nZXN0aW9uLndvcmtlci52MS5Jbmdlc3RTdHJlYW1SZXF1ZXN0GikuaW5nZXN0aW9uLndvcmtlci52MS5Jbmdlc3RTdHJlYW1SZXNwb25zZSgBMAFiBnByb3RvMw'
+        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKgAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQSFgoOc29mdF9idWRnZXRfbXMYBiABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUiLwoKTWVzc2FnZVJlZhIRCglwYXJ0aXRpb24YASABKAUSDgoGb2Zmc2V0GAIgASgDIoEBChRJbmdlc3RTdHJlYW1SZXNwb25zZRIxCgVyZWFkeRgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtUmVhZHlIABIvCgNhY2sYAiABKAsyIC5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoQWNrSABCBQoDbXNnIg0KC1N0cmVhbVJlYWR5IqUBCgtTdWJCYXRjaEFjaxILCgNzZXEYASABKAQSMwoGc3RhdHVzGAIgASgOMiMuaW5nZXN0aW9uLndvcmtlci52MS5TdWJCYXRjaFN0YXR1cxIQCghhY2NlcHRlZBgDIAEoDRINCgVlcnJvchgEIAEoCRIzCgp1bmZpbmlzaGVkGAUgAygLMh8uaW5nZXN0aW9uLndvcmtlci52MS5NZXNzYWdlUmVmKqEBCg5TdWJCYXRjaFN0YXR1cxIgChxTVUJfQkFUQ0hfU1RBVFVTX1VOU1BFQ0lGSUVEEAASFwoTU1VCX0JBVENIX1NUQVRVU19PSxABEhsKF1NVQl9CQVRDSF9TVEFUVVNfRkFJTEVEEAISGQoVU1VCX0JBVENIX1NUQVRVU19CVVNZEAMSHAoYU1VCX0JBVENIX1NUQVRVU19QQVJUSUFMEAQydwoMV29ya2VySW5nZXN0EmcKDEluZ2VzdFN0cmVhbRIoLmluZ2VzdGlvbi53b3JrZXIudjEuSW5nZXN0U3RyZWFtUmVxdWVzdBopLmluZ2VzdGlvbi53b3JrZXIudjEuSW5nZXN0U3RyZWFtUmVzcG9uc2UoATABYgZwcm90bzM'
     )
 
 /**
@@ -307,14 +307,14 @@ export type SubBatchAck = Message<'ingestion.worker.v1.SubBatchAck'> & {
     error: string
 
     /**
-     * Messages the budget cut off. Set only on PARTIAL, never empty. Every other
-     * message is done, as on OK. The listed messages need not be the last of
-     * their routing key, because a worker may process one key's messages in
-     * independent groups.
+     * Messages with work left when the budget ran out. Set only on PARTIAL,
+     * never empty. Every other message is done, as on OK. The listed messages
+     * need not be the last of their routing key, because a worker may process
+     * one key's messages in independent groups.
      *
-     * @generated from field: repeated ingestion.worker.v1.MessageRef timed_out = 5;
+     * @generated from field: repeated ingestion.worker.v1.MessageRef unfinished = 5;
      */
-    timedOut: MessageRef[]
+    unfinished: MessageRef[]
 }
 
 /**
@@ -364,7 +364,7 @@ export enum SubBatchStatus {
     BUSY = 3,
 
     /**
-     * The budget cut the sub-batch short. Messages not in `SubBatchAck.timed_out`
+     * The budget cut the sub-batch short. Messages not in `SubBatchAck.unfinished`
      * are done as on OK, and the consumer redelivers exactly the listed ones.
      *
      * @generated from enum value: SUB_BATCH_STATUS_PARTIAL = 4;

@@ -447,7 +447,7 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 
 **Metrics:**
 
-- Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_timed_out_messages_total` (counter). The names match the wire: a `PARTIAL` ack with a `timed_out` index list.
+- Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_unfinished_messages_total` (counter). The names match the wire: a `PARTIAL` ack with an `unfinished` message list.
 
 ### 15. Set the request time budgets (switchover)
 
@@ -456,7 +456,7 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 **Goal:** A slow request costs a partial redelivery, not a fenced stream and a full replay.
 
 - A charts values PR sets the budget lane by lane. The generous stage is the cycle's verify.
-- Watch the partial and timed-out counters, the key-order sentinel, and stream teardowns.
+- Watch the partial and unfinished counters, the key-order sentinel, and stream teardowns.
 - Rollback is unsetting the values.
 
 **Interfaces:**

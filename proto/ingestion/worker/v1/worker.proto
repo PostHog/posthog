@@ -97,7 +97,7 @@ enum SubBatchStatus {
   // treats any status it does not recognize the same way, so future non-fatal
   // statuses stay backward compatible.
   SUB_BATCH_STATUS_BUSY = 3;
-  // The budget cut the sub-batch short. Messages not in `SubBatchAck.timed_out`
+  // The budget cut the sub-batch short. Messages not in `SubBatchAck.unfinished`
   // are done as on OK, and the consumer redelivers exactly the listed ones.
   SUB_BATCH_STATUS_PARTIAL = 4;
 }
@@ -128,9 +128,9 @@ message SubBatchAck {
   uint32 accepted = 3;
   // Human-readable failure reason. Set only on SUB_BATCH_STATUS_FAILED.
   string error = 4;
-  // Messages the budget cut off. Set only on PARTIAL, never empty. Every other
-  // message is done, as on OK. The listed messages need not be the last of
-  // their routing key, because a worker may process one key's messages in
-  // independent groups.
-  repeated MessageRef timed_out = 5;
+  // Messages with work left when the budget ran out. Set only on PARTIAL,
+  // never empty. Every other message is done, as on OK. The listed messages
+  // need not be the last of their routing key, because a worker may process
+  // one key's messages in independent groups.
+  repeated MessageRef unfinished = 5;
 }

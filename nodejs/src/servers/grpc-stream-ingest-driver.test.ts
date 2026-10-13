@@ -30,7 +30,7 @@ function recordingPipeline(fed: BatchBudget[]): GrpcIngestPipeline {
 
 describe('GrpcStreamIngestDriver', () => {
     describe('dispositions', () => {
-        it('reports each timed-out element by its partition and offset and counts the rest accepted', async () => {
+        it('reports each timed-out element as unfinished by its partition and offset and counts the rest accepted', async () => {
             const driver = new GrpcStreamIngestDriver(
                 completedBatch([ok({}), timeout('budget exceeded before step'), drop('not interesting')]),
                 new PromiseScheduler()
@@ -40,7 +40,7 @@ describe('GrpcStreamIngestDriver', () => {
 
             expect(completed.streamId).toBe(7)
             expect(completed.seq).toBe(3)
-            expect(completed.timedOut).toEqual([{ partition: 3, offset: 101 }])
+            expect(completed.unfinished).toEqual([{ partition: 3, offset: 101 }])
             // A dropped element is handled, not redelivered, so it counts as accepted.
             expect(completed.accepted).toBe(2)
         })
@@ -51,7 +51,7 @@ describe('GrpcStreamIngestDriver', () => {
             const completed = (await driver.next())!
 
             expect(completed.accepted).toBe(2)
-            expect(completed.timedOut).toEqual([])
+            expect(completed.unfinished).toEqual([])
         })
     })
 

@@ -98,14 +98,14 @@ impl WorkerIngest for MockWorker {
                                 status: SubBatchStatus::Ok as i32,
                                 accepted,
                                 error: String::new(),
-                                timed_out: vec![],
+                                unfinished: vec![],
                             },
                             ManualAck::Nack(seq) => SubBatchAck {
                                 seq,
                                 status: SubBatchStatus::Failed as i32,
                                 accepted: 0,
                                 error: "poisoned".to_string(),
-                                timed_out: vec![],
+                                unfinished: vec![],
                             },
                         };
                         let _ = tx.send(Ok(IngestStreamResponse {
@@ -131,7 +131,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
-                                        timed_out: vec![],
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -142,7 +142,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Failed as i32,
                                         accepted: 0,
                                         error: "poisoned".to_string(),
-                                        timed_out: vec![],
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -153,7 +153,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
-                                        timed_out: vec![],
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -164,7 +164,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Busy as i32,
                                         accepted: 0,
                                         error: "at capacity".to_string(),
-                                        timed_out: vec![],
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -175,7 +175,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
-                                        timed_out: vec![],
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -187,7 +187,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
-                                        timed_out: vec![],
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -849,7 +849,7 @@ impl WorkerIngest for ControlledBusyWorker {
                         status,
                         accepted,
                         error,
-                        timed_out: vec![],
+                        unfinished: vec![],
                     })),
                 }));
             }

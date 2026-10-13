@@ -90,10 +90,10 @@ class FakeDriver implements StreamIngestDriver {
     }
 
     complete(
-        batch: Omit<CompletedSubBatch, 'settled' | 'timedOut'> & Partial<Pick<CompletedSubBatch, 'timedOut'>>,
+        batch: Omit<CompletedSubBatch, 'settled' | 'unfinished'> & Partial<Pick<CompletedSubBatch, 'unfinished'>>,
         settled: Promise<void> = Promise.resolve()
     ): void {
-        const completed: CompletedSubBatch = { timedOut: [], ...batch, settled }
+        const completed: CompletedSubBatch = { unfinished: [], ...batch, settled }
         const waiter = this.nextWaiters.shift()
         if (waiter) {
             waiter.resolve(completed)
@@ -270,7 +270,7 @@ describe('WorkerIngestServer', () => {
             [2, SubBatchStatus.OK, 1],
             [1, SubBatchStatus.OK, 2],
         ])
-        expect(collected.acks.every((ack) => ack.timedOut.length === 0)).toBe(true)
+        expect(collected.acks.every((ack) => ack.unfinished.length === 0)).toBe(true)
         expect(server.streamCount).toBe(0)
     })
 
@@ -587,7 +587,7 @@ describe('WorkerIngestServer', () => {
 
         // The consumer commits what a PARTIAL ack accepts.
         const settled = new Deferred<void>()
-        driver.complete({ streamId, seq: 1, accepted: 3, timedOut: [{ partition: 0, offset: 11 }] }, settled.promise)
+        driver.complete({ streamId, seq: 1, accepted: 3, unfinished: [{ partition: 0, offset: 11 }] }, settled.promise)
         driver.complete({ streamId, seq: 2, accepted: 1 })
         await until(() => collected.acks.length >= 1)
         expect(collected.acks.map((ack) => ack.seq)).toEqual([2n])
@@ -600,8 +600,8 @@ describe('WorkerIngestServer', () => {
         expect(collected.acks.map((ack) => ack.seq)).toEqual([2n, 1n])
         const ack = collected.acks[1]
         expect(ack.status).toBe(SubBatchStatus.PARTIAL)
-        expect(ack.timedOut).toMatchObject([{ partition: 0, offset: 11n }])
-        expect(ack.accepted + ack.timedOut.length).toBe(4)
+        expect(ack.unfinished).toMatchObject([{ partition: 0, offset: 11n }])
+        expect(ack.accepted + ack.unfinished.length).toBe(4)
     })
 
     it('acks a parked sub-batch PARTIAL when its soft budget runs out before a slot frees', async () => {
@@ -625,7 +625,7 @@ describe('WorkerIngestServer', () => {
             expect(ack.seq).toBe(2n)
             expect(ack.status).toBe(SubBatchStatus.PARTIAL)
             expect(ack.accepted).toBe(0)
-            expect(ack.timedOut).toMatchObject([
+            expect(ack.unfinished).toMatchObject([
                 { partition: 0, offset: 11n },
                 { partition: 0, offset: 12n },
             ])

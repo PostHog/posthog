@@ -74,7 +74,7 @@ export interface CompletedSubBatch {
     streamId: number
     seq: number
     accepted: number
-    timedOut: MessageCoordinates[]
+    unfinished: MessageCoordinates[]
     /**
      * Resolves when the batch's side effects are durably done — the ack
      * barrier. Kept as a promise (not awaited inside `next()`) so the pump
@@ -317,7 +317,7 @@ function okAck(seq: number, accepted: number): IngestStreamResponse {
     })
 }
 
-function partialAck(seq: number, accepted: number, timedOut: MessageCoordinates[]): IngestStreamResponse {
+function partialAck(seq: number, accepted: number, unfinished: MessageCoordinates[]): IngestStreamResponse {
     return create(IngestStreamResponseSchema, {
         msg: {
             case: 'ack',
@@ -325,7 +325,7 @@ function partialAck(seq: number, accepted: number, timedOut: MessageCoordinates[
                 seq: BigInt(seq),
                 status: SubBatchStatus.PARTIAL,
                 accepted,
-                timedOut: timedOut.map(({ partition, offset }) =>
+                unfinished: unfinished.map(({ partition, offset }) =>
                     create(MessageRefSchema, { partition, offset: BigInt(offset) })
                 ),
             }),
@@ -620,8 +620,8 @@ export class WorkerIngestServer {
             return
         }
         stream.inFlight.delete(completed.seq)
-        if (completed.timedOut.length > 0) {
-            stream.acks.push(partialAck(completed.seq, completed.accepted, completed.timedOut))
+        if (completed.unfinished.length > 0) {
+            stream.acks.push(partialAck(completed.seq, completed.accepted, completed.unfinished))
             grpcSubBatches.inc({ status: 'partial' })
         } else {
             stream.acks.push(okAck(completed.seq, completed.accepted))
