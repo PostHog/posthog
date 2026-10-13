@@ -38,15 +38,18 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.coordinator_review import CoordinatorResult, CoordinatorReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
+from products.review_hog.backend.reviewer.tools.publish_review import PublishOutcome
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     CoordinatorReviewInput,
     LensReviewInput,
     LoadedPerspectiveDTO,
+    PublishInput,
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
     _current_pr_comments,
+    _publish,
     coordinator_review_activity,
     dedup_activity,
     lens_review_activity,
@@ -739,3 +742,40 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
         )
 
     assert result.raised_elsewhere == [AlreadyRaised(title="Already said", level="P2", comment_id=2, commenter="alice")]
+
+
+@pytest.mark.parametrize(
+    "trigger_source,commands_on,expected_hint",
+    [
+        pytest.param("label", True, "@posthog review --deep", id="label_with_commands"),
+        pytest.param("label", False, None, id="label_without_commands"),
+        pytest.param("automatic", True, None, id="other_trigger"),
+    ],
+)
+def test_a_label_review_points_to_the_comment_commands(
+    trigger_source: str, commands_on: bool, expected_hint: str | None
+) -> None:
+    # The hint advertises `@posthog` commands, so it must not appear where they do not run or where nobody used the label.
+    publish = MagicMock(return_value=PublishOutcome(posted=True))
+    with (
+        patch(f"{_MODULE}._installation_auth", return_value=("token", "1")),
+        patch(f"{_MODULE}.comment_commands_enabled", return_value=commands_on),
+        patch(f"{_MODULE}.publish_persisted_review", publish),
+        patch(f"{_MODULE}.ReviewReport"),
+    ):
+        _publish(
+            PublishInput(
+                team_id=1,
+                report_id="rep-1",
+                head_sha="sha1",
+                run_index=1,
+                owner="o",
+                repo="r",
+                pr_number=1,
+                review_mode=REVIEW_MODE_FLASH,
+                trigger_source=trigger_source,
+            )
+        )
+
+    footer = publish.call_args.kwargs["footer"]
+    assert (expected_hint in footer) if expected_hint else footer == ""
