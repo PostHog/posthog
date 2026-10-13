@@ -314,7 +314,7 @@ def _dismiss_as_merged(
     """
     updated_fields = source.transition_to(SignalReport.Status.SUPPRESSED)
     source._wrote_dismissal_feedback = True  # type: ignore[attr-defined]
-    source._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
+    source._transition_actor = attribution  # type: ignore[attr-defined]
     source.save(update_fields=updated_fields)
 
     note = f"Merged into report {survivor.id}."

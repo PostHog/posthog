@@ -39,17 +39,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PropertyDefinitionEditModal } from 'scenes/data-management/properties/PropertyDefinitionEditModal'
-import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
-import {
-    BI_FIELD_DRAG_MIME_TYPE,
-    BIDataSource,
-    BIEditorView,
-    BIField,
-    getBIFieldId,
-    isBIFieldCompatible,
-    serializeBIField,
-} from 'scenes/data-warehouse/editor/bi/biEditorTypes'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
@@ -60,7 +49,9 @@ import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { MaterializationStatusIcon } from 'products/data_modeling/frontend/MaterializationStatusIcon'
 import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
+import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
@@ -125,7 +116,6 @@ const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeD
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
     extraTreeSections,
-    tabId,
 }: {
     virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
     /**
@@ -135,7 +125,6 @@ export const QueryDatabase = ({
      * unaffected.
      */
     extraTreeSections?: TreeDataItem[]
-    tabId: string
 }): JSX.Element => {
     const {
         searchTerm,
@@ -150,8 +139,6 @@ export const QueryDatabase = ({
         featureFlags,
         editingPropertyDefinition,
     } = useValues(queryDatabaseLogic)
-    const { config: biConfig, editorView } = useValues(biEditorLogic({ tabId }))
-    const isBIEditor = editorView === BIEditorView.BI
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -406,10 +393,8 @@ export const QueryDatabase = ({
         <LemonTree
             ref={treeRef}
             data={treeData}
-            enableDragAndDrop={!searchTerm && !isBIEditor}
-            isItemDraggable={(item) =>
-                !searchTerm && !isBIEditor && item.record?.type === 'view' && item.record?.isSavedQuery
-            }
+            enableDragAndDrop={!searchTerm}
+            isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
             isItemDroppable={(item) =>
                 !searchTerm &&
                 ((item.record?.type === 'folder' && item.record?.folderType === 'view-folder') ||
@@ -453,7 +438,7 @@ export const QueryDatabase = ({
                 }
 
                 // Insert the column at the cursor, preserving the rest of the query the user has typed
-                const columnInsertText = isBIEditor ? null : getColumnInsertText(item?.record)
+                const columnInsertText = getColumnInsertText(item?.record)
                 if (columnInsertText) {
                     insertTextAtCursor(columnInsertText)
                 }
@@ -471,26 +456,6 @@ export const QueryDatabase = ({
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
-                const biFieldSource: BIDataSource | null =
-                    isColumn && typeof item.record?.table === 'string'
-                        ? {
-                              table: item.record.table,
-                              connectionId:
-                                  connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined,
-                          }
-                        : null
-                const columnExpression = isColumn ? getColumnInsertText(item.record) : null
-                const biField: BIField | null =
-                    biFieldSource && columnExpression
-                        ? {
-                              id: getBIFieldId(biFieldSource, columnExpression),
-                              name: item.name,
-                              expression: columnExpression,
-                              type: item.record?.field.type,
-                              source: biFieldSource,
-                          }
-                        : null
-                const canDragBIField = isBIEditor && !!biField && isBIFieldCompatible(biConfig.source, biField)
                 const columnType = isColumn ? item.record?.field?.type : null
                 const savedExpression =
                     isColumn && item.record?.table && item.record?.field
@@ -516,21 +481,7 @@ export const QueryDatabase = ({
 
                 return (
                     <span
-                        className={cn(
-                            'truncate',
-                            isBIEditor && isColumn && 'cursor-grab',
-                            isBIEditor && isColumn && !canDragBIField && 'cursor-not-allowed opacity-40'
-                        )}
-                        draggable={canDragBIField}
-                        onDragStart={(event) => {
-                            if (!biField || !canDragBIField) {
-                                event.preventDefault()
-                                return
-                            }
-                            event.stopPropagation()
-                            event.dataTransfer.effectAllowed = 'copy'
-                            event.dataTransfer.setData(BI_FIELD_DRAG_MIME_TYPE, serializeBIField(biField))
-                        }}
+                        className="truncate"
                         onDoubleClick={(e) => {
                             if (!isPreviewableViewItem(item)) {
                                 return
@@ -541,28 +492,37 @@ export const QueryDatabase = ({
                     >
                         <div className="flex flex-row gap-1 justify-between">
                             <div className="shrink-0 flex min-w-0 items-center gap-2">
-                                {hasMatches && searchTerm ? (
-                                    <SearchHighlightMultiple
-                                        string={itemLabel}
-                                        substring={searchTerm}
-                                        className={cn(isColumn && 'font-mono text-xs')}
-                                    />
-                                ) : (
-                                    <span
-                                        className={cn(
-                                            ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
-                                                item.record?.type
-                                            ) && 'font-semibold',
-                                            item.record?.type === 'folder' &&
-                                                item.record?.folderType === 'view-folder' &&
-                                                'font-semibold',
-                                            isColumn && 'font-mono text-xs',
-                                            'truncate shrink-0'
-                                        )}
-                                    >
-                                        {item.displayName ?? item.name}
-                                    </span>
-                                )}
+                                <span className="shrink-0 flex items-center gap-1">
+                                    {item.record?.type === 'view' && item.record.isSavedQuery ? (
+                                        <MaterializationStatusIcon view={item.record.view} />
+                                    ) : null}
+                                    {hasMatches && searchTerm ? (
+                                        <SearchHighlightMultiple
+                                            string={itemLabel}
+                                            substring={searchTerm}
+                                            className={cn(isColumn && 'font-mono text-xs')}
+                                        />
+                                    ) : (
+                                        <span
+                                            className={cn(
+                                                [
+                                                    'managed-views',
+                                                    'views',
+                                                    'sources',
+                                                    'drafts',
+                                                    'unsaved-folder',
+                                                ].includes(item.record?.type) && 'font-semibold',
+                                                item.record?.type === 'folder' &&
+                                                    item.record?.folderType === 'view-folder' &&
+                                                    'font-semibold',
+                                                isColumn && 'font-mono text-xs',
+                                                'truncate shrink-0'
+                                            )}
+                                        >
+                                            {item.displayName ?? item.name}
+                                        </span>
+                                    )}
+                                </span>
                                 <TableCertificationIcon certification={certification} />
                                 {isColumn && columnType && savedExpression ? (
                                     <Tooltip title={<code className="text-xs">{savedExpression.expression}</code>}>

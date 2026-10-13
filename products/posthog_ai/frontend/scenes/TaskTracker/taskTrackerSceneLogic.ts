@@ -14,6 +14,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     type ClaudeTaskRunCreateSchemaApi,
@@ -71,7 +73,7 @@ import {
     getRuntimeAdapterForModel,
     resolveEffortForModel,
 } from '../../utils/composerModels'
-import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
+import { DEFAULT_COMPOSER_MODE, getModesForRuntimeAdapter, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
@@ -238,6 +240,9 @@ export interface taskTrackerSceneLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    addFiles: (files: File[]) => {
+        files: File[]
+    } // composerAttachmentsLogic
     removeAttachments: (ids: string[]) => {
         ids: string[]
     } // composerAttachmentsLogic
@@ -315,6 +320,13 @@ export interface taskTrackerSceneLogicActions {
     }
     applyDefaultPermissionMode: () => {
         value: true
+    }
+    applyPrefill: (
+        prompt: string,
+        mode?: PermissionMode
+    ) => {
+        mode: PermissionMode | undefined
+        prompt: string
     }
     applySuggestion: (item: SuggestionItem) => {
         item: SuggestionItem
@@ -487,7 +499,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
             composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
-            ['removeAttachments', 'setUploading'],
+            ['addFiles', 'removeAttachments', 'setUploading'],
         ],
     })),
 
@@ -502,6 +514,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         maybeAutoSelectIntegration: true,
         setActiveSuggestionGroup: (group: SuggestionGroup | null) => ({ group }),
         applySuggestion: (item: SuggestionItem) => ({ item }),
+        applyPrefill: (prompt: string, mode?: PermissionMode) => ({ prompt, mode }),
         setHeadlineSeed: (seed: number) => ({ seed }),
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
         openExistingTask: (task: Task) => ({ task }),
@@ -766,6 +779,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
         // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
         // typing (the component focuses the textarea in that case).
+        applyPrefill: ({ prompt, mode }) => {
+            if (mode && getModesForRuntimeAdapter(values.composerAdapter).includes(mode)) {
+                actions.pickPermissionMode(mode)
+            }
+            actions.applySuggestion({ content: prompt, requiresUserInput: true })
+        },
         applySuggestion: ({ item }) => {
             actions.setNewTaskData({ description: item.content, seedContextItems: undefined })
             if (!item.requiresUserInput) {
@@ -1056,6 +1075,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
+                // Every composer submits through here, so this is the one place that reaches all of them.
+                todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
                 props.onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
@@ -1147,6 +1168,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
             actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
+            if (seed.files?.length) {
+                actions.addFiles(seed.files)
+            }
             if (seed.autoSubmit) {
                 actions.submitNewTask()
             }

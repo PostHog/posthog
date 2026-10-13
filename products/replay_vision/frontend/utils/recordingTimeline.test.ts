@@ -94,13 +94,13 @@ describe('recordingTimeline', () => {
 
     it.each<{ name: string; observations: ReplayObservationApi[]; durationMs: number | null; expected: string[] }>([
         {
-            name: 'scans without a breakdown leave the rail empty',
+            name: 'scans without a timeline leave the rail empty',
             observations: [monitor('m1', 5_000)],
             durationMs: 60_000,
             expected: [],
         },
         {
-            name: 'a breakdown sits between the session start and end',
+            name: 'a timeline sits between the session start and end',
             observations: [summary({ chapters: [chapter(0, 10_000, 'A')] }), monitor('m1', 5_000)],
             durationMs: 60_000,
             expected: ['boundary start', 'chapter', 'boundary end'],

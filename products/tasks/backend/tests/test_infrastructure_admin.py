@@ -13,9 +13,12 @@ from django.utils import timezone
 
 import requests
 import fakeredis
+import requests_mock
 from parameterized import parameterized
 
 from posthog.csp_middleware import CSPMiddleware
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
 from posthog.models import User
 
 from products.tasks.backend.logic.services.infrastructure_status import InfrastructureStatus, SourceSnapshot
@@ -38,7 +41,12 @@ class TestInfrastructureAdminPermissions(SimpleTestCase):
             infrastructure_admin(request)
 
 
-@override_settings(TASKS_REDIS_URL="", CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+@override_settings(
+    TASKS_REDIS_URL="",
+    GITHUB_APP_CLIENT_ID="",
+    GITHUB_APP_PRIVATE_KEY="",
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+)
 class TestInfrastructureSourceCache(SimpleTestCase):
     def setUp(self) -> None:
         get_tasks_cache().clear()
@@ -117,6 +125,95 @@ class TestInfrastructureSourceCache(SimpleTestCase):
             ],
         )
 
+    @parameterized.expand(
+        [
+            ("pin", "http"),
+            ("runs", "http"),
+            ("jobs_first", "http"),
+            ("jobs_middle", "http"),
+            ("jobs_last", "http"),
+            ("pin", "budget"),
+            ("jobs_middle", "budget"),
+        ]
+    )
+    def test_github_failure_reports_safe_error_and_preserves_available_evidence(
+        self, failed_read: str, failure_kind: str
+    ) -> None:
+        response = requests.Response()
+        response.status_code = 401
+        failure = (
+            GitHubEgressBudgetExhausted("private upstream response", scope="example-installation")
+            if failure_kind == "budget"
+            else requests.HTTPError("private upstream response", response=response)
+        )
+        diagnostic = "shared request budget" if failure_kind == "budget" else "HTTP 401"
+        jobs = [
+            {"name": "Build and push Tasks Sandbox container image", "status": "completed", "conclusion": "success"}
+        ]
+        reads: list[Mock | Exception] = [
+            Mock(json=lambda: {"content": base64.b64encode(b"ARG AGENT_VERSION=1.0.0").decode()}),
+            Mock(
+                json=lambda: {
+                    "workflow_runs": [{"id": i, "html_url": f"https://example.com/runs/{i}"} for i in range(1, 4)]
+                }
+            ),
+            *[Mock(json=lambda: {"jobs": jobs}) for _ in range(3)],
+        ]
+        reads[["pin", "runs", "jobs_first", "jobs_middle", "jobs_last"].index(failed_read)] = failure
+        collector = InfrastructureStatus()
+        with patch("products.tasks.backend.logic.services.infrastructure_status.github_request", side_effect=reads):
+            result = collector.read("release", collector.release).model_dump(mode="json")
+        if failed_read == "pin":
+            self.assertEqual(result["status"], "error")
+            self.assertIsNone(result["data"])
+            self.assertIn(diagnostic, result["error"])
+        else:
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["data"]["pin"], "1.0.0")
+            self.assertIn(diagnostic, result["data"]["runs_error"])
+            if failed_read == "runs":
+                self.assertEqual(result["data"]["runs"], [])
+            else:
+                self.assertEqual([run["id"] for run in result["data"]["runs"]], [1, 2, 3])
+                failed_id = ["jobs_first", "jobs_middle", "jobs_last"].index(failed_read) + 1
+                for run in result["data"]["runs"]:
+                    self.assertEqual(run["html_url"], f"https://example.com/runs/{run['id']}")
+                    if run["id"] == failed_id:
+                        self.assertEqual(run["build_jobs"], [])
+                        self.assertIn(diagnostic, run["build_jobs_error"])
+                    else:
+                        self.assertEqual(run["build_jobs"][0]["conclusion"], "success")
+                        self.assertIsNone(run["build_jobs_error"])
+        self.assertNotIn("private upstream response", str(result))
+        self.assertNotIn("example-installation", str(result))
+
+    def test_workflow_list_failures_retain_history_without_refreshing_its_timestamp(self) -> None:
+        with (
+            time_machine.travel("2026-01-01T12:00:00Z", tick=False) as clock,
+            patch("products.tasks.backend.logic.services.infrastructure_status.github_request") as request,
+        ):
+            request.side_effect = [
+                Mock(json=lambda: {"content": base64.b64encode(b"ARG AGENT_VERSION=1.0.0").decode()}),
+                Mock(json=lambda: {"workflow_runs": [{"id": 1, "html_url": "https://example.com/runs/1"}]}),
+                Mock(json=lambda: {"jobs": []}),
+            ]
+            collector = InfrastructureStatus()
+            original = collector.read("release", collector.release).model_dump(mode="json")
+            for _ in range(2):
+                clock.shift(timedelta(minutes=2))
+                request.side_effect = [
+                    Mock(json=lambda: {"content": base64.b64encode(b"ARG AGENT_VERSION=1.1.0").decode()}),
+                    requests.Timeout(),
+                ]
+                retained = collector.read("release", collector.release).model_dump(mode="json")
+                self.assertEqual(retained["status"], "ok")
+                self.assertEqual(retained["data"]["pin"], "1.1.0")
+                self.assertEqual(retained["data"]["runs"], original["data"]["runs"])
+                self.assertEqual(retained["data"]["runs_observed_at"], original["data"]["runs_observed_at"])
+                self.assertTrue(retained["data"]["runs_stale"])
+                self.assertIn("timed out", retained["data"]["runs_error"])
+                self.assertNotEqual(retained["observed_at"], original["observed_at"])
+
     def test_failed_refresh_preserves_evidence_without_claiming_freshness(self) -> None:
         collector = InfrastructureStatus()
         now = timezone.now()
@@ -134,6 +231,7 @@ class TestInfrastructureSourceCache(SimpleTestCase):
             self.assertEqual(stale.status, "error")
             self.assertEqual(stale.data, first.data)
             self.assertEqual(stale.observed_at, first.observed_at)
+            self.assertIn("timed out", stale.error or "")
 
     def test_partial_registry_publication_is_not_healthy(self) -> None:
         responses = [
@@ -145,6 +243,74 @@ class TestInfrastructureSourceCache(SimpleTestCase):
             result = collector.read("vm", lambda: collector.registry("vm"))
         self.assertEqual(result.status, "error")
         self.assertIsNone(result.data)
+
+    @parameterized.expand([("success", 200, 201), ("installation_rejected", 401, 201), ("token_rejected", 200, 403)])
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="example-app",
+        GITHUB_APP_PRIVATE_KEY="example-private-key",
+        GITHUB_TOKEN="example-rejected-shared-token",
+    )
+    def test_release_uses_repository_scoped_app_reads(
+        self, _name: str, installation_status: int, token_status: int
+    ) -> None:
+        with (
+            requests_mock.Mocker() as http,
+            patch("posthog.models.github_integration_base.jwt.encode", return_value="example-app-jwt"),
+            patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=True) as budget,
+        ):
+            http.get(
+                "https://api.github.com/repos/PostHog/posthog/installation",
+                request_headers={"Authorization": "Bearer example-app-jwt"},
+                json={"id": 12345},
+                status_code=installation_status,
+            )
+            mint = http.post(
+                "https://api.github.com/app/installations/12345/access_tokens",
+                request_headers={"Authorization": "Bearer example-app-jwt"},
+                json={"token": "example-read-only-token"},
+                status_code=token_status,
+            )
+            headers = {"Authorization": "Bearer example-read-only-token"}
+            pin = http.get(
+                "https://api.github.com/repos/PostHog/posthog/contents/products/tasks/backend/sandbox/images/Dockerfile.sandbox-base?ref=master",
+                request_headers=headers,
+                json={"content": base64.b64encode(b"ARG AGENT_VERSION=1.0.0").decode()},
+            )
+            http.get(
+                "https://api.github.com/repos/PostHog/posthog/actions/workflows/cd-sandbox-base-image.yml/runs?branch=master&event=push&per_page=5",
+                request_headers=headers,
+                json={"workflow_runs": [{"id": 1}]},
+            )
+            http.get(
+                "https://api.github.com/repos/PostHog/posthog/actions/runs/1/jobs?per_page=100",
+                request_headers=headers,
+                json={"jobs": []},
+            )
+            collector = InfrastructureStatus()
+            result = collector.read("release", collector.release).model_dump(mode="json")
+
+        if installation_status != 200 or token_status != 201:
+            self.assertEqual(result["status"], "error")
+            self.assertIsNone(result["data"])
+            self.assertIn(
+                f"HTTP {installation_status if installation_status != 200 else token_status}", result["error"]
+            )
+            self.assertFalse(pin.called)
+        else:
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["data"]["pin"], "1.0.0")
+            self.assertIsNone(result["data"]["runs_error"])
+            self.assertEqual(mint.call_count, 1)
+            self.assertEqual(
+                mint.last_request.json(),
+                {"repositories": ["posthog"], "permissions": {"contents": "read", "actions": "read"}},
+            )
+            self.assertEqual(budget.call_count, 3)
+            for call in budget.call_args_list:
+                self.assertEqual(call.args, ("12345",))
+                self.assertEqual(call.kwargs["priority"], Priority.NORMAL)
+        self.assertNotIn("example-read-only-token", str(result))
+        self.assertNotIn("example-app-jwt", str(result))
 
 
 @override_settings(TASKS_REDIS_URL="", CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})

@@ -24,6 +24,7 @@ import { AccountDetailNavigation } from './AccountDetailNavigation'
 import { AccountExternalId } from './AccountExternalId'
 import { AccountPresence } from './AccountPresence'
 import { AccountSidebar } from './AccountSidebar'
+import { AccountStatusTags } from './AccountStatusTags'
 import { AccountViewEditorModal } from './AccountViewEditorModal'
 import { AccountViewTileEditorModal } from './AccountViewTileEditorModal'
 import { ConfigureAccountTabsModal } from './ConfigureAccountTabsModal'
@@ -128,6 +129,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
         <SceneContent className="h-full min-h-0" data-attr="customer-analytics-account-scene">
             <SceneTitleSection
                 name={account.name}
+                nameSuffix={<AccountStatusTags account={account} />}
                 resourceType={{
                     type: 'cohort',
                     forceIcon: <AccountLogo domain={getAccountLogoDomain(account)} name={account.name} />,

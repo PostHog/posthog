@@ -14,7 +14,6 @@ jest.mock('../generated/api', () => ({
     metricsAttributeValuesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
-    metricsExplainCreate: jest.fn(),
     metricsHasMetricsRetrieve: jest.fn(),
     metricsOverviewRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),

@@ -57,7 +57,9 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Attribute keys ordered by distinct value count from recent series."""
+    """Attribute keys ordered by distinct value count from recent series.
+    The synthetic `service_name` key only stands in for series without a `service.name`
+    resource attribute, so senders see the one spelling they emit."""
 
     def __init__(
         self,
@@ -126,7 +128,8 @@ class MetricAttributeKeysQueryRunner:
             """
                 SELECT
                     arrayJoin(arrayDistinct(arrayConcat(
-                        mapKeys(attributes), mapKeys(resource_attributes), ['service_name']
+                        mapKeys(attributes), mapKeys(resource_attributes),
+                        if(mapContains(resource_attributes, 'service.name'), [], ['service_name'])
                     ))) AS attribute_key,
                     uniqCombined64(if(attribute_key IN ('service_name', 'service.name'), service_name,
                         if(arrayElement(resource_attributes, attribute_key) != '',
@@ -136,7 +139,8 @@ class MetricAttributeKeysQueryRunner:
                 WHERE last_seen >= {date_from}
                   AND {metric_name_filter}
                   AND (attribute_key ILIKE {search_pattern}
-                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
+                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern})
+                       OR (attribute_key = 'service.name' AND 'service_name' ILIKE {search_pattern}))
                 GROUP BY attribute_key
                 ORDER BY value_count DESC, attribute_key ASC
                 LIMIT {limit}

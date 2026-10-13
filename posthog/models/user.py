@@ -743,8 +743,7 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
 def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
     """Pause every loop owned by a user when they are deactivated (is_active True->False).
 
-    Loops execute as their owner for GitHub authorship and MCP identity (see
-    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
+    Loops execute as their owner for GitHub authorship and MCP identity; deactivation is often the
     security response and must not leave a loop still scheduled, or a sandbox still running,
     under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
     Temporal schedule is an irreversible external side effect.

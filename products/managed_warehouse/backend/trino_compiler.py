@@ -14,8 +14,11 @@ from products.managed_warehouse.backend.facade.cp_teams import get_org_team_memb
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from posthog.schema import HogQLQuery
 
+    from posthog.hogql import ast
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
@@ -210,6 +213,8 @@ def compile_hogql_to_trino_sql(
     include_hogql: bool = False,
     expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
     catalog_manifest: TrinoCatalogManifest | None = None,
+    select_transform: Callable[[ast.SelectQuery | ast.SelectSetQuery], ast.SelectQuery | ast.SelectSetQuery]
+    | None = None,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
@@ -218,8 +223,12 @@ def compile_hogql_to_trino_sql(
     Set ``include_hogql`` to render normalized HogQL for diagnostics. Pure manifest-backed
     compilation is the default; select ``TrinoExpansionMode.DJANGO`` only when the query needs
     actions, cohorts, saved queries, variables, filters, or other Django-backed semantics.
+    ``select_transform`` rewrites the parsed query after placeholders are replaced, so it sees the
+    same AST the printer does. It needs ``TrinoExpansionMode.DJANGO``.
     """
     if expansion_mode == TrinoExpansionMode.PURE:
+        if select_transform is not None:
+            raise ValueError("A select transform needs Django expansion")
         return prepare_hogql_to_trino_compiler(
             team_id,
             team=team,
@@ -288,6 +297,8 @@ def compile_hogql_to_trino_sql(
             for variable in query.variables.values():
                 variables[variable.code_name] = variable.value
         parsed = cast("ast.SelectQuery | ast.SelectSetQuery", replace_placeholders(parsed, replacements))
+    if select_transform is not None:
+        parsed = select_transform(parsed)
 
     trino_table_locators = build_trino_table_locators(
         database,

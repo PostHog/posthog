@@ -101,4 +101,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "error": "Error message if generation failed.",
         },
     },
+    "users": {
+        "description": "The app's users: the distinct document owners in Hyperspell, with how many documents each owns.",
+        "docs_url": "https://docs.hyperspell.com/api-reference/users/list-users",
+        "columns": {
+            "user_id": "The user's id, valid as the X-As-User header value and matching user_id on other Hyperspell tables.",
+            "display_name": "The user's display name, when available.",
+            "document_count": "Number of documents the user owns.",
+            "last_indexed": "When a document owned by the user was last indexed.",
+        },
+    },
+    "integration_channels": {
+        "description": "Channels and chats available on each connection whose integration supports channel selection (for example Slack or Microsoft Teams), with whether each one is selected for indexing.",
+        "docs_url": "https://docs.hyperspell.com/api-reference/integrations/list-available-channels",
+        "columns": {
+            "user_id": "The Hyperspell user the connection belongs to (empty when synced app-wide without a user).",
+            "connection_id": "The connection the channel was listed through.",
+            "integration_id": "The connection's integration id.",
+            "id": "The channel's id at the provider.",
+            "name": "The channel's name.",
+            "type": "The kind of channel (for example channel, dm, or a container such as a workspace).",
+            "selected": "Whether the channel is currently selected for indexing on the connection.",
+        },
+    },
 }

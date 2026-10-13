@@ -80,6 +80,7 @@ import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
@@ -175,6 +176,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
+import { OrganizationMemberNotice } from './organization/OrganizationMemberNotice'
 import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms'
@@ -193,7 +195,6 @@ import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { LoginSessions } from './user/LoginSessions'
-import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -1881,6 +1882,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'workflows-frequency-cap',
+                title: 'Frequency cap',
+                description:
+                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. A workflow run without a person, for example one triggered by an event without a person profile, is not capped. Leave both fields empty to turn the cap off.',
+                component: <WorkflowsFrequencyCapSettings />,
+                keywords: ['workflows', 'frequency', 'cap', 'limit', 'fatigue', 'marketing', 'broadcast', 'email'],
+            },
+            {
                 id: 'workflows-ai-task-limits',
                 title: 'AI task limits',
                 description:
@@ -2267,6 +2276,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <OrgIPAnonymizationDefault />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
             },
+            {
+                id: 'organization-member-notice',
+                title: 'Member notice',
+                description:
+                    'Show a message to every member of your organization at the top of each page, with an optional link button. Use it for things like a data policy or a compliance disclaimer.',
+                component: <OrganizationMemberNotice />,
+                keywords: [
+                    'notice',
+                    'banner',
+                    'announcement',
+                    'message',
+                    'disclaimer',
+                    'policy',
+                    'compliance',
+                    'legal',
+                ],
+            },
         ],
     },
     {
@@ -2627,14 +2653,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 // Suggestions land in custom products, which the simple sidebar does not show.
                 flag: '!SIMPLE_SIDEPANEL',
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
-            },
-            {
-                id: 'mcp-hints',
-                title: 'MCP hints',
-                description:
-                    'After you take an action in PostHog (creating a feature flag, building a dashboard, etc.), show a small hint that the same action can be done from your IDE via the PostHog MCP. Rate-limited to once a week.',
-                component: <MCPHintsSetting />,
-                keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
             },
             {
                 id: 'web-analytics-achievements',

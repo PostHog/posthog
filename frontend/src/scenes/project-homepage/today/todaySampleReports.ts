@@ -1,5 +1,4 @@
-import type { SignalNode } from 'scenes/debug/signals/types'
-
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 import type { TodayReports } from './todayLogic'
@@ -7,6 +6,7 @@ import { TodayBriefingSegment } from './todaySignalReports'
 
 // Sample ids carry this prefix, so a report page knows to read the fixture rather than the API.
 const SAMPLE_ID_PREFIX = 'sample-'
+export const SAMPLE_REPORT_REASON = 'This is a sample report. Turn off sample reports to act on a real one.'
 const HOUR_MS = 60 * 60 * 1000
 
 export function isSampleReportId(reportId: string): boolean {
@@ -35,13 +35,9 @@ interface SampleReportSpec {
     status: SignalReportStatus
     sourceProducts: string[]
     pullRequestUrl?: string
+    metrics?: ReportMetricApi[]
     suggestedPrompts?: string[]
-    signals: {
-        sourceProduct: SignalNode['source_product']
-        sourceType: SignalNode['source_type']
-        content: string
-        hoursAgo: number
-    }[]
+    signalCount: number
 }
 
 // The Hedgebox demo scenarios from the Today mock, all invented. Signals leave `extra` empty so they render as
@@ -51,39 +47,26 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         id: `${SAMPLE_ID_PREFIX}pr`,
         title: 'Review PR #9123',
         summary:
-            '**The Safari checkout fix is ready for review.**\n\nTuesday’s deploy stopped some Safari users before payment. The checkout sent an empty billing address to the payment service.\n\nPR #9123 restores the address before payment is submitted. The change is small, tested, and ready for you.',
+            'Safari users can’t finish checkout since Tuesday’s deploy, because the checkout sends an empty billing address to the payment service.\n\n## Problem\n\nThe deploy moved the address form into a step that Safari unmounts before payment. The payment request then goes out without the billing address.\n\n## Impact\n\nSafari checkout completion fell by 12 points while Chrome stayed flat.\n\n## Solution\n\nKeep the billing address in the checkout state, and send it with the payment request. PR #9123 does this and adds a Safari test.\n\n## Expected impact\n\nSafari checkout completion returns to **about 54%**, the same as Chrome.',
         hoursAgo: 2,
         priority: 'P1',
         actionability: 'immediately_actionable',
         status: SignalReportStatus.READY,
         sourceProducts: ['error_tracking', 'session_replay', 'analytics', 'github'],
         pullRequestUrl: 'https://github.com/example/hedgebox/pull/9123',
-        signals: [
+        metrics: [
             {
-                sourceProduct: 'error_tracking',
-                sourceType: 'issue',
-                content: '1,284 events. The same TypeError started after deploy #4821.',
-                hoursAgo: 2,
-            },
-            {
-                sourceProduct: 'session_replay',
-                sourceType: 'session_problem',
-                content: '38 recordings. Safari users stop after they submit payment.',
-                hoursAgo: 3,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: '−12 points. Safari completion fell while Chrome stayed flat.',
-                hoursAgo: 4,
-            },
-            {
-                sourceProduct: 'github',
-                sourceType: 'issue',
-                content: 'PR #9123. The fix restores the missing billing address.',
-                hoursAgo: 5,
+                metric_id: 'safari-checkout-failures',
+                title: 'Users who could not finish checkout in Safari',
+                kind: 'affected_users',
+                role: 'primary',
+                value: 212,
+                series: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 31, 58, 64, 59],
+                value_format: 'count',
+                unit: 'users',
             },
         ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}exp`,
@@ -95,32 +78,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         actionability: 'immediately_actionable',
         status: SignalReportStatus.READY,
         sourceProducts: ['analytics', 'session_replay'],
-        signals: [
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Experiments · 95% likely. The one-page version is the likely winner.',
-                hoursAgo: 3,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: '+6.4%. Checkout completion rose from 54.1% to 57.6%.',
-                hoursAgo: 4,
-            },
-            {
-                sourceProduct: 'session_replay',
-                sourceType: 'session_problem',
-                content: 'Fewer exits. People no longer pause between address and payment.',
-                hoursAgo: 5,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Feature flags · Ready. The winning variant can reach everyone now.',
-                hoursAgo: 6,
-            },
-        ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}safari`,
@@ -132,32 +90,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         actionability: 'requires_human_input',
         status: SignalReportStatus.PENDING_INPUT,
         sourceProducts: ['session_replay', 'analytics', 'error_tracking'],
-        signals: [
-            {
-                sourceProduct: 'session_replay',
-                sourceType: 'session_problem',
-                content: '38 sessions. Every sampled session stalls after payment.',
-                hoursAgo: 5,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: '49% complete. Safari trails Chrome by 13 points.',
-                hoursAgo: 6,
-            },
-            {
-                sourceProduct: 'error_tracking',
-                sourceType: 'issue',
-                content: 'address.ts:42. The billing address is empty at submission.',
-                hoursAgo: 7,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Data warehouse · Safari 17. Older Safari versions stay near their baseline.',
-                hoursAgo: 8,
-            },
-        ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}error`,
@@ -170,32 +103,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         status: SignalReportStatus.READY,
         sourceProducts: ['error_tracking', 'analytics', 'session_replay'],
         pullRequestUrl: 'https://github.com/example/hedgebox/pull/9131',
-        signals: [
-            {
-                sourceProduct: 'error_tracking',
-                sourceType: 'issue',
-                content: '1,284 events. TypeError in formatAddress at address.ts:42.',
-                hoursAgo: 7,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: '412 users. Most affected users arrived from Safari.',
-                hoursAgo: 8,
-            },
-            {
-                sourceProduct: 'session_replay',
-                sourceType: 'session_problem',
-                content: '19 sampled. The submit button stops after one click.',
-                hoursAgo: 9,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Data warehouse · Deploy #4821. The first event arrived six minutes after release.',
-                hoursAgo: 10,
-            },
-        ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}llm`,
@@ -208,32 +116,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         status: SignalReportStatus.READY,
         sourceProducts: ['llm_analytics', 'analytics'],
         pullRequestUrl: 'https://github.com/example/hedgebox/pull/9140',
-        signals: [
-            {
-                sourceProduct: 'llm_analytics',
-                sourceType: 'evaluation',
-                content: '+31% cost. Cost rose while the number of summaries stayed flat.',
-                hoursAgo: 9,
-            },
-            {
-                sourceProduct: 'llm_analytics',
-                sourceType: 'evaluation',
-                content: 'Tracing · 2.4× tokens. The new prompt repeats the source document.',
-                hoursAgo: 10,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Usage flat. The same number of people used summaries.',
-                hoursAgo: 11,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Data warehouse · summarize-doc. One workflow accounts for 84% of the increase.',
-                hoursAgo: 12,
-            },
-        ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}nps`,
@@ -245,32 +128,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         actionability: 'requires_human_input',
         status: SignalReportStatus.PENDING_INPUT,
         sourceProducts: ['conversations', 'analytics', 'session_replay'],
-        signals: [
-            {
-                sourceProduct: 'conversations',
-                sourceType: 'feedback',
-                content: 'Surveys · NPS 32. Twenty-three of 61 detractors mention pricing.',
-                hoursAgo: 20,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Customer analytics · Small teams. Growing teams express the most uncertainty.',
-                hoursAgo: 21,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: '71% visited. Most detractors saw the new pricing page.',
-                hoursAgo: 22,
-            },
-            {
-                sourceProduct: 'session_replay',
-                sourceType: 'session_problem',
-                content: '3 comparisons. People revisit the usage table before leaving.',
-                hoursAgo: 23,
-            },
-        ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}browser`,
@@ -283,32 +141,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         status: SignalReportStatus.PENDING_INPUT,
         sourceProducts: ['analytics', 'session_replay', 'error_tracking'],
         pullRequestUrl: 'https://github.com/example/hedgebox/pull/9123',
-        signals: [
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: '−13 points. Safari trails the other browsers at checkout.',
-                hoursAgo: 26,
-            },
-            {
-                sourceProduct: 'session_replay',
-                sourceType: 'session_problem',
-                content: '38 sessions. The same payment stall appears across sampled sessions.',
-                hoursAgo: 27,
-            },
-            {
-                sourceProduct: 'error_tracking',
-                sourceType: 'issue',
-                content: '1,284 events. The error appears mainly in Safari 17.',
-                hoursAgo: 28,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Data warehouse · 3 browsers. Chrome and Firefox stay near their baseline.',
-                hoursAgo: 29,
-            },
-        ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}guardrails`,
@@ -320,32 +153,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         actionability: 'immediately_actionable',
         status: SignalReportStatus.READY,
         sourceProducts: ['analytics', 'error_tracking', 'conversations'],
-        signals: [
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Experiments · 4 passed. Every release guardrail stayed within range.',
-                hoursAgo: 30,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: '+6.4%. Checkout completion improved for the winning variant.',
-                hoursAgo: 31,
-            },
-            {
-                sourceProduct: 'error_tracking',
-                sourceType: 'issue',
-                content: 'No increase. Payment and checkout errors stayed flat.',
-                hoursAgo: 32,
-            },
-            {
-                sourceProduct: 'conversations',
-                sourceType: 'feedback',
-                content: 'Surveys · Support flat. The new flow did not increase support requests.',
-                hoursAgo: 33,
-            },
-        ],
+        signalCount: 4,
     },
     {
         id: `${SAMPLE_ID_PREFIX}traces`,
@@ -358,32 +166,7 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         status: SignalReportStatus.READY,
         sourceProducts: ['llm_analytics', 'analytics'],
         pullRequestUrl: 'https://github.com/example/hedgebox/pull/9147',
-        signals: [
-            {
-                sourceProduct: 'llm_analytics',
-                sourceType: 'evaluation',
-                content: 'Tracing · 24 traces. Each sampled trace contains the source text twice.',
-                hoursAgo: 40,
-            },
-            {
-                sourceProduct: 'llm_analytics',
-                sourceType: 'evaluation',
-                content: '2.4× tokens. Input tokens rose after the model change.',
-                hoursAgo: 41,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Usage flat. Traffic did not cause the higher cost.',
-                hoursAgo: 42,
-            },
-            {
-                sourceProduct: 'analytics',
-                sourceType: 'anomaly_investigation',
-                content: 'Data warehouse · Quality flat. The quality score did not improve.',
-                hoursAgo: 43,
-            },
-        ],
+        signalCount: 4,
     },
 ]
 
@@ -420,8 +203,8 @@ function buildSampleReport(spec: SampleReportSpec, now: number): SignalReport {
         title: spec.title,
         summary: spec.summary,
         status: spec.status,
-        total_weight: spec.signals.length,
-        signal_count: spec.signals.length,
+        total_weight: spec.signalCount,
+        signal_count: spec.signalCount,
         created_at: updatedAt,
         updated_at: updatedAt,
         artefact_count: 0,
@@ -433,6 +216,7 @@ function buildSampleReport(spec: SampleReportSpec, now: number): SignalReport {
         implementation_pr_url: spec.pullRequestUrl ?? null,
         suggested_prompts: spec.suggestedPrompts,
         charts: [],
+        metrics: spec.metrics ?? [],
     }
 }
 
@@ -446,18 +230,4 @@ export function sampleTopReports(limit: number, now: number = Date.now()): Today
 export function findSampleReport(reportId: string, now: number = Date.now()): SignalReport | null {
     const spec = SAMPLE_SPECS.find((candidate) => candidate.id === reportId)
     return spec ? buildSampleReport(spec, now) : null
-}
-
-export function sampleSignals(reportId: string, now: number = Date.now()): SignalNode[] {
-    const spec = SAMPLE_SPECS.find((candidate) => candidate.id === reportId)
-    return (spec?.signals ?? []).map((signal, index) => ({
-        signal_id: `${reportId}-signal-${index}`,
-        content: signal.content,
-        source_product: signal.sourceProduct,
-        source_type: signal.sourceType,
-        source_id: `${reportId}-source-${index}`,
-        weight: 1,
-        timestamp: new Date(now - signal.hoursAgo * HOUR_MS).toISOString(),
-        extra: {} as SignalNode['extra'],
-    }))
 }

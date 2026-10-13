@@ -158,7 +158,7 @@ class TestBindingPaths:
 
     def test_unrelated_class_of_the_same_name_is_not_bound(self) -> None:
         candidate = _candidate(
-            "from products.alerts.backend.facade.contracts import AlertConfiguration\nqs = AlertConfiguration(id=1)"
+            "from products.alerts_platform.backend.facade.contracts import AlertConfiguration\nqs = AlertConfiguration(id=1)"
         )
         origins = crossings._origins([candidate], [ALERT])
         assert crossings._bound_names(candidate, origins) == {}
@@ -254,6 +254,11 @@ class TestBaselineRatchet:
         with pytest.raises(crossings.BaselineWouldGrow) as refusal:
             crossings.write_baseline([self._use("posthog.api.a", scanned)], path)
         assert refusal.value.added == [f"alerts.AlertConfiguration posthog.api.a instance-many(all) {scanned}"]
+
+    def test_a_moved_consumer_is_written(self, tmp_path: Path) -> None:
+        path = self._recorded(tmp_path, "posthog.api.a")
+        crossings.write_baseline([self._use("posthog.api.b")], path)
+        assert crossings.read_baseline(path) == [self.LINE_B]
 
     def test_a_removal_is_written(self, tmp_path: Path) -> None:
         path = self._recorded(tmp_path, "posthog.api.a", "posthog.api.b")

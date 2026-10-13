@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import importlib
@@ -38,8 +39,7 @@ from posthog.ingress.pandadoc.provider import build_pandadoc_provider
 from posthog.ingress.providers import _INCARNATION_MODULES, InvalidPayload, WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
 from posthog.ingress.test import LOCMEM_CACHES
-from posthog.ingress.vapi.provider import VapiProvider
-from posthog.ingress.verify.schemes import Verification, VerificationOutcome
+from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 from posthog.regions import SECONDARY_REGION_DOMAIN
 
@@ -115,6 +115,18 @@ class _ThrottledGitHubProvider(GitHubProvider):
     # Stands in for a provider whose verification is expensive enough to cap in front of, the way
     # a JWT signing-key lookup is.
     throttle_class = _StubThrottle
+
+
+class _PatternCheckedGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose signature has one fixed shape, so a header of any other
+    # shape fails before the body is read.
+    def scheme(self) -> SignatureScheme:
+        return HmacSha256(
+            secret_getter=lambda: SECRET,
+            signature_header="X-Hub-Signature-256",
+            prefix="sha256=",
+            signature_pattern=re.compile(r"^sha256=[0-9a-f]{64}$"),
+        )
 
 
 class _ScopedThrottleGitHubProvider(GitHubProvider):
@@ -227,27 +239,21 @@ class TestWebhookView(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_header", {}, False),
-            ("empty_header", {"X-Vapi-Signature": ""}, False),
-            ("malformed_header", {"X-Vapi-Signature": "not-a-digest"}, False),
-            ("well_formed_but_wrong_digest", {"X-Vapi-Signature": "0" * 64}, True),
+            ("empty_header", {"X-Hub-Signature-256": ""}, False),
+            ("malformed_header", {"X-Hub-Signature-256": "not-a-digest"}, False),
+            ("well_formed_but_wrong_digest", {"X-Hub-Signature-256": "sha256=" + "0" * 64}, True),
         ]
     )
-    @override_settings(VAPI_WEBHOOK_SECRET=SECRET)
     def test_a_signature_header_that_cannot_pass_is_refused_before_the_body_is_read(
         self, _name: str, headers: dict[str, str], reads_body: bool
     ) -> None:
-        request = self.factory.post(
-            "/webhooks/vapi/",
-            data=json.dumps({"message": {"type": "status-update"}}).encode(),
-            content_type="application/json",
-            headers=headers,
-        )
+        request = self._post(json.dumps({"action": "opened"}).encode(), {**headers, "X-GitHub-Event": "issues"})
 
         with patch.object(HttpRequest, "body", new_callable=PropertyMock, return_value=b"{}") as body:
-            response = build_webhook_view(VapiProvider())(request)
+            response = build_webhook_view(_PatternCheckedGitHubProvider("posthog"))(request)
 
         # Same answer either way, so only the body read separates the two paths.
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(response.content, b"Invalid signature")
         self.assertEqual(body.called, reads_body)
         self.dispatcher.dispatch.assert_not_called()

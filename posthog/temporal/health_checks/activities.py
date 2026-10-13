@@ -92,6 +92,7 @@ def _run_health_check_batch_sync(
         product=get_product(kind),
         feature=Feature.HEALTH_CHECK,
         name=kind,
+        query_type=f"health_check_{kind}",
     )
     detect_fn = get_detect_fn(kind)
 

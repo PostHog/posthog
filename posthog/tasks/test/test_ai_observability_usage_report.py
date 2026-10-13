@@ -1004,6 +1004,25 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert team_3.id not in team_ids
         assert len(team_ids) == 3
 
+    @parameterized.expand(
+        [
+            ("inside", "$ai_generation", timedelta(minutes=30), True),
+            ("at_start_is_included", "$ai_trace", timedelta(0), True),
+            ("span_only", "$ai_span", timedelta(minutes=45), True),
+            ("just_before_start", "$ai_generation", -timedelta(seconds=1), False),
+            ("at_end_is_excluded", "$ai_generation", timedelta(hours=1), False),
+        ]
+    )
+    def test_get_teams_with_ai_events_hour_window_boundaries(
+        self, _name: str, event: str, offset: timedelta, expected: bool
+    ) -> None:
+        start = datetime(2022, 1, 9, 10, tzinfo=UTC)
+        self._create_ai_events(self.team, str(uuid4()), event, 1, timestamp=start + offset)
+
+        team_ids = get_teams_with_ai_events(start, start + timedelta(hours=1), LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS)
+
+        assert (self.team.id in team_ids) == expected
+
     def test_get_llm_prompt_fetched_counts(self) -> None:
         """Test that get_llm_prompt_fetched_counts returns per-team prompt fetch totals."""
         org_2 = Organization.objects.create(name="Org 2")

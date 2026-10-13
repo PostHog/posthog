@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 import { inStorybookTestRunner } from 'lib/utils/dom'
@@ -12,6 +12,8 @@ import {
     groupToolRuns,
     isRunningStatus,
     isStartupStatus,
+    reuseActivityGroups,
+    type ThreadActivityGroup as ThreadActivityGroupItem,
     type ThreadDisplayItem,
 } from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
@@ -24,14 +26,14 @@ import { type ThreadSkin, ThreadSkinContext } from './quill/quillThreadContext'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
 import { ThreadActivityGroup } from './ThreadActivityGroup'
-import { ThreadRow } from './ThreadRow'
+import { ThreadRow, type ThreadRowProps } from './ThreadRow'
 import { lookupToolRenderer } from './tool/toolRegistry'
 import { TurnReveal } from './TurnReveal'
 import { VirtualizedThread } from './VirtualizedThread'
 
 /** Stable row key — defined at module scope so `getItemKey` never changes identity across renders. */
-function getThreadItemKey(item: ThreadDisplayItem): string {
-    return item.id
+function getThreadRowKey(row: ThreadViewRow): string {
+    return row.item.id
 }
 
 /**
@@ -72,7 +74,7 @@ function quillRowShowsProgress(item: ThreadDisplayItem, toolInvocations: Readonl
     }
 }
 
-function estimateThreadItemHeight(item: ThreadDisplayItem): number {
+function estimateThreadRowHeight({ item }: ThreadViewRow): number {
     if (item.type === 'activity_group') {
         return 48
     }
@@ -151,23 +153,30 @@ export function ThreadView({
     // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
     // still going, so it keeps the softer title.
     const runEnded = isTerminalRunStatus(currentRunStatus)
-    const displayItems = useMemo(() => {
-        const pinnedToolIds = new Set<string>()
-        const widgetToolIds = new Set<string>()
+    const { pinnedToolIds, widgetToolIds } = useMemo(() => {
+        const pinned = new Set<string>()
+        const widgets = new Set<string>()
         for (const [id, invocation] of toolInvocations) {
             const resolved = resolveToolCall(invocation)
             const entry = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
             if (entry.pinned) {
-                pinnedToolIds.add(id)
+                pinned.add(id)
             } else if (entry.keepVisible) {
-                widgetToolIds.add(id)
+                widgets.add(id)
             }
         }
-        if (skin === 'quill') {
-            return groupToolRuns(threadItems, toolInvocations, { pinnedToolIds, widgetToolIds, settled: !isThinking })
-        }
-        return groupThreadActivity(threadItems, new Set([...pinnedToolIds, ...widgetToolIds]))
-    }, [threadItems, toolInvocations, skin, isThinking])
+        return { pinnedToolIds: pinned, widgetToolIds: widgets }
+    }, [toolInvocations])
+    const previousDisplayItems = useRef<ThreadDisplayItem[]>([])
+    const displayItems = useMemo(() => {
+        const grouped =
+            skin === 'quill'
+                ? groupToolRuns(threadItems, toolInvocations, { pinnedToolIds, widgetToolIds, settled: !isThinking })
+                : groupThreadActivity(threadItems, new Set([...pinnedToolIds, ...widgetToolIds]))
+        const reconciled = reuseActivityGroups(previousDisplayItems.current, grouped)
+        previousDisplayItems.current = reconciled
+        return reconciled
+    }, [threadItems, toolInvocations, pinnedToolIds, widgetToolIds, skin, isThinking])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
@@ -176,11 +185,21 @@ export function ThreadView({
         [threadItems]
     )
     // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
-    const trailers = useMemo(
-        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
-        [threadItems, renderTurnTrailer]
-    )
+    const previousTrailers = useRef<Map<string, TurnTrailer> | null>(null)
+    const trailers = useMemo(() => {
+        const next = renderTurnTrailer
+            ? reuseTurnTrailers(previousTrailers.current, computeTurnTrailers(threadItems))
+            : null
+        previousTrailers.current = next
+        return next
+    }, [threadItems, renderTurnTrailer])
     const revealGroups = useMemo(() => mapRowsToRevealGroup(displayItems), [displayItems])
+    const previousRows = useRef<ThreadViewRow[]>([])
+    const rows = useMemo(() => {
+        const next = buildThreadViewRows(previousRows.current, displayItems, toolInvocations, trailers, revealGroups)
+        previousRows.current = next
+        return next
+    }, [displayItems, toolInvocations, trailers, revealGroups])
     const [turnHoverStore] = useState(() => new TurnHoverStore())
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
@@ -240,71 +259,55 @@ export function ThreadView({
     )
 
     const renderItem = useCallback(
-        (item: ThreadDisplayItem, index: number): JSX.Element => {
+        ({ item, isLast, turnId, invocation, groupInvocations, trailer }: ThreadViewRow): JSX.Element => {
             if (item.type === 'activity_group') {
-                const isLast = index === displayItems.length - 1
                 return (
-                    <VirtualizedThread.Row className={rowClassName}>
-                        <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
-                            <ThreadActivityGroup
-                                group={item}
-                                toolInvocations={toolInvocations}
-                                active={isLast && isThinking}
-                                waitingForInput={isLast && !!pendingPermissionRequest}
-                                cancelled={isLast && (turnCancelled || currentRunStatus === 'failed')}
-                                renderItem={(activity) => (
-                                    <ThreadRow
-                                        item={activity}
-                                        isLast={false}
-                                        isThinking={false}
-                                        toolInvocations={toolInvocations}
-                                        turnComplete={turnComplete}
-                                        turnCancelled={turnCancelled}
-                                    />
-                                )}
-                            />
-                        </TurnReveal>
-                    </VirtualizedThread.Row>
+                    <ActivityGroupRow
+                        group={item}
+                        rowClassName={rowClassName}
+                        turnHoverStore={turnHoverStore}
+                        turnId={turnId}
+                        toolInvocations={groupInvocations ?? EMPTY_INVOCATIONS}
+                        active={isLast && isThinking}
+                        waitingForInput={isLast && !!pendingPermissionRequest}
+                        cancelled={isLast && (turnCancelled || currentRunStatus === 'failed')}
+                        turnComplete={turnComplete}
+                        turnCancelled={turnCancelled}
+                    />
                 )
             }
             if (item.type === 'turn_separator' && renderTurnTrailer) {
-                const trailer = trailers?.get(item.id)
                 return (
-                    <VirtualizedThread.Row className={rowClassName}>
-                        {trailer ? (
-                            <TurnReveal store={turnHoverStore} turnId={item.id}>
-                                {renderTurnTrailer(trailer)}
-                            </TurnReveal>
-                        ) : null}
-                    </VirtualizedThread.Row>
+                    <TurnTrailerRow
+                        turnId={item.id}
+                        trailer={trailer}
+                        renderTurnTrailer={renderTurnTrailer}
+                        rowClassName={rowClassName}
+                        turnHoverStore={turnHoverStore}
+                    />
                 )
             }
             return (
-                <VirtualizedThread.Row className={rowClassName}>
-                    <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
-                        <ThreadRow
-                            item={item}
-                            isLast={index === displayItems.length - 1}
-                            isThinking={isThinking}
-                            toolInvocations={toolInvocations}
-                            turnComplete={turnComplete}
-                            turnCancelled={turnCancelled}
-                            runEnded={runEnded}
-                        />
-                    </TurnReveal>
-                </VirtualizedThread.Row>
+                <ItemRow
+                    item={item}
+                    rowClassName={rowClassName}
+                    turnHoverStore={turnHoverStore}
+                    turnId={turnId}
+                    isLast={isLast}
+                    isThinking={isThinking}
+                    invocation={invocation}
+                    turnComplete={turnComplete}
+                    turnCancelled={turnCancelled}
+                    runEnded={runEnded}
+                />
             )
         },
         [
-            displayItems.length,
             isThinking,
-            toolInvocations,
             turnComplete,
             turnCancelled,
             rowClassName,
             renderTurnTrailer,
-            trailers,
-            revealGroups,
             turnHoverStore,
             pendingPermissionRequest,
             currentRunStatus,
@@ -316,9 +319,9 @@ export function ThreadView({
         <VirtualizedThread.Root
             key={scrollRestorationKey}
             scrollRestorationKey={scrollRestorationKey}
-            items={displayItems}
-            getItemKey={getThreadItemKey}
-            estimateItemHeight={estimateThreadItemHeight}
+            items={rows}
+            getItemKey={getThreadRowKey}
+            estimateItemHeight={estimateThreadRowHeight}
             anchorItemKey={anchorItemKey}
             // The history replay folds in over several commits (debug rows land before the human turns);
             // the opening scroll must wait for the full log or it opens at the bottom of a partial thread.
@@ -354,6 +357,192 @@ export function ThreadView({
         </ThreadSkinContext.Provider>
     )
 }
+
+function reuseTurnTrailers(
+    previous: Map<string, TurnTrailer> | null,
+    next: Map<string, TurnTrailer>
+): Map<string, TurnTrailer> {
+    if (!previous) {
+        return next
+    }
+    for (const [id, trailer] of next) {
+        const old = previous.get(id)
+        if (
+            old &&
+            old.turnIndex === trailer.turnIndex &&
+            old.isLastTurn === trailer.isLastTurn &&
+            old.turnText === trailer.turnText &&
+            old.traceId === trailer.traceId &&
+            old.timestamp === trailer.timestamp
+        ) {
+            next.set(id, old)
+        }
+    }
+    return next
+}
+
+const EMPTY_INVOCATIONS: Map<string, ToolInvocation> = new Map()
+
+interface ThreadViewRow {
+    item: ThreadDisplayItem
+    isLast: boolean
+    turnId?: string
+    invocation?: ToolInvocation
+    groupInvocations?: Map<string, ToolInvocation>
+    trailer?: TurnTrailer
+}
+
+function sameInvocations(a: Map<string, ToolInvocation> | undefined, b: Map<string, ToolInvocation>): boolean {
+    if (!a || a.size !== b.size) {
+        return false
+    }
+    for (const [id, invocation] of b) {
+        if (a.get(id) !== invocation) {
+            return false
+        }
+    }
+    return true
+}
+
+function buildThreadViewRows(
+    previous: ThreadViewRow[],
+    displayItems: ThreadDisplayItem[],
+    toolInvocations: Map<string, ToolInvocation>,
+    trailers: Map<string, TurnTrailer> | null,
+    revealGroups: Map<string, string>
+): ThreadViewRow[] {
+    const previousById = new Map<string, ThreadViewRow>()
+    for (const row of previous) {
+        previousById.set(row.item.id, row)
+    }
+    return displayItems.map((item, index) => {
+        const old = previousById.get(item.id)
+        let groupInvocations: Map<string, ToolInvocation> | undefined
+        if (item.type === 'activity_group') {
+            groupInvocations = new Map()
+            for (const activity of item.items) {
+                const call = activity.toolCallId ? toolInvocations.get(activity.toolCallId) : undefined
+                if (call) {
+                    groupInvocations.set(activity.toolCallId!, call)
+                }
+            }
+            if (sameInvocations(old?.groupInvocations, groupInvocations)) {
+                groupInvocations = old!.groupInvocations
+            }
+        }
+        const row: ThreadViewRow = {
+            item,
+            isLast: index === displayItems.length - 1,
+            turnId: revealGroups.get(item.id),
+            invocation:
+                item.type !== 'activity_group' && item.toolCallId ? toolInvocations.get(item.toolCallId) : undefined,
+            groupInvocations,
+            trailer: trailers?.get(item.id),
+        }
+        return old &&
+            old.item === row.item &&
+            old.isLast === row.isLast &&
+            old.turnId === row.turnId &&
+            old.invocation === row.invocation &&
+            old.groupInvocations === row.groupInvocations &&
+            old.trailer === row.trailer
+            ? old
+            : row
+    })
+}
+
+interface RowShellProps {
+    rowClassName?: string
+    turnHoverStore: TurnHoverStore
+}
+
+const ActivityGroupRow = memo(function ActivityGroupRow({
+    group,
+    rowClassName,
+    turnHoverStore,
+    turnId,
+    toolInvocations,
+    active,
+    waitingForInput,
+    cancelled,
+    turnComplete,
+    turnCancelled,
+}: RowShellProps & {
+    group: ThreadActivityGroupItem
+    turnId: string | undefined
+    toolInvocations: Map<string, ToolInvocation>
+    active: boolean
+    waitingForInput: boolean
+    cancelled: boolean
+    turnComplete: boolean
+    turnCancelled: boolean
+}): JSX.Element {
+    const renderGroupItem = useCallback(
+        (activity: ThreadItem): JSX.Element => (
+            <ThreadRow
+                item={activity}
+                isLast={false}
+                isThinking={false}
+                invocation={activity.toolCallId ? toolInvocations.get(activity.toolCallId) : undefined}
+                turnComplete={turnComplete}
+                turnCancelled={turnCancelled}
+            />
+        ),
+        [toolInvocations, turnComplete, turnCancelled]
+    )
+    return (
+        <VirtualizedThread.Row className={rowClassName}>
+            <TurnReveal store={turnHoverStore} turnId={turnId}>
+                <ThreadActivityGroup
+                    group={group}
+                    toolInvocations={toolInvocations}
+                    active={active}
+                    waitingForInput={waitingForInput}
+                    cancelled={cancelled}
+                    renderItem={renderGroupItem}
+                />
+            </TurnReveal>
+        </VirtualizedThread.Row>
+    )
+})
+
+const TurnTrailerRow = memo(function TurnTrailerRow({
+    turnId,
+    trailer,
+    renderTurnTrailer,
+    rowClassName,
+    turnHoverStore,
+}: RowShellProps & {
+    turnId: string
+    trailer: TurnTrailer | undefined
+    renderTurnTrailer: (trailer: TurnTrailer) => JSX.Element | null
+}): JSX.Element {
+    return (
+        <VirtualizedThread.Row className={rowClassName}>
+            {trailer ? (
+                <TurnReveal store={turnHoverStore} turnId={turnId}>
+                    {renderTurnTrailer(trailer)}
+                </TurnReveal>
+            ) : null}
+        </VirtualizedThread.Row>
+    )
+})
+
+const ItemRow = memo(function ItemRow({
+    item,
+    rowClassName,
+    turnHoverStore,
+    turnId,
+    ...rowProps
+}: RowShellProps & Omit<ThreadRowProps, 'item'> & { item: ThreadItem; turnId: string | undefined }): JSX.Element {
+    return (
+        <VirtualizedThread.Row className={rowClassName}>
+            <TurnReveal store={turnHoverStore} turnId={turnId}>
+                <ThreadRow item={item} {...rowProps} />
+            </TurnReveal>
+        </VirtualizedThread.Row>
+    )
+})
 
 /** Leading run-context row. Memoized so it only re-renders when the run's branch/repo refs change. */
 const ThreadHeader = memo(function ThreadHeader({

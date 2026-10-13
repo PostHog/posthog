@@ -17,7 +17,7 @@ from posthog.management.commands.start_temporal_worker import (
     workflows_include_data_import_syncs,
 )
 
-from products.alerts.backend.facade.temporal import (
+from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,

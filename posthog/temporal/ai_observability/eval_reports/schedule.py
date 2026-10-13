@@ -30,6 +30,7 @@ async def create_eval_reports_schedule(client: Client):
             id=SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
         ),
+        # nosemgrep: schedule-must-avoid-minute-zero -- delivers reports at the times customers schedule them, with a 15-minute lookahead
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
     )
 

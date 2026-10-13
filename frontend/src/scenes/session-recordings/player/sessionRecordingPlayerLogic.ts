@@ -28,7 +28,7 @@ import {
     COMMON_REPLAYER_CONFIG,
     speedDependentStyleRules,
     CanvasReplayerPlugin,
-    CorsPlugin,
+    createCorsPlugin,
     SnapshotStore,
     createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
@@ -53,7 +53,6 @@ import { debugReplayChatLogic } from 'scenes/session-recordings/player/player-me
 import { buildDebugReplayData } from 'scenes/session-recordings/player/player-meta/debugReplayData'
 import {
     buildDebugReplayDataContextItem,
-    buildDebugReplayPrompt,
     debugReplayFileName,
 } from 'scenes/session-recordings/player/player-meta/debugReplayPrompt'
 import {
@@ -82,7 +81,6 @@ import {
     runnerPanelLogic,
 } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
@@ -772,6 +770,7 @@ export interface sessionRecordingPlayerLogicValues {
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
     isSnapshotUnauthorized: boolean // snapshotDataLogic
+    replayProxyToken: string | null // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -969,8 +968,12 @@ export interface sessionRecordingPlayerLogicActions {
     reportNextRecordingTriggered: (automatic: boolean) => {
         automatic: boolean
     } // sessionRecordingEventUsageLogic
-    reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => {
+    reportRecordingDebuggedWithAI: (
+        playerTimeSeconds: number,
+        promptEdited: boolean
+    ) => {
         playerTimeSeconds: number
+        promptEdited: boolean
     } // sessionRecordingEventUsageLogic
     reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
         format: 'json' | 'mp4'
@@ -1047,8 +1050,12 @@ export interface sessionRecordingPlayerLogicActions {
         config: Record<string, any>
         integrationId: number
     }
-    debugRecordingWithAI: () => {
-        value: true
+    debugRecordingWithAI: (
+        prompt: string,
+        promptEdited: boolean
+    ) => {
+        prompt: string
+        promptEdited: boolean
     }
     deleteRecording: () => {
         value: true
@@ -1491,6 +1498,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values: [
             snapshotDataLogic(props),
             [
+                'replayProxyToken',
                 'snapshotsLoaded',
                 'snapshotsLoading',
                 'snapshotSources',
@@ -1604,7 +1612,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => ({ diagnostics }),
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
-        debugRecordingWithAI: true,
+        debugRecordingWithAI: (prompt: string, promptEdited: boolean) => ({ prompt, promptEdited }),
         setDebugRecordingPreparing: (preparing: boolean) => ({ preparing }),
         deleteRecording: true,
         openExplorer: true,
@@ -2741,11 +2749,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
             if (values.preflight?.cloud || window.location.hostname === 'localhost') {
-                plugins.push(CorsPlugin)
+                plugins.push(createCorsPlugin(() => values.replayProxyToken))
             }
 
-            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
-                posthog.captureException(error)
+            const canvasPlugin = CanvasReplayerPlugin(
+                values.sessionPlayerData.snapshotsByWindowId[windowId],
+                (error, context) => posthog.captureException(error, context)
             )
             plugins.push(canvasPlugin)
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
@@ -3305,7 +3314,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
-            analysisNudgeLogic.findMounted()?.actions.recordingAnalyzed(props.sessionRecordingId)
         },
         setPause: () => {
             actions.stopAnimation()
@@ -3662,7 +3670,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        debugRecordingWithAI: async () => {
+        debugRecordingWithAI: async ({ prompt, promptEdited }) => {
             if (!values.sessionRecordingId || values.debugRecordingPreparing) {
                 return
             }
@@ -3708,11 +3716,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // The side panel renders behind a fullscreen player.
             actions.setIsFullScreen(false)
-            actions.openSidePanel(
-                SidePanelTab.Max,
-                autoRunMaxPrompt(buildDebugReplayPrompt(values.sessionRecordingId, values.currentPlayerTimeSeconds))
-            )
-            actions.reportRecordingDebuggedWithAI(values.currentPlayerTimeSeconds)
+            actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(prompt))
+            actions.reportRecordingDebuggedWithAI(values.currentPlayerTimeSeconds, promptEdited)
         },
 
         exportRecordingToFile: async () => {

@@ -140,13 +140,20 @@ def _in_scope_queryset():
     )
 
 
-def fetch_in_scope_schemas() -> list[InScopeSchema]:
-    """Every schema the scheduler would manage. Read-only fleet-wide scan; call
-    via the async wrapper."""
-    rows = _in_scope_queryset().values_list("id", "team_id", "sync_frequency_interval", "sync_time_of_day")
+def fetch_in_scope_schema_page(after_id: str | None, limit: int) -> list[InScopeSchema]:
+    """One id-ordered page of in-scope schemas. Read-only; call via the async wrapper.
+
+    Keyset pagination, not ``QuerySet.iterator()``: behind PgBouncer Django
+    disables server-side cursors, and ``iterator()`` then loads the whole
+    result set into memory before it yields the first row.
+    """
+    queryset = _in_scope_queryset()
+    if after_id is not None:
+        queryset = queryset.filter(id__gt=after_id)
+    rows = queryset.order_by("id").values_list("id", "team_id", "sync_frequency_interval", "sync_time_of_day")[:limit]
     return [
         InScopeSchema(schema_id=str(schema_id), team_id=team_id, interval=interval, sync_time_of_day=sync_time)
-        for schema_id, team_id, interval, sync_time in rows.iterator(chunk_size=1000)
+        for schema_id, team_id, interval, sync_time in rows
     ]
 
 

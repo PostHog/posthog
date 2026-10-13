@@ -1,5 +1,6 @@
 import dataclasses
-from typing import Any, Optional
+from collections.abc import Iterable
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -8,25 +9,37 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.settings import HUMANITIX_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.settings import (
+    HUMANITIX_ENDPOINTS,
+    PAGE_SIZE,
+    HumanitixEndpointConfig,
+)
 
 HUMANITIX_BASE_URL = "https://api.humanitix.com/v1"
-# The list endpoints accept pageSize 1..100; 100 minimises round trips.
-PAGE_SIZE = 100
 # Cheap endpoint used to confirm the API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/events"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HumanitixResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `_id`.
     next_page: int = 1
+    # Fan-out endpoints (orders, tickets) resume by parent event: the child paths already fully
+    # synced, the one in progress, and its paginator state — see
+    # `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed: Optional[list[str]] = None
+    current: Optional[str] = None
+    child_state: Optional[dict[str, Any]] = None
 
 
 class HumanitixPaginator(BasePaginator):
@@ -92,6 +105,86 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": HUMANITIX_BASE_URL,
+        "headers": _headers(),
+        "auth": {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"},
+        "paginator": HumanitixPaginator(page_size=PAGE_SIZE),
+        # Orders and tickets carry attendee details and free-form checkout answers (`additionalFields`)
+        # that the name-based sample scrubbers can't recognise, so keep bodies out of sample capture.
+        "capture": False,
+    }
+
+
+def _make_source_response(
+    config: HumanitixEndpointConfig, items: Any, column_hints: Optional[dict[str, Any]] = None
+) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=column_hints,
+    )
+
+
+def _fanout_source(
+    config: HumanitixEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[HumanitixResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = HUMANITIX_ENDPOINTS[config.fanout.parent_name]
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                HumanitixResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=HUMANITIX_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": parent_config.list_key, "data_selector_required": True},
+            child_endpoint_extra={"data_selector": config.list_key, "data_selector_required": True},
+            page_size_param="pageSize",
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+    return _make_source_response(config, lambda: dependent_resource)
+
+
 def humanitix_source(
     api_key: str,
     endpoint: str,
@@ -102,13 +195,11 @@ def humanitix_source(
 ) -> SourceResponse:
     config = HUMANITIX_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _fanout_source(config, api_key, team_id, job_id, resumable_source_manager)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": HUMANITIX_BASE_URL,
-            "headers": _headers(),
-            "auth": {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"},
-            "paginator": HumanitixPaginator(page_size=PAGE_SIZE),
-        },
+        "client": _client_config(api_key),
         "resources": [
             {
                 "name": endpoint,
@@ -145,17 +236,7 @@ def humanitix_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _make_source_response(config, lambda: resource, column_hints=resource.column_hints)
 
 
 def validate_credentials(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[bool, str | None]:

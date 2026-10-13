@@ -181,9 +181,10 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert HogFlowSchedule.objects.filter(id=schedule_id).count() == 0
 
-    def test_delete_nonexistent_schedule_returns_404(self):
+    @parameterized.expand([("unknown_id", "00000000-0000-0000-0000-000000000000"), ("malformed_id", "not-a-uuid")])
+    def test_delete_nonexistent_schedule_returns_404(self, _name: str, schedule_id: str):
         workflow = self._create_batch_workflow()
-        response = self.client.delete(self._schedule_detail_url(workflow["id"], "00000000-0000-0000-0000-000000000000"))
+        response = self.client.delete(self._schedule_detail_url(workflow["id"], schedule_id))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_multiple_schedules_per_workflow(self):
@@ -315,7 +316,8 @@ class TestProcessDueSchedules(APIBaseTest):
             return real_compute(*args, **kwargs)
 
         with unittest.mock.patch(
-            "products.workflows.backend.utils.rrule_utils.compute_next_occurrences", side_effect=stop_then_compute
+            "products.workflows.backend.services.hog_flow_schedules.compute_next_occurrences",
+            side_effect=stop_then_compute,
         ):
             response = self._post()
 
@@ -434,7 +436,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
-@unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_scheduled_invocation")
+@unittest.mock.patch("products.workflows.backend.services.hog_flow_schedules.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 

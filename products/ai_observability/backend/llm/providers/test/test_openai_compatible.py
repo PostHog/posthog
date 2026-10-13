@@ -13,12 +13,13 @@ from pydantic import BaseModel
 from temporalio.exceptions import CancelledError
 
 from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.security.url_validation import PinnedUrlVerdict
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, PinnedUrlVerdict
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     LLMError,
     ProviderConfigurationError,
+    ProviderHostUnresolvedError,
     ProviderRequestRejectedError,
     ProviderTimeoutError,
     QuotaExceededError,
@@ -180,6 +181,30 @@ class TestOpenAICompatibleAdapter:
 
         with pytest.raises(ProviderConfigurationError, match="Base URL must be"):
             adapter.complete(_completion_request(), "test-key", AnalyticsContext())
+
+    def test_complete_reports_an_unresolved_host_as_retryable(self):
+        adapter = OpenAICompatibleAdapter(base_url="https://llm.example.com/v1")
+
+        with patch("posthog.security.url_validation.resolve_host_ips", return_value=set()):
+            with pytest.raises(ProviderHostUnresolvedError):
+                adapter.complete(_completion_request(), "test-key", AnalyticsContext())
+
+    @parameterized.expand(
+        [
+            ("unresolved_host", UNRESOLVED_HOST_REASON, ProviderHostUnresolvedError),
+            ("internal_address", "Disallowed target IP: 10.0.0.1", ProviderConfigurationError),
+        ]
+    )
+    def test_complete_classifies_a_block_while_pinning_the_connection(self, _name, reason, expected_error):
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+
+        with patch.object(
+            openai_compatible,
+            "validate_url_and_pin_ips",
+            return_value=PinnedUrlVerdict(allowed=False, reason=reason, pinned_ips=set()),
+        ):
+            with pytest.raises(expected_error):
+                adapter.complete(_completion_request(), "test-key", AnalyticsContext())
 
     def test_stream_refuses_disallowed_base_url(self):
         adapter = OpenAICompatibleAdapter(base_url="")

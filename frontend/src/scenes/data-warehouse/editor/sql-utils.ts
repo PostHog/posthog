@@ -3,6 +3,7 @@ import { analyzeTablesAndColumns } from './hogqlParserWorkerManager'
 export { normalizeIdentifier } from './hogqlAst'
 
 const FILTERS_BOUND_PREFIX = '{filters('
+const FILTERS_PLACEHOLDER_REGEX = /\{\s*filters\s*[}.(]/y
 
 // Returns the index after the string literal or comment starting at `i`, or null when neither starts there.
 const skipNonCode = (query: string, i: number): number | null => {
@@ -50,7 +51,17 @@ const skipNonCode = (query: string, i: number): number | null => {
     return null
 }
 
-export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
+const tokenStartsAt = (query: string, token: string | RegExp, i: number): boolean => {
+    if (typeof token === 'string') {
+        return query.startsWith(token, i)
+    }
+    token.lastIndex = i
+    return token.test(query)
+}
+
+// Whether any of `tokens` appears in the query outside string literals and comments.
+// A RegExp token must be sticky, so that it matches only at the current position.
+const queryContainsInCode = (query: string | null, tokens: (string | RegExp)[]): boolean => {
     if (!query) {
         return false
     }
@@ -63,11 +74,7 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
             continue
         }
 
-        if (
-            query.startsWith('{filters}', i) ||
-            query.startsWith('{filters.', i) ||
-            query.startsWith(FILTERS_BOUND_PREFIX, i)
-        ) {
+        if (tokens.some((token) => tokenStartsAt(query, token, i))) {
             return true
         }
 
@@ -76,6 +83,12 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
 
     return false
 }
+
+export const queryUsesFiltersPlaceholder = (query: string | null): boolean =>
+    queryContainsInCode(query, [FILTERS_PLACEHOLDER_REGEX])
+
+export const queryUsesPlaceholder = (query: string | null, name: string): boolean =>
+    queryContainsInCode(query, [`{${name}}`])
 
 const readBindingArgs = (query: string, start: number): { args: string[]; end: number } => {
     const args: string[] = []

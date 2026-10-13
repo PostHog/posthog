@@ -1,7 +1,6 @@
 """Firing, dedup, guardrails and terminal-status bookkeeping for Loops.
 
-See products/tasks/docs/LOOPS.md (Run, Lifecycle and reconciliation, Security and
-guardrails). ``fire_loop`` is the single entry point every trigger path (schedule,
+``fire_loop`` is the single entry point every trigger path (schedule,
 GitHub, API, manual) goes through, so dedup, the usage gate, the per-loop rate cap
 and the overlap policy are enforced once, in one order, regardless of caller.
 """
@@ -14,7 +13,6 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.apps import apps
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
@@ -170,7 +168,7 @@ def render_context_target_block(context_target: dict | None, *, loop_id: str) ->
             f"`current_version_id` with `canvas-source-retrieve`, then publish the "
             f"complete project with `canvas-publish-create`, passing the version you "
             f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
-            " Read runtime state with `canvas-state-retrieve`: list keys without values, follow next_offset, "
+            " Read runtime state with `canvas-state-retrieve`: list keys without values, pass next_cursor as cursor, "
             "and select only the keys needed. Read long values with `canvas-state-value-retrieve`, keeping "
             "the revision fixed across chunks. Discover these tools through MCP search and info; do not assume "
             "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "
@@ -203,15 +201,10 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
 
 
 def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
-    """Whether `canvas_id` is a canvas in this team the user may see.
+    """Whether `canvas_id` is a canvas in this team the user may see."""
+    from products.canvas.backend.facade import access as canvas_facade
 
-    The Canvas model belongs to the canvas product, which depends on tasks —
-    resolved through the app registry so this soft existence check doesn't
-    create a tasks → canvas import cycle.
-    """
-    canvas_model = apps.get_model("canvas", "Canvas")
-    visible = Channel.visible_to_q(user_id, relation="channel")
-    return canvas_model.objects.for_team(team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
+    return canvas_facade.canvas_is_visible(team_id=team_id, canvas_id=canvas_id, user_id=user_id)
 
 
 def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:

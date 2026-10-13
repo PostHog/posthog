@@ -5,11 +5,16 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
 # table). The column set is the events table's, narrowed to what a flag evaluation
-# actually carries: no elements_chain, no person_mode, and no person or group
-# property blobs, since no Insight or Hog function breaks down or filters on them.
-# It keeps the full properties JSON as the source of truth, so queries and
-# integrations built on event properties survive the routing switch. The 90-day
-# TTL is what makes rows that wide affordable.
+# actually carries: no elements_chain and no group property blobs, because group
+# filters join the groups table instead. It keeps the full properties JSON as the
+# source of truth, so queries and integrations built on event properties survive
+# the routing switch. It stores person_properties, person_created_at and
+# person_mode the way the events table does, because test-account filters read
+# person properties, lifecycle insights read the person's created_at, and a
+# persons join at query time does not fit in memory on the largest teams.
+# person_mode tells a call processed without a person profile from a person with
+# no properties, because both store '{}' in person_properties. The 90-day TTL is
+# what makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
@@ -23,6 +28,7 @@ FLAG_EVALUATIONS_TABLE = "flag_evaluations"
 FLAG_EVALUATIONS_DATA_TABLE = f"sharded_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
 
+# The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
 FLAG_EVALUATIONS_TTL_DAYS = 90
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
@@ -36,18 +42,24 @@ KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 # variant. Column order follows the events table so converging the two schemas
 # later reads as a diff rather than a rewrite.
 #
-# The Kafka engine table must NOT carry the inserted_at DEFAULT: JSONEachRow fills
-# omitted fields with the column default, and the MV's fallback detects exactly
-# that zero-value sentinel — a DEFAULT there would mask it. Both Distributed
-# tables MUST carry it: an INSERT through a Distributed table fills omitted
-# columns from the Distributed table's own schema before forwarding to the shard,
-# so without it a direct insert via writable_flag_evaluations would store epoch
-# instead of the sharded table's fallback.
+# The MV ignores the Kafka table's inserted_at and stamps the time it processes
+# the row, so a producer cannot set the value that deletion sweeps compare
+# against. The Kafka engine rejects DEFAULT expressions, so the Kafka variant
+# renders every column without one.
+# Both Distributed tables MUST carry the DEFAULTs: an INSERT through a Distributed
+# table fills omitted columns from the Distributed table's own schema before
+# forwarding to the shard, so without them a direct insert via
+# writable_flag_evaluations would store epoch or '' instead of the sharded table's
+# DEFAULTs.
+#
+# person_properties defaults to '{}' because the JSONDropKeys UDFs fail on an
+# empty string. HogQL wraps person_properties in one to mask restricted person
+# properties.
 #
 # No column carries a CODEC, including the JSON blobs the events table wraps in
 # ZSTD(3); the general rule is in posthog/clickhouse/migrations/AGENTS.md. Nothing
 # here earns an exception: this ORDER BY only buckets timestamp to a day before
-# sorting on a distinct_id hash, so the three DateTime64 columns land on disk in
+# sorting on a distinct_id hash, so the four DateTime64 columns land on disk in
 # effectively random order, which is where the delta family loses. Revisit only
 # with measurements.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
@@ -59,10 +71,14 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     distinct_id String,
     created_at DateTime64(6, 'UTC'),
     person_id UUID,
-    inserted_at DateTime64(6, 'UTC'){ts_default}
+    person_properties String{person_properties_default},
+    person_created_at DateTime64(3),
+    inserted_at DateTime64(6, 'UTC'){ts_default},
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
 """.strip()
 
-FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="")
+FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(person_properties_default="", ts_default="")
+
 
 KAFKA_FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""

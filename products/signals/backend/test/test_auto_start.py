@@ -771,7 +771,7 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
     if not expect_references:
         assert "Source issues" not in description
         assert "addressing" not in description
-        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
+        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001?link_source=task).' -" in description
 
 
 def test_autostart_description_opens_the_pr_before_the_simplify_pass():

@@ -32,7 +32,6 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
-from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -46,6 +45,8 @@ from posthog.rate_limit import (
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
+
+from products.cdp.backend.presentation.icons import CDPIconsService
 
 from ..agents import sync_built_in_agents
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
@@ -68,11 +69,13 @@ from ..oauth import (
     DcrClientRegistration,
     DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
+    OAuthMetadataValidationError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
     exchange_oauth_token,
     generate_pkce,
     oauth_resource,
+    provider_authorize_params,
     register_dcr_client,
     requested_oauth_scopes,
     resolve_template_oauth_credentials,
@@ -124,6 +127,13 @@ def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
     if error.detail:
         return f"OAuth registration failed. {error.detail}"
     return "OAuth registration failed."
+
+
+def _oauth_discovery_failed_detail(error: Exception) -> str:
+    # Other discovery errors can carry upstream URLs or response bodies, so only validation messages reach the user.
+    if isinstance(error, OAuthMetadataValidationError):
+        return f"OAuth discovery failed. {error}"
+    return "OAuth discovery failed."
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -1048,6 +1058,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "state": state_token,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
+            **provider_authorize_params(metadata),
         }
         try:
             scopes = requested_oauth_scopes(metadata, scope_allowlist)
@@ -1474,7 +1485,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 )
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
                 registration = self._register_dcr_client_or_raise(
@@ -1735,7 +1746,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
             if created:
                 installation.delete()
-            return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
@@ -1945,7 +1956,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                         server_url=template.url,
                         error=str(e),
                     )
-                    return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
                 installation.oauth_metadata = metadata
                 installation.save(update_fields=["oauth_metadata", "updated_at"])
         else:

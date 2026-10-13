@@ -28,6 +28,7 @@ from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.user_permissions import UserPermissions
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
@@ -245,8 +246,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         # Verify user has access to the project
         try:
             team = Team.objects.get(id=project_id)
-            # Check if user has access to this team's organization
-            if not user.organization_memberships.filter(organization=team.organization).exists():
+            if UserPermissions(user).team(team).effective_membership_level is None:
                 return Response(
                     {"error": "access_denied", "error_description": "You do not have access to this project"},
                     status=status.HTTP_403_FORBIDDEN,

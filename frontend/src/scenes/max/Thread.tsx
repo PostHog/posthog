@@ -81,7 +81,7 @@ import {
     ReasoningAnswer,
     RecordingsWidget,
     ThreadView,
-    TurnFeedbackActions,
+    TurnTrailerActions,
     type TurnTrailer,
     useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
@@ -158,13 +158,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackTaskId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackTaskId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                />
+                <TurnTrailerActions trailer={trailer} sessionId={feedbackTaskId} run={feedbackRun} />
             ) : null,
         [feedbackTaskId, feedbackRun]
     )
@@ -525,7 +519,13 @@ const Message = React.memo(function Message({
 }: MessageProps): JSX.Element | null {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
+    const {
+        threadLoading,
+        isSharedThread,
+        pendingApprovalsData,
+        resolvedApprovalStatuses,
+        webSearchResultsByToolUseId,
+    } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
@@ -637,7 +637,7 @@ const Message = React.memo(function Message({
                         )
 
                         let thinkingElements = null
-                        const thinkingBlocks = getThinkingMessageFromResponse(message)
+                        const thinkingBlocks = getThinkingMessageFromResponse(message, webSearchResultsByToolUseId)
                         if (thinkingBlocks) {
                             // Thinking should be collapsed (show "Thought") if:
                             // 1. The thread has finished streaming (thinking might be at the end), OR

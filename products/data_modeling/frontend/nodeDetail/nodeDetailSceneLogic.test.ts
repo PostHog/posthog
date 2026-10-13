@@ -148,7 +148,7 @@ describe('nodeDetailSceneLogic', () => {
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.dataQualitySubject).toEqual({ subjectType: 'table', subjectId: 'table-1' })
         expect(logic.values.tableDetails).toMatchObject({
             table: { id: 'table-1' },
@@ -184,7 +184,7 @@ describe('nodeDetailSceneLogic', () => {
 
             await mountScene(urls.nodeDetail(NODE_ID))
 
-            expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+            expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
             expect(logic.values.dataQualitySubject).toEqual({
                 subjectType: 'posthog_table',
                 subjectId: `${tableName}-subject`,
@@ -232,7 +232,7 @@ describe('nodeDetailSceneLogic', () => {
             })
         }).toFinishAllListeners()
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.dataQualitySubject).toMatchObject({
             subjectType: 'posthog_table',
             subjectId: 'events-subject',
@@ -249,9 +249,10 @@ describe('nodeDetailSceneLogic', () => {
             },
         })
 
-        await mountScene(urls.nodeDetail(NODE_ID, 'tests'))
+        await mountScene(`/models/${NODE_ID}/tests`)
 
-        expect(logic.values.effectiveTab).toEqual('tests')
+        expect(logic.values.effectiveTab).toEqual('data-quality')
+        expect(router.values.location.pathname).toEqual(`/project/997${urls.nodeDetail(NODE_ID, 'data-quality')}`)
         expect(logic.values.dataQualitySubject).toBeNull()
 
         render(createElement(NodeDetailTests, { id: NODE_ID }))
@@ -271,7 +272,7 @@ describe('nodeDetailSceneLogic', () => {
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.lineageGraph).toEqual({ currentNodeId: NODE_ID, nodes: [], edges: [] })
         expect(logic.values.postHogSubjectError).toBe(true)
 
@@ -346,7 +347,7 @@ describe('nodeDetailSceneLogic', () => {
     it('lists every tab a saved query supports when data quality checks are on', async () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'tests', 'history'])
+        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'data-quality', 'history'])
     })
 
     // The tab is gated on the node's saved_query_id, not the loaded saved query, so a load failure
@@ -391,7 +392,7 @@ describe('nodeDetailSceneLogic', () => {
     it('falls back to the default tab when the URL names a tab this model does not have', async () => {
         flagsLogic.actions.setFeatureFlags([], {})
 
-        await mountScene(urls.nodeDetail(NODE_ID, 'tests'))
+        await mountScene(urls.nodeDetail(NODE_ID, 'data-quality'))
 
         expect(logic.values.effectiveTab).toEqual('query')
         expect(logic.values.currentTab).toEqual('query')

@@ -20,11 +20,16 @@ import type {
     GitHubTeamsResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
+    IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
+    IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
+    IntegrationsGitlabMembersRetrieveParams,
+    IntegrationsJiraAssignableUsersRetrieveParams,
+    IntegrationsLinearTeamMembersRetrieveParams,
     IntegrationsListParams,
     IntegrationsUsersRetrieveParams,
     JiraProjectsResponseApi,
@@ -410,6 +415,41 @@ export const integrationsEmailVerifyCreate = async (
     })
 }
 
+export const getIntegrationsGithubAssigneesRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubAssigneesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_assignees/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_assignees/`
+}
+
+export const integrationsGithubAssigneesRetrieve = async (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubAssigneesRetrieveParams,
+    options?: RequestInit
+): Promise<IntegrationAssigneesResponseApi> => {
+    return apiMutator<IntegrationAssigneesResponseApi>(
+        getIntegrationsGithubAssigneesRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getIntegrationsGithubBranchesRetrieveUrl = (
     projectId: string,
     id: number,
@@ -521,6 +561,38 @@ export const integrationsGithubTeamsRetrieve = async (
     })
 }
 
+export const getIntegrationsGitlabMembersRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGitlabMembersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/gitlab_members/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/gitlab_members/`
+}
+
+export const integrationsGitlabMembersRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGitlabMembersRetrieveParams,
+    options?: RequestInit
+): Promise<IntegrationAssigneesResponseApi> => {
+    return apiMutator<IntegrationAssigneesResponseApi>(getIntegrationsGitlabMembersRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/google_accessible_accounts/`
 }
@@ -551,6 +623,41 @@ export const integrationsGoogleConversionActionsRetrieve = async (
     })
 }
 
+export const getIntegrationsJiraAssignableUsersRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: IntegrationsJiraAssignableUsersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/jira_assignable_users/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/jira_assignable_users/`
+}
+
+export const integrationsJiraAssignableUsersRetrieve = async (
+    projectId: string,
+    id: number,
+    params: IntegrationsJiraAssignableUsersRetrieveParams,
+    options?: RequestInit
+): Promise<IntegrationAssigneesResponseApi> => {
+    return apiMutator<IntegrationAssigneesResponseApi>(
+        getIntegrationsJiraAssignableUsersRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
 }
@@ -564,6 +671,41 @@ export const integrationsJiraProjectsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getIntegrationsLinearTeamMembersRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: IntegrationsLinearTeamMembersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/linear_team_members/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/linear_team_members/`
+}
+
+export const integrationsLinearTeamMembersRetrieve = async (
+    projectId: string,
+    id: number,
+    params: IntegrationsLinearTeamMembersRetrieveParams,
+    options?: RequestInit
+): Promise<IntegrationAssigneesResponseApi> => {
+    return apiMutator<IntegrationAssigneesResponseApi>(
+        getIntegrationsLinearTeamMembersRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: number) => {

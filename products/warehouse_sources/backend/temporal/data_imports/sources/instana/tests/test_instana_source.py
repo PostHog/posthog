@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     InstanaSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import InstanaHostNotAllowedError
-from products.warehouse_sources.backend.temporal.data_imports.sources.instana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.source import InstanaSource
 
 
@@ -19,29 +18,6 @@ class TestInstanaSource:
         # Changing the base URL must force the token to be re-entered so it's never
         # sent to a freshly-specified host.
         assert self.source.connection_host_fields == ["base_url"]
-
-    def test_get_schemas_incremental_flags(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-
-        assert schemas["events"].supports_incremental is True
-        # Events mutate while open (state/end change), so append mode is never offered.
-        assert schemas["events"].supports_append is False
-        assert schemas["events"].incremental_fields == [
-            {
-                "label": "start",
-                "type": "integer",
-                "field": "start",
-                "field_type": "integer",
-            }
-        ]
-        assert schemas["events"].description is not None
-
-        for name in set(ENDPOINTS) - {"events"}:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["applications"])

@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.llm.system_one import NoulAnswer, Question, SystemOneRequestFailed, SystemOneResult
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS
 from posthog.models import EventDefinition
-from posthog.taxonomic_search_intent.contracts import EventMatch, EventMatchRequest
+from posthog.taxonomic_search_intent.contracts import EventMatch, EventMatchAnswer, EventMatchOutcome, EventMatchRequest
 from posthog.taxonomic_search_intent.event_match import (
     CORE_EVENT_CANDIDATES,
     _question,
@@ -24,6 +24,9 @@ CAPTURE = "posthog.taxonomic_search_intent.event_match.capture_exception"
 # Any past time works: the check only asks whether an event was ever seen.
 SEEN_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
+
+# The last candidate is asked in a different request from Autocapture, so it survives Autocapture's request failing.
+LATE_EVENT_LABEL = CORE_EVENT_CANDIDATES[list(CORE_EVENT_CANDIDATES)[-1]].label
 
 LABEL_BY_INSTRUCTIONS = {
     _question(candidate).instructions: candidate.label for candidate in CORE_EVENT_CANDIDATES.values()
@@ -63,17 +66,39 @@ class TestMatchCoreEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("too_short", "a"),
-            ("email", "ada@example.com"),
-            ("url", "https://example.com/pricing"),
-            ("path", "/reset?token=abc"),
+            ("too_short", "a", EventMatchOutcome.WRONG_LENGTH),
+            ("too_long", "browser capture " * 5, EventMatchOutcome.WRONG_LENGTH),
+            ("email", "ada@example.com", EventMatchOutcome.ONLY_VALUES),
+            ("url", "https://example.com/pricing", EventMatchOutcome.ONLY_VALUES),
+            ("path", "/reset?token=abc", EventMatchOutcome.ONLY_VALUES),
         ]
     )
-    def test_never_asks_the_model_about_values_or_unanswerable_searches(self, _name: str, query: str) -> None:
+    def test_never_asks_the_model_about_values_or_unanswerable_searches(
+        self, _name: str, query: str, outcome: EventMatchOutcome
+    ) -> None:
         with patch(BUILD_CLIENT) as build:
-            assert match_core_events(self._search(query)) == []
+            assert match_core_events(self._search(query)) == EventMatchAnswer(matches=[], outcome=outcome)
 
         build.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("nothing_above_threshold", {"Autocapture": 0.6}, None, EventMatchOutcome.NOTHING_LIKELY),
+            ("likely_but_never_seen", {"Screen": 0.85}, None, EventMatchOutcome.NOT_INGESTED),
+            ("likely_and_seen", {"Screen": 0.85, "Autocapture": 0.95}, None, EventMatchOutcome.MATCHED),
+            ("failed_chunk_and_nothing_likely", {}, "Autocapture", EventMatchOutcome.PARTIAL),
+            ("failed_chunk_and_never_seen", {LATE_EVENT_LABEL: 0.9}, "Autocapture", EventMatchOutcome.PARTIAL),
+        ]
+    )
+    def test_names_the_step_that_decided_the_answer(
+        self, _name: str, beliefs: dict[str, float], failing_label: str | None, outcome: EventMatchOutcome
+    ) -> None:
+        with patch(BUILD_CLIENT, return_value=_model_that_believes(beliefs, failing_label)), patch(CAPTURE):
+            answer = match_core_events(self._search("browser capture"))
+
+        assert answer.outcome == outcome
+        if outcome != EventMatchOutcome.MATCHED:
+            assert answer.matches == []
 
     def test_the_model_reads_placeholders_instead_of_values(self) -> None:
         client = _model_that_believes({})
@@ -120,7 +145,7 @@ class TestMatchCoreEvents(BaseTest):
             }
         )
         with patch(BUILD_CLIENT, return_value=client):
-            matches = match_core_events(self._search("browser capture"))
+            matches = match_core_events(self._search("browser capture")).matches
 
         assert matches == [
             EventMatch(name="$autocapture", label="Autocapture", probability=0.95),
@@ -150,7 +175,7 @@ class TestMatchCoreEvents(BaseTest):
         )
         requests_per_search = -(-len(CORE_EVENT_CANDIDATES) // GATEWAY_MAX_QUESTIONS)
         with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE) as capture:
-            matches = match_core_events(self._search("browser capture"))
+            matches = match_core_events(self._search("browser capture")).matches
             match_core_events(self._search("browser capture"))
 
         assert [match.name for match in matches] == [late_event]

@@ -222,6 +222,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_criterion_user_list_user_list": "Resource name of the user list, when the criterion is a user list.",
         },
     },
+    "keyword_placement_stats": {
+        "description": "Daily keyword impression placement without click-type segmentation.",
+        "columns": {
+            **_IDS,
+            "ad_group_criterion_criterion_id": "The keyword criterion ID.",
+            "ad_group_criterion_keyword_text": "The keyword text.",
+            "ad_group_criterion_keyword_match_type": "The keyword match type.",
+            "segments_date": "The date the impressions are reported for.",
+            "segments_ad_network_type": "The ad network where the impressions were shown.",
+            "metrics_impressions": "Number of times the ad was shown.",
+            "metrics_top_impression_percentage": "Fraction of impressions shown among the top ads.",
+            "metrics_absolute_top_impression_percentage": "Fraction of impressions shown as the first ad.",
+        },
+    },
     "keyword_stats": {
         "description": "Daily performance metrics for keywords (keyword_view), segmented by date, device, and network.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/keyword_view",

@@ -44,8 +44,9 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Filter, Property, Team, User
+from posthog.models import Property, Team, User
 from posthog.models.property import OperatorInterval, PropertyGroup
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
 
@@ -88,7 +89,9 @@ def _require_select_query(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.Se
     return query
 
 
-def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None) -> Filter:
+def unwrap_cohort(
+    property_groups: PropertyGroup, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None
+) -> PropertyGroup:
     """Flatten cohort-typed properties into nested static/dynamic-cohort PropertyGroups.
 
     Each ``cohort``/``precalculated-cohort`` property is replaced by an AND group holding a
@@ -182,8 +185,7 @@ def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, coh
 
         return property_group
 
-    new_props = _unwrap(filter.property_groups)
-    return filter.shallow_clone({"properties": new_props.to_dict()})
+    return _unwrap(property_groups)
 
 
 class TestWrapperCohortQuery:
@@ -193,8 +195,8 @@ class TestWrapperCohortQuery:
     ``clickhouse_query`` / ``get_query`` expose the generated SQL.
     """
 
-    def __init__(self, filter: Filter, team: Team):
-        executor = HogQLCohortQuery(filter=filter, team=team).get_query_executor()
+    def __init__(self, property_groups: PropertyGroup, team: Team):
+        executor = HogQLCohortQuery(property_groups=property_groups, team=team).get_query_executor()
         self.hogql_result = executor.execute()
         self.clickhouse_query = executor.clickhouse_sql
 
@@ -245,24 +247,19 @@ def _person_test_account_properties(team: Team) -> list[Property]:
 class HogQLCohortQuery:
     def __init__(
         self,
-        filter: Optional[Filter] = None,
+        property_groups: Optional[PropertyGroup] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
             self.team = team or cohort.team
-            unwrapped = unwrap_cohort(
-                Filter(
-                    data={"properties": cohort.properties},
-                    team=cohort.team,
-                    hogql_context=self.hogql_context,
-                ),
+            property_groups = unwrap_cohort(
+                expand_cohort_properties(parse_property_group_data(cohort.properties), cohort.team),
                 self.team.pk,
                 self.team,
                 cohort,
             )
-            property_groups = unwrapped.property_groups
             if (cohort.filters or {}).get("filterTestAccounts"):
                 test_props = _person_test_account_properties(self.team)
                 if test_props:
@@ -274,14 +271,14 @@ class HogQLCohortQuery:
                         ],
                     )
             self.property_groups = property_groups
-        elif filter is not None:
+        elif property_groups is not None:
             if team is None:
-                raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
+                raise ValueError("HogQLCohortQuery requires a team when constructed from properties")
             self.hogql_context = HogQLContext(team_id=team.pk, enable_select_queries=True)
             self.team = team
-            self.property_groups = unwrap_cohort(filter, team.pk, team).property_groups
+            self.property_groups = unwrap_cohort(property_groups, team.pk, team)
         else:
-            raise ValueError("HogQLCohortQuery requires either a cohort or a filter")
+            raise ValueError("HogQLCohortQuery requires either a cohort or properties")
 
     def get_query_executor(
         self, *, user: Optional[User] = None, bypass_warehouse_access_control: bool = False
@@ -328,7 +325,7 @@ class HogQLCohortQuery:
         series = self._get_series(prop, math)
 
         if prop.event_filters:
-            filter = Filter(data={"properties": prop.event_filters}).property_groups
+            filter = parse_property_group_data(prop.event_filters)
             series[0].properties = filter
 
         if prop.explicit_datetime:
@@ -384,7 +381,7 @@ class HogQLCohortQuery:
             raise ValidationError("count_operator must be gt(e), lt(e), exact, or None")
 
         if prop.event_filters:
-            property_groups = Filter(data={"properties": prop.event_filters}).property_groups
+            property_groups = parse_property_group_data(prop.event_filters)
             typed_properties: list[AnyPropertyFilter] = []
             for property in property_groups.values:
                 if isinstance(property, PropertyGroup):

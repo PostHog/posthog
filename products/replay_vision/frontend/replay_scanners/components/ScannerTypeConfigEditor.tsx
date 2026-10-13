@@ -25,6 +25,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } from '../types'
+import { ExperimentScannerConfigFields } from './ExperimentScannerConfigFields'
 
 /** Whether this form should offer no AI help at all.
  *
@@ -41,7 +42,7 @@ function useManualWithoutAi(scannerId: string): boolean {
 
 export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
-    { value: 'medium', label: 'Medium (1 paragraph)' },
+    { value: 'medium', label: 'Medium (4-6 sentences)' },
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
@@ -279,6 +280,23 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                     label="Additional context"
                     caption="The agent already knows how to summarize. Use this field to add product context or steer summaries, for example what the ideal user flow looks like."
                     placeholder="Describe your product and what users usually come to do. Call out anything the summaries should focus on, like where users get stuck."
+                />
+                <LemonField name="scanner_config.length" label="Summary length">
+                    <LemonSegmentedButton className="max-w-full overflow-x-auto" options={SUMMARIZER_LENGTH_OPTIONS} />
+                </LemonField>
+            </div>
+        )
+    }
+
+    if (scanner.scanner_type === 'experiment') {
+        return (
+            <div className="space-y-4">
+                <ExperimentScannerConfigFields scannerId={scannerId} />
+                <ScannerPromptField
+                    scannerId={scannerId}
+                    label="What to focus on"
+                    caption="Each session gets a summary. Say what the summaries should cover, for example the step the experiment changes and where people get stuck."
+                    placeholder="Summarize what people do after they reach the checkout. Call out hesitation, errors, and where they leave."
                 />
                 <LemonField name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton className="max-w-full overflow-x-auto" options={SUMMARIZER_LENGTH_OPTIONS} />
