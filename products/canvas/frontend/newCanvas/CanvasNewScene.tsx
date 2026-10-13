@@ -14,9 +14,9 @@ import {
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { useCanvasScenesEnabled } from '../canvasScenesEnabled'
 import { CanvasComposer } from '../scene/CanvasComposer'
 import { CanvasStartHero } from '../scene/CanvasStartHero'
 import { CanvasToolbar } from '../scene/CanvasToolbar'
@@ -30,7 +30,7 @@ export const scene: SceneExport = {
 
 /** The start page for a new canvas. Nothing is saved until the first prompt is sent, or until Start blank. */
 export function CanvasNewScene(): JSX.Element {
-    const enabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const enabled = useCanvasScenesEnabled()
     const { instruction, sending, sendDisabledReason, startingBlank, startBlankDisabledReason } =
         useValues(canvasNewLogic)
     const { setInstruction, send, startBlank } = useActions(canvasNewLogic)

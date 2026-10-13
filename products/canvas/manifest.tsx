@@ -1,3 +1,8 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
+import { ProductItemCategory } from '~/queries/schema/schema-general'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -37,5 +42,19 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [],
+    // The rail navigation lists canvases under Library, so this entry only shows in the standard navigation.
+    treeItemsProducts: [
+        {
+            path: 'Canvases',
+            intents: [],
+            category: ProductItemCategory.TOOLS,
+            type: 'canvas',
+            iconType: 'tools',
+            href: `${urls.views()}?type=canvas`,
+            flag: FEATURE_FLAGS.SMALL_SOFTWARE_APPS,
+            tags: ['beta'],
+            sceneKey: 'Views',
+            sceneKeys: ['Views', 'CanvasDetail', 'CanvasNew'],
+        },
+    ],
 }
