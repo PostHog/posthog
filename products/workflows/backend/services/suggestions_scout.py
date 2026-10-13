@@ -7,6 +7,7 @@ project, and losing the last one, by opting out, archiving or deleting it, remov
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -172,8 +173,9 @@ def _email_metrics_reason(
     by_team: dict[int, list[_OptedInWorkflow]] = {}
     for workflow in opted_in:
         by_team.setdefault(workflow.team_id, []).append(workflow)
+    deadline = monotonic() + EMAIL_METRICS_MAX_EXECUTION_S
     reasons = {
-        _environment_email_metrics_reason(team_id, workflows, last_run_at=last_run_at, now=now)
+        _environment_email_metrics_reason(team_id, workflows, last_run_at=last_run_at, now=now, deadline=deadline)
         for team_id, workflows in by_team.items()
     }
     for reason in ("sends_matured", "first_opens"):
@@ -183,7 +185,7 @@ def _email_metrics_reason(
 
 
 def _environment_email_metrics_reason(
-    team_id: int, opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime
+    team_id: int, opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime, deadline: float
 ) -> SuggestionsScoutRunReason | None:
     """`sends_matured` when a send of a live version reached `SEND_MATURITY` after `last_run_at`, and
     `first_opens` when a live version recorded its first opens since then.
@@ -221,6 +223,7 @@ def _environment_email_metrics_reason(
         """,
         params,
         team_id=team_id,
+        deadline=deadline,
     )
     if any(matured_sends > 0 for _, matured_sends, _ in recent):
         return "sends_matured"
@@ -241,11 +244,16 @@ def _environment_email_metrics_reason(
         """,
         {**params, "version_source_ids": opened_versions},
         team_id=team_id,
+        deadline=deadline,
     )
     return "first_opens" if len(opened_before) < len(opened_versions) else None
 
 
-def _bounded_metrics_read(query: str, params: Mapping[str, object], *, team_id: int) -> list:
+def _bounded_metrics_read(query: str, params: Mapping[str, object], *, team_id: int, deadline: float) -> list:
+    """Run one read inside the time left before `deadline`. Raises when none is left, which runs the scout."""
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise TimeoutError("The suggestions scout pre-check used up its metrics read budget.")
     return sync_execute(
         query,
         params,
@@ -253,7 +261,7 @@ def _bounded_metrics_read(query: str, params: Mapping[str, object], *, team_id: 
         team_id=team_id,
         # The pre-check activity gives up after its own timeout and runs the scout, so a longer read
         # would only hold a worker thread and a connection for an answer nobody uses.
-        settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
+        settings={"max_execution_time": remaining, "timeout_overflow_mode": "throw"},
     )
 
 

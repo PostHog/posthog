@@ -181,7 +181,22 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
         assert sorted(call.kwargs["team_id"] for call in query.call_args_list) == sorted([self.team.pk, environment.pk])
         for call in query.call_args_list:
             assert call.args[1]["team_id"] == call.kwargs["team_id"]
-            assert call.kwargs["settings"] == {
-                "max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S,
-                "timeout_overflow_mode": "throw",
-            }
+            assert call.kwargs["settings"]["timeout_overflow_mode"] == "throw"
+        assert query.call_args_list[1].kwargs["settings"]["max_execution_time"] < EMAIL_METRICS_MAX_EXECUTION_S
+
+    def test_metrics_reads_stop_once_the_budget_is_used(self) -> None:
+        environment = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Staging"
+        )
+        self._opt_in(self._flow(environment, "active"), days_ago=5)
+        clock = iter([0.0, EMAIL_METRICS_MAX_EXECUTION_S - 1, EMAIL_METRICS_MAX_EXECUTION_S + 1])
+
+        with (
+            patch(f"{SERVICE}.monotonic", side_effect=lambda: next(clock)),
+            patch(f"{SERVICE}.sync_execute", wraps=sync_execute) as query,
+            self.assertRaises(TimeoutError),
+        ):
+            self._reason()
+
+        query.assert_called_once()
+        assert query.call_args.kwargs["settings"]["max_execution_time"] == 1
