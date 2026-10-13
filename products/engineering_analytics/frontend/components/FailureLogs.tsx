@@ -56,12 +56,19 @@ export function FailureLogGroups({
     loading,
     onRetry,
     jobNames,
-    errorDescription = 'Retry, or open the run on GitHub to read its logs.',
-    emptyText = "Failure logs aren't available for this run. They weren't collected, or they've aged out of retention. Open the run on GitHub to read its logs.",
+    logsOnGitHub,
+    errorDescription = logsOnGitHub
+        ? 'Retry, or open the run on GitHub to read its logs.'
+        : 'Retry, or read the run logs in your CI provider.',
+    emptyText = `Failure logs aren't available for this run. They weren't collected, or they've aged out of retention. ${
+        logsOnGitHub ? 'Open the run on GitHub to read its logs.' : 'Read the run logs in your CI provider.'
+    }`,
 }: {
     logs: { jobs: CIJobFailureLogApi[]; logs_available: boolean } | 'unavailable' | null | undefined
     loading: boolean
     onRetry: () => void
+    /** Only GitHub Actions runs have a GitHub page to send the reader to. */
+    logsOnGitHub: boolean
     /** job_id → display name, when the caller has the run's jobs loaded, because logs only carry ids. */
     jobNames?: Record<number, string>
     errorDescription?: string
