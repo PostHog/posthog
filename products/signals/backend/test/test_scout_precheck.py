@@ -19,6 +19,7 @@ from rest_framework import status
 
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.customer_analytics.backend.facade.testing import create_account
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
@@ -243,6 +244,37 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
         _create_event(team=self.team, event=event, distinct_id="d1", timestamp=NOW - timedelta(hours=hours_ago))
         flush_persons_and_events()
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, skill)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+
+    @parameterized.expand(
+        [
+            # Recordings stopped 20 days ago: a capture cliff the scout must still see.
+            ("capture_cliff", 24 * 20, "run"),
+            ("stale", 24 * 31, "skip"),
+            ("future_dated", -24 * 3, "skip"),
+        ]
+    )
+    def test_session_replay_default_skips_only_without_recent_recordings(self, _name, hours_ago, outcome) -> None:
+        skill = "signals-scout-session-replay"
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            first_timestamp=NOW - timedelta(hours=hours_ago),
+            last_timestamp=NOW - timedelta(hours=hours_ago) + timedelta(minutes=5),
+            ensure_analytics_event_in_session=False,
+        )
 
         with (
             patch(ROLLOUT_PERCENT, return_value=100),
