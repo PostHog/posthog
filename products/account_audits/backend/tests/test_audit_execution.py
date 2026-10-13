@@ -11,8 +11,6 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Team
-
 from products.account_audits.backend.logic.execution import create_audit_task, finish_account_audit
 from products.account_audits.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.account_audits.backend.tasks.tasks import reconcile_account_audits
@@ -175,10 +173,14 @@ class TestAuditExecution(BaseTest):
         self.finish()
         self.assertEqual(self.capture.call_args.kwargs["properties"]["token_cost_cents"], None if expires else 27)
 
-    def test_finalizes_admission_after_project_deletion(self) -> None:
-        Team.objects.filter(id=self.team.id).delete()
-        self.finish()
-        self.assertIsNotNone(self.admission.finalized_at)
+    @parameterized.expand([("project",), ("organization",)])
+    def test_deletes_admission_with_its_tenant(self, tenant: str) -> None:
+        if tenant == "project":
+            self.team.project.delete()
+        else:
+            self.organization.delete()
+        finish_account_audit(team_id=self.team.id, task_run_id=self.run_id)
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().filter(pk=self.admission.pk).exists())
         self.capture.assert_not_called()
 
     def test_retries_capture_failure_on_the_next_periodic_scan(self) -> None:
@@ -195,10 +197,7 @@ class TestAuditExecution(BaseTest):
         self.assertIsNotNone(self.admission.finalized_at)
 
     def test_periodic_completion_finds_native_runs(self) -> None:
-        with (
-            patch("products.account_audits.backend.logic.execution.tasks_facade.create_and_run_task") as create,
-            patch("products.account_audits.backend.tasks.tasks.finalize_account_audit.delay") as enqueue,
-        ):
+        with patch("products.account_audits.backend.logic.execution.tasks_facade.create_and_run_task") as create:
             create.return_value = SimpleNamespace(latest_run=SimpleNamespace(id=uuid4()))
             run_id = create_audit_task(
                 team_id=self.team.id,
@@ -207,6 +206,14 @@ class TestAuditExecution(BaseTest):
                 notebook_short_id="audit123",
             )
             kwargs = create.call_args.kwargs
+            env = tasks_facade.get_sandbox_environment(
+                kwargs["sandbox_environment_id"], team_id=self.team.id, user_id=self.user.id
+            )
+            assert env is not None
+            self.assertTrue(env.internal)
+            self.assertEqual(env.network_access_level, tasks_facade.SandboxNetworkAccessLevel.CUSTOM)
+            self.assertEqual(env.allowed_domains, [])
+            self.assertFalse(env.include_default_domains)
             self.assertEqual(run_id, create.return_value.latest_run.id)
             self.assertFalse(kwargs["create_pr"])
             self.assertTrue(kwargs["internal"])

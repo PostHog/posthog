@@ -113,16 +113,8 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         if len(raw_body) > MAX_BODY_BYTES:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        public_key_id = self._credential_key_id(request)
-        signing_secret = account_audits.signing_secret_for(public_key_id) if public_key_id else None
-        webhook_id = request.headers.get("webhook-id")
-        if (
-            public_key_id is None
-            or signing_secret is None
-            or not webhook_id
-            or len(webhook_id) > 255
-            or not self._valid_signature(signing_secret, raw_body, request.headers)
-        ):
+        public_key_id = self._verified_credential_key_id(request, raw_body)
+        if public_key_id is None:
             return Response(status=status.HTTP_401_UNAUTHORIZED)
 
         throttle = AccountAuditCredentialThrottle()
@@ -132,7 +124,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         serializer = AccountAuditStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = AccountAuditRequest(**serializer.validated_data)
-        result = account_audits.start(payload, public_key_id, webhook_id)
+        result = account_audits.start(payload, public_key_id, request.headers["webhook-id"])
         if result.status == "accepted":
             return Response(AccountAuditStartResponseSerializer(instance=result).data, status=202)
         if result.status == "skipped":
@@ -148,13 +140,23 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             status={"invalid": 400, "unauthorized": 401, "forbidden": 403, "unavailable": 503}[result.status]
         )
 
-    @staticmethod
-    def _credential_key_id(request: Request) -> UUID | None:
+    @classmethod
+    def _verified_credential_key_id(cls, request: Request, raw_body: bytes) -> UUID | None:
         key_id = request.headers.get("X-PostHog-Audit-Key")
         try:
-            return UUID(key_id or "")
+            public_key_id = UUID(key_id or "")
         except (TypeError, ValueError, AttributeError):
             return None
+        signing_secret = account_audits.signing_secret_for(public_key_id)
+        webhook_id = request.headers.get("webhook-id")
+        if (
+            signing_secret is None
+            or not webhook_id
+            or len(webhook_id) > 255
+            or not cls._valid_signature(signing_secret, raw_body, request.headers)
+        ):
+            return None
+        return public_key_id
 
     @staticmethod
     def _valid_signature(signing_secret: str, raw_body: bytes, headers: Mapping[str, str]) -> bool:

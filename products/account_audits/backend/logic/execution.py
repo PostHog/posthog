@@ -28,6 +28,14 @@ class AccountAuditOutput(BaseModel):
 
 
 def create_audit_task(*, team_id: int, user_id: int, skill: SkillPrompt, notebook_short_id: str) -> UUID:
+    # The sandbox policy admits platform services; audit skills need no other network access.
+    environment_id = tasks_facade.upsert_internal_sandbox_env(
+        team_id,
+        "ACCOUNT_AUDIT",
+        tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+        allowed_domains=[],
+        include_default_domains=False,
+    )
     created = tasks_facade.create_and_run_task(
         team=Team.objects.get(id=team_id),
         title="Account audit",
@@ -42,6 +50,7 @@ def create_audit_task(*, team_id: int, user_id: int, skill: SkillPrompt, noteboo
         repository=None,
         create_pr=False,
         internal=True,
+        sandbox_environment_id=str(environment_id),
         posthog_mcp_scopes=["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
         model="claude-sonnet-5",
         output_schema=AccountAuditOutput,
@@ -61,11 +70,7 @@ def finish_account_audit(*, team_id: int, task_run_id: UUID) -> None:
             .first()
         )
     except TeamScopeError:
-        # Project deletion removes the Team and cascades the run, but admissions have no FK to the Team.
-        # Close the admission so that reconciliation does not retry it every minute.
-        AccountAuditAdmission.objects.for_team(team_id, canonical=True).filter(
-            task_run_id=task_run_id, finalized_at__isnull=True
-        ).update(finalized_at=timezone.now())
+        # A queued completion can arrive after tenant deletion cascades the admission.
         return
     if admission is None:
         return

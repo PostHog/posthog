@@ -20,7 +20,7 @@ class AccountAuditAdmission(TeamScopedRootMixin):
     credential = models.ForeignKey(AccountAuditCredential, on_delete=models.PROTECT, related_name="admissions")
     webhook_id = models.CharField(max_length=255)
     organization_id = models.UUIDField()
-    team_id = models.BigIntegerField()
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     reason = models.CharField(max_length=500, default="", db_default="")
     skill_project = models.BigIntegerField(null=True)
     skill_name = models.CharField(max_length=64, default="account-audit", db_default="account-audit")
