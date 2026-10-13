@@ -90,6 +90,7 @@ def _repo_config(team_id: int, *, digest_enabled: bool = True, repository: str =
         installation_id=INSTALLATION_ID,
         enabled=True,
         digest_enabled=digest_enabled,
+        review_mode=ReviewMode.ALL,
         connected_by_user_id=connected_by,
     )
 
