@@ -20,6 +20,13 @@ The tool returns ranked source connection recommendations with evidence and conf
 It supports `refresh=true` for an explicit rescan and does not connect accounts or apply changes.
 Incomplete or truncated scan results must be presented as such.
 
+## Updating conversion goals through MCP
+
+The update tool requires `conversion_goal_id` outside the `goal` patch.
+Omit `kind` for partial updates. Changing `kind` replaces the stored goal, so send the complete new definition, including its name, schema map, and target fields.
+An invalid replacement returns `conversion_goal_kind_change_invalid` with the required fields in the response detail.
+MCP analytics records the controlled error code and field without storing the response detail.
+
 ## Search performance
 
 Reported conversions and reported CPA require a synced ad platform source in the current search filters.
