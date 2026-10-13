@@ -1,6 +1,8 @@
 import json
 import time
 import base64
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from unittest.mock import patch
@@ -22,6 +24,9 @@ from posthog.clickhouse.client.connection import (
     set_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.execute import sync_execute
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import SettingsWrapper
 
 
 def _file_backed_default(monkeypatch, path, *, fallback="fallback"):
@@ -87,6 +92,38 @@ def test_connection_pool_creation_with_team_id(settings):
 
     assert online_pool.connection_args["host"] == settings.CLICKHOUSE_HOST
     assert team_pool.connection_args["host"] == "clicky"
+
+
+@pytest.mark.parametrize("user", [ClickHouseUser.SIGNALS, ClickHouseUser.DEFAULT, ClickHouseUser.ERROR_TRACKING])
+def test_signals_readonly_queries_keep_dedicated_credentials_and_offline_host(
+    settings: "SettingsWrapper", monkeypatch: pytest.MonkeyPatch, tmp_path: Path, user: ClickHouseUser
+) -> None:
+    settings.READONLY_CLICKHOUSE_USER = "shared-readonly"
+    settings.READONLY_CLICKHOUSE_PASSWORD = "shared-password"
+    settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = "offline.example.com"
+    token = tmp_path / "signals-token"
+    token.write_text("signals-token-value")
+    monkeypatch.setattr(
+        connection,
+        "__user_dict",
+        {
+            ClickHouseUser.SIGNALS: ClickHouseCredentials(user="signals", password="", password_file=str(token)),
+            ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="default-password"),
+            ClickHouseUser.ERROR_TRACKING: ClickHouseCredentials(user="error_tracking", password="error-password"),
+        },
+    )
+
+    kwargs = get_http_kwargs(Workload.OFFLINE, readonly=True, ch_user=user)
+
+    if user == ClickHouseUser.SIGNALS:
+        assert kwargs == {
+            "user": "signals",
+            "password": "signals-token-value",
+            "host": "offline.example.com",
+            "verify": False,
+        }
+    else:
+        assert kwargs == {"user": "shared-readonly", "password": "shared-password"}
 
 
 def test_read_password_reads_file_fresh_and_stripped(tmp_path):

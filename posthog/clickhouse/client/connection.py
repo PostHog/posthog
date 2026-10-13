@@ -447,7 +447,12 @@ def get_kwargs_for_client(
         return {**base_kwargs, **user_settings}
 
     # Note that `readonly` does nothing if the relevant vars are not set!
-    if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
+    if (
+        readonly
+        and ch_user != ClickHouseUser.SIGNALS
+        and settings.READONLY_CLICKHOUSE_USER is not None
+        and settings.READONLY_CLICKHOUSE_PASSWORD
+    ):
         return {
             "user": settings.READONLY_CLICKHOUSE_USER,
             "password": settings.READONLY_CLICKHOUSE_PASSWORD,
