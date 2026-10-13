@@ -115,7 +115,7 @@ BACKGROUND_TICK_EVENT = "signals_scout_background_tick"
 BACKGROUND_TICK_DISTINCT_ID = "internal_signals_scout_coordinator"
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlannedRun:
     """One unit of fan-out: a single (team, skill) pair the coordinator will trigger."""
 
@@ -524,7 +524,7 @@ def _engaged_team_ids(since_by_team: dict[int, datetime]) -> set[int]:
     return {team_id for team_id, engaged_at in latest.items() if engaged_at > since_by_team[team_id]}
 
 
-@dataclass
+@dataclass(frozen=True)
 class _DueRun:
     overdue_s: float
     config_pk: str
