@@ -46,18 +46,25 @@ export function redactedMediaKind(item: unknown): RedactedMediaKind | null {
         return null
     }
 
-    if (item.type === 'image' && !isGeminiDocumentMessage(item)) {
-        if (
-            hasRedactedMediaData(item) ||
-            ('uri' in item && typeof item.uri === 'string' && isRedactedMediaSentinel(item.uri))
-        ) {
-            return 'image'
+    if (item.type === 'image') {
+        // Legacy messages wrap one image payload in content. Inspect that level only, so cycles
+        // cannot recurse; non-image MIME payloads retain Gemini's document classification.
+        const legacyContent = 'content' in item && isObject(item.content) ? { ...item.content, type: 'image' } : null
+        for (const image of [item, legacyContent]) {
+            if (!image) {
+                continue
+            }
+            if (
+                (!isGeminiDocumentMessage(image) &&
+                    (hasRedactedMediaData(image) ||
+                        ('uri' in image && typeof image.uri === 'string' && isRedactedMediaSentinel(image.uri)))) ||
+                ('image' in image && typeof image.image === 'string' && isRedactedMediaSentinel(image.image))
+            ) {
+                return 'image'
+            }
         }
     }
 
-    if (item.type === 'image' && 'image' in item && typeof item.image === 'string') {
-        return isRedactedMediaSentinel(item.image) ? 'image' : null
-    }
     if (item.type === 'input_image' && 'image_url' in item && typeof item.image_url === 'string') {
         return isRedactedMediaSentinel(item.image_url) ? 'image' : null
     }

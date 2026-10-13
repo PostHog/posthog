@@ -115,6 +115,15 @@ describe('toAttachment', () => {
             { mediaType: 'image', name: null, mimeType: null, url: null },
         ],
         [
+            'a legacy image whose nested redaction suppresses a competing URI',
+            {
+                type: 'image',
+                uri: 'https://example.com/hidden.png',
+                content: { image: 'https://example.com/hidden.png', inlineData: { data: '[base64 image redacted]' } },
+            },
+            { mediaType: 'image', name: null, mimeType: null, url: null },
+        ],
+        [
             'an image whose payload the SDK redacted',
             { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '[base64 image redacted]' } },
             { mediaType: 'image', name: null, mimeType: 'image/png', url: null },

@@ -27,6 +27,20 @@ describe('mediaSource', () => {
                 'image',
             ],
             ['Gemini URI sentinel', { type: 'image', uri: '[base64 image redacted]' }, 'image'],
+            [
+                'legacy image with a nested sentinel and competing sources',
+                {
+                    type: 'image',
+                    uri: REMOTE_URL,
+                    content: { image: REMOTE_URL, source: { data: '[base64 image redacted]' } },
+                },
+                'image',
+            ],
+            [
+                'legacy image with a sentinel image source',
+                { type: 'image', content: { image: '[base64 image redacted]', uri: REMOTE_URL } },
+                'image',
+            ],
             ['audio sentinel', { type: 'audio', mime_type: 'audio/wav', data: '[base64 audio redacted]' }, 'audio'],
             ['vercel image sentinel', { type: 'image', image: '[base64 image redacted]' }, 'image'],
             ['input_image sentinel', { type: 'input_image', image_url: '[base64 image redacted]' }, 'image'],
@@ -82,11 +96,33 @@ describe('mediaSource', () => {
             ['unsupported OpenAI URL', { type: 'image_url', image_url: { url: 'javascript:alert(1)' } }],
             ['unsupported input_image URL', { type: 'input_image', image_url: 'gs://example/image.png' }],
             ['unsupported Vercel URL', { type: 'image', image: 'nonsense' }],
+            ['captured legacy image', { type: 'image', content: { image: REMOTE_URL, inlineData: { data: BASE64 } } }],
+            [
+                'legacy non-image MIME payload',
+                {
+                    type: 'image',
+                    content: { mime_type: 'application/pdf', data: '[base64 file redacted]', uri: REMOTE_URL },
+                },
+            ],
             ['text part', { type: 'text', text: 'hello' }],
             ['unrelated part', { type: 'function', function: { name: 'get_weather' } }],
         ])('leaves %s renderable', (_name, item) => {
             expect(redactedMediaKind(item)).toBeNull()
         })
+    })
+
+    it('bounds legacy content inspection even when objects are cyclic', () => {
+        const item: Record<string, unknown> = { type: 'image', image: REMOTE_URL }
+        item.content = item
+        expect(redactedMediaKind(item)).toBeNull()
+        item.inlineData = { data: '[base64 image redacted]' }
+        expect(redactedMediaKind(item)).toBe('image')
+    })
+
+    it('retains file classification for redacted non-image Gemini MIME payloads', () => {
+        expect(redactedMediaKind({ type: 'image', mime_type: 'application/pdf', data: '[base64 file redacted]' })).toBe(
+            'file'
+        )
     })
 
     describe('isRedactedMediaSentinel', () => {

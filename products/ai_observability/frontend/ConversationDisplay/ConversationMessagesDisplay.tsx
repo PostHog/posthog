@@ -779,15 +779,16 @@ export const LLMMessageDisplay = React.memo(
     }): JSX.Element => {
         const { currentTeamId } = useValues(teamLogic)
         const { role, content, ...additionalKwargs } = message
-        const parsedJsonContainer = Array.isArray(content)
-            ? null
-            : getJsonContainerForDisplay(content, { allowEmptyContainers: false })
-        const isRedactedImage =
-            isObject(parsedJsonContainer) &&
-            (redactedMediaKind(parsedJsonContainer) === 'image' ||
-                (parsedJsonContainer.type === 'image' &&
-                    isObject(parsedJsonContainer.content) &&
-                    redactedMediaKind({ ...parsedJsonContainer.content, type: 'image' }) === 'image'))
+        const parsedJsonContainer =
+            !show || Array.isArray(content)
+                ? null
+                : getJsonContainerForDisplay(content, { allowEmptyContainers: false })
+        const displayContent =
+            Array.isArray(parsedJsonContainer) &&
+            parsedJsonContainer.some((item) => redactedMediaKind(item) === 'image')
+                ? (parsedJsonContainer as MultiModalContentItem[])
+                : content
+        const isRedactedImage = redactedMediaKind(parsedJsonContainer) === 'image'
         let resolvedIsRenderingMarkdown = isRenderingMarkdown
         let resolvedIsRenderingXml = isRenderingXml
 
@@ -1020,10 +1021,10 @@ export const LLMMessageDisplay = React.memo(
                             <RedactedMediaPlaceholder kind="image" />
                         ) : minimal ? (
                             <LemonMarkdown className="whitespace-pre-wrap">
-                                {extractMinimalPreview(content)}
+                                {extractMinimalPreview(displayContent)}
                             </LemonMarkdown>
                         ) : (
-                            renderMessageContent(content, searchQuery)
+                            renderMessageContent(displayContent, searchQuery)
                         )}
                     </div>
                 )}
