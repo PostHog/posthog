@@ -26,6 +26,11 @@ The query comes from the first source that applies (`resolve_effective_precheck`
 3. The default the canonical skill ships (`scout-precheck-query` frontmatter), for a project
    inside that skill's rollout (`precheck_default_rollout` in the `signals-scout` flag payload).
    Projects outside the rollout run as if there were no default, and form the control group.
+
+A canonical scout whose input lives in Postgres tables that HogQL cannot read ships its default as a
+code check in `_CODE_PRECHECKS` instead of a query. The same rollout and the same overrides apply. The
+check gets the time of the last run that ran, or None before the first one, and returns why the
+scout should run, or None to skip it. An exception runs the scout, like a query error does.
 """
 
 from __future__ import annotations
@@ -34,7 +39,7 @@ import json
 import time
 import dataclasses
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -65,6 +70,7 @@ from products.signals.backend.scout_harness.team_limits import (
     precheck_default_rollout_percent,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.workflows.backend.facade.suggestions_scout import suggestions_scout_run_reason
 
 logger = structlog.get_logger(__name__)
 
@@ -75,9 +81,18 @@ PRECHECK_MAX_QUERY_LENGTH = 10_000
 PrecheckOutcome = Literal["run", "skip", "error"]
 # `rows`: the query found rows. `no_rows`: it found none. `false_value`: it returned one false
 # value. `query_error`: the query failed and the run continues.
-PrecheckReason = Literal["rows", "no_rows", "false_value", "query_error"]
+PrecheckReason = Literal["rows", "no_rows", "false_value", "query_error", "input_changed", "no_new_input"]
 # Where the query came from. `off` means no pre-check runs.
 PrecheckQuerySource = Literal["config", "skill_default", "off"]
+
+
+class _CodePrecheck(Protocol):
+    def __call__(self, project_id: int, *, last_run_at: datetime | None, now: datetime) -> str | None: ...
+
+
+_CODE_PRECHECKS: dict[str, _CodePrecheck] = {
+    "signals-scout-workflows": suggestions_scout_run_reason,
+}
 
 
 @frozen
@@ -86,6 +101,7 @@ class EffectivePrecheck:
     source: PrecheckQuerySource
     # The project's 0-99 bucket for the skill default. None when the skill ships no default.
     rollout_bucket: int | None = None
+    code_check: bool = False
 
 
 @frozen
@@ -96,6 +112,7 @@ class PrecheckResult:
     # The capped rows, one JSON object per line, for the run prompt.
     rows_text: str | None = None
     query_source: PrecheckQuerySource = "config"
+    detail: str | None = None
 
     @property
     def should_run(self) -> bool:
@@ -157,12 +174,13 @@ def resolve_effective_precheck(config: SignalScoutConfig, *, is_canonical: bool)
     if config.precheck_query:
         return EffectivePrecheck(query=config.precheck_query, source="config")
     default = canonical_precheck_query_for(config.skill_name) if is_canonical else None
-    if not default:
+    code_check = is_canonical and not default and config.skill_name in _CODE_PRECHECKS
+    if not default and not code_check:
         return EffectivePrecheck(query=None, source="off")
     bucket = precheck_default_rollout_bucket(config.team_id, config.skill_name)
     if bucket >= precheck_default_rollout_percent(config.skill_name):
         return EffectivePrecheck(query=None, source="off", rollout_bucket=bucket)
-    return EffectivePrecheck(query=default, source="skill_default", rollout_bucket=bucket)
+    return EffectivePrecheck(query=default, source="skill_default", rollout_bucket=bucket, code_check=code_check)
 
 
 def scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
@@ -221,6 +239,10 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
     if config is None or config.status not in SignalScoutConfig.RUNNABLE_STATUSES:
         return None
     effective = resolve_effective_precheck(config, is_canonical=scout_skill_is_canonical(team_id, skill_name))
+    now = now or timezone.now()
+    if effective.code_check:
+        team = Team.objects.select_related("organization").get(pk=team_id)
+        return _evaluate_code_precheck(team, config, effective, now)
     if effective.query is None:
         return None
 
@@ -236,7 +258,6 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         )
         return None
 
-    now = now or timezone.now()
     since = precheck_since(config)
     interval_minutes = precheck_interval_minutes(config, team, now)
     started = time.monotonic()
@@ -264,6 +285,42 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         result=result,
         effective=effective,
         acting_user_id=user.pk,
+        duration_ms=round((time.monotonic() - started) * 1000),
+        error_type=error_type,
+    )
+    return result
+
+
+def _evaluate_code_precheck(
+    team: Team, config: SignalScoutConfig, effective: EffectivePrecheck, now: datetime
+) -> PrecheckResult:
+    started = time.monotonic()
+    error_type: str | None = None
+    try:
+        reason = _CODE_PRECHECKS[config.skill_name](team.pk, last_run_at=_last_run_at(config), now=now)
+    except Exception as error:
+        error_type = type(error).__name__
+        logger.warning(
+            "signals_scout: pre-check failed, running the scout",
+            team_id=team.pk,
+            skill_name=config.skill_name,
+            error_type=error_type,
+            exc_info=True,
+        )
+        result = PrecheckResult(outcome="error", reason="query_error")
+    else:
+        result = (
+            PrecheckResult(outcome="run", reason="input_changed", detail=reason)
+            if reason is not None
+            else PrecheckResult(outcome="skip", reason="no_new_input")
+        )
+    result = dataclasses.replace(result, query_source=effective.source)
+    _capture_precheck_evaluated(
+        team=team,
+        config=config,
+        result=result,
+        effective=effective,
+        acting_user_id=None,
         duration_ms=round((time.monotonic() - started) * 1000),
         error_type=error_type,
     )
@@ -320,7 +377,11 @@ def dry_run_scout_precheck(
 
 def precheck_since(config: SignalScoutConfig) -> datetime:
     """The `{since}` bound: the last run that actually ran, or the config's creation."""
-    last_run_at = (
+    return _last_run_at(config) or config.created_at
+
+
+def _last_run_at(config: SignalScoutConfig) -> datetime | None:
+    return (
         SignalScoutRun.objects.for_team(config.team_id)
         .filter(skill_name=config.skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
@@ -328,7 +389,6 @@ def precheck_since(config: SignalScoutConfig) -> datetime:
         .values_list("created_at", flat=True)
         .first()
     )
-    return last_run_at or config.created_at
 
 
 def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:
@@ -393,7 +453,7 @@ def _capture_precheck_evaluated(
     config: SignalScoutConfig,
     result: PrecheckResult,
     effective: EffectivePrecheck,
-    acting_user_id: int,
+    acting_user_id: int | None,
     duration_ms: int,
     error_type: str | None,
 ) -> None:
@@ -414,6 +474,7 @@ def _capture_precheck_evaluated(
                 "acting_user_id": acting_user_id,
                 "query_source": effective.source,
                 "rollout_bucket": effective.rollout_bucket,
+                "detail": result.detail,
             },
             groups=groups(team.organization, team),
         )

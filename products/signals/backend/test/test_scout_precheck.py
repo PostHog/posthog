@@ -25,6 +25,7 @@ from products.customer_analytics.backend.facade.testing import create_account
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
+    _CODE_PRECHECKS as CODE_PRECHECKS,
     PRECHECK_MAX_ROWS,
     evaluate_scout_precheck,
     precheck_interval_minutes,
@@ -40,6 +41,7 @@ NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp 
 DASHBOARDS_QUERY = "SELECT count() FROM system.dashboards"
 SURVEYS_SKILL = "signals-scout-surveys"
 REVENUE_SKILL = "signals-scout-revenue-analytics"
+WORKFLOWS_SKILL = "signals-scout-workflows"
 ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
 
@@ -291,6 +293,85 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         result, capture = self._evaluate(rollout_percent=0)
 
         assert result is None
+        capture.assert_not_called()
+
+
+@time_machine.travel(NOW, tick=False)
+class TestCodeCheckSkillDefault(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team, name=WORKFLOWS_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=WORKFLOWS_SKILL)
+        self.calls: list[datetime | None] = []
+
+    def _check(self, answer: str | None | Exception):
+        def check(project_id: int, *, last_run_at: datetime | None, now: datetime) -> str | None:
+            self.calls.append(last_run_at)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        return check
+
+    def _last_run(self) -> datetime:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team, title="scout run", description="", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+        )
+        run = SignalScoutRun.all_teams.create(
+            team=self.team,
+            task_run=TaskRun.objects.create(task=task, team=self.team),
+            skill_name=WORKFLOWS_SKILL,
+            skill_version=1,
+        )
+        SignalScoutRun.all_teams.filter(pk=run.pk).update(created_at=NOW - timedelta(hours=24))
+        return NOW - timedelta(hours=24)
+
+    def _evaluate(self, answer: str | None | Exception, rollout_percent: int = 100):
+        with (
+            patch.dict(CODE_PRECHECKS, {WORKFLOWS_SKILL: self._check(answer)}),
+            patch(ROLLOUT_PERCENT, return_value=rollout_percent),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture") as capture,
+        ):
+            result = evaluate_scout_precheck(self.team.pk, WORKFLOWS_SKILL)
+        return result, capture
+
+    @parameterized.expand(
+        [
+            ("nothing_new", None, "skip", "no_new_input", None),
+            ("new_input", "published", "run", "input_changed", "published"),
+            ("check_raises", RuntimeError("boom"), "error", "query_error", None),
+        ]
+    )
+    def test_code_check_gates_the_run(self, _name, answer, outcome, reason, detail) -> None:
+        last_run_at = self._last_run()
+
+        result, capture = self._evaluate(answer)
+
+        assert result is not None
+        assert (result.outcome, result.reason, result.detail, result.query_source) == (
+            outcome,
+            reason,
+            detail,
+            "skill_default",
+        )
+        assert result.should_run == (outcome != "skip")
+        assert self.calls == [last_run_at]
+        assert capture.call_args.kwargs["properties"]["detail"] == detail
+
+    def test_first_run_passes_no_last_run(self) -> None:
+        self._evaluate(None)
+
+        assert self.calls == [None]
+
+    def test_project_outside_the_rollout_does_not_check(self) -> None:
+        result, capture = self._evaluate(None, rollout_percent=0)
+
+        assert result is None
+        assert self.calls == []
         capture.assert_not_called()
 
 
