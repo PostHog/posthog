@@ -1,9 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 /**
  * Shown when a scene's code fails to import, or its logic throws while mounting. Without it the
@@ -12,6 +13,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
  */
 export function SceneLoadError(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
+    const { sceneLoadExceptionEvent } = useValues(sceneLogic)
 
     return (
         <div className="p-4">
@@ -31,7 +33,13 @@ export function SceneLoadError(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     type="secondary"
-                    onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
+                    onClick={() =>
+                        openSupportForm({
+                            kind: 'bug',
+                            isEmailFormOpen: true,
+                            exception_event: sceneLoadExceptionEvent ?? undefined,
+                        })
+                    }
                     data-attr="scene-load-error-email-engineer"
                 >
                     Email an engineer

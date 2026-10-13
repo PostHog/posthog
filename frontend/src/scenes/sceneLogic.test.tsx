@@ -107,13 +107,16 @@ describe('sceneLogic', () => {
     // A scene that never mounts must not leave the address bar on it with the previous scene still
     // rendered, and must leave something error tracking can count.
     describe('a scene that fails to load', () => {
+        const exceptionEvent = { uuid: 'scene-load-exception', event: '$exception' }
         let captureSpy: jest.SpyInstance
         let captureExceptionSpy: jest.SpyInstance
 
         beforeEach(() => {
             pendingImportRejection = null
             captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => exceptionEvent as any)
         })
 
         afterEach(() => {
@@ -131,6 +134,8 @@ describe('sceneLogic', () => {
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
             expect(captureExceptionSpy).toHaveBeenCalled()
             expect(captureSpy).toHaveBeenCalledWith('scene load failed', { scene_id: sceneId, stage })
+            // The support form needs this event, or a non-entitled organization cannot report the failure.
+            expect(logic.values.sceneLoadExceptionEvent).toEqual(exceptionEvent)
         })
 
         // An import can reject long after the person gave up and went somewhere else. The error

@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
+import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -195,10 +196,11 @@ const captureSceneLoadFailure = (
     sceneId: string,
     stage: 'import' | 'logic_mount',
     extra: Record<string, unknown> = {}
-): void => {
-    posthog.captureException(error, { extra: { sceneId, ...extra } })
+): SupportTicketExceptionEvent | undefined => {
+    const exceptionEvent = posthog.captureException(error, { extra: { sceneId, ...extra } })
     // pinned: analytics event name — renaming breaks dashboards
     posthog.capture('scene load failed', { scene_id: sceneId, stage })
+    return exceptionEvent
 }
 
 const scrollMainContentToTop = (): void => {
@@ -288,6 +290,7 @@ export interface sceneLogicValues {
     sceneConfig: SceneConfig | null
     sceneId: string | null
     sceneKey: string | null
+    sceneLoadExceptionEvent: SupportTicketExceptionEvent | null
     sceneParams: SceneParams
     searchParams: Record<string, any>
     titleAndIcon: {
@@ -365,6 +368,9 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
         scrollToTop: boolean
+    }
+    setSceneLoadExceptionEvent: (exceptionEvent: SupportTicketExceptionEvent | undefined) => {
+        exceptionEvent: SupportTicketExceptionEvent | undefined
     }
 }
 
@@ -482,6 +488,7 @@ export const sceneLogic = kea<sceneLogicType>([
         homepageSaved: (tab: SceneTab | null) => ({ tab }),
         setHomepageSaving: (saving: boolean) => ({ saving }),
         resetUnavailableHomepage: (pathname: string) => ({ pathname }),
+        setSceneLoadExceptionEvent: (exceptionEvent: SupportTicketExceptionEvent | undefined) => ({ exceptionEvent }),
     }),
     reducers({
         sceneId: [
@@ -555,6 +562,10 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
         homepageSaving: [false, { setHomepageSaving: (_, { saving }) => saving }],
+        sceneLoadExceptionEvent: [
+            null as SupportTicketExceptionEvent | null,
+            { setSceneLoadExceptionEvent: (_, { exceptionEvent }) => exceptionEvent ?? null },
+        ],
     })),
     selectors({
         sceneConfig: [
@@ -854,7 +865,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 } catch (error) {
-                    captureSceneLoadFailure(error, sceneId, 'logic_mount', { sceneKey })
+                    actions.setSceneLoadExceptionEvent(
+                        captureSceneLoadFailure(error, sceneId, 'logic_mount', { sceneKey })
+                    )
                     newLogicErrored = true
                 }
             } else {
@@ -1051,7 +1064,9 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Rethrowing here escapes the listener unhandled: the address bar sits on the
                     // scene that failed while the previous one stays rendered, and nothing reaches
                     // error tracking. Report it, then render an error where the URL points.
-                    captureSceneLoadFailure(error, sceneId, 'import', { sceneKey, source: 'sceneLogic.loadScene' })
+                    actions.setSceneLoadExceptionEvent(
+                        captureSceneLoadFailure(error, sceneId, 'import', { sceneKey, source: 'sceneLogic.loadScene' })
+                    )
                     actions.setScene(Scene.ErrorSceneLoad, undefined, emptySceneParams, clickedLink)
                     return
                 } finally {
