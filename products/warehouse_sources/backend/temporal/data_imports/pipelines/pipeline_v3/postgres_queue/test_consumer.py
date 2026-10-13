@@ -663,7 +663,7 @@ class TestRecoverySweep:
             expected_state_changed_at=stale_batch.state_changed_at,
         )
         mock_unlock.assert_called_once_with(
-            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token, skip_locked=False
         )
 
     @pytest.mark.asyncio
@@ -743,7 +743,7 @@ class TestRecoverySweep:
             await consumer._recovery_sweep()
 
         mock_unlock.assert_called_once_with(
-            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token, skip_locked=False
         )
 
 
@@ -4124,6 +4124,7 @@ class TestDispatchGroups:
             assert (1, "schema-2") not in consumer._in_flight
             released = mock_unlock.call_args.kwargs["batches"]
             assert {b.id for b in released} == {dropped_1.id, dropped_2.id}
+            assert mock_unlock.call_args.kwargs["skip_locked"] is True
 
         task = consumer._in_flight.pop((1, "schema-1"))
         task.cancel()

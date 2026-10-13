@@ -2388,6 +2388,7 @@ class BatchQueue:
         *,
         batches: list[PendingBatch],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None:
         """Release the group leases for ``batches``' (team_id, schema_id) groups held by ``owner_token``.
 
@@ -2399,6 +2400,10 @@ class BatchQueue:
         delete runs, so this honors the fleet-wide lease lock order (see the
         note above). A bare multi-row ``DELETE`` locks in plan order instead,
         which is what let this statement deadlock against a concurrent claim.
+
+        ``skip_locked`` makes the release best effort: a lease row that another
+        statement holds stays in place and expires after its TTL, so the delete
+        never waits into the connection's statement timeout.
         """
         pairs = sorted({(b.team_id, b.schema_id) for b in batches})
         if not pairs:
@@ -2416,7 +2421,7 @@ class BatchQueue:
                       SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
                   )
                 ORDER BY l.team_id, l.schema_id
-                FOR UPDATE
+                FOR UPDATE {"SKIP LOCKED" if skip_locked else ""}
             )
             """,
             {"owner": owner_token, "team_ids": team_ids, "schema_ids": schema_ids},
