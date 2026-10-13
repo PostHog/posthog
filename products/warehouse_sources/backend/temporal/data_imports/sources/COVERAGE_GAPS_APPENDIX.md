@@ -102,10 +102,10 @@ Today (10): `calendar_appointments`, `calendars`, `contacts`, `estimates`, `fina
 
 Diffed against: <https://apidocs.acculynx.com/llms.txt>
 
-- [ ] `Financial amendments (GET /api/v2/financials/{financialsId}/amendments)` — resolve amendment IDs linked from financials and explain changes to contract value (high)
-- [ ] `Estimate section items (GET /api/v2/estimates/{estimateId}/sections/{estimateSectionId}/items)` — analyze estimated quantities, material costs, labor costs, and item prices beyond estimate totals (high)
-- [ ] `Job milestone history (GET /api/v2/jobs/{jobId}/milestone-history)` — measure conversion between milestones and time spent in each stage of a job (high)
-- [ ] `Job change history (GET /api/v2/jobs/{jobId}/history)` — analyze job activity, changes, and responsible users over time (medium)
+- [x] `Financial amendments (GET /api/v2/financials/{financialsId}/amendments)` — resolve amendment IDs linked from financials and explain changes to contract value (high)
+- [x] `Estimate section items (GET /api/v2/estimates/{estimateId}/sections/{estimateSectionId}/items)` — analyze estimated quantities, material costs, labor costs, and item prices beyond estimate totals (high)
+- [x] `Job milestone history (GET /api/v2/jobs/{jobId}/milestone-history)` — measure conversion between milestones and time spent in each stage of a job (high)
+- [x] `Job change history (GET /api/v2/jobs/{jobId}/history)` — analyze job activity, changes, and responsible users over time (medium)
 - [ ] `Supplements and supplement items (GET /api/v2/supplements; GET /api/v2/supplements/{supplementId}/items)` — analyze supplemental work and item costs beyond aggregated financial totals (medium)
 - [ ] `Job contacts (GET /api/v2/jobs/{jobId}/contacts)` — connect each job to additional contacts beyond the primary contact included in jobs (medium)
 - [ ] `Job custom fields and definitions (GET /api/v2/jobs/{jobId}/custom-fields; GET /api/v2/company-settings/custom-fields)` — analyze custom job attributes using their field definitions (medium)
@@ -143,14 +143,14 @@ Note: deal_groups/deal_stages already cover the pipelines and stages lookups. Th
 
 ## Adjust — gaps
 
-Today (6): `campaign_report`, `country_report`, `creative_report`, `daily_report`, `os_report`, `partner_report`
+Today (10): `campaign_report`, `country_report`, `creative_report`, `daily_report`, `event_report`, `events`, `os_report`, `partner_report`, `retention_report`, `skad_report`
 
 Diffed against: <https://dev.adjust.com/en/api/rs-api/reports/>
 
-- [ ] `Cohort retention reports (GET /reports-service/report, retention metrics)` — measure retention after install and compare acquisition cohorts beyond daily active users (high)
-- [ ] `Event reports (GET /reports-service/report, event metrics)` — measure purchases and other app conversions by acquisition source instead of only installs and sessions (high)
-- [ ] `SKAdNetwork reports (GET /reports-service/report, SKAdNetwork metrics)` — analyze iOS campaign attribution through SKAdNetwork installs and conversion values (high)
-- [ ] `Events catalog (GET /reports-service/events)` — map readable event names and app tokens to the metric slugs needed for conversion reports (medium)
+- [x] `Cohort retention reports (GET /reports-service/report, retention metrics)` — measure retention after install and compare acquisition cohorts beyond daily active users (high)
+- [x] `Event reports (GET /reports-service/report, event metrics)` — measure purchases and other app conversions by acquisition source instead of only installs and sessions (high)
+- [x] `SKAdNetwork reports (GET /reports-service/report, SKAdNetwork metrics)` — analyze iOS campaign attribution through SKAdNetwork installs and conversion values (high)
+- [x] `Events catalog (GET /reports-service/events)` — map readable event names and app tokens to the metric slugs needed for conversion reports (medium)
 - [ ] `Device type reports (GET /reports-service/report, dimensions=day,app,app_token,device_type)` — compare acquisition cost, engagement, and revenue across device types (medium)
 
 Note: Read the official Report Service operations, event catalog, and filter catalog. All six tables use one endpoint with fixed metrics and dimensions. Missing reports need new query shapes; event metrics require discovery through GET /reports-service/events. Excluded CSV, Parquet, and pivot duplicates, plus write and test APIs.
@@ -161,8 +161,8 @@ Today (6): `calculated_metrics`, `dimensions`, `metrics`, `report`, `report_suit
 
 Diffed against: <https://raw.githubusercontent.com/AdobeDocs/analytics-2.0-apis/main/static/swagger.json>
 
-- [ ] `Users (GET /api/{globalCompanyId}/users)` — resolve owner login IDs in segments and calculated metrics to identifiable users (high)
-- [ ] `Annotations (GET /api/{globalCompanyId}/annotations)` — explain traffic and conversion changes with recorded launches, incidents, and campaign dates (medium)
+- [x] `Users (GET /api/{globalCompanyId}/users)` — resolve owner login IDs in segments and calculated metrics to identifiable users (high)
+- [x] `Annotations (GET /api/{globalCompanyId}/annotations)` — explain traffic and conversion changes with recorded launches, incidents, and campaign dates (medium)
 - [ ] `Usage logs (GET /api/{globalCompanyId}/auditlogs/usage)` — analyze report adoption, user activity, and access across report suites (medium)
 
 Note: Parsed all collection GET operations in the official Adobe Swagger reference. The configurable report table already accepts a dimension and metrics, so equivalent report variants were excluded. Users resolve component owner IDs; annotations and usage logs need separate tables. The usage endpoint requires an IMS user token, unlike the source server credential.
@@ -206,14 +206,14 @@ Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://a
 
 ## Adyen — gaps
 
-Today (7): `AccountHolders`, `BalanceAccounts`, `Companies`, `MerchantAccounts`, `SettlementDetailReports`, `Transactions`, `Transfers`
+Today (10): `AccountHolders`, `BalanceAccounts`, `Companies`, `LegalEntities`, `MerchantAccounts`, `PaymentInstruments`, `SettlementDetailReports`, `Stores`, `Transactions`, `Transfers`
 
 Diffed against: <https://raw.githubusercontent.com/Adyen/adyen-openapi/main/json/BalancePlatformService-v2.json>
 
-- [ ] `Legal entities (Legal Entity API v4, GET /legalEntities/{id})` — resolve legalEntityId in account holders to business identity and verification information (high)
-- [ ] `Payment instruments (Balance Platform API v2, GET /balanceAccounts/{id}/paymentInstruments)` — resolve payment instrument references in transactions and transfers to cards, account details, and status (high)
-- [ ] `Stores (Management API v3, GET /stores)` — resolve store identifiers in settlement reports and compare payment outcomes across physical locations (high)
-- [ ] `Disputes (Transaction API v4, GET /disputes)` — measure issuing dispute rates, disputed amounts, and outcomes alongside card transactions (high)
+- [x] `Legal entities (Legal Entity API v4, GET /legalEntities/{id})` — resolve legalEntityId in account holders to business identity and verification information (high). Added as `LegalEntities` (one lookup per distinct account holder `legalEntityId`; full refresh; off by default).
+- [x] `Payment instruments (Balance Platform API v2, GET /balanceAccounts/{id}/paymentInstruments)` — resolve payment instrument references in transactions and transfers to cards, account details, and status (high). Added as `PaymentInstruments` (fan-out over balance accounts; full refresh).
+- [x] `Stores (Management API v3, GET /stores)` — resolve store identifiers in settlement reports and compare payment outcomes across physical locations (high). Added as `Stores` (full refresh).
+- [ ] `Disputes (Transaction API v4, GET /disputes)` — measure issuing dispute rates, disputed amounts, and outcomes alongside card transactions (high); skipped, the Raise Disputes v4 spec contradicts itself on pagination and response shape, and the dispute object has no timestamp to sync on
 - [ ] `Grants (Transfers API v4, GET /grants)` — analyze capital financing balances and repayment obligations alongside transfers (medium)
 - [ ] `Managed payout executions (Balance Platform API v2, GET /balanceAccounts/{balanceAccountId}/payoutSchedules/{id}/executions)` — track scheduled payout attempts and outcomes beyond completed transfers (medium)
 - [ ] `Terminals (Management API v3, GET /terminals)` — analyze terminal inventory and allocation across merchants and stores (medium)
@@ -286,15 +286,15 @@ Note: Parsed collection GET operations from the official OpenAPI spec, including
 
 ## Ahrefs — **thin**
 
-Today (3): `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`
+Today (7): `backlinks`, `domain_rating_history`, `metrics_history`, `projects`, `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`
 
 Diffed against: <https://docs.ahrefs.com/openapi.json>
 
-- [ ] `Projects (GET /v3/management/projects)` — provides project metadata for joining audit project IDs to target websites (high)
+- [x] `Projects (GET /v3/management/projects)` — provides project metadata for joining audit project IDs to target websites (high)
 - [ ] `Organic keywords (GET /v3/site-explorer/organic-keywords)` — tracks search positions, traffic, and keyword value for SEO reports (high)
-- [ ] `Backlinks (GET /v3/site-explorer/all-backlinks)` — supports link acquisition, loss, and link quality analysis (high)
-- [ ] `Metrics history (GET /v3/site-explorer/metrics-history)` — measures organic traffic and traffic value trends over time (high)
-- [ ] `Domain Rating history (GET /v3/site-explorer/domain-rating-history)` — tracks the vendor's core authority metric alongside audit health (high)
+- [x] `Backlinks (GET /v3/site-explorer/all-backlinks)` — supports link acquisition, loss, and link quality analysis (high)
+- [x] `Metrics history (GET /v3/site-explorer/metrics-history)` — measures organic traffic and traffic value trends over time (high)
+- [x] `Domain Rating history (GET /v3/site-explorer/domain-rating-history)` — tracks the vendor's core authority metric alongside audit health (high)
 - [ ] `Rank Tracker overview (GET /v3/rank-tracker/overview)` — measures tracked keyword rankings and visibility by project (high)
 - [ ] `Referring domains (GET /v3/site-explorer/refdomains)` — measures unique linking domains and their authority (medium)
 - [ ] `Top pages (GET /v3/site-explorer/top-pages)` — identifies pages that drive organic traffic and revenue opportunities (medium)
@@ -356,22 +356,22 @@ Note: AirOps has repositioned around AI search visibility; the entire brand-kit 
 
 ## Airwallex — gaps
 
-Today (13): `Beneficiaries`, `BillingCustomers`, `Customers`, `Deposits`, `FinancialTransactions`, `GlobalAccounts`, `Invoices`, `PaymentAttempts`, `PaymentIntents`, `Refunds`, `Settlements`, `Subscriptions`, `Transfers`
+Today (16): `Beneficiaries`, `BillingCustomers`, `CreditNotes`, `Customers`, `Deposits`, `FinancialTransactions`, `GlobalAccounts`, `Invoices`, `PaymentAttempts`, `PaymentDisputes`, `PaymentIntents`, `Refunds`, `Settlements`, `SubscriptionItems`, `Subscriptions`, `Transfers`
 
 Diffed against: <https://raw.githubusercontent.com/airwallex/airwallex-openapi/main/openapi/client-api/latest/airwallex-openapi-latest.json>
 
-- [ ] `Subscription items (GET /api/v1/billing/subscriptions/{id}/items)` — provides quantities and prices needed to calculate recurring revenue from synced subscriptions (high)
+- [x] `Subscription items (GET /api/v1/billing/subscriptions/{id}/items)` — provides quantities and prices needed to calculate recurring revenue from synced subscriptions (high)
 - [ ] `Invoice line items (GET /api/v1/billing/invoices/{id}/line_items)` — allocates synced invoice revenue to products, quantities, discounts, and taxes (high)
 - [ ] `Products and prices (GET /api/v1/billing/products; GET /api/v1/billing/prices)` — provides the billing catalog and price terms for revenue analysis (high)
-- [ ] `Credit notes (GET /api/v1/billing/credit_notes)` — reconciles invoice credits with net revenue and customer balances (high)
-- [ ] `Payment disputes (GET /api/v1/pa/payment_disputes)` — links chargebacks to synced payment intents and attempts for loss analysis (high)
+- [x] `Credit notes (GET /api/v1/billing/credit_notes)` — reconciles invoice credits with net revenue and customer balances (high)
+- [x] `Payment disputes (GET /api/v1/pa/payment_disputes)` — links chargebacks to synced payment intents and attempts for loss analysis (high)
 - [ ] `Meter summaries (GET /api/v1/billing/meters/{id}/summaries)` — measures billable usage for metered subscriptions (high)
 - [ ] `Conversions (GET /api/v1/fx/conversions)` — measures currency conversion volume, execution rates, and settlement timing (medium)
 - [ ] `Balance history (GET /api/v1/balances/history)` — tracks historical cash balances by currency for treasury reports (medium)
 - [ ] `Card transactions (GET /api/v1/issuing/card_transactions)` — provides merchant and card spend details beyond account ledger entries (medium)
 - [ ] `Bills and expenses (GET /api/v1/spend/bills; GET /api/v1/spend/expenses)` — measures supplier liabilities and business expenses alongside payments (medium)
 
-Note: Diffed all collection GET paths in Airwallex's official OpenAPI spec, including nested billing resources. Invoice and subscription list responses omit their line items. Items require requests for each parent; meter summaries also need meter discovery and time ranges. Sensitive card details, tokens, webhooks, and account configuration were excluded.
+Note: Diffed all collection GET paths in Airwallex's official OpenAPI spec, including nested billing resources. Invoice and subscription list responses omit their line items. Items require requests for each parent; meter summaries also need meter discovery and time ranges. Sensitive card details, tokens, webhooks, and account configuration were excluded. Meter summaries stay out: the endpoint computes a usage aggregate on request for one billing customer and a caller-chosen time range, so it has no stored rows to sync.
 
 ## Aiven — gaps
 
@@ -400,10 +400,10 @@ Today (9): `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `inc
 
 Diffed against: <https://developer.alegra.com/reference>
 
-- [ ] `Bank accounts (GET /api/v1/bank-accounts)` — resolves payment account IDs and supports reports by bank account (high)
-- [ ] `Warehouses (GET /api/v1/warehouses)` — resolves warehouse IDs in item inventory for reports by location (high)
-- [ ] `Item categories (GET /api/v1/item-categories)` — provides category metadata for grouping synced items and sales (high)
-- [ ] `Inventory adjustments (GET /api/v1/inventory-adjustments)` — explains stock corrections and inventory gains or losses (medium)
+- [x] `Bank accounts (GET /api/v1/bank-accounts)` — resolves payment account IDs and supports reports by bank account (high)
+- [x] `Warehouses (GET /api/v1/warehouses)` — resolves warehouse IDs in item inventory for reports by location (high)
+- [x] `Item categories (GET /api/v1/item-categories)` — provides category metadata for grouping synced items and sales (high)
+- [x] `Inventory adjustments (GET /api/v1/inventory-adjustments)` — explains stock corrections and inventory gains or losses (medium)
 - [ ] `Warehouse transfers (GET /api/v1/warehouse-transfers)` — tracks stock movement between warehouses (medium)
 - [ ] `Purchase orders (GET /api/v1/purchase-orders)` — measures committed purchases before supplier bills arrive (medium)
 - [ ] `Recurring invoices (GET /api/v1/recurring-invoices)` — measures scheduled recurring billing before invoices are generated (medium)
@@ -518,9 +518,9 @@ Today (10): `accounts`, `call_dispositions`, `calls`, `excluded_domains`, `exclu
 
 Diffed against: <https://api.amplemarket.com/api-docs/v1/swagger.yaml>
 
-- [ ] `Contacts (GET /contacts)` — expands contact IDs on synced tasks into prospect attributes and account relationships (high)
-- [ ] `Lead list entries (GET /lead-lists/{id})` — provides leads, list membership, and enrichment results absent from synced list summaries (high)
-- [ ] `Job openings (GET /job-openings)` — adds hiring signals for account prioritization and outreach analysis (medium)
+- [x] `Contacts (GET /contacts)` — expands contact IDs on synced tasks into prospect attributes and account relationships (high). Added as `contacts` (fan-out over `accounts` by `account_id`, because the endpoint has no unfiltered listing). Contacts not linked to an account are not reachable.
+- [x] `Lead list entries (GET /lead-lists/{id})` — provides leads, list membership, and enrichment results absent from synced list summaries (high). Added as `lead_list_entries` (fan-out over `lead_lists`).
+- ~~`Job openings (GET /job-openings)`~~ — skipped: it requires a company id, domain, or LinkedIn URL and searches Amplemarket's company data, so the rows are not records in the customer's account
 
 Note: Parsed every GET operation in the vendor's published OpenAPI spec, including nested resources. Contacts require IDs, a name, or an account filter; lead entries require pagination for each list. Job openings require a company identifier or domain. Task status and type endpoints contain enum strings; enrichment jobs, recordings, and webhook-only engagement were excluded.
 
@@ -572,11 +572,11 @@ Today (5): `casts`, `etch_packets`, `organizations`, `weld_datas`, `welds`
 
 Diffed against: <https://www.useanvil.com/docs/api/graphql/reference/>
 
-- [ ] `Submissions (GraphQL weldData(eid) { submissions })` — provides form answers and completion times missing from workflow submission summaries (high)
+- [x] `Submissions (GraphQL weldData(eid) { submissions })` — provides form answers and completion times missing from workflow submission summaries (high)
 - [ ] `Organization users (GraphQL organization(organizationEid) { organizationUsers { user } })` — provides staff identities, roles, and membership dates for activity attribution (medium)
-- [ ] `Etch log events (GraphQL etchPacket(eid) { etchLogEvents }; weldData(eid) { etchLogEvents })` — tracks signing, viewing, downloading, and voiding events for document completion analysis (medium)
-- [ ] `WeldData log events (GraphQL weldData(eid) { weldDataLogEvents })` — tracks form activity and workflow progress beyond the latest status (medium)
-- [ ] `Workflow signers (GraphQL weldData(eid) { documentGroup { signers } })` — measures signer completion and delays for workflows that require signatures (medium)
+- [x] `Etch log events (GraphQL etchPacket(eid) { etchLogEvents }; weldData(eid) { etchLogEvents })` — tracks signing, viewing, downloading, and voiding events for document completion analysis (medium)
+- [x] `WeldData log events (GraphQL weldData(eid) { weldDataLogEvents })` — tracks form activity and workflow progress beyond the latest status (medium)
+- [x] `Workflow signers (GraphQL weldData(eid) { documentGroup { signers } })` — measures signer completion and delays for workflows that require signatures (medium)
 
 Note: Read the complete official GraphQL reference and compared query fields and nested lists with the source's selections. The linked SDL endpoint returned no usable schema. Packet signers already occur inside etch_packets, while workflow signers and event lists need requests for each WeldData or packet. Webhook logs, form configuration, file uploads, and signer tokens were excluded.
 
