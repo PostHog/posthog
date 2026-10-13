@@ -42,6 +42,7 @@ class WizardScanViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 wizard_version=data["wizard_version"],
                 workspace_fingerprint=data["workspace_fingerprint"],
                 scanned_at=data["scanned_at"],
+                complete=data["complete"],
                 tools=tuple(
                     WizardScanTool(
                         kind=tool["kind"],

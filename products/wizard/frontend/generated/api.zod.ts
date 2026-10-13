@@ -126,6 +126,8 @@ export const wizardScansCreateBodyToolsItemSignalsMax = 50
 
 export const wizardScansCreateBodyToolsMax = 300
 
+export const wizardScansCreateBodyCompleteDefault = true
+
 export const WizardScansCreateBody = /* @__PURE__ */ zod.object({
     session_id: zod.string().max(wizardScansCreateBodySessionIdMax).describe('The wizard run that made the scan.'),
     program: zod
@@ -177,6 +179,10 @@ export const WizardScansCreateBody = /* @__PURE__ */ zod.object({
         )
         .max(wizardScansCreateBodyToolsMax)
         .describe('Every tool the scan found. An empty list is a scan that found nothing.'),
+    complete: zod
+        .boolean()
+        .default(wizardScansCreateBodyCompleteDefault)
+        .describe('False when the scan could not read the whole workspace. Tools it did not find are then kept.'),
 })
 
 /**

@@ -501,6 +501,8 @@ export interface RecordWizardScanRequestApi {
      * @maxItems 300
      */
     tools: WizardScanToolApi[]
+    /** False when the scan could not read the whole workspace. Tools it did not find are then kept. */
+    complete?: boolean
 }
 
 export interface WizardScanResultApi {

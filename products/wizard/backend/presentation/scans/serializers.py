@@ -59,6 +59,10 @@ class RecordWizardScanRequestSerializer(serializers.Serializer):
         max_length=MAX_TOOLS_PER_SCAN,
         help_text="Every tool the scan found. An empty list is a scan that found nothing.",
     )
+    complete = serializers.BooleanField(
+        default=True,
+        help_text="False when the scan could not read the whole workspace. Tools it did not find are then kept.",
+    )
 
     def validate_scanned_at(self, value: datetime) -> datetime:
         if value > timezone.now() + MAX_SCANNED_AT_SKEW:

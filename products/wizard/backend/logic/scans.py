@@ -54,7 +54,7 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
                     workspace_fingerprint=params.workspace_fingerprint
                 )
             }
-            _apply_scan(scan, tools, existing)
+            _apply_scan(scan, tools, existing, complete=params.complete)
 
     return WizardScanResult(id=scan.id, created=True)
 
@@ -69,7 +69,9 @@ def _lock_workspace(team_id: int, workspace_fingerprint: str) -> None:
         )
 
 
-def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: dict[str, WizardDetectedTool]) -> None:
+def _apply_scan(
+    scan: WizardScan, tools: dict[str, WizardScanTool], existing: dict[str, WizardDetectedTool], *, complete: bool
+) -> None:
     scanned_at: datetime = scan.scanned_at
     to_create: list[WizardDetectedTool] = []
     to_update: list[WizardDetectedTool] = []
@@ -95,7 +97,7 @@ def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: di
         _classify(row)
 
     for kind, row in existing.items():
-        if kind not in tools and row.removed_at is None:
+        if complete and kind not in tools and row.removed_at is None:
             row.removed_in_scan = scan
             row.removed_at = scanned_at
             to_update.append(row)

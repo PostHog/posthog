@@ -18,7 +18,9 @@ OTHER_WORKSPACE = "b" * 64
 START = datetime(2026, 5, 19, 10, 0, tzinfo=UTC)
 
 
-def _scan(team: Team, session_id: str, hours: int, kinds: list[str], workspace: str = WORKSPACE) -> WizardScanResult:
+def _scan(
+    team: Team, session_id: str, hours: int, kinds: list[str], workspace: str = WORKSPACE, complete: bool = True
+) -> WizardScanResult:
     return wizard_facade.record_scan(
         RecordWizardScanInput(
             team_id=team.id,
@@ -32,6 +34,7 @@ def _scan(team: Team, session_id: str, hours: int, kinds: list[str], workspace: 
                 WizardScanTool(kind=kind, signals=(WizardScanSignal(source="npm", name=kind.lower(), file=None),))
                 for kind in kinds
             ),
+            complete=complete,
         )
     )
 
@@ -107,3 +110,12 @@ def test_scan_of_one_workspace_leaves_other_workspaces_alone(team: Team) -> None
     _scan(team, "s2", 1, [], workspace=OTHER_WORKSPACE)
 
     assert _tools(team)["Stripe"].removed_at is None
+
+
+@pytest.mark.django_db
+def test_partial_scan_adds_what_it_saw_and_removes_nothing(team: Team) -> None:
+    _scan(team, "s1", 0, ["Stripe", "Amplitude"])
+    _scan(team, "s2", 1, ["Stripe", "Sentry"], complete=False)
+
+    tools = _tools(team)
+    assert {kind for kind, row in tools.items() if row.removed_at is None} == {"Stripe", "Amplitude", "Sentry"}

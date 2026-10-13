@@ -296,6 +296,8 @@ class RecordWizardScanInput:
     workspace_fingerprint: str
     scanned_at: datetime
     tools: tuple[WizardScanTool, ...]
+    # False when the wizard could not walk the whole workspace, so a missing tool may not be gone.
+    complete: bool = True
 
 
 @frozen
