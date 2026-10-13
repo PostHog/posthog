@@ -774,6 +774,82 @@ describe('inject_body', () => {
     })
 })
 
+describe('inject_query', () => {
+    const queryResolved = (): ResolvedOperation =>
+        makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [
+                    { name: 'include_design', in: 'query', schema: { type: 'boolean' } },
+                    { name: 'limit', in: 'query', schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+    it('sends a fixed query parameter without exposing it to callers', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            exclude_params: ['include_design'],
+            inject_query: { include_design: false },
+        }
+        const result = generateToolCode(
+            'things-list',
+            config,
+            queryResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(".omit({ 'include_design': true })")
+        expect(result.code).toContain('limit: params.limit,')
+        expect(result.code).toContain('"include_design": false,')
+    })
+
+    it('sends an injected-only query without reading params', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            exclude_params: ['include_design', 'limit'],
+            inject_query: { include_design: false },
+        }
+        const result = generateToolCode(
+            'things-list',
+            config,
+            queryResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('_params:')
+        expect(result.code).toContain('"include_design": false,')
+    })
+
+    it('rejects an injected query parameter that remains exposed', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            inject_query: { include_design: false },
+        }
+
+        expect(() =>
+            generateToolCode(
+                'things-list',
+                config,
+                queryResolved(),
+                defaultCategory,
+                makeSpec(),
+                new Set<string>(),
+                stubGetQuerySchema
+            )
+        ).toThrow('Injected query parameter "include_design" must be excluded from tool inputs')
+    })
+})
+
 describe('anyOf / oneOf body schemas (discriminated unions)', () => {
     // Polymorphic Python serializers (e.g. file-download-batch-exports) emit
     // request bodies as `anyOf` of per-variant object schemas. Without union

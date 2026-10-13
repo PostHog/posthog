@@ -17,6 +17,10 @@ export const MessagingTemplatesListParams = () => zod.object({
 })
 
 export const MessagingTemplatesListQueryParams = () => zod.object({
+    include_design: zod
+        .boolean()
+        .optional()
+        .describe('Set to false to omit editable email designs from list responses. Defaults to true.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

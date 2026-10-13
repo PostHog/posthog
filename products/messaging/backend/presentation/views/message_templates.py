@@ -3,6 +3,8 @@ from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
 from typing import Any
 
+from django.db import models
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -106,9 +108,13 @@ class EmailTemplateSerializer(serializers.Serializer):
     )
 
 
+class MessageTemplateContentTemplating(models.TextChoices):
+    LIQUID = "liquid", "liquid"
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
-        choices=["liquid"],
+        choices=MessageTemplateContentTemplating.choices,
         default="liquid",
         help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
     )
@@ -211,6 +217,28 @@ class MessageTemplateSerializer(serializers.Serializer):
         return data
 
 
+class EmailTemplateListSerializer(EmailTemplateSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields.pop("design")
+        return fields
+
+
+class MessageTemplateListContentSerializer(MessageTemplateContentSerializer):
+    email = EmailTemplateListSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Email message content for template previews. The editable design is available on the detail endpoint.",
+    )
+
+
+class MessageTemplateListSerializer(MessageTemplateSerializer):
+    content = MessageTemplateListContentSerializer(
+        required=False,
+        help_text="Template content for previews. The editable design is available on the detail endpoint.",
+    )
+
+
 class DesignPatchSerializer(serializers.Serializer):
     operations = serializers.ListField(
         child=DesignOperationSerializer(),
@@ -232,6 +260,17 @@ TEMPLATE_ID_PARAMETER = OpenApiParameter(
 
 
 @extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include_design",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Set to false to omit editable email designs from list responses. Defaults to true.",
+            ),
+        ]
+    ),
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     partial_update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
@@ -249,6 +288,11 @@ class MessageTemplatesViewSet(
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
 
     serializer_class = MessageTemplateSerializer
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list" and self.request.query_params.get("include_design", "true").lower() == "false":
+            return MessageTemplateListSerializer
+        return MessageTemplateSerializer
 
     def dangerously_get_object(self) -> MessageTemplateRow:
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.

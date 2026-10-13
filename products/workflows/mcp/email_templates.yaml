@@ -69,6 +69,10 @@ tools:
         description: >
             List email templates in the workflows library — metadata only; fetch a template's content with
             workflows-get-email-template. Templates are referenced from a workflow's function_email action.
+        exclude_params:
+            - include_design
+        inject_query:
+            include_design: false
         response:
             exclude:
                 - content

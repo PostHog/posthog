@@ -62,6 +62,7 @@ export const ToolConfigSchema = z
          * `created_via: 'mcp'` so agents can't claim another origin.
          */
         inject_body: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+        inject_query: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
         param_overrides: z
             .record(
                 z.string(),

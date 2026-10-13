@@ -1,8 +1,16 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiConfig } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import * as messagingApi from 'products/messaging/frontend/generated/api'
+import type {
+    MessageTemplateApi,
+    MessageTemplateApi as MessageTemplateListApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
@@ -20,6 +28,17 @@ const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
     text: 'Hello',
     from: 'test@example.com',
     to: 'recipient@example.com',
+}
+
+const TEMPLATE_METADATA = {
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    created_by: {
+        id: 1,
+        uuid: '00000000-0000-0000-0000-000000000001',
+        email: 'author@example.com',
+        hedgehog_config: null,
+    },
 }
 
 function makeProps(overrides?: Partial<EmailTemplaterLogicProps>): EmailTemplaterLogicProps {
@@ -40,7 +59,7 @@ describe('emailTemplaterLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
                 '/api/projects/:team_id/property_definitions/': { results: [] },
             },
         })
@@ -49,6 +68,7 @@ describe('emailTemplaterLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.restoreAllMocks()
         jest.useRealTimers()
     })
 
@@ -626,6 +646,172 @@ describe('emailTemplaterLogic', () => {
             router.actions.push('/some-page', {})
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.isModalOpen).toBe(true)
+        })
+    })
+
+    describe('template picker', () => {
+        it('applies the full template, including the design omitted from the list response', async () => {
+            const design = { body: { rows: [] }, schemaVersion: 16 }
+            const listTemplate = {
+                id: 'template-1',
+                name: 'Welcome',
+                description: '',
+                content: { templating: 'liquid', email: { subject: 'Welcome', html: '<p>Hello</p>' } },
+            } as MessageTemplateListApi
+            const fullTemplate = {
+                id: listTemplate.id,
+                name: listTemplate.name,
+                description: listTemplate.description,
+                content: {
+                    templating: 'liquid',
+                    email: { ...DEFAULT_EMAIL_TEMPLATE, design },
+                },
+                ...TEMPLATE_METADATA,
+            } as MessageTemplateApi
+            const props = makeProps()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/messaging_templates/template-1/': fullTemplate,
+                },
+            })
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            const retrieve = jest.spyOn(messagingApi, 'messagingTemplatesRetrieve')
+            await expectLogic(logic, () => logic.actions.pickTemplate(listTemplate)).toDispatchActions([
+                'pickTemplate',
+                'setPickingTemplateId',
+                'applyTemplate',
+                'setIsTemplatePickerOpen',
+                'setPickingTemplateId',
+            ])
+            expect(props.onChange).toHaveBeenCalledWith(expect.objectContaining({ design }))
+            expect(retrieve).toHaveBeenCalledWith(String(ApiConfig.getCurrentTeamId()), listTemplate.id)
+            expect(logic.values.isTemplatePickerOpen).toBe(false)
+            expect(logic.values.pickingTemplateId).toBeNull()
+        })
+
+        it('keeps the picker open when the template request fails', async () => {
+            const template = {
+                id: 'template-1',
+                name: 'Welcome',
+                content: { templating: 'liquid', email: { subject: 'Welcome' } },
+            } as MessageTemplateListApi
+            jest.spyOn(messagingApi, 'messagingTemplatesRetrieve').mockRejectedValue(new Error('request failed'))
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            await expectLogic(logic, () => logic.actions.pickTemplate(template)).toDispatchActions([
+                'pickTemplate',
+                'setPickingTemplateId',
+                'setPickingTemplateId',
+            ])
+            expect(logic.values.isTemplatePickerOpen).toBe(true)
+            expect(logic.values.appliedTemplate).toBeNull()
+            expect(logic.values.pickingTemplateId).toBeNull()
+        })
+
+        it('does not request the same template twice and clears loading when the picker closes', async () => {
+            const template = { id: 'template-1', name: 'Welcome' } as MessageTemplateListApi
+            let resolveRequest!: (template: MessageTemplateApi) => void
+            const request = new Promise<MessageTemplateApi>((resolve) => {
+                resolveRequest = resolve
+            })
+            const getTemplate = jest.spyOn(messagingApi, 'messagingTemplatesRetrieve').mockReturnValue(request)
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            logic.actions.pickTemplate(template)
+            expect(logic.values.pickingTemplateId).toBe(template.id)
+            logic.actions.pickTemplate(template)
+            expect(getTemplate).toHaveBeenCalledTimes(1)
+
+            logic.actions.setIsTemplatePickerOpen(false)
+            expect(logic.values.pickingTemplateId).toBeNull()
+            resolveRequest({
+                id: template.id,
+                name: template.name,
+                ...TEMPLATE_METADATA,
+                content: { email: DEFAULT_EMAIL_TEMPLATE },
+            })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.appliedTemplate).toBeNull()
+        })
+
+        it('ignores a template response after the editor unmounts', async () => {
+            const template = { id: 'template-1', name: 'Welcome' } as MessageTemplateListApi
+            let resolveRequest!: (template: MessageTemplateApi) => void
+            jest.spyOn(messagingApi, 'messagingTemplatesRetrieve').mockReturnValue(
+                new Promise<MessageTemplateApi>((resolve) => {
+                    resolveRequest = resolve
+                })
+            )
+            const props = makeProps()
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            logic.actions.pickTemplate(template)
+            logic.unmount()
+            resolveRequest({
+                id: template.id,
+                name: template.name,
+                ...TEMPLATE_METADATA,
+                content: { email: DEFAULT_EMAIL_TEMPLATE },
+            })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(props.onChange).not.toHaveBeenCalled()
+        })
+
+        it('ignores an older template request after a newer selection succeeds', async () => {
+            const listTemplate = (id: string): MessageTemplateListApi =>
+                ({
+                    id,
+                    name: id,
+                    content: { templating: 'liquid', email: { subject: id } },
+                }) as MessageTemplateListApi
+            const fullTemplate = (id: string): MessageTemplateApi =>
+                ({
+                    id,
+                    name: id,
+                    content: { templating: 'liquid', email: { subject: id } },
+                    ...TEMPLATE_METADATA,
+                }) as MessageTemplateApi
+            let resolveFirst!: (template: MessageTemplateApi) => void
+            let resolveSecond!: (template: MessageTemplateApi) => void
+            const firstRequest = new Promise<MessageTemplateApi>((resolve) => {
+                resolveFirst = resolve
+            })
+            const secondRequest = new Promise<MessageTemplateApi>((resolve) => {
+                resolveSecond = resolve
+            })
+            jest.spyOn(messagingApi, 'messagingTemplatesRetrieve').mockImplementation((_teamId, id) =>
+                id === 'first' ? firstRequest : secondRequest
+            )
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.pickTemplate(listTemplate('first'))
+                logic.actions.pickTemplate(listTemplate('second'))
+            }).toDispatchActions(['pickTemplate', 'setPickingTemplateId', 'pickTemplate', 'setPickingTemplateId'])
+            expect(logic.values.pickingTemplateId).toBe('second')
+            resolveSecond(fullTemplate('second'))
+            await expectLogic(logic).toDispatchActions(['applyTemplate', 'setIsTemplatePickerOpen'])
+            await expectLogic(logic).toMatchValues({
+                appliedTemplate: fullTemplate('second'),
+                isTemplatePickerOpen: false,
+                pickingTemplateId: null,
+            })
+
+            resolveFirst(fullTemplate('first'))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.appliedTemplate).toEqual(fullTemplate('second'))
         })
     })
 })
