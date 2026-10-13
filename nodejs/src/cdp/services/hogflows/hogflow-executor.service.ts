@@ -1064,7 +1064,8 @@ export class HogFlowExecutorService {
 
     private logExecutionErrorInfo(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
-        error: Error
+        // executeCurrentAction stores the message string, not the Error, on result.error.
+        error: unknown
     ): string {
         const invocation = result.invocation
         const currentActionId = invocation.state.currentAction?.id
@@ -1075,6 +1076,7 @@ export class HogFlowExecutorService {
             ? `. This workflow was triggered by [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
 
-        return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
+        const message = error instanceof Error ? error.message : String(error)
+        return `Workflow encountered an error: ${message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
 }

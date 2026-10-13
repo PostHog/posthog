@@ -1999,6 +1999,9 @@ describe('Hogflow Executor', () => {
                                 expect.stringContaining(
                                     'Workflow is aborting because [Action:branch] could not look up cohort membership'
                                 ),
+                                expect.stringContaining(
+                                    'Workflow encountered an error: Cohort membership lookup failed: Error: lookup timed out'
+                                ),
                             ])
                         )
                     })
