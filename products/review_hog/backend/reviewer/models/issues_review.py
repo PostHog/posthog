@@ -80,7 +80,7 @@ class Issue(BaseModel):
 # Why a single-agent turn drops a finding. A `dedup_*` drop repeats an earlier turn's finding, a main
 # finding (anchor), or a finding of its own session or lens (sibling). Only records from before Flash
 # stopped reading PR comments carry `dedup_comment`. `cap` is the cut in `compose_flash_findings`.
-# `old_code` is a follow-up turn's P2 or P3 finding on code that did not change since the last reviewed head.
+# `old_code` is a follow-up turn's P3 finding on code that did not change since the last reviewed head.
 DropDisposition = Literal[
     "old_code",
     "dedup_prior",

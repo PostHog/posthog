@@ -1040,7 +1040,7 @@ export interface ReviewDroppedFindingApi {
      * @nullable
      */
     source_perspective: string | null
-    /** Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+    /** Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings this way too). `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
      *
      * * `old_code` - On unchanged code
      * * `dedup_prior` - Repeat of an earlier review
