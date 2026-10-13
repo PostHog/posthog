@@ -589,6 +589,12 @@ ignore_imports = [
     # Allowed: presentation can import facade and itself
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
+    # TODO: cdp presentation wave — the helpers, serializers and icon service other products' views
+    # reuse still live in cdp internals, and products/cdp/backend/presentation/ re-exports them.
+    # Move each one into presentation and delete its entry.
+    "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.filters",
+    "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.validation",
+    "products.cdp.backend.presentation.serializers -> products.cdp.backend.validation",
     # TODO: existing violations — fix by routing through facade
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",
@@ -739,12 +745,6 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
-    # TODO: cdp presentation wave — the helpers, serializers and icon service other products' views
-    # reuse still live in cdp internals, and products/cdp/backend/presentation/ re-exports them.
-    # Move each one into presentation and delete its entry.
-    "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.filters",
-    "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.validation",
-    "products.cdp.backend.presentation.serializers -> products.cdp.backend.validation",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
