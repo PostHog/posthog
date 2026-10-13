@@ -73,7 +73,7 @@ MOMENT_COLUMNS = ("head", "report_id", "snapshot_date", "report_created_at", "te
 def example_columns(feature_set: FeatureSet) -> tuple[str, ...]:
     """The examples Parquet columns for `feature_set`. One object per set, because two sets carry
     different feature columns."""
-    return ("head", "report_id", "snapshot_date", "report_created_at", "team_id", *feature_set.feature_names, "label")
+    return (*MOMENT_COLUMNS[:-1], *feature_set.feature_names, MOMENT_COLUMNS[-1])
 
 
 def state_rows(state: pd.DataFrame, feature_set: FeatureSet) -> pd.DataFrame:

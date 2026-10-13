@@ -615,9 +615,7 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert within_team.teams == 3 and within_team.auc is not None and within_team.auc > 0.9
     metadata_head = trained.metrics.as_dict()
     assert metadata_head["holdout_classification_threshold"] == holdout.threshold
-    assert {key: metadata_head[key] for key in within_team.as_dict(prefix="holdout_")} == within_team.as_dict(
-        prefix="holdout_"
-    )
+    assert metadata_head.items() >= within_team.as_dict(prefix="holdout_").items()
     assert classification_thresholds({"heads": [metadata_head]}) == {
         head.name: trained.metrics.refit_classification_threshold
     }
