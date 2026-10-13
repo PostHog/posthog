@@ -14,6 +14,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: insight_alerts
+scout-precheck-query: |
+  SELECT id, name, state, last_notified_at
+  FROM system.alerts
+  WHERE enabled
+  ORDER BY last_notified_at DESC
+  LIMIT 20
 ---
 
 # Signals scout: configured insight-alert firings
@@ -31,6 +37,8 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 Internalize that ordering; it's the whole game. An alert that's silently **Errored** (no longer evaluating) is a blind spot worth a low-severity callout, but it is _not_ a firing.
 
 ## Quick close-out: are there even alerts firing?
+
+A scheduled run can start with a `<precheck_result>` block. Each row is an enabled alert, most recently notified first, up to 20 rows. A run starts only when at least one enabled alert exists, so when the block is present, skip the zero-enabled-alerts check below. Still read `alerts-list` for the quiet-alerts check.
 
 Cheap read first: `alerts-list`. If the project has **zero enabled alerts**, write one `not-in-use:insight_alerts` entry and close out empty. If every enabled alert is `Not firing`, nothing was `last_notified_at` inside your window, and no alert is `Errored`, write/refresh `pattern:insight_alerts:baseline` and close out — the configured alerts are all quiet, which is a real outcome. (Re-using either key idempotently refreshes it.)
 
