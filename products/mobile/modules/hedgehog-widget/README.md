@@ -13,8 +13,11 @@ So the app's JavaScript plans the choreography and the widget plays it back:
 2. `useHedgehogWidgetSync` hands the script to this native module on launch and when the app returns to the foreground.
    The module writes it to shared storage the widget can read (an App Group on iOS, SharedPreferences on Android) and asks the OS to refresh the widget.
 3. Each platform plays the script with what the OS allows:
-   - **iOS (WidgetKit)** cannot animate continuously, so it uses the script's *keyframes*, one timeline entry per minute.
-     From iOS 17 WidgetKit animates the change between entries, so the hedgehog hops, slides and turns to its next spot.
+   - **iOS (WidgetKit)** cannot animate continuously, so it uses the script's *keyframes*, one per 2-second beat.
+     From iOS 17 WidgetKit animates the change between entries, so the hedgehog glides, hops, flips and turns to its next spot.
+     Each move has its own animation: travel lasts until the next beat, a jump rises slowly and falls fast, and a flip turns with the jump.
+     WidgetKit reportedly shows entries no faster than about every 2 seconds and stops updating a timeline of more than about 400 entries, so a timeline holds about 10 minutes of beats (identical keyframes merge into one entry).
+     After them comes one entry a minute for 40 minutes, so the hedgehog keeps moving if the system delays the next reload to save its daily budget.
      The whole widget is an interactive `Button(intent:)`: a tap anywhere plays a reaction right away. The widget never opens the app; the app has no hedgehog surface to open.
    - **Android (RemoteViews)** supports `ViewFlipper` with `autoStart`, which is real frame animation inside a widget.
      It uses the script's *loops*: a closed cycle of ticks (pose frame + position) that it flips through every `tickMs`.
@@ -33,7 +36,9 @@ interface Tick {
     x: number // 0..1, centre of the hedgehog across the widget width (0 = left edge, 1 = right edge; renderers clamp so it stays inside)
     y: number // 0..1, height above the floor: 0 = feet on the floor, 1 = top of the widget
     facing: Facing
-    bubble?: string // optional speech bubble, at most 24 characters, iOS keyframes only
+    bubble?: string // optional speech bubble, at most 24 characters, iOS keyframes only. Only on ticks with y 0
+    turn?: number // iOS only: turns added on the way into this tick, clockwise on screen. A flip is two ticks of 0.5 each (up, then down).
+    // Consecutive ticks with a turn add up, and the run ends on whole turns with y 0, so the hedgehog lands upright
 }
 
 interface Choreography {
@@ -41,13 +46,14 @@ interface Choreography {
     seed: number
     generatedAt: string // ISO 8601 UTC
     startsAt: string // ISO 8601 UTC; keyframes[0] is shown from here
-    keyframeSec: 60 // iOS: one keyframe every keyframeSec seconds
-    keyframes: Tick[] // at least 180 (3 hours). A renderer that runs past the end wraps around (index modulo length)
+    keyframeSec: 2 // iOS: one keyframe every keyframeSec seconds
+    keyframes: Tick[] // 900 (30 minutes). A renderer that runs past the end wraps around (index modulo length), and the last keyframe leads back to the first
     tickMs: 120 // Android: one tick every tickMs milliseconds
     loopMinutes: 10 // Android: loop index = floor(minutesSince(startsAt) / loopMinutes) modulo loops.length
     loops: Tick[][] // each loop is a closed cycle (last tick ends near the first) of at most 120 ticks
-    reaction: { keyframes: Tick[]; ticks: Tick[] } // played after a tap: iOS inserts the keyframes right away, Android plays the ticks once.
+    reaction: { keyframes: Tick[]; ticks: Tick[] } // played after a tap: iOS inserts the keyframes right away (one every 2 seconds), Android plays the ticks once.
     // Reaction ticks are authored at x 0.5 facing right. A renderer shifts every x by (current x - 0.5), clamps, and keeps the current facing, so the hedgehog reacts where it stands.
+    // When the current facing is left, the renderer also negates `turn`, so a flip still goes forwards.
 }
 ```
 

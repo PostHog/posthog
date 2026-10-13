@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
 import { syncHedgehogWidget } from './useHedgehogWidgetSync'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -10,6 +12,11 @@ jest.mock('../../../modules/hedgehog-widget', () => ({
 }))
 
 describe('syncHedgehogWidget', () => {
+    beforeEach(async () => {
+        await AsyncStorage.clear()
+        mockSetChoreography.mockClear()
+    })
+
     it('writes the choreography once per UTC day, even when launch and foreground race', async () => {
         const morning = new Date('2026-10-13T08:00:00Z')
         await Promise.all([syncHedgehogWidget(morning), syncHedgehogWidget(morning)])
@@ -25,5 +32,14 @@ describe('syncHedgehogWidget', () => {
 
         expect(mockSetChoreography).toHaveBeenCalledTimes(2)
         expect(JSON.parse(mockSetChoreography.mock.calls[1][0])).toMatchObject({ seed: 20261014 })
+    })
+
+    it('writes the new script on the same day when an older app version already synced today', async () => {
+        await AsyncStorage.setItem('hedgehog_widget_seed', '20261013')
+
+        await syncHedgehogWidget(new Date('2026-10-13T08:00:00Z'))
+
+        expect(mockSetChoreography).toHaveBeenCalledTimes(1)
+        expect(JSON.parse(mockSetChoreography.mock.calls[0][0])).toMatchObject({ seed: 20261013, keyframeSec: 2 })
     })
 })

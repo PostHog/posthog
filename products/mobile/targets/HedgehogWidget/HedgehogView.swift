@@ -31,6 +31,8 @@ struct HedgehogView: View {
     // sits on the floor line, and these fractions keep the body (not the empty cell) inside the widget.
     private static let artTopInset: CGFloat = 36 / 160
     private static let artHalfWidth: CGFloat = 51 / 160
+    // The middle of the body, so a flip turns around the hedgehog and not around the empty corner of the cell.
+    private static let spinAnchor = UnitPoint(x: 79.0 / 160, y: 96.0 / 160)
     private static let bubbleFont = Font.system(size: 12, weight: .semibold)
 
     private var spriteSize: CGFloat { family == .systemSmall ? 56 : 64 }
@@ -41,7 +43,8 @@ struct HedgehogView: View {
         GeometryReader { geometry in
             let size = geometry.size
             let floorY = size.height - floorInset
-            let feet = feetPosition(in: size, floorY: floorY)
+            let feetX = feetX(width: size.width)
+            let lift = lift(floorY: floorY)
 
             ZStack(alignment: .topLeading) {
                 Palette.ground
@@ -51,16 +54,25 @@ struct HedgehogView: View {
                     .frame(width: size.width, height: 1)
                     .offset(y: floorY)
 
-                Group {
-                    sprite
-                        .position(x: feet.x, y: feet.y - spriteSize / 2)
+                // Each move has its own animation, so a jump travels at an even speed while it rises fast and
+                // falls faster. The innermost animation wins for the values it watches.
+                sprite
+                    .rotationEffect(.degrees(reduceMotion ? 0 : entry.spin), anchor: Self.spinAnchor)
+                    .animation(spinAnimation, value: entry.spin)
+                    .offset(y: floorY - spriteSize - lift)
+                    .animation(liftAnimation, value: lift)
+                    .offset(x: feetX - spriteSize / 2)
+                    .animation(travelAnimation, value: feetX)
+
+                ZStack {
                     if let bubble = entry.tick.bubble, !bubble.isEmpty {
                         bubbleView(bubble)
-                            .position(bubblePosition(for: bubble, feet: feet, width: size.width))
-                            .transition(.scale.combined(with: .opacity))
+                            .position(bubblePosition(for: bubble, feetX: feetX, feetY: floorY - lift, width: size.width))
+                            .transition(.scale(scale: 0.6, anchor: .bottom).combined(with: .opacity))
                     }
                 }
-                .animation(reduceMotion ? nil : .spring(duration: 0.9, bounce: 0.3), value: entry.tick)
+                .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.4), value: entry.tick.bubble)
+                .animation(travelAnimation, value: feetX)
 
                 // The button covers the whole widget, so a tap anywhere pokes the hedgehog and the tap target
                 // does not move with the sprite.
@@ -80,7 +92,35 @@ struct HedgehogView: View {
             .resizable()
             .frame(width: spriteSize, height: spriteSize)
             .scaleEffect(x: entry.tick.facing == .left ? -1 : 1, y: 1)
+            .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.2), value: entry.tick.facing)
             .accessibilityHidden(true)
+    }
+
+    private var travelAnimation: Animation? {
+        guard !reduceMotion else { return nil }
+        switch entry.motion {
+        case .settle:
+            return .spring(duration: 0.6, bounce: 0.3)
+        case let .glide(duration), let .rise(duration), let .drop(duration):
+            return .linear(duration: duration)
+        }
+    }
+
+    private var liftAnimation: Animation? {
+        guard !reduceMotion else { return nil }
+        switch entry.motion {
+        case let .rise(duration):
+            return .easeOut(duration: duration)
+        case let .drop(duration):
+            return .easeIn(duration: duration)
+        case .settle, .glide:
+            return .spring(duration: 0.5, bounce: 0.3)
+        }
+    }
+
+    /// A tick without a turn resets the angle from a whole turn to zero, which must not animate backwards.
+    private var spinAnimation: Animation? {
+        (entry.tick.turn ?? 0) != 0 ? liftAnimation : nil
     }
 
     private func bubbleView(_ text: String) -> some View {
@@ -95,22 +135,24 @@ struct HedgehogView: View {
             .overlay(Capsule().strokeBorder(Palette.bubbleBorder, lineWidth: 1))
     }
 
-    private func feetPosition(in size: CGSize, floorY: CGFloat) -> CGPoint {
-        let tick = entry.tick
+    private func feetX(width: CGFloat) -> CGFloat {
         let margin = spriteSize * Self.artHalfWidth + edgePadding
-        let x = margin + clamp(tick.x) * max(size.width - 2 * margin, 0)
+        return margin + clamp(entry.tick.x) * max(width - 2 * margin, 0)
+    }
+
+    private func lift(floorY: CGFloat) -> CGFloat {
         let artHeight = spriteSize * (1 - Self.artTopInset)
         let rise = max(floorY - artHeight - edgePadding, 0)
-        return CGPoint(x: x, y: floorY - clamp(tick.y) * rise)
+        return clamp(entry.tick.y) * rise
     }
 
     /// The bubble width is estimated because its laid-out size is not known when it is positioned.
-    private func bubblePosition(for text: String, feet: CGPoint, width: CGFloat) -> CGPoint {
+    private func bubblePosition(for text: String, feetX: CGFloat, feetY: CGFloat, width: CGFloat) -> CGPoint {
         let estimatedHalfWidth = (CGFloat(text.count) * 6.6 + 16) / 2
         let minX = estimatedHalfWidth + 4
         let maxX = width - estimatedHalfWidth - 4
-        let x = minX <= maxX ? min(max(feet.x, minX), maxX) : width / 2
-        let headY = feet.y - spriteSize * (1 - Self.artTopInset)
+        let x = minX <= maxX ? min(max(feetX, minX), maxX) : width / 2
+        let headY = feetY - spriteSize * (1 - Self.artTopInset)
         return CGPoint(x: x, y: max(headY - 12, 14))
     }
 

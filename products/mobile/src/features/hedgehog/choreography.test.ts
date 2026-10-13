@@ -39,18 +39,64 @@ describe('choreography', () => {
         expect(invalid).toEqual([])
     })
 
-    it.each(SEEDS)('fills a day of keyframes without teleporting for seed %i', (seed) => {
-        const { keyframes } = build(seed)
-        expect(keyframes).toHaveLength(24 * 60)
-        const teleports = keyframes.filter(
-            (keyframe, index) => index > 0 && Math.abs(keyframe.x - (keyframes[index - 1] as Tick).x) > 0.25
-        )
-        expect(teleports).toEqual([])
+    it.each(SEEDS)(
+        'fills a 30-minute cycle of keyframes without teleporting, also across the wrap, for seed %i',
+        (seed) => {
+            const { keyframes } = build(seed)
+            expect(keyframes).toHaveLength(900)
+            const teleports = keyframes.filter(
+                (keyframe, index) =>
+                    Math.abs(keyframe.x - (keyframes[(index + keyframes.length - 1) % keyframes.length] as Tick).x) >
+                    0.25
+            )
+            expect(teleports).toEqual([])
+        }
+    )
+
+    it.each(SEEDS)('keeps the hedgehog busy on both platforms for seed %i', (seed) => {
+        const { keyframes, loops } = build(seed)
+        const travelling = keyframes.filter((keyframe, index) => {
+            const previous = keyframes[index - 1]
+            return previous && (Math.abs(keyframe.x - previous.x) > 0.005 || keyframe.y !== previous.y)
+        })
+        expect(travelling.length / keyframes.length).toBeGreaterThan(0.5)
+
+        let longestStill = 1
+        let still = 1
+        for (let index = 1; index < keyframes.length; index++) {
+            still = JSON.stringify(keyframes[index]) === JSON.stringify(keyframes[index - 1]) ? still + 1 : 1
+            longestStill = Math.max(longestStill, still)
+        }
+        expect(longestStill).toBeLessThanOrEqual(4)
+
+        const idleLoops = loops.filter((loop) => loop.filter((tick) => tick.pose === 'idle').length > loop.length / 3)
+        expect(idleLoops).toEqual([])
+    })
+
+    it.each(SEEDS)('lands every flip on its feet for seed %i', (seed) => {
+        const { keyframes, reaction } = build(seed)
+        for (const ticks of [keyframes, reaction.keyframes]) {
+            const unfinished: Tick[] = []
+            let turns = 0
+            let flips = 0
+            ticks.forEach((tick, index) => {
+                turns += tick.turn ?? 0
+                if (tick.turn && !ticks[index + 1]?.turn) {
+                    flips++
+                    if (!Number.isInteger(turns) || tick.y !== 0) {
+                        unfinished.push(tick)
+                    }
+                    turns = 0
+                }
+            })
+            expect(unfinished).toEqual([])
+            expect(flips).toBeGreaterThan(0)
+        }
     })
 
     it.each(SEEDS)('closes every loop so Android can repeat it seamlessly for seed %i', (seed) => {
         const { loops } = build(seed)
-        expect(loops).toHaveLength(24)
+        expect(loops).toHaveLength(16)
         for (const loop of loops) {
             const first = loop[0] as Tick
             const last = loop[loop.length - 1] as Tick

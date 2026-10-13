@@ -30,14 +30,22 @@ struct Tick: Codable, Equatable {
     let y: Double
     let facing: Facing
     let bubble: String?
+    /// Turns added on the way into this tick, clockwise on screen. A flip is two ticks of half a turn each.
+    let turn: Double?
 
-    init(pose: Pose, frame: Int, x: Double, y: Double, facing: Facing, bubble: String? = nil) {
+    init(pose: Pose, frame: Int, x: Double, y: Double, facing: Facing, bubble: String? = nil, turn: Double? = nil) {
         self.pose = pose
         self.frame = frame
         self.x = x
         self.y = y
         self.facing = facing
         self.bubble = bubble
+        self.turn = turn
+    }
+
+    /// Feet on the floor and no flip, for an entry shown without the keyframes around it.
+    var grounded: Tick {
+        Tick(pose: y > 0 ? .idle : pose, frame: frame, x: x, y: 0, facing: facing, bubble: bubble)
     }
 
     /// An out-of-range frame would name a sprite that does not exist and render nothing.
@@ -148,16 +156,19 @@ enum ChoreographyLoader {
 
 enum FallbackChoreography {
     static let value: Choreography = {
-        // A fixed start keeps every widget on the device on the same keyframe for the same minute.
+        // A fixed start keeps every widget on the device on the same keyframe for the same beat.
         let startsAt = Date(timeIntervalSince1970: 1_767_225_600)
         var keyframes: [Tick] = []
         for step in 0...4 {
             keyframes.append(Tick(pose: .walk, frame: step * 2, x: 0.15 + Double(step) * 0.15, y: 0, facing: .right))
         }
-        keyframes.append(Tick(pose: .idle, frame: 0, x: 0.75, y: 0, facing: .right))
-        keyframes.append(Tick(pose: .wave, frame: 8, x: 0.75, y: 0, facing: .left, bubble: "Hi there!"))
-        keyframes.append(Tick(pose: .idle, frame: 12, x: 0.75, y: 0, facing: .left))
-        keyframes.append(Tick(pose: .jump, frame: 4, x: 0.6, y: 0.35, facing: .left))
+        keyframes.append(Tick(pose: .jump, frame: 4, x: 0.8, y: 0.8, facing: .right, turn: 0.5))
+        keyframes.append(Tick(pose: .jump, frame: 9, x: 0.85, y: 0, facing: .right, turn: 0.5))
+        keyframes.append(Tick(pose: .wave, frame: 8, x: 0.85, y: 0, facing: .left, bubble: "Hi there!"))
+        keyframes.append(Tick(pose: .wave, frame: 14, x: 0.85, y: 0, facing: .left, bubble: "Hi there!"))
+        keyframes.append(Tick(pose: .idle, frame: 12, x: 0.85, y: 0, facing: .left))
+        keyframes.append(Tick(pose: .jump, frame: 4, x: 0.72, y: 0.35, facing: .left))
+        keyframes.append(Tick(pose: .jump, frame: 9, x: 0.62, y: 0, facing: .left))
         for step in 0...3 {
             keyframes.append(Tick(pose: .walk, frame: step * 3, x: 0.5 - Double(step) * 0.12, y: 0, facing: .left))
         }
@@ -165,8 +176,9 @@ enum FallbackChoreography {
 
         let reaction = Reaction(
             keyframes: [
-                Tick(pose: .jump, frame: 4, x: 0.5, y: 0.3, facing: .right, bubble: "Hey!"),
-                Tick(pose: .wave, frame: 10, x: 0.5, y: 0, facing: .right),
+                Tick(pose: .jump, frame: 4, x: 0.5, y: 0.8, facing: .right, turn: 0.5),
+                Tick(pose: .jump, frame: 9, x: 0.5, y: 0, facing: .right, turn: 0.5),
+                Tick(pose: .wave, frame: 10, x: 0.5, y: 0, facing: .right, bubble: "Hey!"),
                 Tick(pose: .idle, frame: 0, x: 0.5, y: 0, facing: .right),
             ],
             ticks: []
@@ -177,7 +189,7 @@ enum FallbackChoreography {
             seed: 0,
             generatedAt: startsAt,
             startsAt: startsAt,
-            keyframeSec: 60,
+            keyframeSec: 2,
             keyframes: keyframes,
             tickMs: 120,
             loopMinutes: 10,

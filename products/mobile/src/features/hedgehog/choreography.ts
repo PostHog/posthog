@@ -9,6 +9,7 @@ export interface Tick {
     y: number
     facing: Facing
     bubble?: string
+    turn?: number
 }
 
 export interface Choreography {
@@ -16,7 +17,7 @@ export interface Choreography {
     seed: number
     generatedAt: string
     startsAt: string
-    keyframeSec: 60
+    keyframeSec: 2
     keyframes: Tick[]
     tickMs: 120
     loopMinutes: 10
@@ -33,8 +34,15 @@ export const FRAME_COUNTS: Record<Pose, number> = {
     fall: 9,
 }
 
-const KEYFRAME_COUNT = 24 * 60
-const LOOP_COUNT = 24
+// WidgetKit shows a new timeline entry about every 2 seconds at best, so iOS gets one keyframe per 2-second beat
+// and glides between them.
+const KEYFRAME_SEC = 2
+// 30 minutes of beats. The widget wraps around at the end, so the plan walks back to where it started.
+const KEYFRAME_COUNT = 900
+// Scenes stop this many beats before the end, which leaves room for the longest scene and the walk home.
+const FINALE_BEATS = 60
+const HOME_STEP = 0.16
+const LOOP_COUNT = 16
 const MAX_LOOP_TICKS = 120
 const FINISH_IDLE_TICKS = 4
 // The renderers clamp the sprite inside the widget, so a centre near the edge pins the hedgehog against it.
@@ -43,7 +51,7 @@ const MAX_X = 0.9
 
 const JUMP_AIRBORNE_FRAMES = [4, 5] as const
 
-// Keyframes sit a minute apart, so a pose skips several frames per keyframe to look different on every entry.
+// Consecutive keyframes sit 2 seconds apart, so a pose skips several frames per keyframe to look different on every entry.
 // Each stride is coprime with its pool size, so the cycle visits every frame before it repeats.
 function framePool(first: number, last: number, stride: number): number[] {
     const size = last - first + 1
@@ -75,6 +83,7 @@ const WORK_LINES = [
 ] as const
 const STROLL_LINES = ['One more lap', 'Stretching my legs', 'On my way', 'Whee!'] as const
 const DANCE_LINES = ['Ta-da!', 'Dance break', 'Shipped it!'] as const
+const FLIP_LINES = ['Whee!', 'Ta-da!', 'Did you see that?', 'One more time'] as const
 const TRIP_LINES = ['Oops', "I'm okay", 'All good'] as const
 const NAP_LINE = 'Zzz'
 const THINK_LINE = 'Hmm'
@@ -137,10 +146,20 @@ function clampX(x: number): number {
     return Math.min(MAX_X, Math.max(MIN_X, x))
 }
 
-function makeTick(pose: Pose, frame: number, x: number, y: number, facing: Facing, bubble?: string): Tick {
+function makeTick(
+    pose: Pose,
+    frame: number,
+    x: number,
+    y: number,
+    facing: Facing,
+    extras: { bubble?: string; turn?: number } = {}
+): Tick {
     const tick: Tick = { pose, frame, x: roundTo3(x), y: roundTo3(y), facing }
-    if (bubble) {
-        tick.bubble = bubble
+    if (extras.bubble) {
+        tick.bubble = extras.bubble
+    }
+    if (extras.turn) {
+        tick.turn = extras.turn
     }
     return tick
 }
@@ -149,53 +168,104 @@ function jumpHeight(progress: number, peak: number): number {
     return 4 * peak * progress * (1 - progress)
 }
 
-/** Plans one keyframe per minute for iOS. WidgetKit animates between entries, so each entry is a pose to glide into. */
+type Bit = readonly [() => void, number]
+
+/**
+ * Plans one keyframe per 2-second beat for iOS. WidgetKit animates between entries, so each keyframe is a pose to
+ * glide into. A scene is a few moves in a row, often a line in a speech bubble, then a short pause.
+ */
 class KeyframePlanner {
     readonly keyframes: Tick[] = []
+    private readonly startX: number
     private x: number
     private facing: Facing
     private readonly frameCursors: Record<Pose, number> = { idle: 0, walk: 0, jump: 0, wave: 0, action: 0, fall: 0 }
 
     constructor(private readonly random: Random) {
-        this.x = between(random, 0.3, 0.7)
+        this.startX = roundTo3(between(random, 0.3, 0.7))
+        this.x = this.startX
         this.facing = chance(random, 0.5) ? 'left' : 'right'
     }
 
     plan(): Tick[] {
-        let busy = chance(this.random, 0.5)
-        while (this.keyframes.length < KEYFRAME_COUNT) {
-            // Alternate short bursts of activity with long quiet stretches, so the day has a rhythm.
-            const phaseEnd =
-                this.keyframes.length + (busy ? intBetween(this.random, 8, 24) : intBetween(this.random, 10, 40))
-            while (this.keyframes.length < phaseEnd) {
-                const bit = busy ? pickWeighted(this.random, this.busyBits) : pickWeighted(this.random, this.quietBits)
-                bit()
-            }
-            busy = !busy
+        this.push('idle')
+        while (this.keyframes.length < KEYFRAME_COUNT - FINALE_BEATS) {
+            this.scene()
         }
-        return this.keyframes.slice(0, KEYFRAME_COUNT)
+        // Small moves in place fill the remaining beats, so the walk home ends exactly on the last keyframe.
+        // A dance drifts and can add two beats to the walk home, so it only runs while there is room for that.
+        for (let slack = this.slack(); slack > 4; slack = this.slack()) {
+            if (slack >= 8) {
+                pickWeighted(this.random, this.fillers)()
+            } else {
+                this.lookAround()
+            }
+        }
+        this.rest(this.slack())
+        this.walkHome()
+        return this.keyframes
     }
 
-    private readonly busyBits: readonly (readonly [() => void, number])[] = [
+    private slack(): number {
+        return KEYFRAME_COUNT - this.keyframes.length - this.beatsHome()
+    }
+
+    private readonly moves: readonly Bit[] = [
         [() => this.stroll(intBetween(this.random, 2, 4)), 3],
-        [() => this.strollHopWave(), 2.5],
+        [() => this.zoom(), 1],
         [() => this.hop(), 1.5],
-        [() => this.dance(), 1.5],
+        [() => this.flip(), 1.5],
+        [() => this.flip(true), 0.6],
+        [() => this.strollAndFlip(), 1],
+        [() => this.dance(), 1],
         [() => this.wave(), 1],
-        [() => this.trip(), 0.6],
+        [() => this.trip(), 0.4],
+        [() => this.lookAround(), 0.8],
+    ]
+
+    private readonly fillers: readonly Bit[] = [
+        [() => this.wave(), 1],
         [() => this.lookAround(), 1],
+        [() => this.dance(), 1],
     ]
 
-    private readonly quietBits: readonly (readonly [() => void, number])[] = [
-        [() => this.nap(), 2],
-        [() => this.lookAround(), 2],
-        [() => this.think(), 1.5],
-        [() => this.stroll(intBetween(this.random, 1, 2)), 1],
-    ]
+    private scene(): void {
+        const moves = intBetween(this.random, 2, 4)
+        for (let index = 0; index < moves; index++) {
+            pickWeighted(this.random, this.moves)()
+            if (chance(this.random, 0.25)) {
+                this.rest(1)
+            }
+        }
+        if (chance(this.random, 0.5)) {
+            this.say(pick(this.random, WORK_LINES))
+        }
+        if (chance(this.random, 0.12)) {
+            this.chill()
+        } else {
+            this.rest(intBetween(this.random, 0, 2))
+        }
+    }
 
-    private push(pose: Pose, options: { y?: number; frame?: number; bubble?: string } = {}): void {
+    private push(pose: Pose, options: { y?: number; frame?: number; bubble?: string; turn?: number } = {}): void {
+        const y = options.y ?? 0
+        const last = this.keyframes[this.keyframes.length - 1]
+        // The widget draws a bubble above the head at floor height, so only a hedgehog standing on the floor talks.
+        const grounded = y === 0 && !options.turn && (last?.y ?? 0) === 0
+        const bubble = grounded ? options.bubble : undefined
         const frame = options.frame ?? this.nextFrame(pose)
-        this.keyframes.push(makeTick(pose, frame, this.x, options.y ?? 0, this.facing, options.bubble))
+        this.keyframes.push(makeTick(pose, frame, this.x, y, this.facing, { bubble, turn: options.turn }))
+    }
+
+    /**
+     * Repeats the last keyframe, which the widget merges into one longer entry. The copy drops `turn`, because a
+     * repeated half turn would leave the hedgehog upside down.
+     */
+    private hold(beats: number): void {
+        const last = this.keyframes[this.keyframes.length - 1]
+        for (let index = 0; index < beats && last; index++) {
+            this.keyframes.push(makeTick(last.pose, last.frame, last.x, last.y, last.facing, { bubble: last.bubble }))
+        }
     }
 
     private nextFrame(pose: Pose): number {
@@ -213,6 +283,23 @@ class KeyframePlanner {
         this.x = clampX(target)
     }
 
+    /** Moves along the facing direction, or against it for a negative distance, without turning around. */
+    private move(distance: number): void {
+        this.x = clampX(this.x + direction(this.facing) * distance)
+    }
+
+    private room(backwards: boolean): number {
+        const towardsRight = (this.facing === 'right') !== backwards
+        return towardsRight ? MAX_X - this.x : this.x - MIN_X
+    }
+
+    /** Turns around when the move would hit the edge. The widget is 0.8 wide, so the other side always has room. */
+    private makeRoom(distance: number, backwards = false): void {
+        if (this.room(backwards) < distance) {
+            this.facing = opposite(this.facing)
+        }
+    }
+
     private faceTheOpenSide(): void {
         if (this.x < 0.3) {
             this.facing = 'right'
@@ -226,23 +313,50 @@ class KeyframePlanner {
     private stroll(steps: number): void {
         this.faceTheOpenSide()
         for (let index = 0; index < steps; index++) {
-            this.step(between(this.random, 0.1, 0.2))
-            const bubble = index === 0 && chance(this.random, 0.12) ? pick(this.random, STROLL_LINES) : undefined
+            this.step(between(this.random, 0.12, 0.18))
+            const bubble = index === 0 && chance(this.random, 0.15) ? pick(this.random, STROLL_LINES) : undefined
             this.push('walk', { bubble })
         }
     }
 
+    private zoom(): void {
+        this.faceTheOpenSide()
+        const steps = intBetween(this.random, 3, 4)
+        for (let index = 0; index < steps; index++) {
+            this.step(between(this.random, 0.2, 0.24))
+            this.push('walk')
+        }
+    }
+
     private hop(): void {
-        this.step(between(this.random, 0.1, 0.16))
+        this.makeRoom(0.24)
+        this.move(between(this.random, 0.1, 0.14))
         this.push('jump', { y: between(this.random, 0.3, 0.45) })
-        this.step(between(this.random, 0.06, 0.1))
+        this.move(between(this.random, 0.06, 0.1))
         this.push('jump', { frame: JUMP_LANDED_FRAME })
     }
 
-    private strollHopWave(): void {
-        this.stroll(intBetween(this.random, 2, 3))
-        this.hop()
-        this.wave()
+    /**
+     * Two keyframes: up to the top of the jump with half a turn, then down to the floor with the other half.
+     * `turn` is clockwise on screen, so a front flip turns the way the hedgehog faces and a backflip the other way.
+     */
+    private flip(backwards = false): void {
+        const travel = between(this.random, 0.08, 0.12)
+        this.makeRoom(2 * travel, backwards)
+        const turn = 0.5 * direction(this.facing) * (backwards ? -1 : 1)
+        const distance = backwards ? -travel : travel
+        this.move(distance)
+        this.push('jump', { y: between(this.random, 0.7, 0.85), frame: pick(this.random, JUMP_AIRBORNE_FRAMES), turn })
+        this.move(distance)
+        this.push('jump', { frame: JUMP_LANDED_FRAME, turn })
+        if (chance(this.random, 0.5)) {
+            this.say(pick(this.random, FLIP_LINES), 1)
+        }
+    }
+
+    private strollAndFlip(): void {
+        this.stroll(2)
+        this.flip()
     }
 
     private wave(): void {
@@ -254,11 +368,16 @@ class KeyframePlanner {
     }
 
     private dance(): void {
-        const count = intBetween(this.random, 2, 4)
+        const count = intBetween(this.random, 3, 5)
+        const hopAt = chance(this.random, 0.4) ? intBetween(this.random, 1, count - 2) : -1
         for (let index = 0; index < count; index++) {
             this.x = clampX(this.x + between(this.random, -0.05, 0.05))
             if (chance(this.random, 0.6)) {
                 this.facing = opposite(this.facing)
+            }
+            if (index === hopAt) {
+                this.push('jump', { y: between(this.random, 0.15, 0.22) })
+                continue
             }
             const bubble = index === count - 1 && chance(this.random, 0.4) ? pick(this.random, DANCE_LINES) : undefined
             this.push('action', { bubble })
@@ -267,13 +386,15 @@ class KeyframePlanner {
 
     private trip(): void {
         this.stroll(intBetween(this.random, 1, 2))
-        this.step(0.06)
+        this.step(0.05)
         this.push('fall')
+        this.hold(1)
         this.push('idle', { bubble: pick(this.random, TRIP_LINES) })
+        this.hold(1)
     }
 
     private lookAround(): void {
-        const count = intBetween(this.random, 2, 4)
+        const count = intBetween(this.random, 2, 3)
         for (let index = 0; index < count; index++) {
             if (chance(this.random, 0.7)) {
                 this.facing = opposite(this.facing)
@@ -283,18 +404,46 @@ class KeyframePlanner {
         }
     }
 
-    private think(): void {
-        const count = intBetween(this.random, 1, 3)
-        const line = pick(this.random, WORK_LINES)
-        for (let index = 0; index < count; index++) {
-            this.push('idle', { bubble: index === 0 ? line : undefined })
-        }
+    private say(line: string, beats = 2): void {
+        this.push(chance(this.random, 0.3) ? 'wave' : 'idle', { bubble: line })
+        this.hold(beats - 1)
     }
 
-    private nap(): void {
-        const count = intBetween(this.random, 6, 20)
-        for (let index = 0; index < count; index++) {
-            this.push('idle', { bubble: index % 3 === 1 ? NAP_LINE : undefined })
+    private rest(beats: number): void {
+        if (beats <= 0) {
+            return
+        }
+        this.push('idle')
+        this.hold(beats - 1)
+    }
+
+    /** A longer quiet moment: a nap, or a thought and a look around. */
+    private chill(): void {
+        if (chance(this.random, 0.5)) {
+            const count = intBetween(this.random, 4, 8)
+            for (let index = 0; index < count; index++) {
+                this.push('idle', { bubble: index % 3 === 1 ? NAP_LINE : undefined })
+            }
+            return
+        }
+        this.say(pick(this.random, WORK_LINES))
+        this.lookAround()
+    }
+
+    private beatsHome(): number {
+        return Math.ceil(Math.abs(this.startX - this.x) / HOME_STEP - 0.001)
+    }
+
+    private walkHome(): void {
+        const beats = this.beatsHome()
+        if (beats === 0) {
+            return
+        }
+        const distance = this.startX - this.x
+        this.facing = distance < 0 ? 'left' : 'right'
+        for (let index = 1; index <= beats; index++) {
+            this.x = index === beats ? this.startX : this.x + distance / beats
+            this.push('walk')
         }
     }
 }
@@ -317,9 +466,21 @@ class LoopBuilder {
         this.facing = this.startFacing
     }
 
-    /** Ticks left before the loop reaches its length limit, after leaving room for `reserve` closing ticks. */
-    remaining(reserve = 0): number {
-        return MAX_LOOP_TICKS - this.ticks.length - reserve
+    /**
+     * Runs a routine and keeps it only when it fits with room left for the closing ticks. Every routine ends back
+     * at the start x, so routines chain without a jump.
+     */
+    append(routine: LoopRoutine, random: Random): boolean {
+        const length = this.ticks.length
+        const facing = this.facing
+        routine(this, random)
+        if (this.ticks.length <= MAX_LOOP_TICKS - FINISH_IDLE_TICKS) {
+            return true
+        }
+        this.ticks.length = length
+        this.x = this.startX
+        this.facing = facing
+        return false
     }
 
     hold(pose: Pose, count: number, startFrame = this.continuedFrame(pose)): void {
@@ -393,7 +554,7 @@ class LoopBuilder {
     /** Ends facing the starting way with the feet down, so the restart is seamless. */
     finish(): Tick[] {
         this.turn(this.startFacing)
-        this.hold('idle', Math.max(1, Math.min(FINISH_IDLE_TICKS, this.remaining())))
+        this.hold('idle', Math.max(1, Math.min(FINISH_IDLE_TICKS, MAX_LOOP_TICKS - this.ticks.length)))
         return this.ticks.slice(0, MAX_LOOP_TICKS)
     }
 }
@@ -402,59 +563,53 @@ type LoopRoutine = (loop: LoopBuilder, random: Random) => void
 
 const LOOP_ROUTINES: readonly LoopRoutine[] = [
     function walkOutAndBack(loop, random) {
-        loop.hold('idle', intBetween(random, 3, 6))
+        loop.hold('idle', intBetween(random, 2, 4))
         const speed = between(random, 0.008, 0.012)
         const steps = Math.min(intBetween(random, 14, 24), Math.floor(loop.roomAhead() / speed))
         loop.walk(steps, speed)
         loop.turn()
-        loop.hold('idle', intBetween(random, 3, 8))
+        loop.hold('idle', intBetween(random, 2, 5))
         loop.walkHome(steps)
     },
     function jumpTwice(loop, random) {
-        loop.hold('idle', intBetween(random, 3, 6))
+        loop.hold('idle', intBetween(random, 2, 4))
         loop.jump(between(random, 0.25, 0.4), Math.min(0.08, loop.roomAhead()))
-        loop.hold('idle', intBetween(random, 3, 6))
+        loop.hold('idle', intBetween(random, 2, 4))
         loop.turn()
         loop.jump(between(random, 0.3, 0.45))
         loop.walkHome(8)
-        loop.hold('idle', 4)
     },
     function danceBreak(loop, random) {
-        loop.hold('idle', intBetween(random, 3, 6))
+        loop.hold('idle', intBetween(random, 2, 4))
         loop.dance(intBetween(random, 1, 2) * 2)
     },
     function waveHello(loop, random) {
-        loop.hold('idle', intBetween(random, 3, 6))
+        loop.hold('idle', intBetween(random, 2, 4))
         loop.walk(10, 0.01)
         loop.hold('wave', FRAME_COUNTS.wave)
-        loop.hold('idle', intBetween(random, 3, 6))
         loop.walkHome(10)
     },
     function tripAndRecover(loop, random) {
-        loop.hold('idle', 4)
+        loop.hold('idle', 2)
         const speed = 0.011
         loop.walk(Math.min(18, Math.floor((loop.roomAhead() - 0.03) / speed)), speed)
         loop.fall(0.03)
-        loop.hold('idle', intBetween(random, 6, 10))
+        loop.hold('idle', intBetween(random, 4, 6))
         loop.walkHome(22)
     },
-    function nap(loop) {
-        // finish() appends FINISH_IDLE_TICKS more idle ticks. The total is whole idle cycles, so the animation runs on across the restart.
-        loop.hold('idle', FRAME_COUNTS.idle * 2 - FINISH_IDLE_TICKS)
-    },
     function hopAlong(loop, random) {
-        loop.hold('idle', 4)
+        loop.hold('idle', 2)
         const speed = 0.009
         loop.walk(8, speed)
         loop.jump(between(random, 0.2, 0.3), Math.min(0.08, loop.roomAhead()))
         loop.walk(Math.min(8, Math.floor(loop.roomAhead() / speed)), speed)
-        loop.hold('idle', 6)
+        loop.hold('idle', 3)
         loop.walkHome(28)
     },
     function lookAround(loop, random) {
-        loop.hold('idle', intBetween(random, 6, 10))
+        loop.hold('idle', intBetween(random, 4, 6))
         loop.turn()
-        loop.hold('idle', intBetween(random, 6, 10), 8)
+        loop.hold('idle', intBetween(random, 4, 6), 8)
         loop.turn()
         loop.hold('wave', FRAME_COUNTS.wave)
         loop.jump(between(random, 0.2, 0.3))
@@ -471,24 +626,27 @@ function shuffled<T>(random: Random, items: readonly T[]): T[] {
 }
 
 function planLoops(random: Random): Tick[][] {
-    const order: LoopRoutine[] = []
-    while (order.length < LOOP_COUNT) {
-        const block = shuffled(random, LOOP_ROUTINES)
-        // Avoid the same routine twice in a row where two shuffled blocks meet.
-        if (block[0] === order[order.length - 1]) {
-            block.push(block.shift() as LoopRoutine)
+    const queue: LoopRoutine[] = []
+    const nextRoutine = (): LoopRoutine => {
+        if (queue.length === 0) {
+            queue.push(...shuffled(random, LOOP_ROUTINES))
         }
-        order.push(...block)
+        return queue.shift() as LoopRoutine
     }
-    return order.slice(0, LOOP_COUNT).map((routine) => {
+    return Array.from({ length: LOOP_COUNT }, () => {
         const loop = new LoopBuilder(random)
-        routine(loop, random)
+        // Chain routines until the next one does not fit, so the hedgehog stays busy for the whole loop.
+        let fits = true
+        while (fits) {
+            fits = loop.append(nextRoutine(), random)
+        }
         return loop.finish()
     })
 }
 
 // Reactions play wherever the hedgehog stands, so they start at the centre and stay there. A renderer can shift
-// every x by its current position minus 0.5.
+// every x by its current position minus 0.5. They are authored facing right, so a renderer that turns them to face
+// left also negates `turn`.
 function planReaction(random: Random): Choreography['reaction'] {
     const greeting = pick(random, GREETINGS)
     const peak = 0.4
@@ -498,9 +656,10 @@ function planReaction(random: Random): Choreography['reaction'] {
     const waveTicks = Array.from({ length: 20 }, (_, index) => makeTick('wave', index, 0.5, 0, 'right'))
     return {
         keyframes: [
-            makeTick('jump', JUMP_AIRBORNE_FRAMES[0], 0.5, peak, 'right'),
-            makeTick('wave', 10, 0.5, 0, 'right', greeting),
-            makeTick('wave', 16, 0.5, 0, 'right', greeting),
+            makeTick('jump', JUMP_AIRBORNE_FRAMES[0], 0.5, 0.8, 'right', { turn: 0.5 }),
+            makeTick('jump', JUMP_LANDED_FRAME, 0.5, 0, 'right', { turn: 0.5 }),
+            makeTick('wave', 10, 0.5, 0, 'right', { bubble: greeting }),
+            makeTick('wave', 16, 0.5, 0, 'right', { bubble: greeting }),
         ],
         ticks: [...jumpTicks, ...waveTicks],
     }
@@ -518,7 +677,7 @@ export function createChoreography(options: { seed: number; startsAt: Date; gene
         seed: options.seed,
         generatedAt: (options.generatedAt ?? new Date()).toISOString(),
         startsAt: options.startsAt.toISOString(),
-        keyframeSec: 60,
+        keyframeSec: KEYFRAME_SEC,
         keyframes: new KeyframePlanner(random).plan(),
         tickMs: 120,
         loopMinutes: 10,

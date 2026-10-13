@@ -10,6 +10,9 @@ import { isAvailable, setChoreography } from '../../../modules/hedgehog-widget'
 import { createChoreography, dailySeed } from './choreography'
 
 const SEED_KEY = 'hedgehog_widget_seed'
+// Stored with the seed. Bump it when createChoreography writes a different script, so that a device that synced
+// today with the old app writes the new script after the update instead of the next day.
+const SCRIPT_REVISION = 2
 
 let inFlight: Promise<void> | null = null
 
@@ -31,12 +34,13 @@ async function runSync(now: Date): Promise<void> {
             return
         }
         const seed = dailySeed(now)
-        if ((await AsyncStorage.getItem(SEED_KEY)) === String(seed)) {
+        const stamp = `${SCRIPT_REVISION}:${seed}`
+        if ((await AsyncStorage.getItem(SEED_KEY)) === stamp) {
             return
         }
         const startsAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
         setChoreography(JSON.stringify(createChoreography({ seed, startsAt, generatedAt: now })))
-        await AsyncStorage.setItem(SEED_KEY, String(seed))
+        await AsyncStorage.setItem(SEED_KEY, stamp)
         track('mobile_hedgehog_widget_synced', { seed })
     } catch {
         // The widget keeps its last script or its built-in routine, so a failed sync must not reach the app.
