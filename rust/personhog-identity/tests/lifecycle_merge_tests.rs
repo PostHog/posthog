@@ -2478,6 +2478,40 @@ async fn a_source_the_leader_marks_identified_is_not_an_eligible_survivor_while_
 }
 
 #[tokio::test]
+async fn a_source_destroyed_on_the_leader_is_skipped_and_the_target_is_born() {
+    // The identity row still resolves the source; the leader has destroyed it.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h.ctx.insert_person_with_distinct_id("dead-source").await;
+    h.leader.declare_dead(h.ctx.team_id, source).await;
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        "dead-target",
+        &["dead-source"],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "dead-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("dead-source".to_string(), MergeSourceOutcome::Error)]
+    );
+    assert_eq!(h.leader.identified_reads(), vec![source]);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_target() {
     let h = MergeHarness::new().await;
     let service = h.service();

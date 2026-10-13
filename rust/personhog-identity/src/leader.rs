@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use tonic::Status;
+use tonic::{Code, Status};
 
 use personhog_common::client::RouterClient;
 use personhog_proto::personhog::types::v1::{
@@ -19,9 +19,12 @@ pub trait PersonStateReader: Send + Sync {
 #[async_trait]
 impl PersonStateReader for RouterClient {
     async fn is_identified(&self, team_id: i64, person_id: i64) -> Result<Option<bool>, Status> {
-        let person =
-            RouterClient::get_person(self, team_id, person_id, ConsistencyLevel::Strong).await?;
-        Ok(person.map(|person| person.is_identified))
+        match RouterClient::get_person(self, team_id, person_id, ConsistencyLevel::Strong).await {
+            Ok(person) => Ok(person.map(|person| person.is_identified)),
+            // The leader answers NOT_FOUND for a destroyed or absent person.
+            Err(status) if status.code() == Code::NotFound => Ok(None),
+            Err(status) => Err(status),
+        }
     }
 }
 

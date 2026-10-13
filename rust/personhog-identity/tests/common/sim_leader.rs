@@ -211,6 +211,23 @@ impl SimLeader {
         self.last_seen.lock().unwrap().insert(person_id, epoch);
     }
 
+    /// Destroy a live person on the leader only; its Postgres row stays.
+    pub async fn declare_dead(&self, team_id: i64, person_id: i64) {
+        let person = self
+            .live_person(team_id, person_id)
+            .await
+            .expect("person must be live to be destroyed");
+        self.deaths.lock().unwrap().insert(
+            person_id,
+            DeathDocument {
+                person_id,
+                person_uuid: person.uuid,
+                version: person.version,
+                created_at: person.created_at,
+            },
+        );
+    }
+
     pub fn fence_for(&self, person_id: i64) -> Option<Fence> {
         self.fences.lock().unwrap().get(&person_id).copied()
     }
