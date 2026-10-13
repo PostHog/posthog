@@ -1,3 +1,6 @@
+import { agentConversationEventToAcpNotification } from '@posthog/agent-contracts/acp-conversation'
+import type { AgentConversationEvent } from '@posthog/agent-contracts/agent-conversation'
+
 import { ReasoningEffortEnumApi, type TaskRunCommandRequestApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
@@ -78,87 +81,16 @@ export function isPiWireEntry(value: unknown): value is Record<string, unknown> 
     return isRecord(value) && typeof value.type === 'string' && PI_WIRE_TYPES.has(value.type)
 }
 
-/**
- * A Pi tool call already carries the renderer contract in `_meta.posthog` (the agent-facing tool name,
- * the MCP descriptor, the proxied MCP call), so the record maps onto the ACP update field by field. A
- * title equal to the raw tool name says nothing a renderer does not know, so it is left out.
- */
-function toolCallUpdate(sessionUpdate: 'tool_call' | 'tool_call_update', toolCall: unknown): Notification | null {
-    if (!isRecord(toolCall) || typeof toolCall.id !== 'string' || !toolCall.id) {
-        return null
-    }
-    const update: Record<string, unknown> = { sessionUpdate, toolCallId: toolCall.id }
-    for (const field of ['kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta'] as const) {
-        if (toolCall[field] !== undefined && toolCall[field] !== null) {
-            update[field] = toolCall[field]
-        }
-    }
-    const title = optionalString(toolCall.title)
-    if (title && title !== toolCall.name) {
-        update.title = title
-    }
-    return { method: 'session/update', params: { update } }
-}
-
 function conversationEventNotification(event: unknown): Notification | null {
     if (!isRecord(event)) {
         return null
     }
-    switch (event.type) {
-        case 'user_message':
-            return { method: '_posthog/user_message', params: { content: event.content } }
-        case 'assistant_message_chunk':
-            return {
-                method: 'session/update',
-                params: { update: { sessionUpdate: 'agent_message_chunk', content: event.content } },
-            }
-        case 'assistant_thought_chunk':
-            return {
-                method: 'session/update',
-                params: { update: { sessionUpdate: 'agent_thought_chunk', content: event.content } },
-            }
-        case 'tool_call_started':
-            return toolCallUpdate('tool_call', event.toolCall)
-        case 'tool_call_updated':
-            return toolCallUpdate('tool_call_update', event.toolCall)
-        case 'progress':
-            return {
-                method: '_posthog/progress',
-                params: {
-                    step: event.step,
-                    status: event.status,
-                    label: event.label,
-                    group: event.group,
-                    ...(event.detail !== undefined ? { detail: event.detail } : {}),
-                },
-            }
-        case 'runtime_status':
-            return {
-                method: '_posthog/status',
-                params: {
-                    status: event.status,
-                    isComplete: event.isComplete === true,
-                    ...(event.error !== undefined ? { error: event.error } : {}),
-                },
-            }
-        case 'runtime_error':
-            return { method: '_posthog/error', params: { message: event.message, errorType: event.errorType } }
-        case 'turn_completed':
-            return {
-                method: '_posthog/turn_complete',
-                params: {
-                    stopReason: event.stopReason === 'aborted' ? 'cancelled' : event.stopReason,
-                    ...(isRecord(event.usage) ? { usage: event.usage } : {}),
-                },
-            }
-        case 'queue_update':
-            return {
-                method: '_posthog/pi_queue_update',
-                params: { steering: event.steering, followUp: event.followUp },
-            }
-        default:
-            return null
+    const notification = agentConversationEventToAcpNotification(event as unknown as AgentConversationEvent)
+    const update = notification?.params.update
+    if (isRecord(update) && update.title === update.name) {
+        delete update.title
     }
+    return notification
 }
 
 function extensionQuestionRequest(message: Record<string, unknown>, id: string, method: string): Notification {

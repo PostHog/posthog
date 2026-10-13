@@ -3,36 +3,6 @@ import { buildPiPermissionCommand, PI_EXTENSION_UI_META_KEY, translatePiWireEntr
 describe('piWire', () => {
     test.each([
         {
-            caseName: 'user message',
-            event: { type: 'user_message', id: 'u1', timestamp: 1, content: [{ type: 'text', text: 'hi' }] },
-            expected: { method: '_posthog/user_message', params: { content: [{ type: 'text', text: 'hi' }] } },
-        },
-        {
-            caseName: 'user message with an attachment',
-            event: {
-                type: 'user_message',
-                id: 'u1',
-                timestamp: 1,
-                content: [
-                    { type: 'text', text: 'Check this' },
-                    { type: 'resource_link', uri: 'file:///w/.posthog/attachments/run/a/notes.md', name: 'notes.md' },
-                ],
-            },
-            expected: {
-                method: '_posthog/user_message',
-                params: {
-                    content: [
-                        { type: 'text', text: 'Check this' },
-                        {
-                            type: 'resource_link',
-                            uri: 'file:///w/.posthog/attachments/run/a/notes.md',
-                            name: 'notes.md',
-                        },
-                    ],
-                },
-            },
-        },
-        {
             caseName: 'assistant chunk',
             event: { type: 'assistant_message_chunk', timestamp: 1, content: { type: 'text', text: 'yo' } },
             expected: {
@@ -41,7 +11,7 @@ describe('piWire', () => {
             },
         },
         {
-            caseName: 'tool start, keeping the tool meta the server named it with',
+            caseName: 'tool start whose title only repeats the tool name',
             event: {
                 type: 'tool_call_started',
                 timestamp: 1,
@@ -50,9 +20,7 @@ describe('piWire', () => {
                     name: 'read',
                     title: 'read',
                     kind: 'read',
-                    status: 'pending',
                     rawInput: { path: 'a.ts' },
-                    locations: [{ path: 'a.ts' }],
                     _meta: { posthog: { toolName: 'Read' } },
                 },
             },
@@ -62,17 +30,16 @@ describe('piWire', () => {
                     update: {
                         sessionUpdate: 'tool_call',
                         toolCallId: 't1',
+                        name: 'read',
                         kind: 'read',
-                        status: 'pending',
                         rawInput: { path: 'a.ts' },
-                        locations: [{ path: 'a.ts' }],
                         _meta: { posthog: { toolName: 'Read' } },
                     },
                 },
             },
         },
         {
-            caseName: 'user shell command keeps the command as its title',
+            caseName: 'user shell command, which keeps the command as its title',
             event: {
                 type: 'tool_call_started',
                 timestamp: 1,
@@ -90,49 +57,6 @@ describe('piWire', () => {
                     },
                 },
             },
-        },
-        {
-            caseName: 'tool start from an older server, which names no tool meta',
-            event: {
-                type: 'tool_call_started',
-                timestamp: 1,
-                toolCall: { id: 't3', name: 'mcp', title: 'mcp', details: { kind: 'search', query: 'issue' } },
-            },
-            expected: {
-                method: 'session/update',
-                params: { update: { sessionUpdate: 'tool_call', toolCallId: 't3' } },
-            },
-        },
-        {
-            caseName: 'tool update',
-            event: { type: 'tool_call_updated', timestamp: 1, toolCall: { id: 't1', status: 'completed' } },
-            expected: {
-                method: 'session/update',
-                params: { update: { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' } },
-            },
-        },
-        {
-            caseName: 'legacy aborted turn',
-            event: { type: 'turn_completed', timestamp: 1, stopReason: 'aborted' },
-            expected: { method: '_posthog/turn_complete', params: { stopReason: 'cancelled' } },
-        },
-        {
-            caseName: 'turn with usage',
-            event: { type: 'turn_completed', timestamp: 1, stopReason: 'end_turn', usage: { inputTokens: 5 } },
-            expected: {
-                method: '_posthog/turn_complete',
-                params: { stopReason: 'end_turn', usage: { inputTokens: 5 } },
-            },
-        },
-        {
-            caseName: 'runtime error',
-            event: { type: 'runtime_error', timestamp: 1, errorType: 'pi_runtime', message: 'boom' },
-            expected: { method: '_posthog/error', params: { message: 'boom', errorType: 'pi_runtime' } },
-        },
-        {
-            caseName: 'retry status',
-            event: { type: 'runtime_status', timestamp: 1, status: 'retrying' },
-            expected: { method: '_posthog/status', params: { status: 'retrying', isComplete: false } },
         },
     ])('translates a Pi $caseName event', ({ event, expected }) => {
         expect(
