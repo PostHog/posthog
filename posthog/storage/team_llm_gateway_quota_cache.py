@@ -9,7 +9,7 @@ the billed team only as an id.
 import os
 import json
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from itertools import batched
 from typing import Any, NamedTuple
@@ -109,9 +109,10 @@ def _enabled() -> bool:
     return bool(settings.AI_GATEWAY_REDIS_URL)
 
 
-def deactivated_teams_needing_a_blob() -> QuerySet[Team]:
+def deactivated_team_ids_needing_a_blob(team_ids: Collection[int] | None = None) -> set[int]:
     """Teams of deactivated orgs that can still spend at the gateway: tokens minted within the
     deactivated window are live, or the team has a standing gateway credential."""
+    from posthog.models.oauth import OAuthApplication  # noqa: PLC0415
     from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
     from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_REQUIRED_SCOPE  # noqa: PLC0415
 
@@ -122,16 +123,22 @@ def deactivated_teams_needing_a_blob() -> QuerySet[Team]:
         .annotate(root_team_id=Coalesce("team__parent_team_id", "team_id"))
         .values("root_team_id")
     )
-    return (
-        Team.objects.filter(organization__is_active=False)
-        .filter(
-            Q(organization__updated_at__gte=recent)
-            | Q(llm_gateway_enabled_at__isnull=False, llm_gateway_revoked_at__isnull=True)
-            | Q(id__in=key_roots)
-            | Q(organization__oauth_applications__isnull=False)
-        )
-        .distinct()
+    teams = Team.objects.filter(organization__is_active=False)
+    if team_ids is not None:
+        teams = teams.filter(id__in=team_ids)
+    # One read per condition: an OR across these tables cannot use an index and scans every team.
+    reads = (
+        teams.filter(organization__updated_at__gte=recent),
+        teams.filter(llm_gateway_enabled_at__isnull=False, llm_gateway_revoked_at__isnull=True),
+        teams.filter(id__in=key_roots),
+        teams.filter(
+            organization_id__in=OAuthApplication.objects.filter(organization_id__isnull=False).values("organization_id")
+        ),
     )
+    ids: set[int] = set()
+    for read in reads:
+        ids.update(read.values_list("id", flat=True))
+    return ids
 
 
 def _derive_blobs(teams: list[Team], now: datetime) -> dict[int, dict[str, Any] | None]:
@@ -143,11 +150,7 @@ def _derive_blobs(teams: list[Team], now: datetime) -> dict[int, dict[str, Any] 
     )
     active = {team.id: active_by_org.get(team.organization_id) is not False for team in teams}
     inactive_ids = [team.id for team in teams if not active[team.id]]
-    reachable = (
-        set(deactivated_teams_needing_a_blob().filter(id__in=inactive_ids).values_list("id", flat=True))
-        if inactive_ids
-        else set()
-    )
+    reachable = deactivated_team_ids_needing_a_blob(inactive_ids) if inactive_ids else set()
     limited = get_teams_limited_until([team.api_token for team in teams if active[team.id]], AI_GATEWAY_QUOTA_BUCKETS)
     blobs: dict[int, dict[str, Any] | None] = {}
     for team in teams:
@@ -338,7 +341,7 @@ def reconcile_quota_projection() -> dict[str, int]:
     # Only deactivated teams that can still spend keep a blob. A present one is left until its
     # window, so the tick does not rewrite every deactivated team; one that can no longer spend
     # is re-projected once, which deletes it.
-    reachable = set(deactivated_teams_needing_a_blob().values_list("id", flat=True))
+    reachable = deactivated_team_ids_needing_a_blob()
     ids = (
         expiring
         | (set(have_active) - deactivated_have)
