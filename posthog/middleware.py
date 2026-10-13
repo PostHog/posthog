@@ -22,6 +22,7 @@ from django.db import (
 )
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http.response import HttpResponseBase
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
@@ -30,6 +31,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+from corsheaders.middleware import CorsMiddleware
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -311,6 +313,26 @@ _OAUTH_CORS_PATHS = frozenset(
 )
 
 
+class QueryRequestIdCorsMiddleware(CorsMiddleware):
+    """Preserve query-specific exposed headers alongside configured CORS headers."""
+
+    def add_response_headers(self, request: HttpRequest, response: HttpResponseBase) -> HttpResponseBase:
+        query_exposures = response.get("Access-Control-Expose-Headers", "")
+        response = super().add_response_headers(request, response)
+        request_id = getattr(response, "_posthog_query_request_id", None)
+        if (
+            isinstance(request_id, uuid.UUID)
+            and response.get("X-Request-ID") == str(request_id)
+            and response.has_header("Access-Control-Allow-Origin")
+        ):
+            exposures: dict[str, str] = {}
+            for header in f"{response.get('Access-Control-Expose-Headers', '')},{query_exposures}".split(","):
+                if header := header.strip():
+                    exposures.setdefault(header.lower(), header)
+            response["Access-Control-Expose-Headers"] = ", ".join(exposures.values())
+        return response
+
+
 class OAuthCorsPreflightMiddleware:
     """Echo back all requested headers for OAuth CORS preflights.
 
@@ -565,9 +587,13 @@ class CHQueries:
 
         user = cast(User, request.user)
 
-        with suppress(Exception):
-            if request_id := structlog.get_context(self.logger).get("request_id"):
-                tag_queries(http_request_id=uuid.UUID(request_id))
+        http_request_id: uuid.UUID | None = None
+        with suppress(ValueError):
+            if isinstance(
+                request_id := structlog.contextvars.get_merged_contextvars(self.logger).get("request_id"), str
+            ):
+                http_request_id = uuid.UUID(request_id)
+        tag_queries(http_request_id=http_request_id)
 
         tag_queries(
             user_id=user.pk,
@@ -649,7 +675,7 @@ class QueryTimeCountingMiddleware:
         with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
             response: HttpResponse = self.get_response(request)
 
-        response.headers["Server-Timing"] = self._construct_header(
+        server_timing = self._construct_header(
             durations_ms={
                 "django": (time.perf_counter() - start_time) * 1000,
                 "pg": pg_query_counter.query_time_ms,
@@ -664,6 +690,9 @@ class QueryTimeCountingMiddleware:
                 "ch_slow": ch_query_counter.slow_count,
             },
         )
+        if existing_server_timing := response.headers.get("Server-Timing"):
+            server_timing = f"{existing_server_timing}, {server_timing}"
+        response.headers["Server-Timing"] = server_timing
         return response
 
     def _construct_header(self, durations_ms: dict[str, float], counts: dict[str, int]) -> str:

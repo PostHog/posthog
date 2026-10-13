@@ -1,6 +1,7 @@
 import re
 from time import perf_counter
 from typing import Any, NoReturn
+from uuid import UUID
 
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -232,6 +233,23 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
     return None
 
 
+def add_query_response_identity_headers(response: Response) -> Response:
+    if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
+        response["X-Request-ID"] = str(http_request_id)
+        # Internal marker lets CORS preserve query exposures without affecting other responses.
+        vars(response)["_posthog_query_request_id"] = http_request_id
+        request_id_timing = f'request_id;desc="{http_request_id}"'
+        if existing_server_timing := response.get("Server-Timing"):
+            request_id_timing = f"{existing_server_timing}, {request_id_timing}"
+        response["Server-Timing"] = request_id_timing
+        exposed_headers = response.get("Access-Control-Expose-Headers", "")
+        if "x-request-id" not in {header.strip().lower() for header in exposed_headers.split(",")}:
+            response["Access-Control-Expose-Headers"] = ", ".join(
+                header for header in (exposed_headers, "X-Request-ID") if header
+            )
+    return response
+
+
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -240,6 +258,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         if getattr(view, "action", None) != "create":
@@ -309,7 +330,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 _mark_explicit_date_boundaries(query)
 
             self._tag_client_query_id(client_query_id)
-            analytics_props = get_request_analytics_properties(request)
+            analytics_props = get_request_analytics_properties(request, include_http_request_id=True)
             query_dict = query.model_dump()
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:

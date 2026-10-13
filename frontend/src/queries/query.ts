@@ -1,5 +1,6 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { ApiRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
@@ -73,6 +74,7 @@ const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavail
 const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
 const TRANSIENT_SUBMIT_RETRY_BUDGET_MS = 20_000
+const MAX_RECORDED_SUBMIT_TIMINGS = 6
 
 type QuerySubmitTelemetry = {
     client_query_id?: string
@@ -80,6 +82,7 @@ type QuerySubmitTelemetry = {
     retry_wait_ms: number
     retry_status: number | null
     retry_recovered: boolean
+    request_timings: ApiRequestTiming[]
 }
 
 function capacityWaitMs(error: unknown): number | undefined {
@@ -256,7 +259,15 @@ async function executeQuery<N extends DataNode>(
                 const requestStartedAt = performance.now()
                 try {
                     return await api.query(queryNode, {
-                        requestOptions: methodOptions,
+                        requestOptions: {
+                            ...methodOptions,
+                            onRequestTiming: (timing) => {
+                                if (submitTelemetry.request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
+                                    submitTelemetry.request_timings.push(timing)
+                                }
+                                methodOptions?.onRequestTiming?.(timing)
+                            },
+                        },
                         clientQueryId,
                         refresh: refreshParam,
                         filtersOverride,
@@ -376,6 +387,7 @@ export async function performQuery<N extends DataNode>(
         retry_wait_ms: 0,
         retry_status: null,
         retry_recovered: false,
+        request_timings: [],
     }
     const startTime = performance.now()
 

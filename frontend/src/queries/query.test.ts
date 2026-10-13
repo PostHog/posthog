@@ -109,6 +109,15 @@ describe('query', () => {
             retry_wait_ms: expect.any(Number),
             retry_status: null,
             retry_recovered: false,
+            request_timings: [
+                expect.objectContaining({
+                    request_total_ms: expect.any(Number),
+                    time_to_headers_ms: expect.any(Number),
+                    body_read_ms: expect.any(Number),
+                    json_parse_ms: expect.any(Number),
+                    http_status: 200,
+                }),
+            ],
         })
     })
 
@@ -127,6 +136,32 @@ describe('query', () => {
             duration: expect.any(Number),
             clickhouse_sql: expect.any(String),
             is_cached: false,
+        })
+    })
+
+    it('keeps each retry timing on the existing completion event and calls the supplied observer', async () => {
+        let attempts = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () =>
+                    ++attempts === 1 ? [502, { detail: 'temporarily unavailable' }] : [200, { results: [] }],
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+        const observer = jest.fn()
+        const query: HogQLQuery = { kind: NodeKind.HogQLQuery, query: 'select 1' }
+
+        await expect(performQuery(query, { onRequestTiming: observer })).resolves.toMatchObject({ results: [] })
+
+        expect(observer).toHaveBeenCalledTimes(2)
+        const completed = captureSpy.mock.calls.filter(([event]) => event === 'query completed')
+        expect(completed).toHaveLength(1)
+        expect(completed[0][1]).toMatchObject({
+            submit_attempts: 2,
+            request_timings: [
+                expect.objectContaining({ http_status: 502, request_total_ms: expect.any(Number) }),
+                expect.objectContaining({ http_status: 200, body_read_ms: expect.any(Number) }),
+            ],
         })
     })
 
@@ -167,6 +202,7 @@ describe('query', () => {
             duration: expect.any(Number),
             error_status: 500,
             error_code: null,
+            request_timings: [expect.objectContaining({ request_total_ms: expect.any(Number), http_status: 500 })],
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
