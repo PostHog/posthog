@@ -20,7 +20,7 @@ from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
-from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH
+from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -460,6 +460,12 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "local midnight. Always false when max_reports_per_day is null."
         )
     )
+
+    def to_representation(self, instance: SignalTeamConfig) -> dict[str, object]:
+        representation = dict(super().to_representation(instance))
+        for field in STEERING_FIELDS.values():
+            representation[field] = representation[field] or ""
+        return representation
 
     def validate_pull_request_label(self, value: str | None) -> str | None:
         # One stored shape for "use the default", so a team that clears the box does not get a

@@ -77,11 +77,14 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert self.config.autostart_enabled is False
         assert self.config.research_instructions == "Check product intent."
 
-    def test_get_config_includes_default_slack_notification_channel(self):
+    def test_get_config_includes_default_settings(self):
         response = self.client.get(self._url())
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] is None
+        for field in STEERING_FIELDS.values():
+            assert getattr(self.config, field) is None
+            assert data[field] == ""
         assert data["default_autostart_priority"] == "P4"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
