@@ -242,7 +242,8 @@ dev = [
     "flameprof~=0.4",
     "hypothesis~=6.151.9",
     "pyinstrument~=5.1",
-    "pytest-rerunfailures~=16.7",
+    # 16.6.1 and later write a retried failure to JUnit as an extra passing <testcase>, which reads as pass-on-retry.
+    "pytest-rerunfailures==16.6",
     "time-machine==3.5.1",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
