@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: da45d6d550708bee
+# Content digest: 7f3d3bcec2f7f035
 model
   schema 1.1
 
@@ -72,24 +72,31 @@ type project
     define default_member: [user:*]
     define default_admin: [user:*]
     define default_owner: [user:*]
-    define member_override: member_none or member_member or member_admin or member_owner
-    define role_override: role_none or role_member or role_admin or role_owner
-    define default_override: default_none or default_member or default_admin or default_owner
-    define has_rule: member_override or role_override or default_override
-    define rule_member: member_member or member_admin or member_owner or ((role_member or role_admin or role_owner) but not member_override) or ((default_member or default_admin or default_owner) but not (member_override or role_override))
-    define rule_admin: member_admin or member_owner or ((role_admin or role_owner) but not member_override) or ((default_admin or default_owner) but not (member_override or role_override))
+    define member_admin_or_higher: member_admin or member_owner
+    define member_member_or_higher: member_member or member_admin_or_higher
+    define member_override: member_none or member_member_or_higher
+    define role_admin_or_higher: role_admin or role_owner
+    define role_member_or_higher: role_member or role_admin_or_higher
+    define role_override: role_none or role_member_or_higher
+    define default_admin_or_higher: default_admin or default_owner
+    define default_member_or_higher: default_member or default_admin_or_higher
+    define default_override: default_none or default_member_or_higher
+    define member_or_role_override: member_override or role_override
+    define has_rule: member_or_role_override or default_override
+    define rule_member: member_member_or_higher or (role_member_or_higher but not member_override) or (default_member_or_higher but not member_or_role_override)
+    define rule_admin: member_admin_or_higher or (role_admin_or_higher but not member_override) or (default_admin_or_higher but not member_or_role_override)
+    define rule_owner: member_owner or (role_owner but not member_override) or (default_owner but not member_or_role_override)
     define org_member: member from organization
     define org_admin: admin from organization
     define access_control_enabled: access_control_enabled from organization
     define member: org_admin or (org_member and ((rule_member and access_control_enabled) or (org_member but not access_control_enabled) or (org_member but not has_rule)))
     define admin: org_admin or (org_member and access_control_enabled and (rule_admin or (org_member but not has_rule)))
-    define owner: org_admin or (org_member and access_control_enabled and (member_owner or (role_owner but not member_override) or (default_owner but not (member_override or role_override))))
+    define owner: org_admin or (org_member and access_control_enabled and rule_owner)
     # The implicit project-admin default must not grant access-management rights.
     define can_manage_access: org_admin or (member and (creator or (rule_admin and access_control_enabled)))
     define can_view: member
     define can_edit: admin
     define can_delete: admin
-
 # A rule's presence blocks inheritance even if it grants none or a lower level.
 type access_policy
   relations
@@ -106,14 +113,20 @@ type access_policy
     define default_viewer: [user:*]
     define default_editor: [user:*]
     define default_manager: [user:*]
-    define member_override: member_none or member_viewer or member_editor or member_manager
-    define role_override: role_none or role_viewer or role_editor or role_manager
-    define default_override: default_none or default_viewer or default_editor or default_manager
-    define has_rule: (member_override or role_override or default_override) and access_control_enabled from organization
-    define viewer: (member_viewer or member_editor or member_manager or ((role_viewer or role_editor or role_manager) but not member_override) or ((default_viewer or default_editor or default_manager) but not (member_override or role_override))) and has_rule
-    define editor: (member_editor or member_manager or ((role_editor or role_manager) but not member_override) or ((default_editor or default_manager) but not (member_override or role_override))) and has_rule
-    define manager: (member_manager or (role_manager but not member_override) or (default_manager but not (member_override or role_override))) and has_rule
-
+    define member_editor_or_higher: member_editor or member_manager
+    define member_viewer_or_higher: member_viewer or member_editor_or_higher
+    define member_override: member_none or member_viewer_or_higher
+    define role_editor_or_higher: role_editor or role_manager
+    define role_viewer_or_higher: role_viewer or role_editor_or_higher
+    define role_override: role_none or role_viewer_or_higher
+    define default_editor_or_higher: default_editor or default_manager
+    define default_viewer_or_higher: default_viewer or default_editor_or_higher
+    define default_override: default_none or default_viewer_or_higher
+    define member_or_role_override: member_override or role_override
+    define has_rule: (member_or_role_override or default_override) and access_control_enabled from organization
+    define viewer: (member_viewer_or_higher or (role_viewer_or_higher but not member_override) or (default_viewer_or_higher but not member_or_role_override)) and has_rule
+    define editor: (member_editor_or_higher or (role_editor_or_higher but not member_override) or (default_editor_or_higher but not member_or_role_override)) and has_rule
+    define manager: (member_manager or (role_manager but not member_override) or (default_manager but not member_or_role_override)) and has_rule
 type resource_category
   relations
     define project: [project]
