@@ -2145,7 +2145,10 @@ export const ScannersListFreeCreditsUsed: StoryObj = {
 // The status strip explains the free-credits stop and how to keep scanning.
 export const ScannerOverviewFreeCreditsUsed: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
-    decorators: [overviewDecorator({ ...freeOnlyLimitReachedScanner, id: summarizerScanner.id }, summarizerStats)],
+    decorators: [
+        overviewDecorator({ ...freeOnlyLimitReachedScanner, id: summarizerScanner.id }, summarizerStats),
+        mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
+    ],
 }
 
 // Plenty of free credits left: the forecast still caps this scanner at what they cover.

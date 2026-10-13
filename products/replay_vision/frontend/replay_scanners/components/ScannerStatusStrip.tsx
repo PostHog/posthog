@@ -137,7 +137,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
     })
     const { label, tone, detail } = statusCopy(status, quotaState.kind ? quotaState.resetsOn : null)
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
-    const spend = spendAgainstLimit(scanner)
+    const spend = spendAgainstLimit(scanner, quota)
 
     return (
         // min-h-38 matches the empty scout card beside it, so the two line up when there is no report yet.
@@ -188,7 +188,9 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                 </div>
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="font-semibold">Spending limit for this scanner</span>
+                        <span className="font-semibold">
+                            {spend?.freeCredits ? 'Free credits only' : 'Spending limit for this scanner'}
+                        </span>
                         {spend && <span className="text-xs text-muted tabular-nums">{spend.usedPct}%</span>}
                     </div>
                     {spend ? (
@@ -198,7 +200,9 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                 strokeColor={scanner.limit_reached ? 'var(--danger)' : undefined}
                             />
                             <span className="text-xs text-muted tabular-nums">
-                                {formatCreditsRange(spend.used, spend.limit)} used this billing period
+                                {spend.freeCredits
+                                    ? `Your organization used ${Math.min(spend.used, spend.limit).toLocaleString('en-US')} of its ${spend.limit.toLocaleString('en-US')} free credits this billing period. This scanner stops when they run out.`
+                                    : `${formatCreditsRange(spend.used, spend.limit)} used this billing period`}
                             </span>
                         </>
                     ) : (

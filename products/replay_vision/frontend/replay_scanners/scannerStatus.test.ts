@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { makeQuota } from '../utils/quotaTestUtils'
 import { ScannerStatusFields, scannerStatus, spendAgainstLimit } from './scannerStatus'
 
 const NOW = dayjs('2026-05-12T12:00:00Z')
@@ -81,5 +82,20 @@ describe('scannerStatus', () => {
         [0, 0, { limit: 0, used: 0, usedPct: 0 }],
     ])('spend against a limit of %s with %s used', (credit_limit, credits_used_against_limit, expected) => {
         expect(spendAgainstLimit({ credit_limit, credits_used_against_limit })).toEqual(expected)
+    })
+
+    test.each([
+        ['org free credits', { credit_limit: 10_000 }, { limit: 2_500, used: 600, usedPct: 24, freeCredits: true }],
+        [
+            'org limit below the free credits',
+            { credit_limit: 1_000 },
+            { limit: 1_000, used: 600, usedPct: 60, freeCredits: true },
+        ],
+        ['uncapped org', { credit_limit: null }, { limit: 2_500, used: 600, usedPct: 24, freeCredits: true }],
+    ])('free-only spend against the %s', (_name, quotaOverrides, expected) => {
+        const quota = makeQuota({ credits_used: 600, ...quotaOverrides })
+        expect(
+            spendAgainstLimit({ credit_limit: null, credits_used_against_limit: 0, free_only: true }, quota)
+        ).toEqual(expected)
     })
 })

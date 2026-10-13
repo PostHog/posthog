@@ -1,5 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
+import type { VisionQuotaApi } from '../generated/api.schemas'
 import type { ScanDrought } from './scanDrought'
 import type { ReplayScanner } from './types'
 
@@ -79,15 +80,26 @@ export interface SpendAgainstLimit {
     limit: number
     used: number
     usedPct: number
+    /** True when the limit is the organization's free credits, not the scanner's own. */
+    freeCredits?: boolean
 }
 
 export function spendAgainstLimit(
-    scanner: Pick<ReplayScanner, 'credit_limit' | 'credits_used_against_limit'>
+    scanner: Pick<ReplayScanner, 'credit_limit' | 'credits_used_against_limit'> & { free_only?: boolean },
+    quota: VisionQuotaApi | null = null
 ): SpendAgainstLimit | null {
+    const usedPct = (used: number, limit: number): number =>
+        limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
     const limit = scanner.credit_limit
     if (limit == null) {
-        return null
+        if (!scanner.free_only || !quota) {
+            return null
+        }
+        // A free-only scanner with no limit of its own draws on the organization's free credits.
+        const freeLimit = Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity)
+        const used = quota.credits_used
+        return { limit: freeLimit, used, usedPct: usedPct(used, freeLimit), freeCredits: true }
     }
     const used = scanner.credits_used_against_limit
-    return { limit, used, usedPct: limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0 }
+    return { limit, used, usedPct: usedPct(used, limit) }
 }

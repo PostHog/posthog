@@ -412,6 +412,11 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                             <span className="text-muted">Not available</span>
                         )}
                     </StatRow>
+                    {scanner.free_only ? (
+                        <StatRow label="Spend">
+                            <span className="text-muted">Free credits only</span>
+                        </StatRow>
+                    ) : null}
                     {scanner.credit_limit != null ? (
                         <StatRow label="Monthly cap">
                             <span className="text-muted">{formatCreditCount(scanner.credit_limit)}</span>
@@ -421,8 +426,10 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 {overBudget ? (
                     <LemonBanner type="warning">
                         This is already at the lowest sampling rate, so it will watch about{' '}
-                        {monthlyObservations?.toLocaleString()} recordings a month, more than your budget covers. To
-                        watch fewer, narrow which recordings are eligible above, for example by device type or country.
+                        {monthlyObservations?.toLocaleString()} recordings a month,{' '}
+                        {scanner.free_only && scanner.credit_limit == null
+                            ? 'more than your free monthly credits cover, so it stops when they run out. To watch the whole month, narrow which recordings are eligible above, for example by device type or country.'
+                            : 'more than your budget covers. To watch fewer, narrow which recordings are eligible above, for example by device type or country.'}
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
