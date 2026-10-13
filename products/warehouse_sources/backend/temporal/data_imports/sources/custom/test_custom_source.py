@@ -33,6 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_FANOUT_PARENTS,
@@ -200,13 +206,20 @@ class TestValidateManifest(SimpleTestCase):
         }
         validate_manifest(manifest)
 
-    @parameterized.expand([("json", ["not", "an", "object"]), ("params", ["nope"])])
-    def test_rejects_non_object_params_or_json(self, field, value):
+    @parameterized.expand(
+        [
+            ("json", ["not", "an", "object"], "resources[0].endpoint.json"),
+            ("params", ["nope"], "resources[0].endpoint.params"),
+            ("headers", 5, "client.headers"),
+        ]
+    )
+    def test_rejects_non_object_params_json_or_headers(self, field, value, expected_location):
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"][field] = value
+        container = manifest["client"] if field == "headers" else manifest["resources"][0]["endpoint"]
+        container[field] = value
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
-        assert field in str(ctx.exception)
+        assert expected_location in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -1106,16 +1119,14 @@ def _oauth2_manifest() -> dict:
 
 
 class TestCustomSourceValidateCredentials(SimpleTestCase):
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_returns_true_on_2xx(self, mock_session):
-        response = MagicMock(status_code=200, text="{}")
-        mock_session.return_value.request.return_value = response
-
+    def test_returns_true_on_2xx(self):
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
         assert err is None
+        assert [request.path for request in network.requests_log] == ["/users"]
 
     @parameterized.expand(
         [
@@ -1130,126 +1141,106 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         # to change — not the provider's raw status-and-code text, and not the generic "resource
         # unreachable" of the data probe. An unmapped or absent code falls back to the whole
         # credential set.
-        mint_error = OAuth2AuthRequestError("raw provider text", error_code=error_code, is_permanent=True)
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
-
-        with patch.object(OAuth2Auth, "_obtain_token", side_effect=mint_error):
+        payload = {"error_description": "raw provider text"}
+        if error_code is not None:
+            payload["error"] = error_code
+        with scripted_network([ScriptedResponse(status=400, json=payload)]) as network:
             ok, err = source.validate_credentials(config, team_id=999)
 
         assert not ok
         assert expected_fragment in (err or "")
         assert "raw provider text" not in (err or "")
+        assert [request.path for request in network.requests_log] == ["/oauth2/token"]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    @patch.object(
-        OAuth2Auth,
-        "_obtain_token",
-        side_effect=OAuth2AuthRequestError("HTTP 503 from the OAuth2 token endpoint", is_permanent=False),
-    )
-    def test_oauth2_probe_transient_token_error_does_not_block(self, _mock_mint, mock_session):
+    def test_oauth2_probe_transient_token_error_does_not_block(self):
         # A 429 / 5xx at the token endpoint during the create-time probe is transient — it must
         # not block creation; the first real sync retries it. The data probe is skipped entirely
-        # (no minted token to authenticate with), so the probe session is never even built — assert
-        # that, not a mocked 200 that would hide the real fall-through behavior.
+        # because no minted token exists. The probe session is never built.
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
-        ok, err = source.validate_credentials(config, team_id=999)
-        assert ok, err
-        mock_session.assert_not_called()
-
-    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_oauth2_minted_token_joins_probe_redaction(self, mock_session):
-        # The pre-mint runs before the probe session is built, so the freshly-minted access token
-        # (and the static client_secret) are both registered for redaction on the data probe.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200)
-
-        def fake_mint(self_auth, timeout=None):
-            self_auth.token = "minted-xyz"
-            self_auth.token_expiry = datetime.now(UTC) + timedelta(hours=1)
-
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs_secret")
-        with patch.object(OAuth2Auth, "_obtain_token", autospec=True, side_effect=fake_mint):
+        with scripted_network([ScriptedResponse(status=503, json={})]) as network:
             ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
-        redact = mock_session.call_args.kwargs["redact_values"]
+        assert [request.path for request in network.requests_log] == ["/oauth2/token"]
+        assert len(network.session_options) == 1
+
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
+    def test_oauth2_minted_token_joins_probe_redaction(self):
+        # The pre-mint runs before the probe session is built, so the freshly-minted access token
+        # (and the static client_secret) are both registered for redaction on the data probe.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs_secret")
+        with scripted_network(
+            [
+                ScriptedResponse(json={"access_token": "minted-xyz", "expires_in": 3600}),
+                ScriptedResponse(json={}),
+            ]
+        ) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        assert [request.path for request in network.requests_log] == ["/oauth2/token", "/users"]
+        redact = network.session_options[1]["redact_values"]
         assert "cs_secret" in redact
         assert "minted-xyz" in redact
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_body_snippet_redacts_echoed_credential(self, mock_session):
+    def test_probe_body_snippet_redacts_echoed_credential(self):
         # An upstream that echoes the sent credential in its 401/403 body must not leak it into the
         # user-facing error — the snippet is run through _redact_secrets before being surfaced.
-        response = MagicMock(status_code=401)
-        response.headers = {}
-        response.raw.read.return_value = b"unauthorized: token sk_secret_value is invalid"
-        mock_session.return_value.request.return_value = response
-
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="sk_secret_value")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(status=401, body=b"unauthorized: token sk_secret_value is invalid")]):
+            ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert "sk_secret_value" not in (err or "")
         assert "***" in (err or "")
 
     @parameterized.expand([401, 403])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_returns_false_on_auth_rejection(self, status_code, mock_session):
-        response = MagicMock(status_code=status_code, text="unauthorized")
-        mock_session.return_value.request.return_value = response
-
+    def test_returns_false_on_auth_rejection(self, status_code):
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(status=status_code, body=b"unauthorized")]):
+            ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert str(status_code) in (err or "")
 
     @parameterized.expand([404, 405, 429, 500])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_non_auth_error_status_does_not_block_creation(self, status_code, mock_session):
+    def test_non_auth_error_status_does_not_block_creation(self, status_code):
         # A 404/405/429/5xx is not a credential problem — it must not block
         # source creation; the real sync surfaces it if it persists.
-        mock_session.return_value.request.return_value = MagicMock(status_code=status_code, text="nope")
-
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(status=status_code, body=b"nope")]):
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probes_resources_until_auth_failure(self, mock_session):
+    def test_probes_resources_until_auth_failure(self):
         # A later (within-cap) resource fails auth — validation must catch it, not stop at the first.
         manifest = _minimal_manifest()
         manifest["resources"].append({"name": "orders", "endpoint": {"path": "/orders"}})
-        mock_session.return_value.request.side_effect = [
-            MagicMock(status_code=200),
-            MagicMock(status_code=403),
-        ]
-
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(), ScriptedResponse(status=403)]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert "orders" in (err or "")
         assert "403" in (err or "")
+        assert [request.path for request in network.requests_log] == ["/users", "/orders"]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_caps_resource_count(self, mock_session):
+    def test_probe_caps_resource_count(self):
         # The probe must hit at most PROBE_MAX_RESOURCES upstreams regardless of how many
         # resources the manifest declares — so the endpoint can't fan out one request per resource.
         manifest = _minimal_manifest()
         manifest["resources"] = [
             {"name": f"r{i}", "endpoint": {"path": f"/r{i}"}} for i in range(PROBE_MAX_RESOURCES + 3)
         ]
-        mock_session.return_value.request.return_value = MagicMock(status_code=200)
-
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse()] * PROBE_MAX_RESOURCES) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
-        assert mock_session.return_value.request.call_count == PROBE_MAX_RESOURCES
+        assert [request.path for request in network.requests_log] == [f"/r{i}" for i in range(PROBE_MAX_RESOURCES)]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probe_streams_and_caps_error_body(self, mock_session):
@@ -1310,56 +1301,49 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         response.raw.read.return_value = b"forbidden: token expired"
         assert _read_capped_text(response) == "forbidden: token expired"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_attaches_query_location_api_key(self, mock_session):
+    def test_probe_attaches_query_location_api_key(self):
         # An api_key with location 'query' must reach the probe request — the
         # probe builds auth via create_auth, the same path the real sync uses.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
         manifest = _minimal_manifest()
         manifest["client"]["auth"] = {"type": "api_key", "name": "apikey", "location": "query"}
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_api_key="sk_test")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
+        assert network.requests_log[0].param("apikey") == "sk_test"
 
-        probe_auth = mock_session.return_value.request.call_args.kwargs["auth"]
-        assert isinstance(probe_auth, APIKeyAuth)
-        assert probe_auth.location == "query"
-        assert probe_auth.api_key == "sk_test"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_replays_json_body(self, mock_session):
+    def test_probe_replays_json_body(self):
         # A POST endpoint with a JSON body must send that body in the probe, so
         # an endpoint that needs it doesn't answer differently at probe vs sync.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"] = {"path": "/search", "method": "POST", "json": {"query": "foo"}}
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
-        assert mock_session.return_value.request.call_args.kwargs["json"] == {"query": "foo"}
+        assert network.requests_log[0].method == "POST"
+        assert network.requests_log[0].json() == {"query": "foo"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_replays_static_query_params(self, mock_session):
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+    def test_probe_replays_static_query_params(self):
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["params"] = {"limit": 100, "order": "asc"}
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
-        assert mock_session.return_value.request.call_args.kwargs["params"] == {"limit": 100, "order": "asc"}
+        assert network.requests_log[0].param("limit") == "100"
+        assert network.requests_log[0].param("order") == "asc"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_skips_incremental_param_specs(self, mock_session):
+    def test_probe_skips_incremental_param_specs(self):
         # Dict-valued params are the engine's incremental/resolver specs, resolved
         # against cursor state at sync time — the probe has none, so it forwards
         # only the plain scalar params and drops the spec.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["params"] = {
             "limit": 100,
@@ -1368,9 +1352,11 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
-        assert mock_session.return_value.request.call_args.kwargs["params"] == {"limit": 100}
+        assert network.requests_log[0].param("limit") == "100"
+        assert network.requests_log[0].param("since") is None
 
     @parameterized.expand(
         [
@@ -1411,68 +1397,73 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
             ),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_attaches_auth_for_each_type(
-        self, _name, auth_manifest, secret_kwargs, expected_cls, expected_attrs, mock_session
-    ):
+    def test_probe_attaches_auth_for_each_type(self, _name, auth_manifest, secret_kwargs, expected_cls, expected_attrs):
         # Every supported (auth type, location) combination must reach the probe
         # request via create_auth — the same code path the real sync uses.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
         manifest = _minimal_manifest()
         manifest["client"]["auth"] = auth_manifest
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), **secret_kwargs)
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
 
-        probe_auth = mock_session.return_value.request.call_args.kwargs["auth"]
-        assert isinstance(probe_auth, expected_cls)
-        for attr, expected in expected_attrs.items():
-            assert getattr(probe_auth, attr) == expected, f"{attr} mismatch"
+        request = network.requests_log[0]
+        if expected_cls is BearerTokenAuth:
+            assert request.headers["authorization"] == f"Bearer {expected_attrs['token']}"
+        elif expected_cls is APIKeyAuth:
+            if expected_attrs["location"] == "header":
+                assert request.headers[expected_attrs["name"].lower()] == expected_attrs["api_key"]
+            elif expected_attrs["location"] == "cookie":
+                assert request.headers["cookie"] == f"{expected_attrs['name']}={expected_attrs['api_key']}"
+            else:
+                assert request.param(expected_attrs["name"]) == expected_attrs["api_key"]
+        else:
+            assert expected_cls is HttpBasicAuth
+            assert request.headers["authorization"] == "Basic YWxpY2U6aHVudGVyMg=="
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_registers_credential_for_redaction(self, mock_session):
+    def test_probe_registers_credential_for_redaction(self):
         # The secret must be handed to the tracked session as a redact value so
         # it's masked from logs/samples even when injected into a query param
         # whose name the denylist scrubber can't anticipate.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
         manifest = _minimal_manifest()
         manifest["client"]["auth"] = {"type": "api_key", "name": "subscription-key", "location": "query"}
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_api_key="sk_live_leaky")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
 
-        assert mock_session.call_args.kwargs["redact_values"] == ("sk_live_leaky",)
+        assert network.session_options[0]["redact_values"] == ("sk_live_leaky",)
 
-    @parameterized.expand(
-        [
-            # A connection-level failure surfaces a clean "could not reach" message.
-            ("connection", requests.exceptions.ConnectionError("boom at 10.0.0.1"), "could not reach", "boom"),
-            # A read timeout surfaces the configured timeouts, not the raw urllib3 dump.
-            (
-                "timeout",
-                requests.Timeout("HTTPSConnectionPool(host='x'): Read timed out. (read timeout=10)"),
-                "timed out",
-                "HTTPSConnectionPool",
-            ),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_returns_false_on_network_error(self, _name, side_effect, expected_fragment, leaked_text, mock_session):
-        # A connection-level failure (DNS, TLS, timeout) must surface as a credential validation
+    def test_returns_false_on_connection_error(self):
+        # A connection-level failure (DNS, TLS) must surface as a credential validation
         # error pointing at the offending resource, without leaking the raw requests exception.
-        mock_session.return_value.request.side_effect = side_effect
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        with scripted_network(always(requests.exceptions.ConnectionError("boom at 10.0.0.1"))):
+            ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "could not reach" in (err or "")
+        assert "users" in (err or "")
+        assert "boom" not in (err or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_returns_false_on_read_timeout(self, mock_session):
+        # A read timeout surfaces the configured timeouts, not the raw urllib3 dump.
+        mock_session.return_value.request.side_effect = requests.Timeout(
+            "HTTPSConnectionPool(host='x'): Read timed out. (read timeout=10)"
+        )
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
-        assert expected_fragment in (err or "")
+        assert "timed out" in (err or "")
         assert "users" in (err or "")
-        assert leaked_text not in (err or "")
+        assert "HTTPSConnectionPool" not in (err or "")
 
     def test_returns_false_on_invalid_manifest(self):
         source = CustomSource()
@@ -2404,54 +2395,30 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         with self.assertRaises(NonRetryableException):
             source.source_for_pipeline(config, inputs)
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-    )
-    def test_fanout_runs_through_real_engine(self, mock_make_session):
-        # End-to-end through the real REST engine (only the HTTP session is
-        # mocked): the parent is fetched once, the child is requested per parent
-        # row, and `include_from_parent` carries the parent id onto each child row.
-        def _response(body: dict) -> Response:
-            resp = Response()
-            resp.status_code = 200
-            resp._content = json.dumps(body).encode()
-            resp.headers["Content-Type"] = "application/json"
-            return resp
-
-        session = mock_make_session.return_value
-        session.headers = {}
-        session.prepare_request.side_effect = lambda request: request
-        session.send.side_effect = [
-            _response({"items": [{"id": "f1"}, {"id": "f2"}]}),  # GET /forms
-            _response({"items": [{"token": "r1"}, {"token": "r2"}]}),  # GET /forms/f1/responses
-            _response({"items": [{"token": "r3"}]}),  # GET /forms/f2/responses
-        ]
-
+    def test_fanout_runs_through_real_engine(self):
+        # The source fetches the parent once. Each child request carries its parent ID.
         manifest = _fanout_manifest()
         for resource in manifest["resources"]:
             resource["endpoint"]["paginator"] = {"type": "single_page"}
         manifest["resources"][1]["include_from_parent"] = ["id"]
 
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
-        inputs = MagicMock(
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "responses",
+            [
+                ScriptedResponse(json={"items": [{"id": "f1"}, {"id": "f2"}]}),
+                ScriptedResponse(json={"items": [{"token": "r1"}, {"token": "r2"}]}),
+                ScriptedResponse(json={"items": [{"token": "r3"}]}),
+            ],
             team_id=999,
-            schema_name="responses",
-            job_id="job-1",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
         )
-        response = source.source_for_pipeline(config, inputs)
-
-        rows = [row for page in cast(Any, response.items()) for row in page]
-        assert [row["token"] for row in rows] == ["r1", "r2", "r3"]
+        assert result.raised is None
+        assert [row["token"] for row in result.rows] == ["r1", "r2", "r3"]
         # include_from_parent injects the parent id as `_<parent>_<field>`.
-        assert [row["_forms_id"] for row in rows] == ["f1", "f1", "f2"]
-        requested_paths = [call.args[0].url for call in session.prepare_request.call_args_list]
-        assert requested_paths == [
-            "https://api.example.com/forms",
-            "https://api.example.com/forms/f1/responses",
-            "https://api.example.com/forms/f2/responses",
+        assert [row["_forms_id"] for row in result.rows] == ["f1", "f1", "f2"]
+        assert result.paths == [
+            "/forms",
+            "/forms/f1/responses",
+            "/forms/f2/responses",
         ]
 
 
@@ -2480,18 +2447,14 @@ class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
         schemas = {s.name for s in source.get_schemas(config, team_id=999)}
         assert schemas == {"forms", "responses"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_skips_fanout_child(self, mock_session):
+    def test_probe_skips_fanout_child(self):
         # The child can't be probed without a parent row, so only the parent is hit.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
-
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
-
-        probed_urls = [call.args[1] for call in mock_session.return_value.request.call_args_list]
-        assert probed_urls == ["https://api.example.com/forms"]
+        assert [request.url for request in network.requests_log] == ["https://api.example.com/forms"]
 
 
 class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
@@ -2549,30 +2512,7 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
         assert ok is False
         assert err is not None and "datetime_format" in err and "'users'" in err
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-    )
-    def test_datetime_format_reaches_request_through_real_engine(self, mock_make_session):
-        def _response(body: dict) -> Response:
-            resp = Response()
-            resp.status_code = 200
-            resp._content = json.dumps(body).encode()
-            resp.headers["Content-Type"] = "application/json"
-            return resp
-
-        captured: list[dict] = []
-
-        def send(prepared, **kwargs):
-            captured.append(dict(getattr(prepared, "params", {}) or {}))
-            if "/forms/f1/responses" in prepared.url:
-                return _response({"items": []})
-            return _response({"items": [{"id": "f1"}]})
-
-        session = mock_make_session.return_value
-        session.headers = {}
-        session.prepare_request.side_effect = lambda request: request
-        session.send.side_effect = send
-
+    def test_datetime_format_reaches_request_through_real_engine(self):
         manifest = _fanout_manifest()
         for resource in manifest["resources"]:
             resource["endpoint"]["paginator"] = {"type": "single_page"}
@@ -2582,19 +2522,19 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
             "datetime_format": "%Y-%m-%dT%H:%M:%SZ",
         }
 
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
-        inputs = MagicMock(
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "responses",
+            [
+                ScriptedResponse(json={"items": [{"id": "f1"}]}),
+                ScriptedResponse(json={"items": []}),
+            ],
             team_id=1,
-            schema_name="responses",
-            job_id="job-1",
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC),
         )
-        list(cast(Any, source.source_for_pipeline(config, inputs).items()))
-
-        child_params = next((p for p in captured if "since" in p), {})
-        assert child_params.get("since") == "2026-06-08T12:53:34Z"
+        assert result.raised is None
+        assert result.paths == ["/forms", "/forms/f1/responses"]
+        assert result.requests[1].param("since") == "2026-06-08T12:53:34Z"
 
 
 class TestCustomSourceIncrementalStartParam(SimpleTestCase):
@@ -2633,6 +2573,36 @@ class TestCustomSourceIncrementalStartParam(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok is False
         assert err is not None and "start_param" in err and "'users'" in err
+
+
+class TestCustomSourceIncrementalParamLocation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("invalid_value", "body", False, '"query" or "json"'),
+            ("json_on_child", "json", True, "child resource"),
+        ]
+    )
+    def test_rejected_at_validation(self, _name, param_location, is_child, expected):
+        manifest = _minimal_manifest()
+        incremental = {"cursor_path": "updated_at", "start_param": "variables.since", "param_location": param_location}
+        if is_child:
+            manifest["resources"].append(
+                {
+                    "name": "posts",
+                    "endpoint": {
+                        "path": "/users/{user_id}/posts",
+                        "params": {"user_id": {"type": "resolve", "resource": "users", "field": "id"}},
+                        "incremental": incremental,
+                    },
+                }
+            )
+        else:
+            manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and expected in err
 
 
 class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
@@ -3062,14 +3032,12 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
             ("invalid_request", 400, {"error": "invalid_request"}),
         ]
     )
-    @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_permanent_token_status_errors_classified_non_retryable(self, _name, status_code, payload, mock_session):
-        response = MagicMock(status_code=status_code)
-        response.raw.read.return_value = json.dumps(payload).encode()
-        mock_session.return_value.post.return_value = response
+    def test_permanent_token_status_errors_classified_non_retryable(self, _name, status_code, payload):
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
-        with self.assertRaises(OAuth2AuthRequestError) as ctx:
-            auth._obtain_token()
+        with scripted_network([ScriptedResponse(status=status_code, json=payload)]) as network:
+            with self.assertRaises(OAuth2AuthRequestError) as ctx:
+                auth._obtain_token()
+        assert [request.path for request in network.requests_log] == ["/t"]
         assert ctx.exception.is_permanent
         assert _classify_non_retryable(ctx.exception), str(ctx.exception)
 
@@ -3082,17 +3050,13 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
             ("missing_access_token", {"expires_in": 60}),
         ]
     )
-    @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_permanent_token_response_errors_classified_non_retryable(self, _name, body, mock_session):
-        response = MagicMock(status_code=200)
-        if body == "non_json":
-            response.raw.read.return_value = b"not json"
-        else:
-            response.raw.read.return_value = json.dumps(body).encode()
-        mock_session.return_value.post.return_value = response
+    def test_permanent_token_response_errors_classified_non_retryable(self, _name, body):
+        answer = ScriptedResponse(body=b"not json") if body == "non_json" else ScriptedResponse(json=body)
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
-        with self.assertRaises(OAuth2AuthRequestError) as ctx:
-            auth._obtain_token()
+        with scripted_network([answer]) as network:
+            with self.assertRaises(OAuth2AuthRequestError) as ctx:
+                auth._obtain_token()
+        assert [request.path for request in network.requests_log] == ["/t"]
         assert ctx.exception.is_permanent
         assert _classify_non_retryable(ctx.exception), str(ctx.exception)
 
@@ -3103,14 +3067,12 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
             ("invalid_grant", 400, {"error": "invalid_grant"}),
         ]
     )
-    @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_known_oauth_codes_still_classified_non_retryable(self, _name, status_code, payload, mock_session):
-        response = MagicMock(status_code=status_code)
-        response.raw.read.return_value = json.dumps(payload).encode()
-        mock_session.return_value.post.return_value = response
+    def test_known_oauth_codes_still_classified_non_retryable(self, _name, status_code, payload):
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
-        with self.assertRaises(OAuth2AuthRequestError) as ctx:
-            auth._obtain_token()
+        with scripted_network([ScriptedResponse(status=status_code, json=payload)]) as network:
+            with self.assertRaises(OAuth2AuthRequestError) as ctx:
+                auth._obtain_token()
+        assert [request.path for request in network.requests_log] == ["/t"]
         assert _classify_non_retryable(ctx.exception), str(ctx.exception)
 
     @parameterized.expand(
@@ -3121,14 +3083,12 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
             ("server_error_503", 503, {}),
         ]
     )
-    @patch(f"{AUTH_MODULE}.make_tracked_session")
-    def test_transient_token_errors_stay_retryable(self, _name, status_code, payload, mock_session):
-        response = MagicMock(status_code=status_code)
-        response.raw.read.return_value = json.dumps(payload).encode()
-        mock_session.return_value.post.return_value = response
+    def test_transient_token_errors_stay_retryable(self, _name, status_code, payload):
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
-        with self.assertRaises(OAuth2AuthRequestError) as ctx:
-            auth._obtain_token()
+        with scripted_network([ScriptedResponse(status=status_code, json=payload)]) as network:
+            with self.assertRaises(OAuth2AuthRequestError) as ctx:
+                auth._obtain_token()
+        assert [request.path for request in network.requests_log] == ["/t"]
         assert not ctx.exception.is_permanent
         assert OAUTH2_PERMANENT_ERROR_MARKER not in str(ctx.exception)
         assert not _classify_non_retryable(ctx.exception), str(ctx.exception)

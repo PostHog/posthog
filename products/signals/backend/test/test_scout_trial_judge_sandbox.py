@@ -78,7 +78,7 @@ class TestSandboxJudgeDispatch(BaseTest):
             self.assertEqual([item["name"] for item in run.artifacts], [file.filename for file in self.evidence.files])
             self.assertNotIn(self.evidence.sources[0].text, run.state["pending_user_message"])
             self.assertEqual(run.state["model"], snapshot.judge_model)
-            self.assertEqual(run.state["reasoning_effort"], "high")
+            self.assertEqual(run.state["reasoning_effort"], "xhigh")
             self.assertEqual(run.state["sandbox_ttl_seconds"], 32 * 60)
             self.assertEqual(run.state["inactivity_timeout_seconds"], 30 * 60)
             self.assertEqual(run.state["mcp_gateway_server_ids"], [])

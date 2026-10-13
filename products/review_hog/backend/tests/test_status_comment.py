@@ -30,6 +30,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     _splice_resolution_row,
     ensure_status_comment,
     fail_status_comment,
+    failure_marker,
     finalize_status_comment,
     maybe_refresh_status_comment,
     render_final_body,
@@ -399,6 +400,16 @@ class TestMaybeRefreshStatusComment(BaseTest):
         report.refresh_from_db()
         assert report.status_comment_edited_at is not None and report.status_comment_edited_at > before
 
+    def test_a_standard_turn_leaves_an_earlier_status_comment_alone(
+        self, mock_request: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        _wire_auth(mock_integration)
+        report = self._report(comment_id=555, edited_ago=timedelta(minutes=5))
+
+        maybe_refresh_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
+
+        mock_request.assert_not_called()
+
 
 @patch(_INTEGRATION)
 @patch(_REQUEST)
@@ -727,3 +738,84 @@ class TestFailRun(BaseTest):
         assert [(m.outcome, m.reason, m.run_index, m.review_mode, m.head_sha) for m in markers] == [
             ("failed", "review_failed", expected_run_index, "flash", report.head_sha)
         ]
+
+
+class TestFailedTurnNotice(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "standard_posts_a_failure_comment",
+                REVIEW_MODE_FLASH,
+                False,
+                False,
+                True,
+                ["/repos/o/r/issues/123/comments"],
+                [],
+            ),
+            # An activity retry finds the comment it already posted for this head.
+            ("standard_posts_once_per_head", REVIEW_MODE_FLASH, False, True, True, [], []),
+            # Temporal retries the turn, and a retry that succeeds must not sit next to a failure notice.
+            ("standard_waits_for_the_last_attempt", REVIEW_MODE_FLASH, False, False, False, [], []),
+            # A Standard turn never edits the status comment an earlier Deep turn left on the report.
+            (
+                "deep_edits_the_status_comment",
+                REVIEW_MODE_FULL,
+                True,
+                False,
+                True,
+                [],
+                ["/repos/o/r/issues/comments/555"],
+            ),
+            # A Standard run that started before the reactions path posted a status comment of its own.
+            (
+                "legacy_standard_edits_its_status_comment",
+                REVIEW_MODE_FLASH,
+                True,
+                False,
+                True,
+                [],
+                ["/repos/o/r/issues/comments/555"],
+            ),
+        ]
+    )
+    @patch(_INTEGRATION)
+    @patch(_PAGINATED)
+    @patch(_REQUEST)
+    def test_failed_turn_tells_the_pr_once(
+        self,
+        _name: str,
+        review_mode: str,
+        uses_status_comment: bool,
+        already_posted: bool,
+        last_attempt: bool,
+        expected_posts: list[str],
+        expected_patches: list[str],
+        mock_request: MagicMock,
+        mock_paginated: MagicMock,
+        mock_integration: MagicMock,
+    ) -> None:
+        _wire_auth(mock_integration)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        report.status_comment_id = 555
+        report.head_sha = "sha-1"
+        report.save(update_fields=["status_comment_id", "head_sha"])
+        marker = failure_marker(report_id, "sha-1")
+        existing = [{"id": 9, "body": f"x\n{marker}", "user": {"login": "posthog[bot]", "type": "Bot"}}]
+        mock_paginated.return_value = iter(existing if already_posted else [])
+
+        _fail_run(
+            self.team.id,
+            report_id,
+            review_mode=review_mode,
+            last_attempt=last_attempt,
+            uses_status_comment=uses_status_comment,
+        )
+
+        assert _posts(mock_request) == expected_posts
+        assert _patches(mock_request) == expected_patches
+        if expected_posts:
+            body = mock_request.call_args.kwargs["json"]["body"]
+            assert body.startswith("### PostHog Review · Standard · couldn't review `sha-1`")
+            assert "Push a new commit to run it again." in body
+            assert body.endswith(marker)

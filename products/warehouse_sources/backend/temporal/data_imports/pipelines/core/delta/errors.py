@@ -196,7 +196,20 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     # corrupt table can also raise, and those stay captured. Covers both delta-rs's older
     # `FileNotFoundError`-style message ("File not found: ...") and its Arrow/object_store kernel message
     # for the same underlying condition ("Object at location ... not found: ... 404 Not Found").
-    return "_delta_log/" in text and "not found" in text
+    if "_delta_log/" in text and "not found" in text:
+        return True
+
+    # Yet another shape of the same reset-vs-stale-handle race: `DeltaTableRef._refresh_cached_table`
+    # calls `update_incremental()` on a delta-rs handle that a prior write or `note_deltalite_commit`
+    # already advanced to some version. If `reset_table` (or a repartition swap) replaces `_delta_log`
+    # under this ref — most commonly the live attempt resyncing while a heartbeat-timed-out zombie
+    # attempt still holds this older handle (see this package's README on the equivalent unfenced race
+    # for repartition) — the log the refresh reads back is the fresh, lower-numbered one. Delta logs
+    # are append-only, so the kernel refuses to apply that as an increment: "Unexpected state: the
+    # newest version in the log {low} is older than the existing snapshot version {high}". The live
+    # table itself is unaffected; only this stale handle's refresh failed, so the next reader (a
+    # retried activity opens a fresh `DeltaTableRef`) reads the current log and succeeds.
+    return "is older than the existing snapshot version" in text
 
 
 # `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting

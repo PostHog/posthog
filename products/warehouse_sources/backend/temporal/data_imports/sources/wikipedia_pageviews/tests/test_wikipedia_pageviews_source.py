@@ -1,5 +1,7 @@
-from unittest import mock
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wikipediapageviews import (
     WikipediaPageviewsSourceConfig,
 )
@@ -10,8 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source import (
     WikipediaPageviewsSource,
 )
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source"
 
 
 class TestWikipediaPageviewsSource:
@@ -40,12 +40,11 @@ class TestWikipediaPageviewsSource:
         assert is_valid is False
         assert message is not None and "article" in message.lower()
 
-    @mock.patch(f"{MODULE}.validate_project")
-    def test_validate_credentials_plumbs_to_validate_project(self, mock_validate):
-        mock_validate.return_value = (True, None)
-
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials_plumbs_to_validate_project(self):
+        with scripted_network([ScriptedResponse(json={"items": []})]) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is True
         assert message is None
-        mock_validate.assert_called_once_with("en.wikipedia.org", "all-access", "user")
+        assert len(network.requests_log) == 1
+        assert "/pageviews/aggregate/en.wikipedia.org/all-access/user/daily/" in network.requests_log[0].path

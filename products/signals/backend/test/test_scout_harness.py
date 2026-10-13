@@ -1007,7 +1007,10 @@ class TestPromptBuilder(BaseTest):
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=started_at,
+            project_timezone="America/Vancouver",
         )
+        assert "- **project_timezone**: `America/Vancouver`" in prompt
+        assert "toDateTime('YYYY-MM-DD HH:MM:SS', 'UTC')" in prompt
         # Identity carries the skill name + version so bootstrap can reference it. The version
         # renders as the bare number `skill-get` takes, since the endpoint validates it as an
         # integer and the bootstrap points here rather than interpolating the value itself.

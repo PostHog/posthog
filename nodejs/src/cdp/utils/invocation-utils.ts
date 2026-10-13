@@ -122,6 +122,11 @@ export async function buildHogFunctionInvocations(
 
             return createInvocation(globalsWithInputs, hogFunction)
         } catch (error) {
+            // A dependency outage, such as Postgres refusing an integration lookup, is not this
+            // function's fault. Rethrowing fails the batch, so the offsets stay put and it retries.
+            if (error?.isRetriable === true) {
+                throw error
+            }
             const errorClass = classifyHogError(error, {
                 bytecodeContract: bytecodeContractOf(error),
                 runtimeContract: currentRuntimeContractHash(),

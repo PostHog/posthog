@@ -2483,6 +2483,19 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # A Neon-style proxy's own round trip to its control plane fails with the bare, generic
+            # "ERROR: Control plane request failed" — distinct from the specific, actionable
+            # control-plane rejections (quota exceeded, allow-listed IP, ...) that stay non-retryable
+            # in `get_non_retryable_errors`. The generic form means the round trip itself broke, not
+            # that it returned a customer-fixable rejection, so the reconnect must catch it. The real
+            # production message pairs it with the generic plaintext-fallback rejection on a second
+            # line, which must not block the match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.40", port 5432 failed: ERROR:  '
+                "Control plane request failed\n"
+                'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
+                "insecure (try using `sslmode=require`)"
+            ),
             # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
             # user record) times out waiting for the backend, reporting a bare OperationalError
             # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential

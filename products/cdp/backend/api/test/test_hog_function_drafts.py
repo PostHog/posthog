@@ -370,7 +370,7 @@ class TestHogFunctionDrafts(DraftTestCase):
             assert all(change["after"] == "masked" for change in changes)
         assert all("private-input" not in str(log.detail) for log in logs)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_site_function_transpiled_output_is_not_written_to_activity_logs(self, _mock_transpile) -> None:
         function_id = self._create(
             type="site_destination",

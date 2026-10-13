@@ -1,22 +1,18 @@
-import json
 from base64 import b64decode
-from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import HTTPError, Response, Session
+from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.donorbox.donorbox import (
     DonorboxResumeConfig,
-    donorbox_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.donorbox.source import DonorboxSource
@@ -25,54 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 
-def response(body: object, status: int = 200) -> Response:
-    result = Response()
-    result.status_code = status
-    result.reason = {401: "Unauthorized", 403: "Forbidden", 404: "Not Found"}.get(status, "Error")
-    result.url = "https://donorbox.org/api/v1/campaigns"
-    result._content = json.dumps(body).encode()
-    result.headers["Content-Type"] = "application/json"
-    return result
-
-
-@pytest.fixture
-def http_send() -> Iterator[MagicMock]:
-    with Session() as session:
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session",
-                return_value=session,
-            ),
-            patch.object(session, "send") as send,
-            patch.object(cast(Any, RESTClient._send_request).retry, "sleep"),
-        ):
-            yield send
-
-
 @pytest.fixture
 def credentials() -> DonorboxSourceConfig:
     return DonorboxSourceConfig(email="warehouse@example.com", api_key="test-api-key")
 
 
 @pytest.fixture
-def manager() -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = False
-    return result
-
-
-def source(
-    credentials: DonorboxSourceConfig,
-    manager: MagicMock,
-    endpoint: str = "donations",
-    incremental: bool = False,
-    watermark: datetime | date | str | None = None,
-) -> SourceResponse:
-    return donorbox_source(credentials, endpoint, 1, "test-job", manager, incremental, watermark)
-
-
-def rows(result: SourceResponse) -> list[dict[str, Any]]:
-    return [row for batch in cast(Iterable[list[dict[str, Any]]], result.items()) for row in batch]
+def driver(credentials: DonorboxSourceConfig) -> SourceDriver:
+    return SourceDriver(DonorboxSource(), credentials)
 
 
 @pytest.mark.parametrize(
@@ -90,41 +46,44 @@ def rows(result: SourceResponse) -> list[dict[str, Any]]:
     ],
 )
 def test_incremental_date_filter(
-    http_send: MagicMock,
-    credentials: DonorboxSourceConfig,
-    manager: MagicMock,
+    driver: SourceDriver,
     endpoint: str,
     incremental: bool,
     watermark: datetime | date | str | None,
     expected: str | None,
 ) -> None:
-    http_send.side_effect = [response([{"id": 1}]), response([])]
-    result = source(credentials, manager, endpoint, incremental, watermark)
-    rows(result)
+    result = driver.run(
+        endpoint,
+        [ScriptedResponse(json=[{"id": 1}]), ScriptedResponse(json=[])],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
 
-    for call in http_send.call_args_list:
-        params = parse_qs(urlsplit(call.args[0].url).query)
-        assert params.get("date_from") == ([expected] if expected else None)
-        assert "date_to" not in params
+    assert result.raised is None
+    for request in result.requests:
+        assert request.param("date_from") == expected
+        assert request.param("date_to") is None
     if incremental and endpoint in ("donations", "plans"):
-        assert result.sort_mode == "desc"
-    assert manager.save_state.call_args.args[0].date_from == expected
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
+    assert result.saved_states[-1].date_from == expected
 
 
 @pytest.mark.parametrize("saved_date", [None, "2025-01-01"])
-def test_resume_keeps_original_filter(
-    http_send: MagicMock, credentials: DonorboxSourceConfig, manager: MagicMock, saved_date: str | None
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = DonorboxResumeConfig(page=4, date_from=saved_date)
-    http_send.side_effect = [response([{"id": 9}]), response([])]
+def test_resume_keeps_original_filter(driver: SourceDriver, saved_date: str | None) -> None:
+    result = driver.run(
+        "donations",
+        [ScriptedResponse(json=[{"id": 9}]), ScriptedResponse(json=[])],
+        resume_state=DonorboxResumeConfig(page=4, date_from=saved_date),
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2025-03-02",
+    )
 
-    assert rows(source(credentials, manager, incremental=True, watermark="2025-03-02")) == [{"id": 9}]
-    for page, call in enumerate(http_send.call_args_list, start=4):
-        params = parse_qs(urlsplit(call.args[0].url).query)
-        assert params["page"] == [str(page)]
-        assert params.get("date_from") == ([saved_date] if saved_date else None)
-    manager.save_state.assert_called_once_with(DonorboxResumeConfig(page=5, date_from=saved_date))
+    assert result.raised is None
+    assert result.rows == [{"id": 9}]
+    assert result.params("page") == ["4", "5"]
+    assert result.params("date_from") == [saved_date, saved_date]
+    assert result.saved_states == [DonorboxResumeConfig(page=5, date_from=saved_date)]
 
 
 @pytest.mark.parametrize(
@@ -137,62 +96,62 @@ def test_resume_keeps_original_filter(
 )
 @pytest.mark.parametrize("schema_name", [None, "plans"])
 def test_credential_probe(
-    http_send: MagicMock,
     credentials: DonorboxSourceConfig,
     status: int,
     expected: tuple[bool, str | None],
     schema_name: str | None,
 ) -> None:
-    http_send.return_value = response([] if status == 200 else {"error": "Authentication failed"}, status)
-    assert validate_credentials(credentials, schema_name) == expected
-    http_send.assert_called_once()
-    request = http_send.call_args.args[0]
-    assert urlsplit(request.url).path == f"/api/v1/{schema_name or 'campaigns'}"
-    assert parse_qs(urlsplit(request.url).query) == {"per_page": ["1"]}
-    assert b64decode(request.headers["Authorization"].split()[1]).decode() == "warehouse@example.com:test-api-key"
+    with scripted_network(
+        [ScriptedResponse(status=status, json=[] if status == 200 else {"error": "Authentication failed"})]
+    ) as network:
+        assert validate_credentials(credentials, schema_name) == expected
+
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.path == f"/api/v1/{schema_name or 'campaigns'}"
+    assert request.query == {"per_page": ("1",)}
+    assert b64decode(request.headers["authorization"].split()[1]).decode() == "warehouse@example.com:test-api-key"
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])
-def test_http_errors_are_not_retried(
-    http_send: MagicMock, credentials: DonorboxSourceConfig, manager: MagicMock, status: int
-) -> None:
-    http_send.return_value = response({"error": "Authentication failed"}, status)
-    with pytest.raises(HTTPError) as error:
-        rows(source(credentials, manager))
-    http_send.assert_called_once()
+def test_http_errors_are_not_retried(driver: SourceDriver, status: int) -> None:
+    result = driver.run("donations", [ScriptedResponse(status=status, json={"error": "Authentication failed"})])
+
+    assert isinstance(result.raised, HTTPError)
+    assert len(result.requests) == 1
     matches = [
         message
         for pattern, message in DonorboxSource().get_non_retryable_errors().items()
-        if pattern in str(error.value)
+        if pattern in str(result.raised)
     ]
     assert bool(matches) == (status in (401, 403))
 
 
-def test_unexpected_probe_error_propagates(http_send: MagicMock, credentials: DonorboxSourceConfig) -> None:
-    http_send.return_value = response({"error": "missing"}, 404)
-    with pytest.raises(HTTPError):
-        validate_credentials(credentials)
+def test_unexpected_probe_error_propagates(credentials: DonorboxSourceConfig) -> None:
+    with scripted_network([ScriptedResponse(status=404, json={"error": "missing"})]):
+        with pytest.raises(HTTPError):
+            validate_credentials(credentials)
 
 
 @pytest.mark.parametrize("probe", [False, True])
-def test_unknown_endpoint(
-    http_send: MagicMock, credentials: DonorboxSourceConfig, manager: MagicMock, probe: bool
-) -> None:
-    with pytest.raises(UnknownResourceError):
-        if probe:
-            validate_credentials(credentials, "unknown")
-        else:
-            source(credentials, manager, "unknown")
-    http_send.assert_not_called()
+def test_unknown_endpoint(driver: SourceDriver, credentials: DonorboxSourceConfig, probe: bool) -> None:
+    if probe:
+        with scripted_network([]) as network:
+            with pytest.raises(UnknownResourceError):
+                validate_credentials(credentials, "unknown")
+        assert network.requests_log == []
+    else:
+        result = driver.run("unknown", [])
+        assert isinstance(result.raised, UnknownResourceError)
+        assert result.requests == []
 
 
-def test_invalid_success_body_fails(
-    http_send: MagicMock, credentials: DonorboxSourceConfig, manager: MagicMock
-) -> None:
-    http_send.return_value = response({"error": "Authentication failed"})
-    with pytest.raises(ValueError, match="Required a list response body"):
-        rows(source(credentials, manager))
-    manager.save_state.assert_not_called()
+def test_invalid_success_body_fails(driver: SourceDriver) -> None:
+    result = driver.run("donations", [ScriptedResponse(json={"error": "Authentication failed"})])
+
+    assert isinstance(result.raised, ValueError)
+    assert "Required a list response body" in str(result.raised)
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize(
@@ -203,19 +162,19 @@ def test_invalid_success_body_fails(
     ],
 )
 def test_dates_and_nested_records(
-    http_send: MagicMock,
-    credentials: DonorboxSourceConfig,
-    manager: MagicMock,
+    driver: SourceDriver,
     endpoint: str,
     field: str,
     value: str,
     expected: datetime | date,
 ) -> None:
-    http_send.side_effect = [response([{"id": 1, field: value, "donor": {"id": 7}}]), response([])]
-    result = source(credentials, manager, endpoint, incremental=True)
-    stream = iter(cast(Iterable[list[dict[str, Any]]], result.items()))
+    result = driver.run(
+        endpoint,
+        [ScriptedResponse(json=[{"id": 1, field: value, "donor": {"id": 7}}]), ScriptedResponse(json=[])],
+        should_use_incremental_field=True,
+    )
 
-    assert next(stream) == [{"id": 1, field: expected, "donor": {"id": 7}}]
-    manager.save_state.assert_not_called()
-    assert list(stream) == []
-    manager.save_state.assert_called_once_with(DonorboxResumeConfig(page=2))
+    assert result.raised is None
+    assert result.items == [[{"id": 1, field: expected, "donor": {"id": 7}}]]
+    assert result.committed_states == [DonorboxResumeConfig(page=2)]
+    assert result.saved_states == [DonorboxResumeConfig(page=2)]

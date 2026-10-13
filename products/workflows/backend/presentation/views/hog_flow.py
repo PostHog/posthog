@@ -50,29 +50,10 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.hog_invocation_cancel import (
-    HogInvocationCancelRequestSerializer,
-    HogInvocationCancelResponseSerializer,
-)
-from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
-from posthog.api.hog_invocation_results import (
-    HogInvocationResultDetailSerializer,
-    HogInvocationResultsCountSerializer,
-    HogInvocationResultSerializer,
-    HogInvocationResultsFiltersSerializer,
-    HogInvocationResultsRequestSerializer,
-    fetch_hog_invocation_result,
-    fetch_hog_invocation_results,
-    fetch_hog_invocation_results_count,
-    tag_invocation_results_query,
-)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
-from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
@@ -103,6 +84,36 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
+)
+from products.cdp.backend.presentation.hog_functions import (
+    DATA_WAREHOUSE_SOURCES,
+    FLAG_GATED_TEMPLATE_IDS,
+    compile_filters_expr,
+    gated_template_enabled,
+)
+from products.cdp.backend.presentation.hog_invocations.cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.rerun import (
+    HogInvocationRerunRequestSerializer,
+    HogInvocationRerunResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.results import (
+    HogInvocationResultDetailSerializer,
+    HogInvocationResultsCountSerializer,
+    HogInvocationResultSerializer,
+    HogInvocationResultsFiltersSerializer,
+    HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_result,
+    fetch_hog_invocation_results,
+    fetch_hog_invocation_results_count,
+    tag_invocation_results_query,
+)
+from products.cdp.backend.presentation.serializers import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaSerializer,
+    InputsSerializer,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -290,6 +301,9 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
+)
+from products.workflows.backend.presentation.views.workflow_classifications import (
+    WorkflowClassificationRequestSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -492,6 +506,10 @@ _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 # build panel only hides the node, and the catalog still advertises it to a child-environment
 # workflow built through the API or MCP.
 _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
+
+# The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
+# 400, which fails the step on every run, so a strict save applies the same limits.
+_CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -1412,6 +1430,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
 
+    def _validate_classify_action(self, inputs: dict) -> None:
+        data = {key: (inputs.get(key) or {}).get("value") for key in ("question", "categories", "model")}
+        if data["model"] is None:
+            del data["model"]
+        # Reuses the endpoint's serializer so the save-time and runtime limits cannot drift apart.
+        serializer = WorkflowClassificationRequestSerializer(data=data, partial=True)
+        if not serializer.is_valid():
+            raise serializers.ValidationError({"inputs": serializer.errors})
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1678,6 +1705,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+                if strict and template_id == _CLASSIFY_TEMPLATE_ID:
+                    self._validate_classify_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -5593,8 +5622,7 @@ class HogFlowViewSet(
         serializer = HogFlowInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
         )
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
 
         payload = dict(serializer.validated_data)
         if payload.pop("use_draft", False):

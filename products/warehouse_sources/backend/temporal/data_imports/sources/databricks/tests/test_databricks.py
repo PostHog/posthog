@@ -1,12 +1,19 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
+from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
+    DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
+    DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     DatabricksImplementation,
+    DatabricksMetadataTimeoutError,
     filter_databricks_incremental_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.source import DatabricksSource
@@ -407,3 +414,33 @@ class TestDatabricksSource:
         assert ok is False
         assert message == "Host is not allowed"
         mock_get_schemas.assert_not_called()
+
+    def test_get_retryable_errors_matches_stopped_warehouse(self, source):
+        # A command in flight when the SQL warehouse auto-suspends fails with this message;
+        # Databricks auto-starts the warehouse on the next query, so it must stay retryable
+        # rather than disabling the source.
+        observed_error = "Command failed because warehouse abc123 was stopped."
+        assert any(key in observed_error for key in source.get_retryable_errors())
+
+
+class TestGetSchemasDeadline:
+    def test_discovery_that_hangs_raises_before_the_activity_timeout(self, mocker):
+        # Without the deadline, a slow/stuck discovery call runs until Temporal's own activity
+        # timeout cancels the thread, which the connector surfaces as a confusing
+        # `RequestError: ... Cancelled` instead of our own clear, retryable error.
+        release = threading.Event()
+        mocker.patch(_CONNECT_PATH, side_effect=lambda **kwargs: release.wait())
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.databricks.source"
+            ".DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS",
+            0.05,
+        )
+
+        try:
+            with pytest.raises(DatabricksMetadataTimeoutError, match="Databricks did not answer in time"):
+                DatabricksSource().get_schemas(_make_config(), team_id=1)
+        finally:
+            release.set()
+
+    def test_discovery_deadline_is_inside_the_activity_timeout(self):
+        assert DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS < DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT.total_seconds()

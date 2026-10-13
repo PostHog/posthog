@@ -1,86 +1,50 @@
-import json
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.quo import QuoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.quo import (
     QuoResumeConfig,
-    quo_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
     QUO_API_VERSION_2026_03_30,
     QUO_API_VERSION_V1,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials and the fan-out build their own tracked session in the quo module.
-QUO_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.quo.quo.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.quo.source import QuoSource
 
 WATERMARK = datetime(2026, 1, 1, tzinfo=UTC)
 WATERMARK_ISO = "2026-01-01T00:00:00+00:00"
 
 
-def _body(items: list[dict[str, Any]], next_page_token: str | None) -> dict[str, Any]:
+def _page(items: list[dict[str, Any]], next_page_token: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"data": items}
     if next_page_token is not None:
         body["nextPageToken"] = next_page_token
-    return body
+    return ScriptedResponse(json=body)
 
 
-def _response(items: list[dict[str, Any]], next_page_token: str | None = None) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(_body(items, next_page_token)).encode()
-    return resp
+def _dated_page(items: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "nextCursor": next_cursor})
 
 
-def _json_response(items: list[dict[str, Any]], next_page_token: str | None = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = _body(items, next_page_token)
-    return resp
-
-
-def _make_manager(resume_state: QuoResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request AT PREPARE TIME.
-
-    ``request.params``/``request.url`` are mutated in place across pages, so inspecting them
-    after the run shows only the final state; snapshot a copy when each request is prepared.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, api_version: str = QUO_API_VERSION_V1, **kwargs: Any):
-    return quo_source(
-        "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, api_version=api_version, **kwargs
+def _source(endpoint: str, script: Script, api_version: str = QUO_API_VERSION_V1, **inputs: Any) -> DriveResult:
+    return SourceDriver(QuoSource(), QuoSourceConfig(api_key="key")).run(
+        endpoint, script, api_version=api_version, **inputs
     )
 
 
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _ids(result: DriveResult) -> list[str]:
+    return [row["id"] for row in result.rows]
 
 
 class TestValidateCredentials:
@@ -91,61 +55,54 @@ class TestValidateCredentials:
             (QUO_API_VERSION_2026_03_30, "https://api.quo.com/phone-numbers", "2026-03-30"),
         ],
     )
-    @mock.patch(QUO_SESSION_PATCH)
     def test_validate_credentials_probes_phone_numbers_with_raw_key(
-        self, mock_session, api_version, expected_url, expected_version_header
+        self, api_version, expected_url, expected_version_header
     ):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        with scripted_network([ScriptedResponse(json={"data": []})]) as network:
+            assert validate_credentials("key", api_version) is True
 
-        validate_credentials("key", api_version)
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == expected_url
+        request = network.requests_log[0]
+        assert request.url == expected_url
         # Quo takes the raw key in the Authorization header, with no Bearer prefix.
-        assert call.kwargs["headers"]["Authorization"] == "key"
-        assert call.kwargs["headers"].get("Quo-Api-Version") == expected_version_header
+        assert request.headers["authorization"] == "key"
+        assert request.headers.get("quo-api-version") == expected_version_header
 
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_page_token(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(
-            session,
+    def test_paginates_via_page_token(self):
+        result = _source(
+            "users",
             [
-                _response([{"id": "US1"}, {"id": "US2"}], next_page_token="tok"),
-                _response([{"id": "US3"}]),
+                _page([{"id": "US1"}, {"id": "US2"}], next_page_token="tok"),
+                _page([{"id": "US3"}]),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert [row["id"] for row in rows] == ["US1", "US2", "US3"]
-        assert requests_seen[0]["params"] == {"maxResults": 50}
-        assert requests_seen[1]["params"] == {"maxResults": 50, "pageToken": "tok"}
+        assert _ids(result) == ["US1", "US2", "US3"]
+        assert result.queries[0] == {"maxResults": ("50",)}
+        assert result.queries[1] == {"maxResults": ("50",), "pageToken": ("tok",)}
         # State is saved only while a next page exists.
-        manager.save_state.assert_called_once_with(QuoResumeConfig(page_token="tok"))
+        assert result.saved_states == [QuoResumeConfig(page_token="tok")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "US9"}])])
+    def test_resumes_from_saved_state(self):
+        result = _source("users", [_page([{"id": "US9"}])], resume_state=QuoResumeConfig(page_token="tok5"))
 
-        manager = _make_manager(QuoResumeConfig(page_token="tok5"))
-        rows = _rows(_source("users", manager))
+        assert _ids(result) == ["US9"]
+        assert result.params("pageToken") == ["tok5"]
 
-        assert [row["id"] for row in rows] == ["US9"]
-        assert requests_seen[0]["params"]["pageToken"] == "tok5"
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self):
+        result = _source("users", [_page([{"id": "US9"}])])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_ignores_state_saved_under_a_dated_version(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "US9"}])])
+        assert result.params("pageToken") == [None]
 
-        _rows(_source("users", _make_manager(QuoResumeConfig(page_token="cur5", api_version="2026-03-30"))))
+    def test_ignores_state_saved_under_a_dated_version(self):
+        result = _source(
+            "users",
+            [_page([{"id": "US9"}])],
+            resume_state=QuoResumeConfig(page_token="cur5", api_version="2026-03-30"),
+        )
 
-        assert "pageToken" not in requests_seen[0]["params"]
+        assert result.params("pageToken") == [None]
 
     @pytest.mark.parametrize(
         "incremental_field, expected_param",
@@ -154,28 +111,18 @@ class TestTopLevelPagination:
             ("updatedAt", "updatedAfter"),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_run_maps_cursor_field_to_server_filter(self, MockSession, incremental_field, expected_param):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "CN1"}])])
-
-        _rows(
-            _source(
-                "conversations",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=WATERMARK,
-                incremental_field=incremental_field,
-            )
+    def test_incremental_run_maps_cursor_field_to_server_filter(self, incremental_field, expected_param):
+        result = _source(
+            "conversations",
+            [_page([{"id": "CN1"}])],
+            db_incremental_field_last_value=WATERMARK,
+            incremental_field=incremental_field,
         )
 
-        assert requests_seen[0]["params"] == {"maxResults": 100, expected_param: WATERMARK_ISO}
+        assert result.queries == [{"maxResults": ("100",), expected_param: (WATERMARK_ISO,)}]
 
 
 class TestFanOut:
-    def _fan_out_requests(self, session: mock.MagicMock) -> list[tuple[str, dict[str, Any]]]:
-        return [(call.args[0], dict(call.kwargs.get("params") or {})) for call in session.get.call_args_list]
-
     @pytest.mark.parametrize(
         "endpoint, expected_group_queried",
         [
@@ -185,90 +132,72 @@ class TestFanOut:
             ("messages", True),
         ],
     )
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_group_conversations_skipped_for_calls_only(self, mock_session, endpoint, expected_group_queried):
-        session = mock_session.return_value
+    def test_group_conversations_skipped_for_calls_only(self, endpoint, expected_group_queried):
         group_conversation = {"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001", "+15550002"]}
         one_to_one = {"id": "CN2", "phoneNumberId": "PN1", "participants": ["+15550003"]}
-        child_pages = [_json_response([{"id": "A1"}])]
+        child_pages = [_page([{"id": "A1"}])]
         if expected_group_queried:
-            child_pages.append(_json_response([{"id": "A2"}]))
-        session.get.side_effect = [_json_response([group_conversation, one_to_one]), *child_pages]
+            child_pages.append(_page([{"id": "A2"}]))
 
-        _rows(_source(endpoint, _make_manager()))
+        result = _source(endpoint, [_page([group_conversation, one_to_one]), *child_pages])
 
-        child_requests = self._fan_out_requests(session)[1:]
-        participants_queried = [params["participants"] for _url, params in child_requests]
+        participants_queried = [list(request.query["participants"]) for request in result.requests[1:]]
         if expected_group_queried:
             assert participants_queried == [["+15550001", "+15550002"], ["+15550003"]]
         else:
             assert participants_queried == [["+15550003"]]
 
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_duplicate_and_incomplete_conversations_produce_no_extra_requests(self, mock_session):
-        session = mock_session.return_value
-        session.get.side_effect = [
-            _json_response(
-                [
-                    {"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]},
-                    # Same pair again (e.g. a deleted and recreated conversation).
-                    {"id": "CN2", "phoneNumberId": "PN1", "participants": ["+15550001"]},
-                    {"id": "CN3", "phoneNumberId": None, "participants": ["+15550002"]},
-                    {"id": "CN4", "phoneNumberId": "PN1", "participants": []},
-                ]
-            ),
-            _json_response([{"id": "AM1"}]),
-        ]
-
-        rows = _rows(_source("messages", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["AM1"]
-        assert len(session.get.call_args_list) == 2
-
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_child_pagination_follows_page_token(self, mock_session):
-        session = mock_session.return_value
-        session.get.side_effect = [
-            _json_response([{"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]}]),
-            _json_response([{"id": "AC1"}], next_page_token="tok"),
-            _json_response([{"id": "AC2"}]),
-        ]
-
-        rows = _rows(_source("calls", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["AC1", "AC2"]
-        requests_seen = self._fan_out_requests(session)
-        assert requests_seen[2][1]["pageToken"] == "tok"
-
-
-def _dated_response(items: list[dict[str, Any]], next_cursor: str | None = None) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps({"data": items, "nextCursor": next_cursor}).encode()
-    return resp
-
-
-class TestDatedVersion:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_after_cursor_with_version_header(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(
-            session,
+    def test_duplicate_and_incomplete_conversations_produce_no_extra_requests(self):
+        result = _source(
+            "messages",
             [
-                _dated_response([{"id": "US1"}, {"id": "US2"}], next_cursor="cur"),
-                _dated_response([{"id": "US3"}]),
+                _page(
+                    [
+                        {"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]},
+                        # Same pair again (e.g. a deleted and recreated conversation).
+                        {"id": "CN2", "phoneNumberId": "PN1", "participants": ["+15550001"]},
+                        {"id": "CN3", "phoneNumberId": None, "participants": ["+15550002"]},
+                        {"id": "CN4", "phoneNumberId": "PN1", "participants": []},
+                    ]
+                ),
+                _page([{"id": "AM1"}]),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("users", manager, api_version=QUO_API_VERSION_2026_03_30))
+        assert _ids(result) == ["AM1"]
+        assert len(result.requests) == 2
 
-        assert [row["id"] for row in rows] == ["US1", "US2", "US3"]
-        assert requests_seen[0]["url"] == "https://api.quo.com/users"
-        assert requests_seen[0]["params"] == {"limit": 50}
-        assert requests_seen[1]["params"] == {"limit": 50, "after": "cur"}
-        assert session.headers["Quo-Api-Version"] == "2026-03-30"
-        manager.save_state.assert_called_once_with(QuoResumeConfig(page_token="cur", api_version="2026-03-30"))
+    def test_child_pagination_follows_page_token(self):
+        result = _source(
+            "calls",
+            [
+                _page([{"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]}]),
+                _page([{"id": "AC1"}], next_page_token="tok"),
+                _page([{"id": "AC2"}]),
+            ],
+        )
+
+        assert _ids(result) == ["AC1", "AC2"]
+        assert result.requests[2].param("pageToken") == "tok"
+
+
+class TestDatedVersion:
+    def test_paginates_via_after_cursor_with_version_header(self):
+        result = _source(
+            "users",
+            [
+                _dated_page([{"id": "US1"}, {"id": "US2"}], next_cursor="cur"),
+                _dated_page([{"id": "US3"}]),
+            ],
+            api_version=QUO_API_VERSION_2026_03_30,
+        )
+
+        assert _ids(result) == ["US1", "US2", "US3"]
+        assert result.urls[0] == "https://api.quo.com/users?limit=50"
+        assert result.queries[0] == {"limit": ("50",)}
+        assert result.queries[1] == {"limit": ("50",), "after": ("cur",)}
+        assert result.requests[0].headers["quo-api-version"] == "2026-03-30"
+        assert result.saved_states == [QuoResumeConfig(page_token="cur", api_version="2026-03-30")]
 
     @pytest.mark.parametrize(
         "resume_state, expected_after",
@@ -278,76 +207,62 @@ class TestDatedVersion:
             (QuoResumeConfig(page_token="tok5"), None),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_only_from_state_saved_on_the_same_wire(self, MockSession, resume_state, expected_after):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_dated_response([{"id": "US9"}])])
+    def test_resumes_only_from_state_saved_on_the_same_wire(self, resume_state, expected_after):
+        result = _source(
+            "users",
+            [_dated_page([{"id": "US9"}])],
+            api_version=QUO_API_VERSION_2026_03_30,
+            resume_state=resume_state,
+        )
 
-        _rows(_source("users", _make_manager(resume_state), api_version=QUO_API_VERSION_2026_03_30))
-
-        assert requests_seen[0]["params"].get("after") == expected_after
+        assert result.params("after") == [expected_after]
 
     @pytest.mark.parametrize(
         "endpoint, incremental_field, expected_params",
         [
-            ("conversations", "createdAt", {"limit": 50, "createdAt[gte]": WATERMARK_ISO}),
-            ("conversations", "updatedAt", {"limit": 50, "updatedAt[gte]": WATERMARK_ISO}),
-            ("calls", "createdAt", {"limit": 50, "include": "summary", "createdAt[gte]": WATERMARK_ISO}),
-            ("messages", "createdAt", {"limit": 50, "createdAt[gt]": WATERMARK_ISO}),
+            ("conversations", "createdAt", {"limit": "50", "createdAt[gte]": WATERMARK_ISO}),
+            ("conversations", "updatedAt", {"limit": "50", "updatedAt[gte]": WATERMARK_ISO}),
+            ("calls", "createdAt", {"limit": "50", "include": "summary", "createdAt[gte]": WATERMARK_ISO}),
+            ("messages", "createdAt", {"limit": "50", "createdAt[gt]": WATERMARK_ISO}),
         ],
     )
-    @mock.patch(QUO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_run_uses_range_filters_without_fan_out(
-        self, MockSession, mock_fan_out_session, endpoint, incremental_field, expected_params
-    ):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_dated_response([{"id": "X1"}])])
-
-        rows = _rows(
-            _source(
-                endpoint,
-                _make_manager(),
-                api_version=QUO_API_VERSION_2026_03_30,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=WATERMARK,
-                incremental_field=incremental_field,
-            )
+    def test_incremental_run_uses_range_filters_without_fan_out(self, endpoint, incremental_field, expected_params):
+        result = _source(
+            endpoint,
+            [_dated_page([{"id": "X1"}])],
+            api_version=QUO_API_VERSION_2026_03_30,
+            db_incremental_field_last_value=WATERMARK,
+            incremental_field=incremental_field,
         )
 
-        assert [row["id"] for row in rows] == ["X1"]
-        assert len(requests_seen) == 1
-        assert requests_seen[0]["url"] == f"https://api.quo.com/{endpoint}"
-        assert requests_seen[0]["params"] == expected_params
-        mock_fan_out_session.assert_not_called()
+        assert _ids(result) == ["X1"]
+        assert result.paths == [f"/{endpoint}"]
+        assert result.urls[0].startswith(f"https://api.quo.com/{endpoint}?")
+        assert {name: values[0] for name, values in result.queries[0].items()} == expected_params
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_phone_numbers_request_restrictions(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_dated_response([{"id": "PN1"}])])
+    def test_phone_numbers_request_restrictions(self):
+        result = _source("phone_numbers", [_dated_page([{"id": "PN1"}])], api_version=QUO_API_VERSION_2026_03_30)
 
-        _rows(_source("phone_numbers", _make_manager(), api_version=QUO_API_VERSION_2026_03_30))
+        assert result.paths == ["/phone-numbers"]
+        assert result.queries[0] == {"limit": ("50",), "include": ("restrictions",)}
 
-        assert requests_seen[0]["url"] == "https://api.quo.com/phone-numbers"
-        assert requests_seen[0]["params"] == {"limit": 50, "include": "restrictions"}
+    def test_contact_custom_fields_stay_on_v1_wire(self):
+        result = _source("contact_custom_fields", [_page([{"key": "k1"}])], api_version=QUO_API_VERSION_2026_03_30)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_contact_custom_fields_stay_on_v1_wire(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"key": "k1"}])])
-
-        rows = _rows(_source("contact_custom_fields", _make_manager(), api_version=QUO_API_VERSION_2026_03_30))
-
-        assert [row["key"] for row in rows] == ["k1"]
-        assert requests_seen[0]["url"] == "https://api.quo.com/v1/contact-custom-fields"
-        assert "Quo-Api-Version" not in session.headers
+        assert [row["key"] for row in result.rows] == ["k1"]
+        assert result.paths == ["/v1/contact-custom-fields"]
+        assert "quo-api-version" not in result.requests[0].headers
 
     def test_unknown_version_raises(self):
-        with pytest.raises(ValueError, match="Unsupported Quo API version"):
-            _source("users", _make_manager(), api_version="2099-01-01")
+        result = _source("users", [], api_version="2099-01-01")
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unsupported Quo API version" in str(result.raised)
+        assert result.requests == []
 
 
 class TestQuoSourceResponse:
     def test_unknown_endpoint_raises_unknown_resource(self):
-        with pytest.raises(UnknownResourceError):
-            _source("not_a_table", _make_manager())
+        result = _source("not_a_table", [])
+
+        assert isinstance(result.raised, UnknownResourceError)
