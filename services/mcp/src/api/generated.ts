@@ -44258,6 +44258,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44272,6 +44273,7 @@ export namespace Schemas {
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
     } as const;
 
     /**
@@ -44326,7 +44328,8 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
-       * * `forced_variant_release_condition` - Forced Variant Release Condition */
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `flag_variants_mismatch` - Flag Variants Mismatch */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -69193,6 +69196,8 @@ export namespace Schemas {
     }
 
     /**
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -69209,6 +69214,8 @@ export namespace Schemas {
 
 
     export const SettingEnum = {
+      ApprovalRequested: 'approval_requested',
+      ApprovalResolved: 'approval_resolved',
       DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
       DiscussionsMentioned: 'discussions_mentioned',
       ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
@@ -69225,6 +69232,8 @@ export namespace Schemas {
     export interface OrganizationNotificationLock {
       /** Notification setting this rule enforces.
        *
+       * * `approval_requested` - approval_requested
+       * * `approval_resolved` - approval_resolved
        * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -69248,6 +69257,8 @@ export namespace Schemas {
       user_id: number;
       /** Notification setting to lock or unlock.
        *
+       * * `approval_requested` - approval_requested
+       * * `approval_resolved` - approval_resolved
        * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -96800,7 +96811,7 @@ export namespace Schemas {
          * @nullable
          */
       source_perspective: string | null;
-      /** Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+      /** Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings this way too). `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
        *
        * * `old_code` - On unchanged code
        * * `dedup_prior` - Repeat of an earlier review
@@ -121232,6 +121243,23 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type DataModelingNodesRetrieveParams = {
+    /**
+     * Resolve the path ID as this backing resource type instead of a node ID.
+     */
+    lookup?: DataModelingNodesRetrieveLookup;
+    };
+
+    export type DataModelingNodesRetrieveLookup = typeof DataModelingNodesRetrieveLookup[keyof typeof DataModelingNodesRetrieveLookup];
+
+
+    export const DataModelingNodesRetrieveLookup = {
+      Metric: 'metric',
+      PosthogTable: 'posthog_table',
+      SavedQuery: 'saved_query',
+      WarehouseTable: 'warehouse_table',
+    } as const;
 
     export type DataModelingNodesLineageRetrieveParams = {
     /**
