@@ -463,11 +463,21 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
         notified = notified_alerts_for_platform(
             self.team.id,
             [
-                PlatformAlertSignal(alert_id=str(alert.id), action="firing", result_count=500, consecutive_failures=0),
-                PlatformAlertSignal(alert_id=str(uuid4()), action="firing", result_count=1, consecutive_failures=0),
+                PlatformAlertSignal(
+                    alert_id=str(alert.id),
+                    action="firing",
+                    result_count=500,
+                    consecutive_failures=0,
+                    evaluation_key="k-1",
+                ),
+                PlatformAlertSignal(
+                    alert_id=str(uuid4()), action="firing", result_count=1, consecutive_failures=0, evaluation_key="k-1"
+                ),
             ],
         )
 
         assert [(n.alert_id, n.alert_name, n.threshold_count, n.result_count, n.filters) for n in notified] == [
             (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]})
         ]
+        # A retried emission of the same announcement must not start a second signal.
+        assert notified[0].idempotency_key == f"{alert.id}:firing:k-1"

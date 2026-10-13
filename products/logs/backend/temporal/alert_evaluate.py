@@ -14,6 +14,8 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from django.conf import settings
+
     from posthog.sync import database_sync_to_async_pool
     from posthog.temporal.common.utils import close_db_connections
 
@@ -92,6 +94,7 @@ def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSig
             action=_SIGNAL_ACTIONS[outcome.kind],
             result_count=int(outcome.value) if outcome.value is not None else None,
             consecutive_failures=outcome.consecutive_failures,
+            evaluation_key=outcome.evaluation_key,
         )
         for outcome in evaluation.outcomes
         if outcome.kind in _SIGNAL_ACTIONS and str(outcome.configuration_id) in announced
@@ -131,13 +134,13 @@ class LogsPlatformAlertSignalsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PlatformSignalInputs) -> int:
-        # One attempt. `emit_signal` names its workflows by fresh uuids, so a retry would send
-        # every signal the first attempt already sent a second time.
+        # Retried, because each signal carries an idempotency key, so a retry sends only what the
+        # failed attempt had not.
         return await workflow.execute_activity(
             emit_platform_alert_signals_activity,
             inputs,
             start_to_close_timeout=SIGNALS_START_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=10)),
         )
 
 
@@ -184,7 +187,8 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                     LogsPlatformAlertSignalsWorkflow.run,
                     PlatformSignalInputs(team_id=inputs.batch_key.team_id, signals=signals),
                     id=f"{SIGNALS_WORKFLOW_NAME}-{inputs.batch_key.team_id}:{inputs.batch_key.slot}:{inputs.cutoff}",
-                    task_queue=workflow.info().task_queue,
+                    # The delivery queue, so a slow burst of signals never holds evaluation slots.
+                    task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=SIGNALS_EXECUTION_TIMEOUT,
                 )
@@ -195,5 +199,8 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
         return started
 
 
-SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow, LogsPlatformAlertSignalsWorkflow]
-SOURCE_EVALUATION_ACTIVITIES = [evaluate_logs_alerts_activity, emit_platform_alert_signals_activity]
+SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]
+SOURCE_EVALUATION_ACTIVITIES = [evaluate_logs_alerts_activity]
+# Registered on the platform delivery queue, beside the deliveries the evaluation starts.
+PLATFORM_SIGNAL_WORKFLOWS = [LogsPlatformAlertSignalsWorkflow]
+PLATFORM_SIGNAL_ACTIVITIES = [emit_platform_alert_signals_activity]

@@ -48,6 +48,8 @@ class NotifiedAlert:
     result_count: int | None
     consecutive_failures: int
     filters: dict
+    # Set by a caller that retries, so a repeated emission starts no second signal.
+    idempotency_key: str | None = None
 
 
 _WEIGHT_BY_ACTION: dict[AlertSignalAction, float] = dict(_ACTION_WEIGHT.values())
@@ -64,6 +66,7 @@ class PlatformAlertSignal:
     action: AlertSignalAction
     result_count: int | None
     consecutive_failures: int
+    evaluation_key: str
 
 
 def signal_action_and_weight(notification: NotificationAction) -> tuple[AlertSignalAction, float] | None:
@@ -126,6 +129,7 @@ async def emit_alert_state_change_signal(team: Team, na: NotifiedAlert) -> bool:
             description=description,
             weight=na.weight,
             extra=extra,
+            idempotency_key=na.idempotency_key,
         )
         return True
     except Exception:
@@ -160,6 +164,7 @@ def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal
                 result_count=signal.result_count,
                 consecutive_failures=signal.consecutive_failures,
                 filters=alert.filters,
+                idempotency_key=f"{signal.alert_id}:{signal.action}:{signal.evaluation_key}",
             )
         )
     return notified
