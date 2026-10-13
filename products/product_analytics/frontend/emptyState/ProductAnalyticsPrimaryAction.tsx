@@ -3,9 +3,10 @@ import { useState } from 'react'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { NewInsightMenuContent } from 'scenes/saved-insights/NewInsightMenu'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { NewInsightMenuContent } from 'products/product_analytics/frontend/insights/newInsightMenu/NewInsightMenu'
 
 /**
  * Create button for the product analytics empty state. It offers the same insight

@@ -2,8 +2,6 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
-import { HomeTabDefault } from 'scenes/saved-insights/HomeTabDefault'
-import { homeTabDefaultLogic } from 'scenes/saved-insights/homeTabDefaultLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,6 +11,8 @@ import { performQuery } from '~/queries/query'
 import { isInsightQueryNode } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
+import { HomeTabDefault } from './HomeTabDefault'
+import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { homeTabDataCollectionId } from './homeTabQueryKeys'
 
 jest.mock('~/queries/query', () => ({

@@ -11,13 +11,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
 
-import {
-    homeTabChartInsightId,
-    homeTabDataCollectionId,
-} from 'products/product_analytics/frontend/insights/home/homeTabQueryKeys'
-
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { getHomeTabExploreUrl, type HomeTabChartOption } from './homeTabDefaultTiles'
+import { homeTabChartInsightId, homeTabDataCollectionId } from './homeTabQueryKeys'
 
 interface HomeTabChartCardProps {
     option: HomeTabChartOption
