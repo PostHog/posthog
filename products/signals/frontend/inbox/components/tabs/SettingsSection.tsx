@@ -7,17 +7,27 @@ import { ReactNode } from 'react'
  */
 export function SettingsSection({
     title,
+    id,
+    action,
     description,
     children,
 }: {
     title: string
+    id?: string
+    action?: ReactNode
     description?: ReactNode
     children: ReactNode
 }): JSX.Element {
     return (
-        <section className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
+        <section
+            id={id}
+            className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4 scroll-mt-4"
+        >
             <div className="flex flex-col gap-0.5">
-                <h3 className="m-0 text-sm font-semibold text-default">{title}</h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="m-0 text-sm font-semibold text-default">{title}</h3>
+                    {action}
+                </div>
                 {description && <p className="m-0 max-w-2xl text-xs leading-snug text-secondary">{description}</p>}
             </div>
             {children}
