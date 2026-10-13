@@ -16,7 +16,7 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMetricMathType,
-    ExperimentWarehouseQueryNode,
+    ExperimentWarehouseNativeNode,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     GroupMathType,
@@ -110,13 +110,13 @@ def is_threshold_supported_math(math_type: ExperimentMetricMathType | None) -> b
 
 
 def get_source_value_expr(
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseQueryNode],
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode],
 ) -> ast.Expr:
     """
     Return the per-row value that the metric aggregates.
     """
-    if isinstance(source, ExperimentWarehouseQueryNode):
-        raise NotImplementedError("Warehouse query sources cannot be calculated yet.")
+    if isinstance(source, ExperimentWarehouseNativeNode):
+        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
 
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         if hasattr(source, "math") and is_continuous(source.math):
@@ -294,7 +294,7 @@ def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> Da
 
 def funnel_steps_to_filter(
     team: Team,
-    funnel_steps: Sequence[EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode],
+    funnel_steps: Sequence[EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode],
 ) -> ast.Expr:
     """
     Match a row if it matches any funnel step.
@@ -302,8 +302,8 @@ def funnel_steps_to_filter(
     Data warehouse steps are skipped because they are not event filters. The funnel query
     reads them through a separate UNION ALL.
     """
-    if any(isinstance(step, ExperimentWarehouseQueryNode) for step in funnel_steps):
-        raise NotImplementedError("Warehouse query sources cannot be calculated yet.")
+    if any(isinstance(step, ExperimentWarehouseNativeNode) for step in funnel_steps):
+        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
     event_and_action_steps = [step for step in funnel_steps if isinstance(step, EventsNode | ActionsNode)]
 
     if not event_and_action_steps:

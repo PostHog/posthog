@@ -169,12 +169,12 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
-    ExperimentWarehouseExposureConfig = 'ExperimentWarehouseExposureConfig',
+    ExperimentWarehouseNativeExposureConfig = 'ExperimentWarehouseNativeExposureConfig',
     ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
-    ExperimentWarehouseQueryNode = 'ExperimentWarehouseQueryNode',
+    ExperimentWarehouseNativeNode = 'ExperimentWarehouseNativeNode',
     ExperimentExposureNode = 'ExperimentExposureNode',
 
     // Database metadata
@@ -5731,7 +5731,10 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     fingerprint?: string
 }
 
-export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig
+export type ExperimentExposureConfig =
+    | ExperimentEventExposureConfig
+    | ActionsNode
+    | ExperimentWarehouseNativeExposureConfig
 
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
@@ -5751,9 +5754,9 @@ export interface ExperimentEventExposureConfig extends Node {
 
 /** Exposures that live in the customer's warehouse, read through a direct connection. An experiment
  *  with this exposure runs entirely in the warehouse, so every metric source must be an
- *  `ExperimentWarehouseQueryNode` on the same connection. */
-export interface ExperimentWarehouseExposureConfig extends Node {
-    kind: NodeKind.ExperimentWarehouseExposureConfig
+ *  `ExperimentWarehouseNativeNode` on the same connection. */
+export interface ExperimentWarehouseNativeExposureConfig extends Node {
+    kind: NodeKind.ExperimentWarehouseNativeExposureConfig
     /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
     connection_id: string
     /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`,
@@ -6022,8 +6025,8 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
  *  `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. Of the inherited fields only
  *  `math` (`total`, `sum`, `min`, `max`) and `custom_name` apply; property filters cannot apply to SQL
  *  PostHog does not parse. */
-export interface ExperimentWarehouseQueryNode extends EntityNode {
-    kind: NodeKind.ExperimentWarehouseQueryNode
+export interface ExperimentWarehouseNativeNode extends EntityNode {
+    kind: NodeKind.ExperimentWarehouseNativeNode
     /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
     connection_id: string
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`,
@@ -6042,7 +6045,7 @@ export type ExperimentMetricSourceUnion =
     | EventsNode
     | ActionsNode
     | ExperimentDataWarehouseNode
-    | ExperimentWarehouseQueryNode
+    | ExperimentWarehouseNativeNode
 
 export type ExperimentMetricSource = ExperimentMetricSourceUnion
 
@@ -6053,7 +6056,7 @@ export type ExperimentFunnelMetricStepUnion =
     | EventsNode
     | ActionsNode
     | ExperimentDataWarehouseNode
-    | ExperimentWarehouseQueryNode
+    | ExperimentWarehouseNativeNode
 
 export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
@@ -6074,7 +6077,7 @@ export type ExperimentRetentionStartUnion =
     | EventsNode
     | ActionsNode
     | ExperimentDataWarehouseNode
-    | ExperimentWarehouseQueryNode
+    | ExperimentWarehouseNativeNode
     | ExperimentExposureNode
 
 export type ExperimentRetentionStart = ExperimentRetentionStartUnion

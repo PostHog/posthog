@@ -30,7 +30,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentWarehouseQueryNode,
+    ExperimentWarehouseNativeNode,
     HogQLQueryModifiers,
 )
 
@@ -175,7 +175,7 @@ class MetricScanResult:
 
 
 def node_signature(
-    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode | ExperimentExposureNode,
+    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
 ) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
@@ -187,7 +187,7 @@ def _metric_sources(
 ) -> list[
     tuple[
         MetricSourceRole,
-        MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode | ExperimentExposureNode,
+        MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
     ]
 ]:
     if isinstance(metric, ExperimentMeanMetric):
@@ -208,7 +208,7 @@ def _metric_sources(
     sources: list[
         tuple[
             MetricSourceRole,
-            MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode | ExperimentExposureNode,
+            MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
         ]
     ] = [(MetricSourceRole.RETENTION_START, metric.start_event)]
     if node_signature(metric.completion_event) != node_signature(metric.start_event):
@@ -217,7 +217,7 @@ def _metric_sources(
 
 
 def _source_title(
-    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode | ExperimentExposureNode,
+    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
 ) -> str | None:
     """Display name for one metric source node, mirroring the frontend `getDefaultName`."""
     if isinstance(node, EventsNode):
@@ -226,8 +226,8 @@ def _source_title(
         return node.name or f"Action {node.id}"
     if isinstance(node, ExperimentDataWarehouseNode):
         return node.table_name
-    if isinstance(node, ExperimentWarehouseQueryNode):
-        return node.custom_name or "Warehouse query"
+    if isinstance(node, ExperimentWarehouseNativeNode):
+        return node.custom_name or "Warehouse-native query"
     if isinstance(node, ExperimentExposureNode):
         return "Exposure"
 

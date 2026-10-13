@@ -26,7 +26,7 @@ from products.experiments.backend.hogql_queries.retention_validation import rete
 from products.experiments.backend.metric_resolution import (
     METRIC_BUILDERS,
     ExperimentMetric,
-    metric_uses_warehouse_query,
+    metric_uses_warehouse_native_source,
 )
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
 
@@ -139,9 +139,9 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
     error = _semantic_error(parsed)
-    if error is None and metric_uses_warehouse_query(parsed):
+    if error is None and metric_uses_warehouse_native_source(parsed):
         # The source kind exists so the rest of the product can be built against it; nothing can run it yet.
-        error = "warehouse query sources are not supported yet."
+        error = "warehouse-native sources are not supported yet."
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed

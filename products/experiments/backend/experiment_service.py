@@ -26,7 +26,7 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
-    ExperimentWarehouseExposureConfig,
+    ExperimentWarehouseNativeExposureConfig,
 )
 
 from posthog.hogql import ast
@@ -778,10 +778,12 @@ class ExperimentService:
         # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
-        if kind == "ExperimentWarehouseExposureConfig":
+        if kind == "ExperimentWarehouseNativeExposureConfig":
             # The kind exists so the rest of the product can be built against it; nothing can run it yet.
-            cls._validate_exposure_config_model(ExperimentWarehouseExposureConfig, exposure_config, field_path, kind)
-            raise ValidationError(f"{field_path}: warehouse exposures are not supported yet.")
+            cls._validate_exposure_config_model(
+                ExperimentWarehouseNativeExposureConfig, exposure_config, field_path, kind
+            )
+            raise ValidationError(f"{field_path}: warehouse-native exposures are not supported yet.")
         if kind not in cls.EXPOSURE_CONFIG_KINDS:
             raise ValidationError(
                 f"{field_path}.kind must be one of "

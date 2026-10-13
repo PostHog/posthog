@@ -15,7 +15,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentWarehouseQueryNode,
+    ExperimentWarehouseNativeNode,
 )
 
 from posthog.dataclasses import frozen
@@ -43,8 +43,8 @@ def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:
     return bool(
         metric
         and metric.get("metric_type") in DAILY_TIMESERIES_METRIC_TYPES
-        # Warehouse query sources have no calculation path yet, so the daily run must not attempt them.
-        and not metric_dict_uses_warehouse_query(metric)
+        # Warehouse-native sources have no calculation path yet, so the daily run must not attempt them.
+        and not metric_dict_uses_warehouse_native_source(metric)
     )
 
 
@@ -246,13 +246,13 @@ def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
     )
 
 
-# A metric with a warehouse query source runs in the customer's warehouse, not in ClickHouse.
-def metric_uses_warehouse_query(metric: ExperimentMetric) -> bool:
-    return any(isinstance(node, ExperimentWarehouseQueryNode) for node in metric_source_nodes(metric))
+# A metric with a warehouse-native source runs in the customer's warehouse, not in ClickHouse.
+def metric_uses_warehouse_native_source(metric: ExperimentMetric) -> bool:
+    return any(isinstance(node, ExperimentWarehouseNativeNode) for node in metric_source_nodes(metric))
 
 
-def metric_dict_uses_warehouse_query(metric_dict: dict[str, Any]) -> bool:
+def metric_dict_uses_warehouse_native_source(metric_dict: dict[str, Any]) -> bool:
     return any(
-        isinstance(node, dict) and node.get("kind") == "ExperimentWarehouseQueryNode"
+        isinstance(node, dict) and node.get("kind") == "ExperimentWarehouseNativeNode"
         for node in _metric_dict_source_nodes(metric_dict)
     )

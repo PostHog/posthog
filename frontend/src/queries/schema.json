@@ -25939,7 +25939,7 @@
                     "$ref": "#/definitions/ActionsNode"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentWarehouseExposureConfig"
+                    "$ref": "#/definitions/ExperimentWarehouseNativeExposureConfig"
                 }
             ]
         },
@@ -26265,7 +26265,7 @@
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentWarehouseQueryNode"
+                    "$ref": "#/definitions/ExperimentWarehouseNativeNode"
                 }
             ],
             "required": ["kind"],
@@ -26718,7 +26718,7 @@
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentWarehouseQueryNode"
+                    "$ref": "#/definitions/ExperimentWarehouseNativeNode"
                 }
             ],
             "required": ["kind"],
@@ -27211,7 +27211,7 @@
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentWarehouseQueryNode"
+                    "$ref": "#/definitions/ExperimentWarehouseNativeNode"
                 },
                 {
                     "$ref": "#/definitions/ExperimentExposureNode"
@@ -27676,16 +27676,16 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
-        "ExperimentWarehouseExposureConfig": {
+        "ExperimentWarehouseNativeExposureConfig": {
             "additionalProperties": false,
-            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseQueryNode` on the same connection.",
+            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection.",
             "properties": {
                 "connection_id": {
                     "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
                     "type": "string"
                 },
                 "kind": {
-                    "const": "ExperimentWarehouseExposureConfig",
+                    "const": "ExperimentWarehouseNativeExposureConfig",
                     "type": "string"
                 },
                 "query": {
@@ -27703,7 +27703,7 @@
             "required": ["connection_id", "kind", "query"],
             "type": "object"
         },
-        "ExperimentWarehouseQueryNode": {
+        "ExperimentWarehouseNativeNode": {
             "additionalProperties": false,
             "description": "Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. Of the inherited fields only `math` (`total`, `sum`, `min`, `max`) and `custom_name` apply; property filters cannot apply to SQL PostHog does not parse.",
             "properties": {
@@ -27722,7 +27722,7 @@
                     "type": "array"
                 },
                 "kind": {
-                    "const": "ExperimentWarehouseQueryNode",
+                    "const": "ExperimentWarehouseNativeNode",
                     "type": "string"
                 },
                 "math": {
@@ -40494,12 +40494,12 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
-                "ExperimentWarehouseExposureConfig",
+                "ExperimentWarehouseNativeExposureConfig",
                 "ExperimentActorsQuery",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
-                "ExperimentWarehouseQueryNode",
+                "ExperimentWarehouseNativeNode",
                 "ExperimentExposureNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",

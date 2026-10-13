@@ -6,7 +6,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentExposureNode,
     ExperimentRetentionMetric,
-    ExperimentWarehouseQueryNode,
+    ExperimentWarehouseNativeNode,
     FunnelConversionWindowTimeUnit,
     StartHandling,
 )
@@ -458,8 +458,8 @@ class RetentionQueryBuilder:
         # projects the start from the exposures CTE instead.
         assert not isinstance(start_event, ExperimentExposureNode)
 
-        if isinstance(start_event, ExperimentWarehouseQueryNode):
-            raise NotImplementedError("Warehouse query sources cannot be calculated yet.")
+        if isinstance(start_event, ExperimentWarehouseNativeNode):
+            raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
         if isinstance(start_event, ExperimentDataWarehouseNode):
             event_filter = data_warehouse_node_to_filter(self._b.team, start_event)
         else:
@@ -483,8 +483,8 @@ class RetentionQueryBuilder:
     def build_completion_event_predicate(self) -> ast.Expr:
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if isinstance(self._b.metric.completion_event, ExperimentWarehouseQueryNode):
-            raise NotImplementedError("Warehouse query sources cannot be calculated yet.")
+        if isinstance(self._b.metric.completion_event, ExperimentWarehouseNativeNode):
+            raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
         if isinstance(self._b.metric.completion_event, ExperimentDataWarehouseNode):
             event_filter = data_warehouse_node_to_filter(self._b.team, self._b.metric.completion_event)
         else:

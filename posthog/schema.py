@@ -1693,7 +1693,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
-class ExperimentWarehouseExposureConfig(BaseModel):
+class ExperimentWarehouseNativeExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1701,7 +1701,7 @@ class ExperimentWarehouseExposureConfig(BaseModel):
         ...,
         description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
     )
-    kind: Literal["ExperimentWarehouseExposureConfig"] = "ExperimentWarehouseExposureConfig"
+    kind: Literal["ExperimentWarehouseNativeExposureConfig"] = "ExperimentWarehouseNativeExposureConfig"
     query: str = Field(
         ...,
         description=(
@@ -28179,7 +28179,7 @@ class ExperimentEventExposureConfig(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentWarehouseQueryNode(BaseModel):
+class ExperimentWarehouseNativeNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28192,7 +28192,7 @@ class ExperimentWarehouseQueryNode(BaseModel):
         default=None,
         description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
     )
-    kind: Literal["ExperimentWarehouseQueryNode"] = "ExperimentWarehouseQueryNode"
+    kind: Literal["ExperimentWarehouseNativeNode"] = "ExperimentWarehouseNativeNode"
     math: (
         BaseMathType
         | FunnelMathType
@@ -30672,16 +30672,18 @@ class ExperimentExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    activation_config: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig | None = Field(
-        default=None,
-        description=(
-            "Additional event (or action) an entity must emit at/after their first"
-            " default exposure event before they count as exposed; exposure time"
-            " becomes this event's timestamp. Only valid with the default exposure"
-            " event, not a custom `exposure_config`."
-        ),
+    activation_config: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | None = (
+        Field(
+            default=None,
+            description=(
+                "Additional event (or action) an entity must emit at/after their first"
+                " default exposure event before they count as exposed; exposure time"
+                " becomes this event's timestamp. Only valid with the default exposure"
+                " event, not a custom `exposure_config`."
+            ),
+        )
     )
-    exposure_config: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig | None = None
+    exposure_config: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | None = None
     filterTestAccounts: bool | None = None
     multiple_variant_handling: MultipleVariantHandling | None = None
 
@@ -31294,7 +31296,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     metric_type: Literal["funnel"] = "funnel"
     series: list[
         Annotated[
-            EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode,
+            EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode,
             Field(discriminator="kind"),
         ]
     ]
@@ -31307,7 +31309,7 @@ class ExperimentRatioMetric(BaseModel):
     breakdownFilter: BreakdownFilter | None = None
     conversion_window: int | None = None
     conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
-    denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     denominator_outlier_handling: ExperimentMetricOutlierHandling | None = None
@@ -31317,7 +31319,7 @@ class ExperimentRatioMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["ratio"] = "ratio"
     name: str | None = None
-    numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
@@ -31331,12 +31333,12 @@ class ExperimentRatioMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     denominator_outlier_handling: ExperimentMetricOutlierHandling | None = None
     metric_type: Literal["ratio"] = "ratio"
-    numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
@@ -31760,7 +31762,7 @@ class ExperimentFunnelMetric(BaseModel):
     response: dict[str, Any] | None = None
     series: list[
         Annotated[
-            EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode,
+            EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode,
             Field(discriminator="kind"),
         ]
     ]
@@ -31791,7 +31793,7 @@ class ExperimentMeanMetric(BaseModel):
     name: str | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
-    source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     threshold: float | None = Field(
@@ -31824,7 +31826,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
         ),
     )
     metric_type: Literal["mean"] = "mean"
-    source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     threshold: float | None = Field(
@@ -31848,7 +31850,7 @@ class ExperimentRetentionMetric(BaseModel):
         extra="forbid",
     )
     breakdownFilter: BreakdownFilter | None = None
-    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     conversion_window: int | None = None
@@ -31865,7 +31867,7 @@ class ExperimentRetentionMetric(BaseModel):
     retention_window_unit: FunnelConversionWindowTimeUnit
     sharedMetricId: float | None = None
     start_event: (
-        EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode | ExperimentExposureNode
+        EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode
     ) = Field(..., discriminator="kind")
     start_handling: StartHandling
     uuid: str | None = None
@@ -31876,7 +31878,7 @@ class ExperimentRetentionMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode = Field(
+    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode = Field(
         ..., discriminator="kind"
     )
     metric_type: Literal["retention"] = "retention"
@@ -31884,7 +31886,7 @@ class ExperimentRetentionMetricTypeProps(BaseModel):
     retention_window_start: int
     retention_window_unit: FunnelConversionWindowTimeUnit
     start_event: (
-        EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode | ExperimentExposureNode
+        EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode
     ) = Field(..., discriminator="kind")
     start_handling: StartHandling
 
@@ -33120,11 +33122,13 @@ class ExperimentActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    exposureConfig: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig | None = Field(
-        default=None,
-        description=(
-            "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
-        ),
+    exposureConfig: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | None = (
+        Field(
+            default=None,
+            description=(
+                "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+            ),
+        )
     )
     featureFlagKey: str | None = Field(default=None, description="Feature flag key for breakdown filtering.")
     funnelStep: int | None = Field(

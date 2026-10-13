@@ -855,20 +855,20 @@ class TestExperimentService(APIBaseTest):
                 "['ExperimentEventExposureConfig', 'ActionsNode'], got 'EventsNode'",
             ),
             (
-                "exposure_config_warehouse_not_supported",
+                "exposure_config_warehouse_native_not_supported",
                 {
                     "exposure_config": {
-                        "kind": "ExperimentWarehouseExposureConfig",
+                        "kind": "ExperimentWarehouseNativeExposureConfig",
                         "connection_id": "00000000-0000-0000-0000-000000000000",
                         "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
                     }
                 },
-                "exposure_criteria.exposure_config: warehouse exposures are not supported yet",
+                "exposure_criteria.exposure_config: warehouse-native exposures are not supported yet",
             ),
             (
-                "exposure_config_warehouse_missing_query",
-                {"exposure_config": {"kind": "ExperimentWarehouseExposureConfig", "connection_id": "c"}},
-                "Invalid exposure_criteria.exposure_config (kind='ExperimentWarehouseExposureConfig')",
+                "exposure_config_warehouse_native_missing_query",
+                {"exposure_config": {"kind": "ExperimentWarehouseNativeExposureConfig", "connection_id": "c"}},
+                "Invalid exposure_criteria.exposure_config (kind='ExperimentWarehouseNativeExposureConfig')",
             ),
             (
                 "exposure_config_event_kind_missing_event",

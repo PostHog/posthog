@@ -11,7 +11,7 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
-    ExperimentWarehouseExposureConfig,
+    ExperimentWarehouseNativeExposureConfig,
 )
 
 from posthog.hogql import ast
@@ -72,8 +72,8 @@ def build_experiment_actors_query(runner: "ExperimentQueryRunner") -> ast.Select
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
     if runner.actors_query.exposureConfig is not None:
         override = runner.actors_query.exposureConfig
-        if isinstance(override, ExperimentWarehouseExposureConfig):
-            raise NotImplementedError("Warehouse query sources cannot be calculated yet.")
+        if isinstance(override, ExperimentWarehouseNativeExposureConfig):
+            raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
         # An explicit override replaces the whole exposure definition, including any
         # stored activation event.
         exposure_config = resolve_exposure_config_for_builder(override, runner.team, runner.experiment.start_date)

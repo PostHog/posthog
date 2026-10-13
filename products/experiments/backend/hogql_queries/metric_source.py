@@ -1,6 +1,6 @@
 from typing import Union
 
-from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode, ExperimentWarehouseQueryNode
+from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -27,7 +27,7 @@ class MetricSourceInfo:
     @classmethod
     def from_source(
         cls,
-        source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseQueryNode],
+        source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode],
         entity_key: str | None = None,
     ) -> "MetricSourceInfo":
         """
@@ -35,8 +35,8 @@ class MetricSourceInfo:
         Events and actions sources require it and raise ValueError without it. Data
         warehouse sources ignore it and use their data_warehouse_join_key.
         """
-        if isinstance(source, ExperimentWarehouseQueryNode):
-            raise NotImplementedError("Warehouse query sources cannot be calculated yet.")
+        if isinstance(source, ExperimentWarehouseNativeNode):
+            raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
         if isinstance(source, ExperimentDataWarehouseNode):
             # `data_warehouse_join_key` is the user-supplied HogQL parsed below.
             tag_contains_user_hogql()

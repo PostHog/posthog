@@ -447,15 +447,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentWarehouseQueryNode]: {
-        name: 'Experiment Warehouse Query',
-        description: 'Experiment metric source read from the customer warehouse.',
+    [NodeKind.ExperimentWarehouseNativeNode]: {
+        name: 'Experiment Warehouse-native Node',
+        description: 'Experiment metric source run in the customer warehouse.',
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentWarehouseExposureConfig]: {
-        name: 'Experiment Warehouse Exposure Config',
-        description: 'Experiment exposures read from the customer warehouse.',
+    [NodeKind.ExperimentWarehouseNativeExposureConfig]: {
+        name: 'Experiment Warehouse-native Exposure Config',
+        description: 'Experiment exposures run in the customer warehouse.',
         icon: IconFlask,
         inMenu: false,
     },

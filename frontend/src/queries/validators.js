@@ -8579,7 +8579,7 @@ const schema89 = {
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
-        { $ref: '#/definitions/ExperimentWarehouseQueryNode' },
+        { $ref: '#/definitions/ExperimentWarehouseNativeNode' },
     ],
     required: ['kind'],
     type: 'object',
@@ -11274,7 +11274,7 @@ const schema106 = {
             items: { $ref: '#/definitions/AnyPropertyFilter' },
             type: 'array',
         },
-        kind: { const: 'ExperimentWarehouseQueryNode', type: 'string' },
+        kind: { const: 'ExperimentWarehouseNativeNode', type: 'string' },
         math: { $ref: '#/definitions/MathType' },
         math_group_type_index: { enum: [0, 1, 2, 3, 4], type: 'number' },
         math_hogql: { type: 'string' },
@@ -11438,13 +11438,13 @@ function validate119(data, { instancePath = '', parentData, parentDataProperty, 
                                         ]
                                         return false
                                     }
-                                    if ('ExperimentWarehouseQueryNode' !== data4) {
+                                    if ('ExperimentWarehouseNativeNode' !== data4) {
                                         validate119.errors = [
                                             {
                                                 instancePath: instancePath + '/kind',
                                                 schemaPath: '#/properties/kind/const',
                                                 keyword: 'const',
-                                                params: { allowedValue: 'ExperimentWarehouseQueryNode' },
+                                                params: { allowedValue: 'ExperimentWarehouseNativeNode' },
                                                 message: 'must be equal to constant',
                                             },
                                         ]
@@ -12631,7 +12631,7 @@ const schema113 = {
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
-        { $ref: '#/definitions/ExperimentWarehouseQueryNode' },
+        { $ref: '#/definitions/ExperimentWarehouseNativeNode' },
     ],
     required: ['kind'],
     type: 'object',
@@ -14356,7 +14356,7 @@ const schema127 = {
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
-        { $ref: '#/definitions/ExperimentWarehouseQueryNode' },
+        { $ref: '#/definitions/ExperimentWarehouseNativeNode' },
         { $ref: '#/definitions/ExperimentExposureNode' },
     ],
     required: ['kind'],

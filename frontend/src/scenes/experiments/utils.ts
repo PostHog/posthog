@@ -91,7 +91,7 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
     if (isEventExposureConfig(config)) {
         return config.event || 'Unknown Event'
     }
-    if (config.kind === NodeKind.ExperimentWarehouseExposureConfig) {
+    if (config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
         return 'Warehouse exposures'
     }
     return config.name || `Action ${config.id}`
@@ -937,8 +937,8 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                     dataWarehouseNode.properties.length > 0 && { properties: dataWarehouseNode.properties }),
             },
         ])
-        .with({ kind: NodeKind.ExperimentWarehouseQueryNode }, () => {
-            throw new Error('Warehouse query sources cannot be shown as an insight yet')
+        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => {
+            throw new Error('Warehouse-native sources cannot be shown as an insight yet')
         })
         .exhaustive()
 

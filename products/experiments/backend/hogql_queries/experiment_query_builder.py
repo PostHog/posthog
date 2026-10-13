@@ -15,7 +15,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentWarehouseExposureConfig,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
 )
 
@@ -88,10 +88,10 @@ def get_exposure_config_params_for_builder(
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
     stored_exposure = criteria.exposure_config if criteria else None
     stored_activation = criteria.activation_config if criteria else None
-    if isinstance(stored_exposure, ExperimentWarehouseExposureConfig) or isinstance(
-        stored_activation, ExperimentWarehouseExposureConfig
+    if isinstance(stored_exposure, ExperimentWarehouseNativeExposureConfig) or isinstance(
+        stored_activation, ExperimentWarehouseNativeExposureConfig
     ):
-        raise NotImplementedError("Warehouse query sources cannot be calculated yet.")
+        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(
             event=resolve_default_exposure_event(team, start_date), properties=[]
