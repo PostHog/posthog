@@ -102,7 +102,13 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
         config.save()
         eligibility = patch(
             "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: [self.team.id] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+            side_effect=lambda key: (
+                [self.team.id]
+                if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
+                else "native.example.com"
+                if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
+                else False
+            ),
         )
         eligibility.start()
         self.addCleanup(eligibility.stop)
@@ -173,7 +179,7 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             self.assertEqual(PreaggregationJob.objects.filter(team=self.team).count(), job_count)
             self.assertNotIn("preaggregated", execute.call_args.args[0])
         self.assertEqual("events_json" in execute.call_args.args[0], native)
-        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NATIVE_EVENTS, native)
+        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native)
         self.assertEqual(runner.get_cache_key(), cache_key)
         if kind == "metric":
             assert isinstance(runner, ExperimentQueryRunner)
@@ -209,7 +215,13 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
         with (
             patch(
                 "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+                side_effect=lambda key: (
+                    [self.team.pk]
+                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
+                    else "native.example.com"
+                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
+                    else False
+                ),
             ),
         ):
             children: list[QueryRunner]

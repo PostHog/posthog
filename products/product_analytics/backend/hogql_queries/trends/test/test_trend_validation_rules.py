@@ -433,14 +433,20 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         with (
             patch(
                 "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+                side_effect=lambda key: (
+                    [self.team.pk]
+                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
+                    else "native.example.com"
+                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
+                    else False
+                ),
             ),
             patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
         ):
             result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()
         assert result.breakdown == []
         execute.assert_called_once()
-        assert execute.call_args.kwargs["workload"] == (Workload.NATIVE_EVENTS if native else Workload.DEFAULT)
+        assert execute.call_args.kwargs["workload"] == (Workload.NEW_EVENTS_CLUSTER if native else Workload.DEFAULT)
         assert ("events_json" in execute.call_args.args[0]) is native
 
     @parameterized.expand([(False,), (True,)])
@@ -456,7 +462,13 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         )
         with patch(
             "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+            side_effect=lambda key: (
+                [self.team.pk]
+                if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
+                else "native.example.com"
+                if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
+                else False
+            ),
         ):
             runner = ActorsQueryRunner(query=query, team=self.team, user=self.user)
             source = runner.source_query_runner

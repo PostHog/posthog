@@ -124,6 +124,14 @@ class InstanceSettingsSerializer(serializers.Serializer):
     editable = serializers.BooleanField(read_only=True)
     is_secret = serializers.BooleanField(read_only=True)
 
+    def validate_value(self, value: Any) -> Any:
+        if self.instance is not None and self.instance.key == "CLICKHOUSE_NATIVE_EVENTS_HOST":
+            if not isinstance(value, str) or (value and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", value)):
+                raise serializers.ValidationError(
+                    "Enter a hostname without a scheme, port or path, or leave it empty to disable the route."
+                )
+        return value
+
     def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")

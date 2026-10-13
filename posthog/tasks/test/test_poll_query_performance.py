@@ -2,6 +2,7 @@ from threading import Event
 
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -19,6 +20,14 @@ from posthog.tasks.tasks import Polling
 
 
 class TestPollQueryPerformance(SimpleTestCase):
+    def setUp(self) -> None:
+        patcher = patch(
+            "posthog.models.event.new_events_schema.get_instance_setting",
+            side_effect=lambda key: getattr(settings, "CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @override_settings(CLICKHOUSE_OFFLINE_CLUSTER_HOST="offline.example.com")
     def test_legacy_probe_stays_on_online_host_when_celery_defaults_to_offline(self) -> None:
         with (

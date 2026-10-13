@@ -7,8 +7,6 @@ from itertools import groupby
 from time import perf_counter
 from typing import Any, Optional
 
-from django.conf import settings
-
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
@@ -16,6 +14,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload, defau
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.event.new_events_schema import get_new_events_cluster_host
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.utils import UUID_REGEX
 
@@ -67,7 +66,7 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         """
 
     try:
-        if settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+        if get_new_events_cluster_host():
             legacy = submit_legacy_metadata(partial(_get_legacy_query_results, SYSTEM_PROCESSES_SQL))
             if legacy is None:
                 raw_results = []
@@ -85,13 +84,13 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
                 ch_user=ClickHouseUser.OPS,
             )
     except Exception:
-        if not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+        if not get_new_events_cluster_host():
             raise
         logger.exception("Failed to poll legacy query progress")
         raw_results = []
     # Publish healthy legacy results before waiting on the separate native cluster.
     yield _format_results(raw_results)
-    if not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+    if not get_new_events_cluster_host():
         return
     remaining = min(3.0, Polling.SOFT_TIME_LIMIT_SECONDS - 1 - (perf_counter() - started))
     if remaining <= 0:
@@ -123,7 +122,7 @@ def _get_legacy_query_results(sql: str) -> list[Any]:
 
 def _get_native_query_results(sql: str) -> list[Any]:
     with default_client(
-        workload=Workload.NATIVE_EVENTS,
+        workload=Workload.NEW_EVENTS_CLUSTER,
         ch_user=ClickHouseUser.OPS,
         connect_timeout=1,
         send_receive_timeout=2,

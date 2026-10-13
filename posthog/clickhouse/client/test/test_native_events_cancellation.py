@@ -5,6 +5,7 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -16,6 +17,14 @@ from posthog.clickhouse.workload import Workload
 
 
 class TestNativeEventsQueryCancellation(SimpleTestCase):
+    def setUp(self) -> None:
+        patcher = patch(
+            "posthog.models.event.new_events_schema.get_instance_setting",
+            side_effect=lambda key: getattr(settings, "CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @override_settings(
         CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=False
     )
@@ -82,7 +91,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         tag_queries(team_id=44, name="legacy-cancel", client_query_id="example-query")
 
         def get_client(**kwargs: object) -> MagicMock:
-            return native_client if kwargs.get("workload") == Workload.NATIVE_EVENTS else legacy_client
+            return native_client if kwargs.get("workload") == Workload.NEW_EVENTS_CLUSTER else legacy_client
 
         def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
             if kwargs["sync_client"] is native_client:
@@ -199,7 +208,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         legacy_client.__enter__.return_value = legacy_client
 
         def get_client(**kwargs: object) -> MagicMock:
-            return native_client if kwargs.get("workload") == Workload.NATIVE_EVENTS else legacy_client
+            return native_client if kwargs.get("workload") == Workload.NEW_EVENTS_CLUSTER else legacy_client
 
         def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
             if kwargs["sync_client"] is legacy_client:
@@ -226,7 +235,9 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
             else:
                 cancel_query_on_cluster(44, "example-query")
             self.assertTrue(native_finished.wait(1))
-        native_calls = [call for call in client.call_args_list if call.kwargs.get("workload") == Workload.NATIVE_EVENTS]
+        native_calls = [
+            call for call in client.call_args_list if call.kwargs.get("workload") == Workload.NEW_EVENTS_CLUSTER
+        ]
         self.assertEqual(len(native_calls), 1)
         self.assertEqual(native_calls[0].kwargs["send_receive_timeout"], 15)
         native_kills = [call for call in executed.call_args_list if call.kwargs["sync_client"] is native_client]

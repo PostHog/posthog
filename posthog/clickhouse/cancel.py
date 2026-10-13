@@ -12,6 +12,7 @@ from posthog.clickhouse.client.connection import default_client
 from posthog.clickhouse.native_metadata import submit_native_metadata
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.models.event.new_events_schema import get_new_events_cluster_host
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 # The pooled clients run with an effectively unbounded send/receive timeout, so a kill issued through them
@@ -23,7 +24,7 @@ _SEND_RECEIVE_TIMEOUT_SECONDS = 15
 # validated_client_query_id appends one underscore and exactly eight random characters.
 def _cancel_native_query(team_id: int, client_query_id: str) -> bool:
     with default_client(
-        workload=Workload.NATIVE_EVENTS,
+        workload=Workload.NEW_EVENTS_CLUSTER,
         team_id=team_id,
         database=CLICKHOUSE_DATABASE,
         connect_timeout=1,
@@ -62,7 +63,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
     with tags_context(team_id=None, client_query_id=None):
         native = None
         native_deadline = None
-        if settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+        if get_new_events_cluster_host():
             native_deadline = monotonic() + 20
             native = submit_native_metadata(partial(_cancel_native_query, team_id, client_query_id))
             if native is not None:
@@ -72,12 +73,12 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         try:
             legacy_found = _cancel_legacy_query(team_id, client_query_id)
         except Exception as error:
-            if not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+            if not get_new_events_cluster_host():
                 raise
             legacy_error = error
             legacy_found = False
             logger.warning("Failed to cancel legacy query %s: %s", client_query_id, error)
-        if legacy_found or not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+        if legacy_found or not get_new_events_cluster_host():
             return
         if native is None:
             raise RuntimeError("Native query cancellation is busy; retry cancellation")
@@ -132,6 +133,6 @@ def _cancel_legacy_query(team_id: int, client_query_id: str) -> bool:
         statsd.incr("clickhouse.query.cancellation.on_cluster", tags={"team_id": team_id})
     # A cluster kill can succeed with no matching rows. Preserve failed discovery until
     # the coordinator can confirm native cleanup instead of deleting an unknown query's status.
-    if settings.CLICKHOUSE_NATIVE_EVENTS_HOST and discovery_error is not None:
+    if get_new_events_cluster_host() and discovery_error is not None:
         raise discovery_error
     return initiator_host is not None
