@@ -25,7 +25,7 @@ class ToolSignalsSerializer(serializers.Serializer):
 
 class ToolSerializer(serializers.Serializer):
     kind = serializers.CharField(help_text="Unique tool identifier, such as `Stripe` or `Hotjar`.")
-    label = serializers.CharField(help_text="Human-readable tool name.")
+    label = serializers.CharField(help_text="Human-readable tool name.")  # type: ignore[assignment]
     warehouse_source_type = serializers.CharField(
         allow_null=True,
         help_text="Data warehouse source type the tool imports as, or null for a tool with no warehouse source.",

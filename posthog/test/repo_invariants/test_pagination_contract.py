@@ -268,6 +268,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.wizard.backend.presentation.registry.views.WizardRegistryViewSet",
     "products.wizard.backend.presentation.runs.views.WizardRunViewSet",
     "products.wizard.backend.presentation.sessions.views.WizardSessionViewSet",
+    # Serves the whole tool catalog as one cached document, so there is nothing to page.
+    "products.wizard.backend.presentation.tool_catalog.views.WizardToolCatalogViewSet",
     "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.HogFlowTemplateViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
