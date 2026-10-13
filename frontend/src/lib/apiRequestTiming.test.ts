@@ -218,6 +218,17 @@ describe('API request timing', () => {
             expect(recorder.finish().resource_timing_status).toBe('matched')
         })
 
+        it('retains resource phases when unidentifiable resources complete before response headers', () => {
+            const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+            recorder.startFetch()
+            observer.deliver([resource(), ...Array.from({ length: 40 }, () => ({ ...resource(), serverTiming: [] }))])
+            recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
+            now = 320
+            expect(recorder.finish()).toEqual(
+                expect.objectContaining({ resource_timing_status: 'matched', resource_ttfb_ms: 100 })
+            )
+        })
+
         it('rejects duplicate identities observed within the request', () => {
             const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })

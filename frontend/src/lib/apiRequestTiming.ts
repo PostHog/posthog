@@ -111,6 +111,13 @@ export class ApiRequestTimingRecorder {
                     this.resourceEntries.push(entry)
                 }
             } else {
+                if (
+                    !entry.serverTiming?.some(
+                        (metric) => metric.name === 'request_id' && UUID_PATTERN.test(metric.description)
+                    )
+                ) {
+                    continue
+                }
                 if (this.resourceEntries.length === MAX_PENDING_RESOURCES) {
                     this.resourceCollectionOverflowed = true
                     this.resourceEntries.shift()

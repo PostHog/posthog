@@ -233,6 +233,23 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
     return None
 
 
+def add_query_response_identity_headers(response: Response) -> Response:
+    if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
+        response["X-Request-ID"] = str(http_request_id)
+        # Internal marker lets CORS preserve query exposures without affecting other responses.
+        vars(response)["_posthog_query_request_id"] = http_request_id
+        request_id_timing = f'request_id;desc="{http_request_id}"'
+        if existing_server_timing := response.get("Server-Timing"):
+            request_id_timing = f"{existing_server_timing}, {request_id_timing}"
+        response["Server-Timing"] = request_id_timing
+        exposed_headers = response.get("Access-Control-Expose-Headers", "")
+        if "x-request-id" not in {header.strip().lower() for header in exposed_headers.split(",")}:
+            response["Access-Control-Expose-Headers"] = ", ".join(
+                header for header in (exposed_headers, "X-Request-ID") if header
+            )
+    return response
+
+
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -243,21 +260,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     sharing_enabled_actions = ["retrieve"]
 
     def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
-        response = super().finalize_response(request, response, *args, **kwargs)
-        if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
-            response["X-Request-ID"] = str(http_request_id)
-            # Internal marker lets CORS preserve query exposures without affecting other responses.
-            vars(response)["_posthog_query_request_id"] = http_request_id
-            request_id_timing = f'request_id;desc="{http_request_id}"'
-            if existing_server_timing := response.get("Server-Timing"):
-                request_id_timing = f"{existing_server_timing}, {request_id_timing}"
-            response["Server-Timing"] = request_id_timing
-            exposed_headers = response.get("Access-Control-Expose-Headers", "")
-            if "x-request-id" not in {header.strip().lower() for header in exposed_headers.split(",")}:
-                response["Access-Control-Expose-Headers"] = ", ".join(
-                    header for header in (exposed_headers, "X-Request-ID") if header
-                )
-        return response
+        return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         if getattr(view, "action", None) != "create":
