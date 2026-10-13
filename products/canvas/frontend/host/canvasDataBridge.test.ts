@@ -51,11 +51,53 @@ describe('CanvasDataBridge query routing', () => {
 })
 
 describe('CanvasDataBridge action confirmation', () => {
+    test.each([false, true])('asks the viewer before a plain write, allowed: %s', async (allowed) => {
+        const action = {
+            verb: 'annotations.create',
+            summary: 'Create an annotation.',
+            destructive: false,
+            starts_cloud_run: false,
+            usage: '',
+        }
+        const payload = { content: 'Deployed' }
+        jest.mocked(canvasesActionsRetrieve).mockResolvedValue({ actions: [action] })
+        jest.mocked(canvasesActionsInvoke)
+            .mockReset()
+            .mockResolvedValue({ verb: action.verb, result: { annotation_id: 1 } })
+        const confirmAction = jest.fn(async () => allowed)
+        const bridge = new CanvasDataBridge(
+            () => ({
+                projectId: '1',
+                canvasId: 'canvas-1',
+                sourceVersionId: 'v1',
+                captureToken: null,
+                distinctId: null,
+            }),
+            {
+                confirmAction,
+                confirmAgentRequest: jest.fn(),
+                requestConnectorPermission: jest.fn(),
+                hasUserActivation: () => true,
+            }
+        )
+
+        const invocation = bridge.handle('actionInvoke', { verb: action.verb, payload })
+        if (allowed) {
+            await expect(invocation).resolves.toEqual({ verb: action.verb, result: { annotation_id: 1 } })
+            expect(canvasesActionsInvoke).toHaveBeenCalledWith('1', 'canvas-1', { verb: action.verb, payload })
+        } else {
+            await expect(invocation).rejects.toThrow('Canvas action canceled')
+            expect(canvasesActionsInvoke).not.toHaveBeenCalled()
+        }
+        expect(confirmAction).toHaveBeenCalledWith({ action, payload })
+    })
+
     test.each([false, true])('only starts a paid task after approval: %s', async (allowed) => {
         const action = {
             verb: 'tasks.create_and_run',
             summary: 'Start a cloud task.',
             destructive: false,
+            starts_cloud_run: true,
             usage: '',
         }
         const payload = {

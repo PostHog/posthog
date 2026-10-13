@@ -267,6 +267,8 @@ depends_on = [
     "posthog",
     # A behavioural cohort filter reads a trends insight's display type.
     "products.product_analytics",
+    # The facade checks the acting user's object access before a write.
+    "products.access_control",
 ]
 layer = "modules"
 
@@ -1034,6 +1036,11 @@ depends_on = [
     "products.mcp_store",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # Action verbs that write other products as the viewer, each through that product's facade.
+    "products.feature_flags",
+    "products.cohorts",
+    "products.error_tracking",
+    "products.surveys",
 ]
 layer = "modules"
 
