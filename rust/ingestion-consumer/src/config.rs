@@ -215,8 +215,9 @@ pub struct Config {
 
     /// How long a worker may spend on one key-table request before it stops
     /// starting work and acks what finished as partial (milliseconds). `0`
-    /// (default) sends no budget. Needs `INGESTION_SCHEDULER=key_table`. See
-    /// `request_budget` for the bounds against the ack and stall timeouts.
+    /// (default) sends no budget, otherwise at least 100. Needs
+    /// `INGESTION_SCHEDULER=key_table`. See `request_budget` for the bounds
+    /// against the ack and stall timeouts.
     #[envconfig(from = "INGESTION_REQUEST_SOFT_BUDGET_MS", default = "0")]
     pub request_soft_budget_ms: u64,
 
@@ -490,6 +491,8 @@ impl Config {
         .with_request_budget(self.request_budget()?))
     }
 
+    const MIN_REQUEST_SOFT_BUDGET_MS: u64 = 100;
+
     pub fn request_budget(&self) -> Result<Option<RequestBudget>, String> {
         let budget_ms = self.request_soft_budget_ms;
         if budget_ms == 0 {
@@ -501,6 +504,14 @@ impl Config {
             return Err(
                 "INGESTION_REQUEST_SOFT_BUDGET_MS needs INGESTION_SCHEDULER=key_table".to_string(),
             );
+        }
+        // Below this the worker's fixed work per frame outlasts the budget, so
+        // nearly every request comes back partial with nothing finished.
+        if budget_ms < Self::MIN_REQUEST_SOFT_BUDGET_MS {
+            return Err(format!(
+                "INGESTION_REQUEST_SOFT_BUDGET_MS must be at least {}",
+                Self::MIN_REQUEST_SOFT_BUDGET_MS
+            ));
         }
         // The worker treats a longer budget as unlimited.
         if budget_ms > i32::MAX as u64 {
@@ -522,18 +533,15 @@ impl Config {
         }
         let attempts = NonZeroU32::new(self.request_budget_attempts)
             .ok_or("INGESTION_REQUEST_BUDGET_ATTEMPTS must be at least 1")?;
-        // A partial ack that accepted nothing does not count as progress, so
-        // a key's budgeted attempts must all come back before the stall
-        // watchdog fires.
-        if budget_ms
-            .saturating_mul(u64::from(attempts.get()))
-            .saturating_add(self.pack_latency_budget_ms)
+        // A partial ack that finished nothing does not count as progress, so
+        // it must come back before the stall watchdog fires. Its resend goes
+        // without a budget, so no second one follows for the same key.
+        if budget_ms.saturating_add(self.pack_latency_budget_ms)
             >= self.consumer_deferred_flush_timeout_ms
         {
             return Err(
-                "INGESTION_REQUEST_SOFT_BUDGET_MS times INGESTION_REQUEST_BUDGET_ATTEMPTS, plus \
-                 INGESTION_PACK_LATENCY_BUDGET_MS, must be below \
-                 CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
+                "INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PACK_LATENCY_BUDGET_MS must be \
+                 below CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
                     .to_string(),
             );
         }
@@ -641,17 +649,21 @@ mod tests {
         &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250")],
         Some((250, 3))
     )]
+    #[case::at_the_floor(
+        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "100")],
+        Some((100, 3))
+    )]
     #[case::just_below_the_ack_and_stall_timeouts(
+        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "59999")],
+        Some((59999, 3))
+    )]
+    #[case::just_below_the_stall_timeout_with_the_pack_latency(
         &[
             ("INGESTION_SCHEDULER", "key_table"),
-            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "59999"),
-            ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "1"),
+            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "49999"),
+            ("INGESTION_PACK_LATENCY_BUDGET_MS", "10000"),
         ],
-        Some((59999, 1))
-    )]
-    #[case::just_below_the_stall_timeout_across_every_attempt(
-        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "19999")],
-        Some((19999, 3))
+        Some((49999, 3))
     )]
     fn a_valid_request_budget_is_read(
         #[case] vars: &[(&str, &str)],
@@ -669,14 +681,15 @@ mod tests {
         ("INGESTION_SCHEDULER", "pin_stash"),
         ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250"),
     ])]
+    #[case::below_the_floor(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "99"),
+    ])]
     #[case::longer_than_the_worker_honors(&[
         ("INGESTION_SCHEDULER", "key_table"),
         ("INGESTION_REQUEST_SOFT_BUDGET_MS", "2147483648"),
         ("INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", "4294967296"),
-    ])]
-    #[case::at_the_ack_timeout(&[
-        ("INGESTION_SCHEDULER", "key_table"),
-        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "60000"),
+        ("CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS", "4294967296"),
     ])]
     #[case::at_the_ack_timeout_across_every_frame_in_flight(&[
         ("INGESTION_SCHEDULER", "key_table"),
@@ -686,13 +699,8 @@ mod tests {
     #[case::at_the_stall_timeout_with_the_pack_latency(&[
         ("INGESTION_SCHEDULER", "key_table"),
         ("INGESTION_REQUEST_SOFT_BUDGET_MS", "50000"),
-        ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "1"),
         ("INGESTION_PACK_LATENCY_BUDGET_MS", "10000"),
         ("INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", "120000"),
-    ])]
-    #[case::at_the_stall_timeout_across_every_attempt(&[
-        ("INGESTION_SCHEDULER", "key_table"),
-        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "20000"),
     ])]
     #[case::with_no_budgeted_attempt(&[
         ("INGESTION_SCHEDULER", "key_table"),

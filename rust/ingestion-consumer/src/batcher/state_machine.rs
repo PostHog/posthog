@@ -38,7 +38,8 @@ pub enum FailureCause {
 
 /// The worker's soft time budget for every request. A key resends without it
 /// once `attempts` settles left its messages unfinished since it last finished
-/// a run, so a message that never fits the budget still finishes.
+/// a run, or at once when its request finished nothing, so a message that
+/// never fits the budget still finishes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RequestBudget {
     pub soft_budget: Duration,
@@ -169,7 +170,8 @@ impl BatcherStateMachine {
     }
 
     /// The worker finished every message except `unfinished`. Those go back to
-    /// the front of their keys' queues and are sent again at once as replay.
+    /// the front of their keys' queues and are sent again at once as replay,
+    /// without a budget when the worker finished nothing.
     pub fn on_request_partial(
         self,
         now: Instant,
@@ -414,6 +416,8 @@ impl ActiveState {
         for split in splits {
             let settlement = if split.unfinished.is_empty() {
                 Settlement::Done
+            } else if accepted == 0 {
+                Settlement::Bounced(split.unfinished)
             } else {
                 Settlement::Unfinished(split.unfinished)
             };
@@ -1671,33 +1675,40 @@ mod tests {
         let retry_at = now + FAULT_DELAY;
         let workers = pool(&["w"]);
         let (batcher, effects) =
-            budgeted_batcher(2, 2, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+            budgeted_batcher(4, 2, now).on_groups(now, &workers, 0, vec![run("a", &[1, 2, 3])]);
         let first = effects.sends[0].request;
-        let (batcher, effects) =
-            batcher.on_request_partial(now, &workers, first, 0, vec![message("a", 0, 1)]);
+        let (batcher, effects) = batcher.on_request_partial(
+            now,
+            &workers,
+            first,
+            1,
+            vec![message("a", 0, 2), message("a", 0, 3)],
+        );
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2, 3])]);
         assert_eq!(effects.sends[0].soft_budget, Some(BUDGET));
         let second = effects.sends[0].request;
         let (batcher, effects) =
-            batcher.on_request_partial(now, &workers, second, 0, vec![message("a", 0, 1)]);
+            batcher.on_request_partial(now, &workers, second, 1, vec![message("a", 0, 3)]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![3])]);
         assert_eq!(effects.sends[0].soft_budget, None);
         assert!(effects.sends[0].class.unbudgeted);
         let escalated = effects.sends[0].request;
 
-        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("b", &[2])]);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("b", &[4])]);
         let budgeted = effects.sends[0].request;
         let (batcher, _) = batcher.on_request_failed(
             now,
             &workers,
             escalated,
             FailureCause::Fault,
-            vec![message("a", 0, 1)],
+            vec![message("a", 0, 3)],
         );
         let (batcher, _) = batcher.on_request_failed(
             now,
             &workers,
             budgeted,
             FailureCause::Fault,
-            vec![message("b", 0, 2)],
+            vec![message("b", 0, 4)],
         );
 
         let (_, effects) = batcher.on_wakeup(retry_at, &workers);
@@ -1709,8 +1720,8 @@ mod tests {
         assert_eq!(
             sends,
             vec![
-                (vec![("a", vec![1])], None),
-                (vec![("b", vec![2])], Some(BUDGET)),
+                (vec![("a", vec![3])], None),
+                (vec![("b", vec![4])], Some(BUDGET)),
             ],
             "a failure keeps the escalation, the escalated replay goes first, and a budgeted \
              replay never rides along"
@@ -1718,22 +1729,42 @@ mod tests {
     }
 
     #[test]
+    fn a_partial_that_finished_nothing_resends_without_a_budget_at_once() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) =
+            budgeted_batcher(4, 3, now).on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
+        let request = effects.sends[0].request;
+
+        let (_, effects) = batcher.on_request_partial(
+            now,
+            &workers,
+            request,
+            0,
+            vec![message("a", 0, 1), message("a", 0, 2)],
+        );
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1, 2])]);
+        assert_eq!(effects.sends[0].soft_budget, None);
+        assert!(effects.sends[0].class.unbudgeted);
+    }
+
+    #[test]
     fn a_finished_run_resets_the_escalation_count() {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let (batcher, effects) =
-            budgeted_batcher(1, 2, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+            budgeted_batcher(4, 2, now).on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
         let first = effects.sends[0].request;
-        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[2])]);
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[3, 4])]);
         let (batcher, effects) =
-            batcher.on_request_partial(now, &workers, first, 0, vec![message("a", 0, 1)]);
+            batcher.on_request_partial(now, &workers, first, 1, vec![message("a", 0, 2)]);
         let resend = effects.sends[0].request;
         let (batcher, effects) = batcher.on_request_succeeded(now, &workers, resend, 1);
-        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2])]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![3, 4])]);
         let next = effects.sends[0].request;
 
         let (_, effects) =
-            batcher.on_request_partial(now, &workers, next, 0, vec![message("a", 0, 2)]);
+            batcher.on_request_partial(now, &workers, next, 1, vec![message("a", 0, 4)]);
         assert_eq!(
             effects.sends[0].soft_budget,
             Some(BUDGET),

@@ -657,7 +657,10 @@ mod tests {
         assert_eq!(resend.len(), 1, "the resend waits for no retry delay");
         assert!(resend[0].replay);
         assert_eq!(resend[0].offsets, vec![1]);
-        assert_eq!(resend[0].soft_budget, Some(budget));
+        assert_eq!(
+            resend[0].soft_budget, None,
+            "a request that finished nothing resends without a budget"
+        );
 
         let resend = resend.into_iter().next().unwrap();
         resend.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();

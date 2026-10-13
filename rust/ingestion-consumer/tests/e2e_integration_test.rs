@@ -1415,8 +1415,9 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
     harness.stop().await;
 }
 
-/// A message that never fits the budget still lands. After its budgeted
-/// attempts it goes out once without a budget, and the partition commits.
+/// A message that never fits the budget still lands. Its budgeted resend
+/// finishes nothing, so the next goes out without a budget, and the partition
+/// commits.
 #[tokio::test]
 async fn a_message_that_never_fits_the_budget_lands_without_one() {
     let topic = format!("e2e-partial-escalate-{}", Uuid::new_v4());
@@ -1442,8 +1443,8 @@ async fn a_message_that_never_fits_the_budget_lands_without_one() {
     assert_eq!(worker.seqs_for("visitor-b"), vec![1, 3]);
     assert_eq!(
         worker.batch_sizes(),
-        vec![4, 2, 2, 2],
-        "visitor A goes out {BUDGET_ATTEMPTS} times with a budget, then once without"
+        vec![4, 2, 2],
+        "visitor A goes out once more with a budget, then once without"
     );
 
     harness.stop().await;
