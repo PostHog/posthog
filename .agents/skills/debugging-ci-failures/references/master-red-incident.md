@@ -108,8 +108,11 @@ Choose the first verdict that the evidence supports:
 - **Real regression:** a deterministic lint, migration, codegen, or test failure is tied to committed state, or the failures have an onset and a change explains it. A test that was stable and then starts to fail was broken by something that merged shortly before, even when it fails only some of the time and passes on retry.
 - **Flaky test:** the same test failed and passed on the same SHA, and nothing that merged before the onset changes what the test exercises.
 
+For a failing test, read its Trunk record and the newest commits to the code under test before you choose a verdict.
+Each is one call, and together they separate a regression from a flake.
+
 Name a commit or a PR as the cause only when it merged before the failures started and its diff changes what the error names.
-Take the start of the failures from Trunk's `status` time, which is one query, and not from the first red run.
+Take the start of the failures from Trunk's `status` time, and not from the first red run.
 Each run log takes several seconds to download, so do not scan a series of runs for the first one with the error: check at most one run before a candidate commit and one after it.
 What the error names is usually the code under test, such as a module or a logic, and rarely the test's own file.
 A wrong attribution sends a person to the wrong PR while master is broken.
