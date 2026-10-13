@@ -41,14 +41,19 @@ def _make_rpc_error(
     return error
 
 
-def _make_transient_then_ok(fail_count: int, status_code: grpc.StatusCode, details: str | None = None):
+def _make_transient_then_ok(
+    fail_count: int,
+    status_code: grpc.StatusCode,
+    details: str | None = None,
+    trailing_metadata: tuple[tuple[str, str], ...] = (),
+):
     """Returns a continuation that fails fail_count times then succeeds."""
     calls: list[int] = []
 
     def continuation(details_, request):
         calls.append(1)
         if len(calls) <= fail_count:
-            raise _make_rpc_error(status_code, details)
+            raise _make_rpc_error(status_code, details, trailing_metadata)
         return "ok"
 
     return continuation, calls
@@ -80,17 +85,24 @@ class TestRetryInterceptorBehavior:
 
     @parameterized.expand(
         [
-            ("unavailable", grpc.StatusCode.UNAVAILABLE),
-            ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED),
-            ("aborted", grpc.StatusCode.ABORTED),
-            ("unknown", grpc.StatusCode.UNKNOWN),
+            ("unavailable", grpc.StatusCode.UNAVAILABLE, ()),
+            ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED, ()),
+            ("aborted", grpc.StatusCode.ABORTED, ()),
+            ("unknown", grpc.StatusCode.UNKNOWN, ()),
+            ("unavailable_load_shed", grpc.StatusCode.UNAVAILABLE, (("x-not-applied", "load_shed"),)),
         ]
     )
     @patch("posthog.personhog_client.interceptor.time.sleep")
-    def test_retries_transient_error_then_succeeds(self, _name: str, status_code: grpc.StatusCode, mock_sleep):
+    def test_retries_transient_error_then_succeeds(
+        self,
+        _name: str,
+        status_code: grpc.StatusCode,
+        trailing_metadata: tuple[tuple[str, str], ...],
+        mock_sleep,
+    ):
         interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
-        continuation, calls = _make_transient_then_ok(1, status_code)
+        continuation, calls = _make_transient_then_ok(1, status_code, trailing_metadata=trailing_metadata)
 
         result = interceptor.intercept_unary_unary(continuation, details, request=b"")
 
