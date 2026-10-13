@@ -1131,7 +1131,9 @@ def publish_serving_models(
         copied.append(entry.key)
         context.log.info(f"copied {entry.key} to {target.bucket}/{entry.prefix}")
     if manifest.project_vectors is not None:
-        bytes_copied += _publish_project_vectors(context, client, bucket, project_vectors_source, manifest, target)
+        bytes_copied += _publish_project_vectors(
+            context, client, bucket, project_vectors_source, manifest.project_vectors, target
+        )
     target.storage.write(
         bucket=target.bucket,
         key=serving_manifest_key(prefix),
@@ -1146,21 +1148,20 @@ def _publish_project_vectors(
     client,
     bucket: str,
     source: str | None,
-    manifest: ServingManifest,
+    target_key: str,
     target: _ServingStore,
 ) -> int:
-    """Copy one day of project vectors to the key the manifest names, and return the bytes moved.
+    """Copy one day of project vectors to `target_key`, and return the bytes moved.
 
     A day is immutable once the manifest names it, so a copy already at the target is left alone.
     """
-    assert manifest.project_vectors is not None
-    if target.storage.head_object(bucket=target.bucket, file_key=manifest.project_vectors) is not None:
+    if target.storage.head_object(bucket=target.bucket, file_key=target_key) is not None:
         return 0
     body = None if source is None else _read_bytes_if_exists(client, bucket, source)
     if body is None:
         raise dagster.Failure(f"project vectors {source} are missing in the dataset bucket; manifest not written")
-    target.storage.write(bucket=target.bucket, key=manifest.project_vectors, content=body, extras=None)
-    context.log.info(f"copied project vectors to {target.bucket}/{manifest.project_vectors}")
+    target.storage.write(bucket=target.bucket, key=target_key, content=body, extras=None)
+    context.log.info(f"copied project vectors to {target.bucket}/{target_key}")
     return len(body)
 
 

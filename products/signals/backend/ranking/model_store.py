@@ -362,8 +362,6 @@ def load_serving_set(overrides: RankingOverrides | None = None) -> ServingSet | 
 class ProjectVectors:
     """The project vectors one pass reads, for the teams it scores."""
 
-    # The object the manifest names. None when the manifest names none.
-    key: str | None
     # False when the manifest names no object or the object is missing, so no team has vectors.
     available: bool
     by_team: Mapping[int, ProjectInputs]
@@ -389,7 +387,7 @@ def load_project_vectors(manifest: ServingManifest, team_ids: Collection[int]) -
     if body is None:
         if key is not None and teams:
             logger.warning("inbox_ranking_project_vectors_missing", project_vectors_key=key)
-        return ProjectVectors(key=key, available=False, by_team={})
+        return ProjectVectors(available=False, by_team={})
     rows = pd.read_parquet(io.BytesIO(body), columns=PROJECT_VECTORS_COLUMNS, filters=[("team_id", "in", teams)])
     inputs = project_inputs(rows, teams)
     by_team = {
@@ -398,7 +396,7 @@ def load_project_vectors(manifest: ServingManifest, team_ids: Collection[int]) -
         )
         for index, team_id in enumerate(teams)
     }
-    return ProjectVectors(key=key, available=True, by_team=by_team)
+    return ProjectVectors(available=True, by_team=by_team)
 
 
 def served_override_rejection(serving: ServingSet, key: str) -> str | None:
