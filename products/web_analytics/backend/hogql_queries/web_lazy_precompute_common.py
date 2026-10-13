@@ -837,7 +837,7 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
 
 
 class PerQueryOptedOut(LazyPrecomputeIneligible):
-    """The user explicitly turned the "Allow precompute" toggle off."""
+    """The query explicitly opts out of precomputed data."""
 
     pass
 
@@ -975,6 +975,8 @@ def check_common_eligibility(
     (org flag off, etc.) without touching `QueryDateRange.date_from()` —
     which can trigger a ClickHouse min-timestamp lookup for `-all` ranges.
     """
+    if modifiers and modifiers.useNewEventsCluster:
+        raise PerQueryOptedOut()
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
