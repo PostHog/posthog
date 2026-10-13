@@ -2,7 +2,7 @@ import json
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -31,6 +31,8 @@ class GridlyResumeConfig:
     # `record_histories` and `automation_executions` it is the index of the next parent (record or
     # automation) to fan out over. The other endpoints never resume.
     offset: int = 0
+    # For `record_histories` only: the offset of the next history page of the record at `offset`.
+    history_offset: int = 0
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -71,17 +73,22 @@ def _fetch(
     params: dict[str, Any],
     headers: dict[str, str],
     logger: FilteringBoundLogger,
+    redacted_url: str | None = None,
 ) -> requests.Response:
+    # `redacted_url` replaces `url` in every log line and error when the URL embeds customer content,
+    # such as a customer-defined record id.
     response = session.get(url, params=params, headers=headers, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
-        raise GridlyRetryableError(f"Gridly API error (retryable): status={response.status_code}, url={url}")
+        raise GridlyRetryableError(
+            f"Gridly API error (retryable): status={response.status_code}, url={redacted_url or url}"
+        )
 
     if not response.ok:
         # Never log response.text or the raw URL: the error body can echo customer record content
         # from the synced view, and the query string carries the paginated `page` blob. Both would
         # leak into operational logs. Log only status plus scheme/host/path.
-        safe = urlsplit(response.url)
+        safe = urlsplit(redacted_url or response.url)
         safe_url = f"{safe.scheme}://{safe.netloc}{safe.path}"
         logger.error(f"Gridly API error: status={response.status_code}, url={safe_url}")
         # raise_for_status() would embed the full request URL (query string included) in the
@@ -212,8 +219,13 @@ def _iter_record_histories(
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     record_offset = resume.offset if resume is not None else 0
+    # Only the first record of a resumed walk starts partway through its history.
+    resume_history_offset = resume.history_offset if resume is not None else 0
     if record_offset:
-        logger.debug(f"Gridly: resuming record histories from record offset={record_offset}")
+        logger.debug(
+            f"Gridly: resuming record histories from record offset={record_offset}, "
+            f"history offset={resume_history_offset}"
+        )
 
     records_url = f"{GRIDLY_BASE_URL}/views/{view_id}/records"
 
@@ -224,19 +236,28 @@ def _iter_record_histories(
         for record in records:
             record_id = record["id"]
             record_offset += 1
-            url = f"{records_url}/{record_id}/histories"
-            history_offset = 0
+            # Record ids are customer-defined, so they may hold `/`, `?` or `#`.
+            url = f"{records_url}/{quote(str(record_id), safe='')}/histories"
+            history_offset = resume_history_offset
+            resume_history_offset = 0
 
             while True:
                 page = json.dumps({"offset": history_offset, "limit": PAGE_SIZE}, separators=(",", ":"))
-                histories = _fetch(session, url, {"page": page}, headers, logger).json()
+                histories = _fetch(
+                    session, url, {"page": page}, headers, logger, redacted_url=f"{records_url}/{{recordId}}/histories"
+                ).json()
                 history_offset += len(histories)
                 is_last_page = len(histories) < PAGE_SIZE
 
-                # The cursor moves past this record only with the record's last page. An earlier
-                # page would let a resume skip the pages that follow it.
+                # An earlier page keeps the cursor on this record, at the page after it, so a resume
+                # neither skips the pages that follow nor replays the ones already written. The last
+                # page moves the cursor to the next record.
                 if is_last_page:
                     resumable_source_manager.save_state(GridlyResumeConfig(offset=record_offset))
+                else:
+                    resumable_source_manager.save_state(
+                        GridlyResumeConfig(offset=record_offset - 1, history_offset=history_offset)
+                    )
                 if histories:
                     yield [{**history, "recordId": record_id} for history in histories]
                 else:

@@ -254,9 +254,40 @@ class TestRecordHistories:
     def test_cursor_moves_past_a_record_only_with_its_last_history_page(self) -> None:
         result = _driver().run("record_histories", _histories_response)
 
-        # r1 has two history pages: no cursor may point past r1 before its second page is out.
-        assert result.saved_states[0] == GridlyResumeConfig(offset=1)
+        # r1 has two history pages: the cursor stays on r1 after its first page, at the second page,
+        # and moves past r1 only with the second page.
+        assert result.saved_states[0] == GridlyResumeConfig(offset=0, history_offset=2)
+        assert result.saved_states[1] == GridlyResumeConfig(offset=1)
         assert GridlyResumeConfig(offset=2) in result.saved_states
+
+    @patch(f"{_MODULE}.PAGE_SIZE", 2)
+    def test_resumes_partway_through_the_history_of_a_record(self) -> None:
+        result = _driver().run(
+            "record_histories", _histories_response, resume_state=GridlyResumeConfig(offset=0, history_offset=2)
+        )
+
+        assert result.raised is None
+        assert result.items[0] == [{"lastModifiedTime": "t3", "recordId": "r1"}]
+        assert json.loads(result.requests[1].param("page") or "null")["offset"] == 2
+
+    @patch(f"{_MODULE}.PAGE_SIZE", 2)
+    def test_record_id_is_encoded_in_the_url_and_redacted_from_errors(self) -> None:
+        record_id = "a/b?c#d"
+        logger = MagicMock()
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v1/views/view/records":
+                return ScriptedResponse(json=[{"id": record_id}])
+            return ScriptedResponse(status=403)
+
+        result = _driver().run("record_histories", respond, logger=logger)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "a%2Fb%3Fc%23d" in result.requests[1].url
+        assert record_id not in str(result.raised)
+        assert "a%2Fb" not in str(result.raised)
+        assert "{recordId}/histories" in str(result.raised)
+        assert "a%2Fb" not in " ".join(str(call) for call in logger.error.call_args_list)
 
 
 class TestRetries:
