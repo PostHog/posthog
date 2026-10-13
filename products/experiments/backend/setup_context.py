@@ -19,7 +19,6 @@ from typing import Any, Final, Generic, TypeVar
 
 from django.db import models
 from django.db.models import BooleanField, Case, Count, F, Max, Prefetch, Q, QuerySet, Value, When
-from django.db.models.fields.json import KT, KeyTransform
 from django.utils import timezone
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig
@@ -55,6 +54,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_flag_call_source_event,
 )
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import is_scheduled_metric
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
@@ -63,7 +63,6 @@ from products.experiments.backend.metric_utils import (
 )
 from products.experiments.backend.models.experiment import (
     Experiment,
-    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
     metric_display_rank,
@@ -1170,60 +1169,35 @@ def _outcomes(outcome_metrics: dict[int, OutcomeMetric]) -> dict[int, Experiment
     both writers of `ExperimentMetricResult` build the metric from its `metric_type`. Its
     experiment correctly gets no outcome.
     """
-    if not outcome_metrics:
-        return {}
-    rows = (
-        ExperimentMetricResult.objects.filter(
-            experiment_id__in=outcome_metrics.keys(),
-            metric_uuid__in={metric.uuid for metric in outcome_metrics.values()},
-            status=ExperimentMetricResult.Status.COMPLETED,
-            # Both writers store the experiment's start date, so a relaunch moves that date
-            # forward and leaves the earlier run's rows behind it. A draft has no start date, so
-            # nothing matches. `gte` rather than an exact match, so a start date edited to an
-            # earlier moment keeps its results instead of hiding them until every row is recomputed.
-            query_from__gte=F("experiment__start_date"),
-        )
-        # A backfill stores a historical `query_to` with `completed_at` set to now, so ordering by
-        # the write time can pick an older day. The (experiment, metric_uuid, query_to) index covers this.
-        .order_by("experiment_id", "metric_uuid", "-query_to", F("completed_at").desc(nulls_last=True))
-        .distinct("experiment_id", "metric_uuid")
-        # The stored query text in each result stays in Postgres.
-        .values(
-            "experiment_id",
-            "metric_uuid",
-            "completed_at",
-            "query_to",
-            baseline_samples=KT("result__baseline__number_of_samples"),
-            baseline_sum=KT("result__baseline__sum"),
-            variant_results=KeyTransform("variant_results", "result"),
-        )
+    summaries = MetricResultStore.current_outcomes(
+        {experiment_id: metric.uuid for experiment_id, metric in outcome_metrics.items()}
     )
     outcomes: dict[int, ExperimentOutcome] = {}
-    for row in rows:
-        metric = outcome_metrics.get(row["experiment_id"])
-        if metric is None or metric.uuid != row["metric_uuid"]:
-            continue
-        variants = [variant for variant in row["variant_results"] or [] if isinstance(variant, dict)]
+    for experiment_id, summary in summaries.items():
+        metric = outcome_metrics[experiment_id]
         # Samples exclude users seen in several variants under the default handling, so this is
         # the analyzed population rather than every exposure. A result that stores no sample count
         # anywhere is unknown, not zero.
         stored_samples = [
             samples
-            for samples in [row["baseline_samples"], *(variant.get("number_of_samples") for variant in variants)]
+            for samples in [
+                summary.baseline_samples,
+                *(variant.get("number_of_samples") for variant in summary.variant_results),
+            ]
             if samples is not None
         ]
         metric_samples = sum(int(float(samples)) for samples in stored_samples) if stored_samples else None
         exposure_shaped = metric.metric_type in EXPOSURE_SHAPED_METRIC_TYPES
-        outcomes[row["experiment_id"]] = ExperimentOutcome(
+        outcomes[experiment_id] = ExperimentOutcome(
             metric_type=metric.metric_type,
             metric_samples=metric_samples,
             analyzed_exposures=metric_samples if exposure_shaped else None,
             control_baseline_value=_control_baseline_value(
-                row["baseline_sum"], row["baseline_samples"], exposure_shaped
+                summary.baseline_sum, summary.baseline_samples, exposure_shaped
             ),
-            any_variant_significant=any(v.get("significant") is True for v in variants),
-            result_completed_at=row["completed_at"],
-            result_data_through=row["query_to"],
+            any_variant_significant=any(v.get("significant") is True for v in summary.variant_results),
+            result_completed_at=summary.completed_at,
+            result_data_through=summary.query_to,
         )
     return outcomes
 
