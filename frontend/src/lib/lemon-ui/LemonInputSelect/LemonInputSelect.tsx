@@ -391,6 +391,13 @@ export function LemonInputSelect<T = string>({
 
     const displayOptions = frozenOptions ?? visibleOptions
 
+    // While a search filters the list, "Select all" picks only the options the list shows
+    const isListFiltered = !!inputValue || frozenOptions !== null
+    const bulkSelectableKeys = isListFiltered
+        ? displayOptions.filter((o) => !o.__isInput).map((o) => o.key)
+        : Array.from(allOptionsMap.keys())
+    const bulkUnselectedKeys = bulkSelectableKeys.filter((key) => !stringKeys.includes(key))
+
     // Reset the selected index when the displayed options change
     useEffect(() => {
         setSelectedIndex(0)
@@ -888,21 +895,27 @@ export function LemonInputSelect<T = string>({
                                     size="small"
                                     className="flex-1"
                                     disabledReason={
-                                        values.length === allOptionsMap.size
-                                            ? 'All options are already selected'
-                                            : undefined
+                                        bulkSelectableKeys.length === 0
+                                            ? 'No options to select'
+                                            : bulkUnselectedKeys.length === 0
+                                              ? isListFiltered
+                                                  ? 'All matching options are already selected'
+                                                  : 'All options are already selected'
+                                              : undefined
                                     }
                                     tooltipPlacement="top-start"
                                     tooltipArrowOffset={50}
                                     onClick={() => {
-                                        const allKeys = Array.from(allOptionsMap.keys())
-                                        const allTypedValues = allKeys.map(getTypedValue)
-                                        onChange?.(allTypedValues)
+                                        if (inputValue) {
+                                            setFrozenOptions(visibleOptions.filter((o) => !o.__isInput))
+                                            setInputValue('')
+                                        }
+                                        onChange?.([...values, ...bulkUnselectedKeys.map(getTypedValue)])
                                     }}
                                     icon={
                                         <LemonCheckbox
                                             checked={
-                                                values.length === allOptionsMap.size
+                                                bulkSelectableKeys.length > 0 && bulkUnselectedKeys.length === 0
                                                     ? true
                                                     : values.length
                                                       ? 'indeterminate'
@@ -912,7 +925,7 @@ export function LemonInputSelect<T = string>({
                                         />
                                     }
                                 >
-                                    Select all
+                                    {isListFiltered ? 'Select all matching' : 'Select all'}
                                 </LemonButton>
                             )}
                             <LemonButton
