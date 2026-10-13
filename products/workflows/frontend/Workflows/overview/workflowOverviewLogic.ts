@@ -393,7 +393,8 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                           const totals = stepTotals[action.id] ?? {}
                           const failed = totals.failed ?? 0
                           const waiting = params.dateTo ? 0 : (inFlight?.by_action?.[action.id] ?? 0)
-                          // A step that continues on error records `succeeded` as well as `failed`.
+                          // A step that continues on error records `succeeded` as well as `failed`. The current
+                          // on_error setting is applied to the whole range, so a change to it inside the range skews this.
                           const abortedRuns = action.on_error === 'abort' ? failed : 0
                           return {
                               action,

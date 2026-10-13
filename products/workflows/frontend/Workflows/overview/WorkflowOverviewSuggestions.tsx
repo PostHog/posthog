@@ -16,6 +16,9 @@ export function WorkflowOverviewSuggestions({ id }: { id: string }): JSX.Element
         pendingProposals,
         optimizationEnabled,
         proposalsResponseLoading,
+        approvedResponseLoading,
+        appliedResponseLoading,
+        rejectedResponseLoading,
         optimizationLoading,
         listsUnreadable,
         optimizationUnreadable,
@@ -58,7 +61,12 @@ export function WorkflowOverviewSuggestions({ id }: { id: string }): JSX.Element
                         size="xsmall"
                         type="secondary"
                         onClick={reloadLists}
-                        loading={proposalsResponseLoading}
+                        loading={
+                            proposalsResponseLoading ||
+                            approvedResponseLoading ||
+                            appliedResponseLoading ||
+                            rejectedResponseLoading
+                        }
                         data-attr="workflow-overview-suggestions-retry"
                     >
                         Try again
