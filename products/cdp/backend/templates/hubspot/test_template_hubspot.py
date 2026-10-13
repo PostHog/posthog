@@ -1,9 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.models.plugin import PluginConfig
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.hubspot.template_hubspot import (
     TemplateHubspotMigrator,
     template as template_hubspot,
