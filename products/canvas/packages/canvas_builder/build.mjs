@@ -242,6 +242,8 @@ const platformStylesheet = `
 @import "@posthog/quill/base.css";
 @import "@posthog/quill/primitives.css";
 @import "@posthog/quill/tailwind.css";
+/* quill-charts lays out with Tailwind classes but, unlike Quill, ships no @source for them. */
+@source ${JSON.stringify(path.dirname(builderRequire.resolve('@posthog/quill-charts')))};
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Recharts hardcodes a white outline on every pie sector. It disappears into a light card and
@@ -526,6 +528,8 @@ async function bundleEntry(project, entry) {
         sourcemap: false,
         logLevel: 'silent',
         outdir: 'out',
+        // Inside the posthog repo, the root tsconfig `paths` would resolve packages to monorepo sources.
+        tsconfigRaw: {},
         plugins: [plugin],
     })
 }
