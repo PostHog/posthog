@@ -58,6 +58,7 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
 from products.data_warehouse.backend.presentation.managed_warehouse_trino_monitoring import (
     ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
     ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+    WarehouseDataOpsVariant,
     WarehouseTrinoStatusState,
     serialize_trino_monitoring_series,
     serialize_trino_monitoring_snapshot,
@@ -1376,6 +1377,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         allow_null=True,
                         help_text="Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise.",
                     ),
+                    "data_ops_variant": serializers.ChoiceField(
+                        choices=WarehouseDataOpsVariant.choices,
+                        allow_null=True,
+                        help_text="Data ops variant the organization gets, resolved on the server. The monitoring "
+                        "endpoints accept only the matching variant. Null when the organization has neither variant.",
+                    ),
                     "has_backfill": serializers.BooleanField(
                         help_text="Whether this project already has a warehouse backfill configured. When true, its "
                         "table name is fixed and the enable form should not be shown."
@@ -1410,7 +1417,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
             if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
                 managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
-            if managed_warehouse.data_ops_variant(self.team.organization_id) == "trino":
+            variant = managed_warehouse.data_ops_variant(self.team.organization_id)
+            resp.data["data_ops_variant"] = variant
+            if variant == "trino":
                 # Users of a Trino organization connect only through Trino.
                 resp.data["connection"] = None
                 # Trino's state only matters once the warehouse is ready, and the scene polls while it is not.

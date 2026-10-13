@@ -18,6 +18,7 @@ export function warehouseStatusFixture(
         failed_at: null,
         connection: null,
         trino: null,
+        data_ops_variant: null,
         has_backfill: false,
         table_suffix: null,
         team_onboarded: true,

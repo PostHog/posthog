@@ -34,6 +34,11 @@ class WarehouseTrinoStatusState(models.TextChoices):
     UNAVAILABLE = "unavailable", "unavailable"
 
 
+class WarehouseDataOpsVariant(models.TextChoices):
+    TRINO = "trino", "trino"
+    DUCKDB = "duckdb", "duckdb"
+
+
 MANAGED_WAREHOUSE_TRINO_MONITORING_LABELS = {
     "queries_in_flight": frozenset({"state"}),
     "query_rate": frozenset({"status", "error_type"}),
