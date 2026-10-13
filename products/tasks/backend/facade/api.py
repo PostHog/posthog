@@ -10449,6 +10449,17 @@ def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, cha
     return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
 
 
+def mcp_tool_allowlist_for_task(task_id: str | UUID) -> list[str] | None:
+    """The PostHog MCP tools a run picked at dispatch, or None when the run is not narrowed.
+
+    Scoped by task rather than by team, because the caller's authority here is a run token
+    minted for exactly this task. A malformed snapshot reads as an empty list, so callers fail
+    closed.
+    """
+    task = Task.objects.filter(id=task_id).only("id", "origin_product", "state").first()
+    return task.mcp_tool_allowlist if task is not None else None
+
+
 def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
     """The channel a loop run was configured to keep current, or None.
 

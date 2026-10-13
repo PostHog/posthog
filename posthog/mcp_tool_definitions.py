@@ -35,6 +35,14 @@ FeatureFlagBehavior = Literal["enable", "disable"]
 
 
 @frozen
+class McpToolApiOperation:
+    """One Django endpoint a tool's handler calls, with the OpenAPI path template."""
+
+    method: str
+    path: str
+
+
+@frozen
 class McpToolDefinition:
     """One entry of the MCP tool catalogue.
 
@@ -63,6 +71,12 @@ class McpToolDefinition:
     # that offers a choice of tools offers its successors instead.
     superseded_by: tuple[str, ...]
     feature_entitlement: str | None
+    # Exposed to every client regardless of a `tools` or `features` allowlist.
+    always_available: bool
+    # The endpoints the handler calls. A generated tool lists its one operation. A hand-written
+    # tool lists at least every endpoint it calls with a method other than GET, because a narrowed
+    # scout run is refused such a call when no tool it holds lists the endpoint.
+    api_operations: tuple[McpToolApiOperation, ...]
 
     @property
     def is_superseded(self) -> bool:
@@ -86,7 +100,14 @@ def _definition_from_json(name: str, raw: Mapping[str, Any]) -> McpToolDefinitio
         hidden_when_flag_on=raw.get("hidden_when_flag_on"),
         superseded_by=tuple(raw.get("superseded_by") or ()),
         feature_entitlement=raw.get("feature_entitlement"),
+        always_available=bool(raw.get("always_available", False)),
+        api_operations=tuple(_api_operation_from_json(entry) for entry in raw.get("api_operations") or ()),
     )
+
+
+def _api_operation_from_json(entry: str) -> McpToolApiOperation:
+    method, path = entry.split(" ", 1)
+    return McpToolApiOperation(method=method, path=path)
 
 
 @lru_cache(maxsize=1)
