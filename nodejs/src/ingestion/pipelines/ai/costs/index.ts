@@ -97,6 +97,7 @@ const INPUT_TOKEN_COUNT_PROPERTIES = [
     '$ai_audio_input_tokens',
     '$ai_image_input_tokens',
     '$ai_cache_read_audio_tokens',
+    '$ai_cache_read_image_tokens',
 ] as const
 
 const OUTPUT_TOKEN_COUNT_PROPERTIES = [

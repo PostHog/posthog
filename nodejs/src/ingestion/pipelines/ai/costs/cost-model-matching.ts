@@ -202,12 +202,16 @@ const searchModelInCosts = (model: string, costsDict: Record<string, ModelCostRo
 export const requireSpecialCost = (aiModel: string): boolean => {
     const lowerAiModel = aiModel.toLowerCase()
 
-    return SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
+    // TTS is a separate audio-only model, not a context-size variant of Pro.
+    return (
+        !lowerAiModel.endsWith('-tts') &&
+        SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
+    )
 }
 
 export function getNewModelName(model: string, inputTokens: unknown): string {
     // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
-    if (model.toLowerCase().includes('gemini-2.5-pro-preview')) {
+    if (requireSpecialCost(model)) {
         const tokenCountExceeded = inputTokens ? Number(inputTokens) > 200000 : false
 
         return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'

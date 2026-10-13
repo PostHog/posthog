@@ -1,7 +1,7 @@
 import { isObject } from 'lib/utils/guards'
 
 import { parseAiBlobPointer, resolveAiBlobUrl, resolveDataUri } from '../../../aiBlob'
-import { isRenderableMediaSource } from '../../../mediaSource'
+import { isRenderableMediaSource, redactedMediaKind } from '../../../mediaSource'
 import { AttachmentMediaType, MessagePart } from '../types'
 
 export type AttachmentPart = Extract<MessagePart, { kind: 'attachment' }>
@@ -99,6 +99,6 @@ export function toAttachment(item: Record<string, unknown> & { type: string }, t
         mediaType,
         name: readString(containers, NAME_KEYS) ?? (isKnownMedia ? null : item.type),
         mimeType,
-        url: isKnownMedia ? resolveUrl(source, payloadMime, teamId) : null,
+        url: isKnownMedia && redactedMediaKind(item) === null ? resolveUrl(source, payloadMime, teamId) : null,
     }
 }

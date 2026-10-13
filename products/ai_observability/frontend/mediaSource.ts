@@ -1,11 +1,11 @@
+import { isObject } from 'lib/utils/guards'
+
 import { parseAiBlobPointer } from './aiBlob'
 import {
-    getGeminiInlineData,
     isAnthropicDocumentMessage,
     isAnthropicImageMessage,
     isGeminiAudioMessage,
     isGeminiDocumentMessage,
-    isGeminiImageMessage,
     isOpenAIAudioMessage,
     isOpenAIFileMessage,
     isOpenAIImageURLMessage,
@@ -31,47 +31,44 @@ export function isRenderableMediaSource(value: string): boolean {
     return /^data:/i.test(value) || /^https?:\/\//i.test(value) || parseAiBlobPointer(value) !== null
 }
 
-function hasRedactedGeminiInlineData(item: unknown): boolean {
-    const inlineData = getGeminiInlineData(item)
-    return inlineData !== null && isRedactedMediaSentinel(inlineData.data)
+function hasRedactedMediaData(item: unknown): boolean {
+    if (!isObject(item)) {
+        return false
+    }
+    return [item, item.inline_data, item.inlineData, item.source].some(
+        (payload) => isObject(payload) && typeof payload.data === 'string' && isRedactedMediaSentinel(payload.data)
+    )
 }
 
-/**
- * Classifies a content item that cannot be rendered as media, so the caller can show a placeholder
- * instead of handing the value to the browser as a src. Branches are ordered to match the render
- * ladder in ConversationMessagesDisplay, so the shape judged here is the shape that would render.
- */
+/** Only explicit SDK redaction markers imply that media was not captured. */
 export function redactedMediaKind(item: unknown): RedactedMediaKind | null {
     if (!item || typeof item !== 'object' || !('type' in item)) {
         return null
     }
 
-    // A url field has to carry a real source. Anything else, sentinel or not, resolves against the
-    // page and 404s, so the whitelist is the gate.
+    if (item.type === 'image' && !isGeminiDocumentMessage(item)) {
+        if (
+            hasRedactedMediaData(item) ||
+            ('uri' in item && typeof item.uri === 'string' && isRedactedMediaSentinel(item.uri))
+        ) {
+            return 'image'
+        }
+    }
+
     if (item.type === 'image' && 'image' in item && typeof item.image === 'string') {
-        return isRenderableMediaSource(item.image) ? null : 'image'
+        return isRedactedMediaSentinel(item.image) ? 'image' : null
     }
     if (item.type === 'input_image' && 'image_url' in item && typeof item.image_url === 'string') {
-        return isRenderableMediaSource(item.image_url) ? null : 'image'
+        return isRedactedMediaSentinel(item.image_url) ? 'image' : null
     }
     if (isOpenAIImageURLMessage(item)) {
-        return isRenderableMediaSource(item.image_url.url) ? null : 'image'
+        return isRedactedMediaSentinel(item.image_url.url) ? 'image' : null
     }
 
     // Payload fields legitimately hold bare base64, which no whitelist can accept, so only the
     // sentinel disqualifies them.
     if (isAnthropicImageMessage(item)) {
         return isRedactedMediaSentinel(item.source.data) ? 'image' : null
-    }
-    if (isGeminiImageMessage(item)) {
-        const inlineData = getGeminiInlineData(item)
-        if (inlineData) {
-            return hasRedactedGeminiInlineData(item) ? 'image' : null
-        }
-        if (typeof item.data === 'string') {
-            return 'image'
-        }
-        return typeof item.uri === 'string' && isRenderableMediaSource(item.uri) ? null : 'image'
     }
     if (isOpenAIFileMessage(item)) {
         return isRedactedMediaSentinel(item.file.file_data) ? 'file' : null
@@ -80,7 +77,7 @@ export function redactedMediaKind(item: unknown): RedactedMediaKind | null {
         return isRedactedMediaSentinel(item.source.data) ? 'file' : null
     }
     if (isGeminiDocumentMessage(item)) {
-        return hasRedactedGeminiInlineData(item) ? 'file' : null
+        return hasRedactedMediaData(item) ? 'file' : null
     }
     if (isOpenAIAudioMessage(item) || isGeminiAudioMessage(item)) {
         return isRedactedMediaSentinel(item.data) ? 'audio' : null

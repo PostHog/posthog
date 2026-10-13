@@ -643,18 +643,34 @@ describe('processAiEvent()', () => {
         // these. Iterating the lists themselves would only drop the case. Neither
         // catches the opposite drift: a calculator that starts reading a token
         // property nobody added to its list.
-        it.each(['$ai_cache_read_input_tokens', '$ai_audio_input_tokens', '$ai_reasoning_tokens'])(
-            'treats %s on its own as a usage report',
-            (property) => {
-                delete event.properties!.$ai_input_tokens
-                delete event.properties!.$ai_output_tokens
-                event.properties![property] = 100
+        it.each([
+            '$ai_cache_read_input_tokens',
+            '$ai_audio_input_tokens',
+            '$ai_reasoning_tokens',
+            '$ai_cache_read_image_tokens',
+        ])('treats %s on its own as a usage report', (property) => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            event.properties![property] = 100
 
-                const result = processAiEvent(event)
+            const result = processAiEvent(event)
 
-                expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-            }
-        )
+            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+        })
+
+        it('recognizes cached-image usage without inventing missing parent counts or output usage', () => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            event.properties!.$ai_cache_read_image_tokens = 100
+
+            const result = processAiEvent(event)
+
+            // Cached images are bounded by both the image and cache totals, which
+            // remain absent. Recognizing the report does not reconstruct those totals.
+            expect(result.properties!.$ai_input_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBe(0)
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
 
         // Each side is a rate times its own counts, so one reported side must
         // not fabricate a $0 for the other. Interrupted streams commonly report

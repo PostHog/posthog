@@ -155,6 +155,12 @@
             "label": "AI cache read audio tokens (LLM)",
             "type": "Numeric"
         },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_read_input_tokens": {
             "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23],
@@ -4000,6 +4006,12 @@
             "description": "The number of audio tokens read from the prompt cache.",
             "examples": [16],
             "label": "AI cache read audio tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
             "type": "Numeric"
         },
         "$ai_cache_read_input_tokens": {
