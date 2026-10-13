@@ -44,6 +44,8 @@ import {
     splitProtocolPath,
 } from './utils'
 
+export const PROJECT_TREE_KEY = 'project-tree'
+
 export type ProjectTreeSortMethod = 'folder' | 'recent'
 
 export interface RecentResults {
@@ -545,8 +547,6 @@ const shouldLoadUnfiledItems = (
     props.isActiveInPanel !== false &&
     !values.unfiledItems &&
     !values.unfiledItemsLoading
-
-export const PROJECT_TREE_KEY = 'project-tree'
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),

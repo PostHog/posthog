@@ -5,8 +5,10 @@ import { initKeaTests } from '~/test/init'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 
-jest.mock('../ProjectTree/ProjectTree', () => ({
+jest.mock('../ProjectTree/projectTreeLogic', () => ({
     PROJECT_TREE_KEY: 'project-tree',
+}))
+jest.mock('../ProjectTree/ProjectTree', () => ({
     ProjectTree: ({ root, isActiveInPanel }: { root: string; isActiveInPanel: boolean }) => (
         <div data-attr="mock-tree" data-root={root} data-active={isActiveInPanel} />
     ),
