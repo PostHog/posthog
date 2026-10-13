@@ -370,14 +370,21 @@ class TestCodeCheckSkillDefault(BaseTest):
         assert self.calls == ([last_run_at] if checked else [])
         assert capture.call_args.kwargs["properties"]["detail"] == detail
 
-    @parameterized.expand([("report_check", True, False), ("dry_run", False, True)])
-    def test_runs_that_could_not_act_do_not_move_the_cut_off(self, _name, check, dry_run) -> None:
-        last_run_at = self._last_run("completed", hours_ago=24)
+    @parameterized.expand(
+        [
+            ("report_check", True, False, True, 24),
+            ("dry_run", False, True, True, 24),
+            ("dry_run_while_the_scout_only_previews", False, True, False, 2),
+        ]
+    )
+    def test_cut_off_skips_runs_that_could_not_act(self, _name, check, dry_run, emit, cut_off_hours_ago) -> None:
+        SignalScoutConfig.all_teams.filter(team=self.team, skill_name=WORKFLOWS_SKILL).update(emit=emit)
+        self._last_run("completed", hours_ago=24)
         self._last_run("completed", hours_ago=2, check=check, dry_run=dry_run)
 
         self._evaluate(None)
 
-        assert self.calls == [last_run_at]
+        assert self.calls == [NOW - timedelta(hours=cut_off_hours_ago)]
 
     def test_first_run_passes_no_last_run(self) -> None:
         self._evaluate(None)

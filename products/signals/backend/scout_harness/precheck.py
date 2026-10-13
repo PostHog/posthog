@@ -234,6 +234,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
             "run_interval_minutes",
             "run_cron_schedule",
             "write_scopes",
+            "emit",
         )
         .first()
     )
@@ -338,8 +339,9 @@ def _code_precheck_reason(config: SignalScoutConfig, now: datetime) -> str | Non
         # A report check reads only its report's claim, not the scout's input.
         .exclude(metadata__has_key="check_id")
     )
-    if config.write_scopes:
-        # A dry run holds no write grant, so it could not act on what it read.
+    if config.write_scopes and config.emit:
+        # A dry run holds no write grant, so it could not act on what it read. While the scout only
+        # previews, its dry runs are the history the next preview continues from.
         runs = runs.filter(metadata__has_key="write_scopes")
     latest = runs.order_by("-created_at").values_list("created_at", "task_run__status").first()
     # A failed, cancelled or stranded run has not read its input, and only a run that starts can retry
