@@ -9880,14 +9880,14 @@ Note: The official Stoplight operation index and individual operation schemas we
 
 ## QualysVmdr — gaps
 
-Today (4): `host_list_detection`, `hosts`, `knowledge_base`, `scans`
+Today (8): `appliances`, `asset_groups`, `host_list_detection`, `hosts`, `ips`, `knowledge_base`, `reports`, `scans`
 
 Diffed against: <https://cdn2.qualys.com/docs/qualys-api-vmpc-user-guide.pdf>
 
-- [ ] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
-- [ ] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
-- [ ] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
-- [ ] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
+- [x] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
+- [x] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
+- [x] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
+- [x] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
 - [ ] `GET /api/2.0/fo/activity_log/ (action=list)` — user activity log for who ran or changed what, the audit dimension of the platform (medium)
 - [ ] `GET /api/2.0/fo/schedule/scan/ (action=list)` — scheduled scan definitions that explain the cadence behind the scans table (low)
 - [ ] `GET /api/2.0/fo/compliance/posture/info/ (action=list)` — per-host control pass/fail posture for Policy Compliance subscriptions (low)
