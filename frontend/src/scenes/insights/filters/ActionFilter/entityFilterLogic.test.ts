@@ -314,10 +314,12 @@ describe('entityFilterLogic', () => {
             dw_source_type: 'Stripe',
         } as SeriesNode
 
+        const apiEventNode = { ...eventNode, limit: 100, orderBy: ['timestamp DESC'] } as SeriesNode
+
         it.each([
             [
-                'drops the event when an event becomes a data warehouse series',
-                eventNode,
+                'drops the event-only fields when an event becomes a data warehouse series',
+                apiEventNode,
                 { kind: NodeKind.DataWarehouseNode, key: 'payments', name: 'payments' },
                 {
                     kind: NodeKind.DataWarehouseNode,
@@ -325,6 +327,17 @@ describe('entityFilterLogic', () => {
                     name: 'payments',
                     table_name: 'payments',
                     properties: [hogqlProperty],
+                },
+            ],
+            [
+                'drops the event-only fields when an event becomes an action',
+                apiEventNode,
+                { kind: NodeKind.ActionsNode, key: 7, name: 'Sign up' },
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 7,
+                    name: 'Sign up',
+                    properties: [personProperty, extendedPersonProperty, hogqlProperty],
                 },
             ],
             [

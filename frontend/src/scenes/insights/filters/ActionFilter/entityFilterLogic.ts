@@ -81,6 +81,10 @@ const WAREHOUSE_ONLY_FIELDS = [
     'data_warehouse_join_key',
 ] as const
 
+// Fields that only the events node defines. A series picked from the API can carry `limit` or
+// `orderBy`, and every other node schema forbids them, so they cannot survive a switch away from an event.
+const EVENTS_ONLY_FIELDS = ['event', 'limit', 'orderBy'] as const
+
 // math_property names a column or property on the entity the series aggregates, so it cannot
 // survive an entity switch. Property-value math (sum, avg, percentiles) is dropped with it —
 // the backend errors out on that math without a math_property.
@@ -379,10 +383,13 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     if (typeof custom_name !== 'undefined') {
                         next.custom_name = custom_name
                     }
+                    if (kind !== NodeKind.EventsNode) {
+                        EVENTS_ONLY_FIELDS.forEach((field) => {
+                            delete next[field]
+                        })
+                    }
 
                     if (isWarehouseSeriesNodeKind(kind)) {
-                        // The schema forbids unknown keys, so an event left over from an events series fails the query.
-                        delete next.event
                         applySeriesKey(next, kind, typeof key === 'undefined' ? seriesNodeKey(current) : key)
                         dataWarehousePopoverFields.forEach(({ key: fieldKey }) => {
                             const value = extra[fieldKey]
@@ -435,8 +442,6 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
 
                     if (kind === NodeKind.EventsNode) {
                         delete next.id
-                    } else {
-                        delete next.event
                     }
                     if (previousKind === NodeKind.GroupNode) {
                         delete next.nodes
