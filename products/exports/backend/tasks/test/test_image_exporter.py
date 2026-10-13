@@ -954,8 +954,9 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
             image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper")
 
         assert all(call.args[0] != ".replayer-wrapper" for call in page.wait_for_selector.call_args_list)
-        page.wait_for_function.assert_called_once()
-        assert "iframe.PlayerFrame__document" in page.wait_for_function.call_args.args[0]
+        replay_wait, paint_wait = page.wait_for_function.call_args_list
+        assert "iframe.PlayerFrame__document" in replay_wait.args[0]
+        assert paint_wait.args[0] == image_exporter.WAIT_FOR_CHART_CANVASES_PAINTED_JS
         measure_scripts = [call.args[0] for call in page.evaluate.call_args_list]
         assert measure_scripts
         assert all("iframe.PlayerFrame__document" in script for script in measure_scripts)

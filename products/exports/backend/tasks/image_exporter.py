@@ -81,6 +81,24 @@ FIND_REPLAY_WRAPPER_JS = f"""(
     document.querySelector('iframe.PlayerFrame__document')?.contentDocument?.querySelector('{REPLAY_WRAPPER_SELECTOR}')
 )"""
 
+# Resizing the viewport wipes quill chart canvases, which repaint on a later animation frame while DOM
+# overlays (value labels, axes) are already there. Wait until no canvas is pending for a few frames.
+WAIT_FOR_CHART_CANVASES_PAINTED_JS = """
+() => new Promise((resolve) => {
+    let settledFrames = 0
+    const check = () => {
+        const pending = document.querySelector('canvas[data-hog-charts-paint="pending"]')
+        settledFrames = pending ? 0 : settledFrames + 1
+        if (settledFrames >= 5) {
+            resolve(true)
+            return
+        }
+        requestAnimationFrame(check)
+    }
+    requestAnimationFrame(check)
+})
+"""
+
 MEASURE_CONTENT_HEIGHT_JS = f"""
     const element = document.querySelector('.InsightCard__viz') ||
                   document.querySelector('.ExportedInsight__content') ||
@@ -505,6 +523,10 @@ def _screenshot_asset_browserless(
             )
 
             page.set_viewport_size({"width": width, "height": final_height})
+            try:
+                page.wait_for_function(WAIT_FOR_CHART_CANVASES_PAINTED_JS, timeout=3000)
+            except PlaywrightTimeoutError:
+                pass
             page.screenshot(path=image_path)
         except BrowserlessUnavailable:
             raise
