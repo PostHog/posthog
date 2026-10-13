@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("experiments", "0048_experimentmetricresult_key_index"),
+        ("experiments", "0049_experimentmetricresult_key_index"),
     ]
 
     operations = [

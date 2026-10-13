@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("experiments", "0047_drop_legacy_recalculation_time_column"),
+        ("experiments", "0048_experiment_running_start_date_index"),
     ]
 
     operations = [
