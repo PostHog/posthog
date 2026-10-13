@@ -142,6 +142,21 @@ describe('broadcastAudienceListLogic', () => {
             importedRows: [{ email: 'ada@example.com' }],
         },
         {
+            outcome: 'rejects a file that is not UTF-8',
+            csv: new Uint8Array([
+                ...new TextEncoder().encode('email\nzo'),
+                0xeb,
+                ...new TextEncoder().encode('@example.com\n'),
+            ]),
+            response: [500, {}],
+            expected: {
+                isListModalOpen: true,
+                createError: 'This file isn\'t saved as UTF-8. Save it as "CSV UTF-8" and upload it again.',
+            },
+            audience: [],
+            importedRows: undefined,
+        },
+        {
             outcome: 'rejects a column with data but no name',
             csv: 'email,\nada@example.com,Acme\n',
             response: [500, {}],
