@@ -1855,7 +1855,6 @@ class SignalReportForYouRowSerializer(SignalReportListSerializer):
 
     class Meta(SignalReportListSerializer.Meta):
         fields = [*SignalReportListSerializer.Meta.fields, "rank", "relation"]
-        read_only_fields = fields
 
 
 class SignalReportsForYouResponseSerializer(serializers.Serializer):
