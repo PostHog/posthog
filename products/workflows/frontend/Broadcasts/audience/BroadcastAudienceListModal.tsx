@@ -50,8 +50,9 @@ export function BroadcastAudienceListModal(): JSX.Element {
                         Each row creates or updates a person. The file needs an <code>email</code> column. Every other
                         column is saved on the person, so you can use it in the email, for example{' '}
                         <code>{'{{ person.properties.plan }}'}</code> for a <code>plan</code> column. Property names
-                        match the column names exactly, including capital letters. Add a <code>distinct_id</code> column
-                        to update people by their ID in your app.
+                        match the column names exactly, including capital letters. To update people by their ID in your
+                        app, add a <code>distinct_id</code> column, or an <code>id</code> column like a Customer.io
+                        export has.
                     </span>
                 ) : (
                     <span className="text-sm text-secondary">{COHORT_CSV_HELP}</span>
