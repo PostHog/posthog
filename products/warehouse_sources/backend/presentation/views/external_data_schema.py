@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
+    find_discovered_schema,
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
@@ -2352,7 +2353,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             schemas = new_source.get_schemas(
-                config, self.team_id, names=[instance.name], api_version=effective_api_version
+                config,
+                self.team_id,
+                names=None if new_source.uses_stable_schema_resource_ids else [instance.name],
+                api_version=effective_api_version,
             )
         except Exception as e:
             # `validate_credentials` above just probed the same connection successfully, so a
@@ -2384,7 +2388,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
-        schema = next((s for s in schemas if s.name == instance.name), None)
+        schema = find_discovered_schema(instance.name, instance.schema_metadata, schemas)
         if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}

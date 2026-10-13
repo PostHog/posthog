@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
@@ -500,9 +501,52 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["xmin_available"] is expected_xmin_available
 
-    def test_incremental_fields_matches_schema_by_name(self):
+    @parameterized.expand(
+        [
+            (
+                # Mimics sources (e.g. Slack) that ignore `names` and return every schema. The first
+                # element is an unrelated table; the endpoint must pick the one matching instance.name.
+                "name_match_when_names_filter_ignored",
+                StripeSource,
+                {"stripe_secret_key": "test_key"},
+                None,
+                ["C123"],
+                [
+                    SourceSchema(name="$channels", supports_incremental=False, supports_append=False),
+                    SourceSchema(
+                        name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True
+                    ),
+                ],
+            ),
+            (
+                "resource_id_match_after_rename",
+                GoogleSheetsSource,
+                {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/example/edit"},
+                {"schema_metadata": {"source_resource_id": "123"}},
+                None,
+                [
+                    SourceSchema(
+                        name="other_sheet",
+                        supports_incremental=False,
+                        supports_append=False,
+                        schema_metadata={"source_resource_id": "456"},
+                    ),
+                    SourceSchema(
+                        name="new_title",
+                        supports_incremental=False,
+                        supports_append=False,
+                        supports_webhooks=True,
+                        schema_metadata={"source_resource_id": "123"},
+                    ),
+                ],
+            ),
+        ]
+    )
+    def test_incremental_fields_matches_discovered_schema(
+        self, _name, source_class, job_inputs, sync_type_config, expected_names, discovered_schemas
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team, source_type=source_class().source_type, job_inputs=job_inputs
         )
         schema = ExternalDataSchema.objects.create(
             name="C123",
@@ -511,25 +555,20 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            sync_type_config=sync_type_config or {},
         )
 
-        # Mimics sources (e.g. Slack) that ignore `names` and return every schema. The first
-        # element is an unrelated table; the endpoint must pick the one matching instance.name.
-        all_schemas = [
-            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
-            SourceSchema(name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True),
-        ]
-
         with (
-            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(StripeSource, "get_schemas", return_value=all_schemas),
+            mock.patch.object(source_class, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(source_class, "get_schemas", return_value=discovered_schemas) as get_schemas,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["supports_webhooks"] is True
+        assert get_schemas.call_args.kwargs["names"] == expected_names
 
     @parameterized.expand(
         [

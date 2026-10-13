@@ -2248,6 +2248,21 @@ def _resource_id(metadata: object) -> str | None:
     return None
 
 
+def find_discovered_schema(
+    stored_name: str, stored_metadata: object, discovered: Iterable["SourceSchema"]
+) -> "SourceSchema | None":
+    """Find the discovered schema for a stored one: by its stable resource id first, then by name.
+
+    A renamed resource keeps its id but not its name, so a match by name alone misses it."""
+    discovered = list(discovered)
+    stored_resource_id = _resource_id(stored_metadata)
+    if stored_resource_id is not None:
+        for discovered_schema in discovered:
+            if _resource_id(discovered_schema.schema_metadata) == stored_resource_id:
+                return discovered_schema
+    return next((discovered_schema for discovered_schema in discovered if discovered_schema.name == stored_name), None)
+
+
 def _renamed_schema_names(
     old_schemas: list["ExternalDataSchema"],
     new_schema_names: list[str],
