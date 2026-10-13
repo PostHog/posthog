@@ -339,6 +339,22 @@ export type DataModelingNodesListParams = {
     search?: string
 }
 
+export type DataModelingNodesRetrieveParams = {
+    /**
+     * Resolve the path ID as this backing resource type instead of a node ID.
+     */
+    lookup?: DataModelingNodesRetrieveLookup
+}
+
+export type DataModelingNodesRetrieveLookup =
+    (typeof DataModelingNodesRetrieveLookup)[keyof typeof DataModelingNodesRetrieveLookup]
+
+export const DataModelingNodesRetrieveLookup = {
+    PosthogTable: 'posthog_table',
+    SavedQuery: 'saved_query',
+    WarehouseTable: 'warehouse_table',
+} as const
+
 export type DataModelingNodesLineageRetrieveParams = {
     /**
      * Data catalog metric to build lineage for, resolved to its node. Alternative to node_id.

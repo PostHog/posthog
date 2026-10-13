@@ -69,6 +69,29 @@ class TestNodeViewSet(APIBaseTest):
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
 
+    @parameterized.expand(["saved_query", "warehouse_table", "posthog_table"])
+    def test_retrieve_node_by_backing_resource(self, lookup):
+        if lookup == "saved_query":
+            resource_id = self.saved_query.id
+            expected_node = self.view_node
+        elif lookup == "warehouse_table":
+            resource_id = uuid4()
+            self.table_node.properties = {"origin": "warehouse", "warehouse_table_id": str(resource_id)}
+            self.table_node.save(update_fields=["properties"])
+            expected_node = self.table_node
+        else:
+            resource_id = self.table_node.name
+            self.table_node.properties = {"origin": "posthog"}
+            self.table_node.save(update_fields=["properties"])
+            expected_node = self.table_node
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{resource_id}/?lookup={lookup}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(expected_node.id))
+
     def test_deleted_saved_query_nodes_are_hidden_from_the_graph(self):
         self.saved_query.soft_delete()
 
