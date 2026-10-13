@@ -634,13 +634,23 @@ services:
             - objectstorage-data:/data
 
     openfga:
-        image: openfga/openfga:v1.8.0
+        image: openfga/openfga:v1.22.0
         command: run
         env_file: ./products/authz/openfga.env
         ports:
             - '127.0.0.1:8080:8080'
-            - '127.0.0.1:8081:8081'
+        profiles: [authz]
+
+    openfga-studio:
+        image: ghcr.io/prakashm88/openfga-studio:1.0.1
+        environment:
+            - OPENFGA_HOST=openfga
+            - OPENFGA_HTTP_PORT=8080
+            - DISABLE_LOCAL_OPENFGA=true
+        ports:
             - '127.0.0.1:3000:3000'
+        depends_on:
+            - openfga
         profiles: [authz]
 
     objectstorage-azure:

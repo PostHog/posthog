@@ -1,0 +1,218 @@
+name: Insight
+model_file: ../../model.fga
+tuple_files:
+    - ../fixtures.yaml
+tuples:
+    - { user: 'project:project', relation: project, object: 'dashboard:dashboard' }
+    - { user: 'resource_category:dashboards', relation: category, object: 'dashboard:dashboard' }
+    - { user: 'access_policy:object', relation: policy, object: 'dashboard:dashboard' }
+    - { user: 'organization_member:creator#user', relation: creator, object: 'dashboard:dashboard' }
+    - { user: 'project:project', relation: project, object: 'insight:insight' }
+    - { user: 'resource_category:insights', relation: category, object: 'insight:insight' }
+    - { user: 'access_policy:object', relation: policy, object: 'insight:insight' }
+    - { user: 'organization_member:creator#user', relation: creator, object: 'insight:insight' }
+
+tests:
+    - name: Baselines and organization boundaries
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: true, can_delete: true, can_manage_access: false }
+          - user: user:outsider
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }
+
+    - name: Member viewer overrides role manager and default editor on the object
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:object' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:category' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: false, can_delete: false, can_manage_access: false }
+
+    - name: Member none is a rule rather than a missing grant
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:object' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }
+
+    - name: Highest matching role wins including a role denial
+      tuples:
+          - { user: 'role:blocked#member', relation: role_none, object: 'access_policy:object' }
+          - { user: 'role:reader#member', relation: role_viewer, object: 'access_policy:object' }
+          - { user: 'role:writer#member', relation: role_editor, object: 'access_policy:object' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:object' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: true, can_manage_access: false }
+
+    - name: Role manager wins over lower role grants
+      tuples:
+          - { user: 'role:blocked#member', relation: role_none, object: 'access_policy:object' }
+          - { user: 'role:reader#member', relation: role_viewer, object: 'access_policy:object' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: true, can_manage_access: true }
+
+    - name: Member editor overrides role none
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_editor, object: 'access_policy:object' }
+          - { user: 'role:blocked#member', relation: role_none, object: 'access_policy:object' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: true, can_manage_access: false }
+
+    - name: Role none overrides an object default grant
+      tuples:
+          - { user: 'role:blocked#member', relation: role_none, object: 'access_policy:object' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:object' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }
+
+    - name: Object default none overrides category member manager
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
+          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:category' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }
+
+    - name: Object editor overrides category member none without allowing creation
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: true, can_manage_access: false }
+
+    - name: Category member viewer overrides roles and defaults on objects without rules
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:category' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:category' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: false, can_manage_access: false }
+
+    - name: Organization admins and owners bypass all resource denies
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
+          - { user: 'organization_member:admin#user', relation: member_none, object: 'project:project' }
+          - { user: 'organization_member:owner#user', relation: member_none, object: 'project:project' }
+      check:
+          - users: [user:admin, user:owner]
+            object: insight:insight
+            assertions: { can_view: true, can_edit: true, can_delete: true, can_manage_access: true }
+
+    - name: Project admins can manage access but do not bypass object permissions
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_admin, object: 'project:project' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: true }
+
+    - name: Project role none overrides the member default
+      tuples:
+          - { user: 'role:blocked#member', relation: role_none, object: 'project:project' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }
+
+    - name: Explicit project owner has the admin access-management escape hatch
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_owner, object: 'project:project' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_manage_access: true }
+
+    - name: Creators bypass object and category restrictions
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
+      check:
+          - user: user:creator
+            object: insight:insight
+            assertions: { can_view: true, can_edit: true, can_manage_access: true }
+
+    - name: Project member deny overrides role admin and gates even creator rights
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_none, object: 'project:project' }
+          - { user: 'organization_member:creator#user', relation: member_none, object: 'project:project' }
+          - { user: 'role:manager#member', relation: role_admin, object: 'project:project' }
+          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:object' }
+      check:
+          - users: [user:member, user:creator]
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }
+
+    - name: Legacy dashboard restrictions also gate attached insights
+      tuples:
+          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
+          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
+          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_view: true, can_edit: false, can_delete: false, can_share: false }
+          - users: [user:creator, user:admin, user:owner]
+            object: insight:insight
+            assertions: { can_edit: true }
+
+    - name: Legacy collaborators retain edit access
+      tuples:
+          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
+          - { user: 'organization_member:member#user', relation: collaborator, object: 'dashboard:dashboard' }
+          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
+          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_edit: true }
+
+    - name: One editable dashboard permits editing an attached insight
+      tuples:
+          - { user: 'project:project', relation: project, object: 'dashboard:editable' }
+          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
+          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
+          - { user: 'dashboard:editable', relation: dashboard, object: 'insight:insight' }
+          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_edit: true }
+
+    - name: Stale role assignees outside the organization never authorize
+      tuples:
+          - { user: 'user:outsider', relation: user, object: 'organization_member:stale' }
+          - { user: 'organization_member:stale#user', relation: assignee, object: 'role:manager' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
+      check:
+          - user: user:outsider
+            object: insight:insight
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }
+
+    - name: Each permission denies users outside its level
+      check:
+          - user: user:member
+            object: insight:insight
+            assertions: { can_share: true }

@@ -1,0 +1,10 @@
+type insight extends shareable_resource
+  relations
+    # An insight takes the legacy edit rule from the dashboards that show it.
+    define dashboard: [dashboard]
+    # This marker distinguishes an unattached insight from one with no editable dashboards.
+    define has_dashboard: [user:*]
+    # An insight on a dashboard is editable by the dashboard's legacy editors; an unattached insight is editable by project members.
+    define legacy_editor: legacy_editor from dashboard or ((member from project) but not has_dashboard)
+    # An edit must pass both the access rules and the legacy dashboard rule.
+    override can_edit: editor and legacy_editor
