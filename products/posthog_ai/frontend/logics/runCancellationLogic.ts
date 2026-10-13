@@ -25,7 +25,8 @@ function confirmsAgentReady(entry: StoredLogEntry, runId: string): boolean {
             params?.group === `setup:${runId}` &&
             params.step === 'agent' &&
             params.status === 'completed') ||
-        (method === '_posthog/run_started' && params?.runId === runId)
+        (method === '_posthog/run_started' &&
+            (params?.runId === runId || (params?.runId === undefined && entry.source_run_id === runId)))
     )
 }
 

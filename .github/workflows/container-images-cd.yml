@@ -559,6 +559,20 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
 
+                      webAnalytics:
+                        - 'products/web_analytics/backend/**'
+                        - 'posthog/egress/**'
+                        - 'posthog/storage/**'
+                        - 'posthog/security/url_validation.py'
+                        - 'posthog/models/team/team_heatmap_config.py'
+                        - '.github/workflows/container-images-cd.yml'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
                       weeklyDigest:
                         - 'posthog/temporal/weekly_digest/**'
                         - 'products/data_catalog/backend/**'
@@ -997,6 +1011,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-replay-vision",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Web Analytics Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.webAnalytics == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-web-analytics",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
