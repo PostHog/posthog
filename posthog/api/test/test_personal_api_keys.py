@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog.schema import EventsQuery
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -24,6 +25,7 @@ from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, Person
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.test.authentication_checks import covers_authentication
 
 from products.product_analytics.backend.facade.models import Insight
 
@@ -544,6 +546,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    @covers_authentication(PersonalAPIKeyAuthentication)
     def test_user_endpoint(self):
         # NOTE: This is not actually supported currently by new scopes but needs to work for pre-scoped api keys
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
