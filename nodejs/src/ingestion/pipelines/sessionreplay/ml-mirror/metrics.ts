@@ -149,7 +149,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyRowCacheEntries = new Gauge({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_entries',
-        help: 'Stored ML key rows the per-process cache holds, counted after a read. Expired rows stay counted until a read or an eviction removes them, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
+        help: 'Stored ML key rows the per-process cache holds, counted after a read. A read purges expired rows at most once a minute, and a lookup of an expired row or an eviction removes it between purges, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
     })
     private static readonly mlKeyReadRetries = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_read_retries_total',

@@ -64,12 +64,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 def test_bigquery_config(temporary_dataset_key: str):
     config = BigQuerySourceConfig.from_dict(
         {
-            "key_file": {
-                "project_id": "project_id",
-                "private_key_id": "private_key_id",
-                "private_key": "private_key",
-                "client_email": "client_email",
-                "token_uri": "token_uri",
+            "auth_type": {
+                "selection": "key_file",
+                "key_file": {
+                    "project_id": "project_id",
+                    "private_key_id": "private_key_id",
+                    "private_key": "private_key",
+                    "client_email": "client_email",
+                    "token_uri": "token_uri",
+                },
             },
             "dataset_id": "dataset_id",
             temporary_dataset_key: {"enabled": False, "temporary_dataset_id": ""},
@@ -77,11 +80,13 @@ def test_bigquery_config(temporary_dataset_key: str):
         }
     )
 
-    assert config.key_file.project_id == "project_id"
-    assert config.key_file.private_key_id == "private_key_id"
-    assert config.key_file.private_key == "private_key"
-    assert config.key_file.client_email == "client_email"
-    assert config.key_file.token_uri == "token_uri"
+    assert config.auth_type.selection == "key_file"
+    assert config.auth_type.key_file is not None
+    assert config.auth_type.key_file.project_id == "project_id"
+    assert config.auth_type.key_file.private_key_id == "private_key_id"
+    assert config.auth_type.key_file.private_key == "private_key"
+    assert config.auth_type.key_file.client_email == "client_email"
+    assert config.auth_type.key_file.token_uri == "token_uri"
     assert config.dataset_id == "dataset_id"
     assert config.temporary_dataset is not None
     assert config.temporary_dataset.enabled is False

@@ -6,9 +6,10 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::outputs::{OutputRegistry, PublishEvents};
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::{router, BATCH_BODY_SIZE};
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
@@ -52,6 +53,13 @@ impl PublishEvents for CapturingSink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 
@@ -116,9 +124,9 @@ fn body_of_len(len: usize) -> String {
     named_body_of_len(len, "e")
 }
 
-/// The same, with the event name chosen. Capture-ai rejects any event outside the
-/// `AI_EVENT_NAMES` allowlist with a 400 before the size check is reached, so an
-/// AI-lane body has to carry a listed name to exercise the cap at all.
+/// The same, with the event name chosen. Capture-ai rejects any event without the
+/// `$ai_` prefix with a 400 before the size check is reached, so an AI-lane body
+/// has to carry an `$ai_` name to exercise the cap at all.
 fn named_body_of_len(len: usize, event: &str) -> String {
     let envelope = format!(
         r#"{{"token":"phc_test","event":"{event}","distinct_id":"d","properties":{{"big":""}}}}"#

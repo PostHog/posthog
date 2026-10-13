@@ -61,8 +61,11 @@ class TestSyncMetricToDag(BaseTest):
         self.assertEqual(Node.objects.filter(team=self.team, type=NodeType.METRIC).count(), 1)
 
     def test_an_unresolvable_name_is_skipped_and_recorded(self):
-        sync_metric_to_dag(self.team, self.metric_id, "weekly_active_accounts", ["events", "table_that_went_away"])
+        unresolved = sync_metric_to_dag(
+            self.team, self.metric_id, "weekly_active_accounts", ["events", "table_that_went_away"]
+        )
 
+        self.assertEqual(unresolved, ["table_that_went_away"])
         self.assertEqual(self._sources(), {"events"})
         marker = self._node().properties["system"][UNRESOLVED_DEPENDENCIES_KEY]
         self.assertEqual(marker["names"], ["table_that_went_away"])

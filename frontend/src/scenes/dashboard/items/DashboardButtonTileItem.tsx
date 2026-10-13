@@ -7,7 +7,7 @@ import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import type { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import type { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 type BaseButtonTileCardProps = React.ComponentProps<typeof ButtonTileCard>
 
@@ -15,7 +15,7 @@ interface DashboardButtonTileItemProps extends Omit<
     BaseButtonTileCardProps,
     'buttonTile' | 'placement' | 'moreButtonOverlay'
 > {
-    tile: DashboardTile<QueryBasedInsightModel>
+    tile: DashboardTile
     placement: DashboardPlacement
     dashboardId?: number | null
     onEdit: () => void

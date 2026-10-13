@@ -1,18 +1,18 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from posthog.hogql.query import execute_hogql_query
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.person_sampling import bounded_memory_settings, build_person_count_query
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, replace_proxy_properties
 from products.workflows.backend.services.audience_v2 import (
-    bounded_memory_settings,
     build_dedupe_count_query,
-    build_person_count_query,
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
 )
-from products.workflows.backend.services.batch_audience import get_batch_audience_count
+from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -44,8 +44,8 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         # Modulus 1 samples everyone and MIN_SAMPLED_MATCHES 0 forces the sampled branch,
         # so the extrapolated result must equal the exact count.
         with (
-            patch("products.workflows.backend.services.audience_v2.SAMPLE_MODULUS", 1),
-            patch("products.workflows.backend.services.audience_v2.MIN_SAMPLED_MATCHES", 0),
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
         ):
             result = get_person_audience_count_v2(self.team, FILTERS)
 
@@ -104,8 +104,8 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
 
         with (
-            patch("products.workflows.backend.services.audience_v2.SAMPLE_MODULUS", 1),
-            patch("products.workflows.backend.services.audience_v2.MIN_SAMPLED_MATCHES", 0),
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
         ):
             sampled_result = get_person_audience_count_v2(self.team, filters)
 
@@ -143,7 +143,7 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         assert (result.affected, result.total) == (3, 6)
 
-    def test_dedupe_count_matches_v1(self):
+    def test_dedupe_count_matches_deduped_audience_size(self):
         # Duplicate emails (case/whitespace variants) collapse to one send group; persons
         # without an email keep their own group. Small data exercises the exact fallback.
         emails = ["Dup@X.com", " dup@x.com ", "b@x.com", None, ""]
@@ -156,8 +156,20 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 4
+        assert result.affected == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
         assert result.total == 5
+
+    def test_dedupe_count_rejects_unsupported_dedupe_key(self):
+        with pytest.raises(ValueError, match="Unsupported dedupe_key"):
+            get_dedupe_audience_count_v2(self.team, FILTERS, "sms")
+
+    def test_dedupe_count_is_zero_when_no_person_matches(self):
+        _create_person(team=self.team, distinct_ids=["user-1"], properties={"subscribed": "false", "email": "a@x.com"})
+        flush_persons_and_events()
+
+        result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
+
+        assert result.affected == 0
 
     def test_sampled_dedupe_count_extrapolates_by_modulus(self):
         for i in range(3):
@@ -169,8 +181,8 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         with (
-            patch("products.workflows.backend.services.audience_v2.SAMPLE_MODULUS", 1),
-            patch("products.workflows.backend.services.audience_v2.MIN_SAMPLED_MATCHES", 0),
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
         ):
             result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 

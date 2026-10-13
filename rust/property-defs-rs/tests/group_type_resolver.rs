@@ -359,6 +359,24 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn get_person_tombstones(
+        &self,
+        _: Request<GetPersonTombstonesRequest>,
+    ) -> Result<Response<GetPersonTombstonesResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn ack_person_tombstones(
+        &self,
+        _: Request<AckPersonTombstonesRequest>,
+    ) -> Result<Response<AckPersonTombstonesResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn list_person_tombstone_queue(
+        &self,
+        _: Request<ListPersonTombstoneQueueRequest>,
+    ) -> Result<Response<ListPersonTombstoneQueueResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         _: Request<GetGroupTypeMappingByDashboardIdRequest>,
@@ -423,6 +441,13 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _: Request<SetPersonVersionFloorRequest>,
     ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _: Request<EnsurePersonVersionFloorsRequest>,
+    ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
 }

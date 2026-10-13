@@ -360,6 +360,51 @@ def _pushdown_table_filter(node: Any, column: str) -> Optional[frozenset[str]]:
     return frozenset(bound) if bound is not None else None
 
 
+def _schema_split_aliases(
+    node: Any, allowed: Optional[frozenset[str]], database: Optional["Database"]
+) -> dict[str, str]:
+    """Map a qualified table name to its bare name for a SQL-standard `table_schema = … AND table_name = …` query.
+
+    The catalog names each table by its fully-qualified name (`system.insights`), so the split form
+    matches no row and silently returns nothing. When a bare name is not itself a visible table, the
+    caller reports the visible table with that last name segment in the filtered schema under the
+    bare name. The schema is the classified bucket (`posthog.ai_events` is in `public`), not the name
+    prefix. A bare name that matches more than one table in a schema stays unmatched.
+    """
+    if allowed is None or database is None:
+        return {}
+    schemas = _pushdown_table_filter(node, "table_schema")
+    if not schemas:
+        return {}
+    visible = _visible_table_names(database)
+    bare_names = allowed.difference(visible)
+    candidates = [name for name in visible if "." in name and name.rsplit(".", 1)[1] in bare_names]
+    if not candidates:
+        return {}
+    warehouse = set(database.get_warehouse_table_names())
+    views = set(database.get_view_names())
+    matches: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
+    for name in candidates:
+        try:
+            table = database.get_table(name)
+        except Exception:
+            continue
+        _, table_schema = _classify_table(name, table, warehouse, views)
+        if table_schema in schemas:
+            matches[(table_schema, name.rsplit(".", 1)[1])].append(name)
+    return {names[0]: bare for (_, bare), names in matches.items() if len(names) == 1}
+
+
+def _relabel_table_names(rows: list[list[Any]], aliases: dict[str, str], indexes: tuple[int, ...]) -> list[list[Any]]:
+    relabeled = []
+    for row in rows:
+        row = list(row)
+        for index in indexes:
+            row[index] = aliases.get(row[index], row[index])
+        relabeled.append(row)
+    return relabeled
+
+
 # ClickHouse column types for the external data table, keyed by the same kinds as `_constant_rows_select`.
 _KIND_TO_CLICKHOUSE: dict[str, str] = {
     _STRING: "String",
@@ -1088,13 +1133,15 @@ def _access_control(context: "HogQLContext") -> Any:
 def _denial_applies(context: "HogQLContext", denied: set[str]) -> bool:
     """Whether the data quality gates have anything to decide for this caller.
 
-    A non-empty denial set settles it. So does an empty one held by a member of an organization with
-    access controls, because deleting the subject they were denied is what empties it -- which is the
-    case the gates withhold for. Only a caller who could never be denied a single object skips them.
+    A denied warehouse table settles it. Denied system tables share the same database set, but their
+    resource permissions do not imply that a warehouse subject can be denied. An empty warehouse
+    denial set still applies for a member with access controls because deleting a denied subject empties
+    that set. Only a caller who could never be denied a warehouse object skips these gates.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
-    return bool(denied) or data_quality.can_be_object_denied(_access_control(context))
+    has_warehouse_denial = any(not table_name.startswith("system.") for table_name in denied)
+    return has_warehouse_denial or data_quality.can_be_object_denied(_access_control(context))
 
 
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
@@ -1123,7 +1170,7 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
             if context.database is None:
                 return []
             checks = data_quality.visible_checks(
-                team_id, checks, data_quality.denial_context(team_id, context.database)
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
             )
         return [
             [
@@ -1177,7 +1224,7 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
         if _denial_applies(context, denied):
             if context.database is None:
                 return []
-            base = data_quality.without_denied_runs(base, data_quality.denial_context(team_id, context.database))
+            base = data_quality.without_denied_runs(base, data_quality.sql_denial_context(team_id, context.database))
         return [
             [
                 str(run.id),
@@ -1228,7 +1275,7 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
             if context.database is None:
                 return []
             checks = data_quality.visible_checks(
-                team_id, checks, data_quality.denial_context(team_id, context.database)
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
             )
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
         for check in checks:
@@ -1609,6 +1656,9 @@ class InformationSchemaTablesTable(InformationSchemaTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
+        aliases = _schema_split_aliases(node, allowed, context.database)
+        if aliases and allowed is not None:
+            allowed = allowed.union(aliases)
         introspection = _introspection(context, allowed)
         data_catalog_enrichment_requested = "certification" in self.fields and _accesses_any_field(
             table_to_add, _DATA_CATALOG_TABLE_FIELDS
@@ -1621,6 +1671,10 @@ class InformationSchemaTablesTable(InformationSchemaTable):
             table_rows = introspection.table_rows()
         columns = _DATA_CATALOG_ENRICHED_TABLES_COLUMNS if data_catalog_enrichment_requested else _TABLES_COLUMNS
         table_label = "data_catalog_enriched_tables" if data_catalog_enrichment_requested else "tables"
+        if aliases:
+            # table_catalog and table_name both carry the table's name.
+            table_rows = _relabel_table_names(table_rows, aliases, (0, 2))
+            table_label = f"{table_label}_schema_split"
         return _rows_select(context, table_label, columns, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1699,8 +1753,19 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
+        aliases = _schema_split_aliases(node, allowed, context.database)
+        if aliases and allowed is not None:
+            allowed = allowed.union(aliases)
         introspection = _introspection(context, allowed)
         column_rows = introspection.column_rows() if introspection is not None else []
+        if aliases:
+            return _rows_select(
+                context,
+                "columns_schema_split",
+                _COLUMNS_COLUMNS,
+                _relabel_table_names(column_rows, aliases, (1,)),
+                allowed,
+            )
         return _rows_select(context, "columns", _COLUMNS_COLUMNS, column_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1977,7 +2042,9 @@ class InformationSchemaDataQualityChecksTable(LazyTable):
         "id": _string_field("id", description="Stable UUID of the check (pass to the run/update/delete tools)."),
         "name": _string_field("name", nullable=True, description="Optional handle; NULL when addressed by id."),
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field(
             "subject_uuid",
@@ -2041,7 +2108,9 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
         ),
         "suite_run_id": _string_field("suite_run_id", description="UUID of the batch this execution belonged to."),
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table, view, or metric."),
         "subject_name": _string_field("subject_name", description="Name of the subject at the time of the run."),
@@ -2092,12 +2161,15 @@ class InformationSchemaDataQualityHealthTable(LazyTable):
     )
     fields: dict[str, FieldOrTable] = {
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field("subject_uuid", description="UUID of the table, view, or metric."),
         "subject_name": _string_field(
             "subject_name",
-            description="Name of the table, view, or metric. Only table and view names are queryable in HogQL.",
+            description="Name of the table, view, metric, or PostHog table. "
+            "Table, view and PostHog table names are queryable in HogQL; a metric name is not.",
         ),
         "health": _string_field(
             "health", description="'failing', 'erroring', 'warn', 'healthy', or 'unknown'. Worst outcome wins."

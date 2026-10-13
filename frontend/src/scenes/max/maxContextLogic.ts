@@ -16,14 +16,13 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightShortId, InsightModel } from '~/types'
 
 import type { Node } from '../../queries/schema/schema-general'
 import type { LoadedScene } from '../sceneTypes'
 import type { ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import {
-    InsightWithQuery,
     MaxActionContext,
     MaxContextInput,
     MaxContextItem,
@@ -52,14 +51,14 @@ import {
 // Type definitions for better reusability
 export type TaxonomicItem =
     | DashboardType
-    | QueryBasedInsightModel
+    | InsightModel
     | EventDefinition
     | ActionType
     | NotebookListItemType
     | MaxContextTaxonomicFilterOption
 
-export type DashboardItemInfo = { id: number; preloaded: DashboardType<QueryBasedInsightModel> | null }
-export type InsightItemInfo = { id: InsightShortId; preloaded: QueryBasedInsightModel | null }
+export type DashboardItemInfo = { id: number; preloaded: DashboardType | null }
+export type InsightItemInfo = { id: InsightShortId; preloaded: InsightModel | null }
 
 type EntityWithIdAndType = { id: string | number; type: string }
 
@@ -150,8 +149,8 @@ export interface maxContextLogicActions {
     addOrUpdateContextAction: (data: ActionType) => {
         data: ActionType
     }
-    addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => {
-        data: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+    addOrUpdateContextDashboard: (data: DashboardType) => {
+        data: DashboardType
     }
     addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => {
         data: {
@@ -178,11 +177,11 @@ export interface maxContextLogicActions {
         data: EventDefinition
     }
     addOrUpdateContextInsight: (
-        data: InsightWithQuery,
+        data: Partial<InsightModel>,
         filtersOverride?: DashboardFilter,
         variablesOverride?: Record<string, HogQLVariable>
     ) => {
-        data: InsightWithQuery
+        data: Partial<InsightModel<Node<Record<string, any>>>>
         filtersOverride: DashboardFilter | undefined
         variablesOverride: Record<string, HogQLVariable> | undefined
     }
@@ -296,11 +295,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
     })),
     actions({
         addOrUpdateContextInsight: (
-            data: InsightWithQuery,
+            data: Partial<InsightModel>,
             filtersOverride?: DashboardFilter,
             variablesOverride?: Record<string, HogQLVariable>
         ) => ({ data, filtersOverride, variablesOverride }),
-        addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
+        addOrUpdateContextDashboard: (data: DashboardType) => ({ data }),
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
         addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => ({ data }),
@@ -361,10 +360,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
         contextDashboards: [
             [] as MaxDashboardContext[],
             {
-                addOrUpdateContextDashboard: (
-                    state: MaxDashboardContext[],
-                    { data }: { data: DashboardType<QueryBasedInsightModel> }
-                ) => addOrUpdateEntity(state, dashboardToMaxContext(data)),
+                addOrUpdateContextDashboard: (state: MaxDashboardContext[], { data }: { data: DashboardType }) =>
+                    addOrUpdateEntity(state, dashboardToMaxContext(data)),
                 removeContextDashboard: (state: MaxDashboardContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
                 resetContext: () => [],
@@ -549,7 +546,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                         await breakpoint(50)
                     }
 
-                    insight = insightLogicInstance.values.insight as QueryBasedInsightModel
+                    insight = insightLogicInstance.values.insight as InsightModel
                 } finally {
                     insightLogicInstance.unmount()
                 }
@@ -625,12 +622,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                         return {
                             type: MaxContextType.DASHBOARD,
                             id: dashboard.id,
-                            preloaded: dashboard as DashboardType<QueryBasedInsightModel>,
+                            preloaded: dashboard as DashboardType,
                         }
                     }
 
                     if (groupType === TaxonomicFilterGroupType.Insights) {
-                        const insight = item as QueryBasedInsightModel
+                        const insight = item as InsightModel
                         return {
                             type: MaxContextType.INSIGHT,
                             id: insight.short_id,
@@ -649,7 +646,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 if (itemInfo.type === MaxContextType.DASHBOARD) {
                     actions.loadAndProcessDashboard({
                         id: itemInfo.id as number,
-                        preloaded: itemInfo.preloaded as DashboardType<QueryBasedInsightModel> | null,
+                        preloaded: itemInfo.preloaded as DashboardType | null,
                     })
                 }
 
@@ -670,7 +667,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     actions.loadAndProcessInsight(
                         {
                             id: itemInfo.id as InsightShortId,
-                            preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
+                            preloaded: itemInfo.preloaded as InsightModel | null,
                         },
                         filtersOverride,
                         variablesOverride

@@ -14,6 +14,7 @@ from products.signals.backend.billing import (
     SIGNALS_CREDITS_PER_REPORT_WITH_PR,
     BillingExemptionError,
     FirstBillablePrRun,
+    _bridges_with_pr_run,
     first_billable_pr_run,
     get_signals_billing_credits_by_team,
     mark_report_billing_exempt,
@@ -400,6 +401,18 @@ class TestSignalsBilling(BaseTest):
 
     def test_no_billable_reports_returns_empty(self) -> None:
         self.assertEqual(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END), [])
+
+    def test_pr_url_filter_repeats_the_partial_index_predicate(self) -> None:
+        # Postgres answers the prefix test from `task_run_github_pr_run_idx` only while the query
+        # spells the predicate the same way. A changed prefix or lookup here still returns the
+        # right credits, so nothing else fails — the period scan just goes back to detoasting
+        # every run's `output`.
+        run_model = _task_run_model()
+        index = next(i for i in run_model._meta.indexes if i.name == "task_run_github_pr_run_idx")
+        index_sql, index_params = run_model.objects.filter(index.condition).order_by().query.sql_with_params()
+        query_sql, query_params = _bridges_with_pr_run().query.sql_with_params()
+        self.assertIn(index_sql.split(" WHERE ", 1)[1], query_sql)
+        self.assertTrue(set(index_params).issubset(query_params))
 
 
 class TestBillingExemptions(BaseTest):

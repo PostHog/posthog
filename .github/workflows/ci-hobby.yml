@@ -85,6 +85,8 @@ jobs:
                         - 'bin/hobby-ci-setup-user.py'
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
+                        - 'bin/helpers/render-hobby-compose.sh'
+                        - 'bin/test/test_render_hobby_compose.py'
                         - 'bin/migrate-*-hobby'
                         # Docker runtime (Dockerfile CMD chain)
                         - 'bin/docker'
@@ -121,6 +123,31 @@ jobs:
                       console.log(`hobby-preview label: ${hasLabel}, label removed: ${labelRemoved}, hobby files changed: ${process.env.HOBBY_CHANGED}`);
                       core.setOutput('has_label', hasLabel.toString());
                       core.setOutput('label_removed', labelRemoved.toString());
+
+    upgrade-render-test:
+        name: Test hobby upgrade rendering
+        needs: changes
+        if: ${{ !cancelled() && (needs.changes.outputs.should_run == 'true' || github.event_name == 'push' || github.event_name == 'schedule') }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      bin/helpers/render-hobby-compose.sh
+                      bin/test/test_render_hobby_compose.py
+                  sparse-checkout-cone-mode: false
+            - name: Install envsubst
+              run: sudo apt-get update && sudo apt-get install -y gettext-base
+            - name: Check upgrade rendering
+              # Branches opened before the renderer landed have no test file yet; skip instead of failing discovery.
+              run: |
+                  if [ ! -f bin/test/test_render_hobby_compose.py ]; then
+                      echo "Renderer test is not on this branch yet, skipping"
+                      exit 0
+                  fi
+                  python3 -m unittest discover -s bin/test -p test_render_hobby_compose.py
 
     wait-for-docker-image:
         name: Wait for Docker image build

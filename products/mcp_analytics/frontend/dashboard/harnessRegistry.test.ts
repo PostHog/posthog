@@ -30,7 +30,7 @@ describe('harnessColor', () => {
         expect(harnessColor(theme, 'OpenAI Codex')).not.toBe(theme.axisColor)
     })
 
-    it.each(['Claude Code', 'OpenAI Codex', 'VS Code', 'CodeRabbit'])(
+    it.each(['Claude Code', 'OpenAI Codex', 'VS Code', 'CodeRabbit', 'Kimchi'])(
         'preserves the brand color for %s independently of the categorical palette',
         (label) => {
             expect(harnessColor({ ...theme, colors: [] }, label)).toBe(harnessColor(theme, label))

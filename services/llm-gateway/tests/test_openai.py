@@ -376,6 +376,46 @@ class TestChatCompletionsEndpoint:
         mock_ensure_configured.assert_not_called()
         mock_make_call.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("content", "expected_message"),
+        [
+            pytest.param(
+                [{"type": "input_image", "image_url": "data:image/png;base64,AAAA"}],
+                "input_image",
+                id="unknown_part_type",
+            ),
+            pytest.param(["just text"], "must be an object", id="bare_string_part"),
+        ],
+    )
+    @patch("llm_gateway.api.openai.send_modal_chat_completions")
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_invalid_user_content_part_rejected_before_routing(
+        self,
+        mock_acompletion: AsyncMock,
+        mock_modal: AsyncMock,
+        authenticated_client: TestClient,
+        content: list[Any],
+        expected_message: str,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "moonshotai/kimi-k3",
+                "messages": [
+                    {"role": "system", "content": "You are helpful"},
+                    {"role": "user", "content": content},
+                ],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "index 1" in response.json()["error"]["message"]
+        assert expected_message in response.json()["error"]["message"]
+        mock_acompletion.assert_not_called()
+        mock_modal.assert_not_called()
+
 
 # CF-served models (@cf/...) on the Responses endpoint must route through the CF responses adapter,
 # not litellm.aresponses (which prefixes openai/ and hits the real OpenAI Responses API ->

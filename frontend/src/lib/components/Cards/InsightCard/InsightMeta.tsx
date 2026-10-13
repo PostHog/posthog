@@ -1,8 +1,16 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconClock, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconClock,
+    IconInfo,
+    IconPulse,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconWarning,
+} from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -48,9 +56,15 @@ import { urls } from 'scenes/urls'
 import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
+import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import {
+    isDataVisualizationNode,
+    isDataVisualizationNodeWithHogQLQuery,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -60,7 +74,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import {
@@ -106,11 +120,14 @@ interface InsightMetaProps extends Pick<
     | 'placement'
     | 'surveyOpportunity'
     | 'showCreateAnomalyAlertButton'
+    | 'projectId'
+    | 'contextHeading'
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
-    tile?: DashboardTile<QueryBasedInsightModel>
-    insight: QueryBasedInsightModel
+    tile?: DashboardTile
+    insight: InsightModel
+    refreshDisabledReason?: string
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
@@ -132,6 +149,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshDisabledReason: capacityDisabledReason,
     refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
@@ -153,6 +171,8 @@ export function InsightMeta({
     onCreateAlert,
     onEditAlert,
     onCreateAnomalyAlert,
+    projectId,
+    contextHeading,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -168,8 +188,15 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query, savingDisplayOptions, savingSqlVisualization, sqlVisualizationVersion } =
-        useValues(insightDataLogic(insightLogicProps))
+    const {
+        exportContext,
+        insightData,
+        insightDataRaw,
+        query,
+        savingDisplayOptions,
+        savingSqlVisualization,
+        sqlVisualizationVersion,
+    } = useValues(insightDataLogic(insightLogicProps))
     const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
@@ -191,7 +218,7 @@ export function InsightMeta({
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
+    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -247,7 +274,7 @@ export function InsightMeta({
             : true
 
     // A killed run has no result to carry the scan, so it arrives on the query status instead.
-    const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
+    const queryScan: InsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
     const scanFindings = queryScan?.analysis?.findings ?? []
     const queryScanTooltip =
         canEditInsight && queryScan && scanFindings.length > 0 ? (
@@ -259,6 +286,9 @@ export function InsightMeta({
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+
+    const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
+    const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
@@ -356,9 +386,11 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? dayjs(nextAllowedClientRefresh).fromNow()
             : null
-    const refreshDisabledReason = nextRefreshFromNow
-        ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : undefined
+    const refreshDisabledReason =
+        capacityDisabledReason ??
+        (nextRefreshFromNow
+            ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
+            : undefined)
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
@@ -426,15 +458,16 @@ export function InsightMeta({
         : undefined
 
     // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
-    const insightViewUrl = urls.insightView(
-        short_id,
-        dashboardId,
-        variablesOverride,
-        filtersOverride,
-        tileFiltersOverride
+    // A card showing another project's insight must link into that project, not the current one.
+    const inInsightProject = (path: string): string => (projectId ? urls.project(projectId, path) : path)
+    const insightViewUrl = inInsightProject(
+        urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride, tileFiltersOverride)
     )
     const copyInsightLink = (): void => {
-        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
+        void copyToClipboard(
+            urls.absolute(projectId ? insightViewUrl : urls.currentProject(insightViewUrl)),
+            'insight link'
+        )
     }
 
     return (
@@ -448,7 +481,16 @@ export function InsightMeta({
                 areDetailsShown={areDetailsShown}
                 detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
                 onMouseDown={onDragHandleMouseDown}
-                topHeading={topHeadingEl}
+                topHeading={
+                    contextHeading ? (
+                        <span className="flex items-center gap-2 min-w-0">
+                            {contextHeading}
+                            {topHeadingEl}
+                        </span>
+                    ) : (
+                        topHeadingEl
+                    )
+                }
                 popoverTopHeading={popoverTopHeadingEl}
                 content={
                     <InsightMetaContent
@@ -507,22 +549,29 @@ export function InsightMeta({
                         {canEditInsight && (
                             <>
                                 <LemonButton
-                                    to={
-                                        isDataVisualizationNode(insight.query)
+                                    to={inInsightProject(
+                                        isDataVisualizationNode(insight.query) &&
+                                            insight.query.kind !== NodeKind.BIVisualizationNode
                                             ? urls.sqlEditor({
                                                   insightShortId: short_id,
                                                   dashboard: dashboardId ?? undefined,
                                               })
                                             : urls.insightEdit(short_id, dashboardId)
-                                    }
+                                    )}
                                     fullWidth
-                                    {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
+                                    {...getOverrideWarningPropsForButton(
+                                        insight.query,
+                                        filtersOverride,
+                                        variablesOverride
+                                    )}
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton onClick={rename} fullWidth>
-                                    Rename
-                                </LemonButton>
+                                {rename && (
+                                    <LemonButton onClick={rename} fullWidth>
+                                        Rename
+                                    </LemonButton>
+                                )}
                                 {tile && (
                                     <LemonButton onClick={setOverride} fullWidth>
                                         Set override
@@ -530,17 +579,19 @@ export function InsightMeta({
                                 )}
                             </>
                         )}
-                        <LemonButton
-                            onClick={duplicate}
-                            fullWidth
-                            data-attr={
-                                dashboardId
-                                    ? 'duplicate-insight-from-dashboard'
-                                    : 'duplicate-insight-from-card-list-view'
-                            }
-                        >
-                            Duplicate
-                        </LemonButton>
+                        {duplicate && (
+                            <LemonButton
+                                onClick={duplicate}
+                                fullWidth
+                                data-attr={
+                                    dashboardId
+                                        ? 'duplicate-insight-from-dashboard'
+                                        : 'duplicate-insight-from-card-list-view'
+                                }
+                            >
+                                Duplicate
+                            </LemonButton>
+                        )}
                         {showDashboardAlertsMenuItem && insight.id ? (
                             <LemonButton
                                 onClick={() => {
@@ -605,7 +656,9 @@ export function InsightMeta({
                                         fallbackPlacements={['left-start']}
                                         closeParentPopoverOnClickInside
                                     >
-                                        <LemonButton fullWidth>Set color</LemonButton>
+                                        <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
+                                            Set color
+                                        </LemonButton>
                                     </LemonMenu>
                                 )}
                                 {hasDashboardPlacementActions && (
@@ -655,6 +708,7 @@ export function InsightMeta({
                                 <LemonDivider />
                                 <ExportButton
                                     fullWidth
+                                    sideIcon={<IconChevronRight className="size-3" />}
                                     items={[
                                         {
                                             export_format: ExporterFormat.PNG,
@@ -671,6 +725,33 @@ export function InsightMeta({
                                             export_context: exportContext,
                                         },
                                     ]}
+                                    copyToClipboardItems={
+                                        showCopyTableData
+                                            ? [
+                                                  {
+                                                      title: 'CSV',
+                                                      onClick: () => {
+                                                          if (!copyTableAdapter) {
+                                                              return
+                                                          }
+                                                          copyTableData(
+                                                              copyTableAdapter.toTableData(),
+                                                              ExporterFormat.CSV
+                                                          )
+                                                          reportInsightResultsCopiedToClipboard(
+                                                              'csv',
+                                                              insight.id ?? null,
+                                                              dashboardId ?? null
+                                                          )
+                                                      },
+                                                      disabledReason: copyTableAdapter
+                                                          ? undefined
+                                                          : 'No data to copy yet',
+                                                      'data-attr': 'insight-card-copy-as-csv',
+                                                  },
+                                              ]
+                                            : undefined
+                                    }
                                 />
                             </>
                         ) : null}

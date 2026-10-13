@@ -16,6 +16,7 @@ from products.web_analytics.backend.content_autopilot.lifecycle import (
     start_run,
 )
 from products.web_analytics.backend.models import (
+    ContentAutopilotOpportunity,
     ContentAutopilotProposal,
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
@@ -37,6 +38,7 @@ class TestContentAutopilotLifecycle(BaseTest):
         create_content_autopilot_profile(other_team, domain="https://other.example")
 
         for model in [
+            ContentAutopilotOpportunity,
             ContentAutopilotSiteProfile,
             ContentAutopilotRun,
             ContentAutopilotProposal,

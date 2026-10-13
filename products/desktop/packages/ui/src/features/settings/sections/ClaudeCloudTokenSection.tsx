@@ -1,7 +1,7 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { Button, Input, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { setClaudeCloudSubscriptionOn as setCloudSubscriptionOn } from "@posthog/ui/features/settings/adapterSubscription";
+import { setCloudSubscriptionOn } from "@posthog/ui/features/settings/adapterSubscription";
 import {
   CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   type ClaudeSubscriptionTokenSettings,
@@ -102,7 +102,7 @@ export function ClaudeCloudTokenSection({
           onCheckedChange={(checked) => {
             const next = checked === true;
             if (next === cloudSubscriptionOn) return;
-            setCloudSubscriptionOn(next);
+            setCloudSubscriptionOn("claude", next);
           }}
         />
       </div>

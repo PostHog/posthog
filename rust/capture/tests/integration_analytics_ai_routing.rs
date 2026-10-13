@@ -14,9 +14,10 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::outputs::{OutputRegistry, PublishEvents};
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
@@ -65,6 +66,13 @@ impl PublishEvents for CapturingSink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 
@@ -161,7 +169,7 @@ fn mixed_batch_payload() -> String {
     .to_string()
 }
 
-// Two allowlisted AI event names. capture-ai rejects a batch carrying anything
+// Two AI event names. capture-ai rejects a batch carrying anything
 // else, so its lane-assignment coverage has to use an all-AI batch.
 fn ai_only_batch_payload() -> String {
     json!({
@@ -322,8 +330,40 @@ async fn ai_mode_diverts_ai_events_like_every_other_mode() {
         events
             .iter()
             .all(|e| e.metadata.data_type == DataType::AiEvents),
-        "every allowlisted AI event must land on the AI lane under Ai mode"
+        "every AI event must land on the AI lane under Ai mode"
     );
+}
+
+/// Any `$ai_`-prefixed name lands on the AI lane, end to end through `/batch`.
+#[tokio::test]
+async fn any_ai_prefixed_name_diverts_to_the_ai_lane() {
+    let (router, sink) = setup_router_for_mode(CaptureMode::Events, false, None, None);
+    let client = TestClient::new(router);
+
+    let payload = json!({
+        "api_key": TOKEN,
+        "batch": [
+            {"event": "$ai_generation", "distinct_id": DISTINCT_ID, "properties": {"$ai_model": "gpt-4"}},
+            {"event": "$ai_custom_step", "distinct_id": DISTINCT_ID, "properties": {}},
+            {"event": "$pageview", "distinct_id": DISTINCT_ID, "properties": {}}
+        ]
+    })
+    .to_string();
+    post_batch(&client, payload).await;
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 3);
+    let lane_of = |name: &str| {
+        events
+            .iter()
+            .find(|e| e.metadata.event_name == name)
+            .unwrap_or_else(|| panic!("{name} must reach the sink"))
+            .metadata
+            .data_type
+    };
+    assert_eq!(lane_of("$ai_generation"), DataType::AiEvents);
+    assert_eq!(lane_of("$ai_custom_step"), DataType::AiEvents);
+    assert_eq!(lane_of("$pageview"), DataType::AnalyticsMain);
 }
 
 /// The endpoint-level half of the AI-lane gate. The unit tests in

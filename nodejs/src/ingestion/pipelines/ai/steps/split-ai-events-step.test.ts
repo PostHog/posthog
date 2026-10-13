@@ -98,23 +98,48 @@ describe('split-ai-events-step', () => {
         expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
     })
 
-    it.each(['$ai_feedback', '$ai_evaluation', '$ai_generation', '$ai_span', '$ai_trace', '$ai_embedding'])(
-        'should send %s without large properties to both outputs',
-        async (eventName) => {
-            const event = createProcessedEvent({ $ai_model: 'gpt-4' }, { event: eventName })
+    it('should strip large properties from the events copy of an unlisted $ai_* event', async () => {
+        const event = createProcessedEvent(
+            { $ai_input: 'large input', $ai_model: 'gpt-4' },
+            { event: '$ai_custom_step' }
+        )
 
-            const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }], teamId: 1 })
-            expect(isOkResult(result)).toBe(true)
-            if (!isOkResult(result)) {
-                return
-            }
-
-            const { eventsToEmit } = result.value
-            expect(eventsToEmit).toHaveLength(2)
-            expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
-            expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
+        const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }], teamId: 1 })
+        expect(isOkResult(result)).toBe(true)
+        if (!isOkResult(result)) {
+            return
         }
-    )
+
+        const { eventsToEmit } = result.value
+        expect(eventsToEmit).toHaveLength(2)
+        expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
+        expect(eventsToEmit[0].event.properties).toEqual({ $ai_model: 'gpt-4' })
+        expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
+        expect(eventsToEmit[1].event.properties).toEqual({ $ai_input: 'large input', $ai_model: 'gpt-4' })
+    })
+
+    it.each([
+        '$ai_feedback',
+        '$ai_evaluation',
+        '$ai_generation',
+        '$ai_span',
+        '$ai_trace',
+        '$ai_embedding',
+        '$ai_custom_step',
+    ])('should send %s without large properties to both outputs', async (eventName) => {
+        const event = createProcessedEvent({ $ai_model: 'gpt-4' }, { event: eventName })
+
+        const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }], teamId: 1 })
+        expect(isOkResult(result)).toBe(true)
+        if (!isOkResult(result)) {
+            return
+        }
+
+        const { eventsToEmit } = result.value
+        expect(eventsToEmit).toHaveLength(2)
+        expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
+        expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
+    })
 
     it.each([
         { props: { $browser: 'Chrome' }, desc: 'without large AI properties' },

@@ -449,7 +449,56 @@ class BytecodeCompiler(Visitor):
         else:
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
+    def _check_call_arity(self, node: ast.Call, arg_count: int) -> None:
+        # The VM rejects a wrong argument count at run time, so a caller that declares its functions
+        # gets the same check here, where the person writing the expression can see it.
+        if self.context.allowed_functions is None or node.name not in self.context.allowed_functions:
+            return
+        min_args, max_args = self.context.allowed_functions[node.name]
+        if min_args <= arg_count and (max_args is None or arg_count <= max_args):
+            return
+        if max_args is None:
+            expected = f"at least {min_args}"
+        elif min_args == max_args:
+            expected = f"exactly {min_args}"
+        else:
+            expected = f"{min_args} to {max_args}"
+        self.context.add_error(
+            start=node.start,
+            end=node.end,
+            message=f"Hog function `{node.name}` takes {expected} arguments, got {arg_count}",
+        )
+
+    def _names_a_variable(self, name: str) -> bool:
+        return any(local.name == name for local in self.locals) or self._resolve_upvalue(name) != -1
+
+    def _check_declared_call(self, node: ast.Call) -> None:
+        # Runs before the intrinsics below lower `if`, `sql` and the like, which otherwise never reach
+        # the generic check and would accept an argument count or a name the runtime does not have.
+        if self.context.allowed_functions is None or self._names_a_variable(node.name):
+            return
+        if node.name in self.supported_functions:
+            return
+        if node.name not in self.context.allowed_functions:
+            self.context.add_error(
+                start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
+            )
+            return
+        arg_count = len(node.params if node.params is not None else node.args)
+        self._check_call_arity(node, arg_count)
+        # multiIf pairs every condition with a value and needs a last one to fall back to. An
+        # argument count is all the contract can carry, so it cannot say that, and an even count
+        # lowers into bytecode that leaves nothing to return when no condition matches.
+        if node.name == "multiIf" and arg_count > 3 and arg_count % 2 == 0:
+            self.context.add_error(
+                start=node.start,
+                end=node.end,
+                message=f"Hog function `multiIf` takes an odd number of arguments, got {arg_count}. "
+                f"Add a last value to fall back to.",
+            )
+
     def visit_call(self, node: ast.Call):
+        self._check_declared_call(node)
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
@@ -529,10 +578,20 @@ class BytecodeCompiler(Visitor):
             if upvalue != -1:
                 response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(args)])
             else:
-                if self.context.globals and node.name in self.context.globals:
+                # The VM resolves a direct call against its function tables only, never against
+                # the globals it was given. A caller that declares allowed_functions has named
+                # every function its runtime can invoke, so a data global of the same name is not
+                # one of them.
+                if (
+                    self.context.allowed_functions is None
+                    and self.context.globals
+                    and node.name in self.context.globals
+                ):
                     self.context.add_notice(
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
+                elif self.context.allowed_functions is not None:
+                    pass  # checked by _check_declared_call
                 elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
                     pass
                 else:
@@ -552,6 +611,19 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_expr_call(self, node: ast.ExprCall):
+        # `person.properties.email.startsWith('a')` parses as a call on a value. The runtime resolves
+        # the value, which is never a function, so a caller with a declared contract refuses it.
+        if (
+            self.context.allowed_functions is not None
+            and isinstance(node.expr, ast.Field)
+            and not self._names_a_variable(str(node.expr.chain[0]))
+        ):
+            self.context.add_error(
+                start=node.start,
+                end=node.end,
+                message=f"`{'.'.join(str(part) for part in node.expr.chain)}` is a value, not a function. "
+                f"Write the function name first, as in lower(properties.name)",
+            )
         response = []
         for expr in node.args:
             response.extend(self.visit(expr))

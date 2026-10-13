@@ -18,6 +18,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
@@ -103,6 +104,11 @@ def save_export_asset_content_from_file(
     _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
 
 
+def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
+    for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
+        subscription.delete()
+
+
 def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
     """Which of the given insights have a subscription that has not been deleted.
 
@@ -155,7 +161,11 @@ def _validate_adhoc_export_context(export_context: dict) -> None:
         if kind == "InsightVizNode":
             return
         inner = source.get("source")
-        if kind == "DataVisualizationNode" and isinstance(inner, dict) and inner.get("kind") == "HogQLQuery":
+        if (
+            kind in ("DataVisualizationNode", "BIVisualizationNode")
+            and isinstance(inner, dict)
+            and inner.get("kind") == "HogQLQuery"
+        ):
             return
     raise ValueError("export_context.source must be an InsightVizNode- or DataVisualizationNode-wrapped query")
 
@@ -192,6 +202,7 @@ def render_png_export(
     export_context: dict | None = None,
     insight_id: int | None = None,
     insight_short_id: str | None = None,
+    dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
 ) -> tuple[ExportedAsset, bytes | None]:
@@ -209,8 +220,8 @@ def render_png_export(
         # Access control below resolves against created_by; a principal-less render would
         # silently skip it, so service callers must attribute the render to a real user.
         raise ValueError("created_by is required")
-    if sum(value is not None for value in (export_context, insight_id, insight_short_id)) != 1:
-        raise ValueError("Provide exactly one of export_context, insight_id or insight_short_id")
+    if sum(value is not None for value in (export_context, insight_id, insight_short_id, dashboard_id)) != 1:
+        raise ValueError("Provide exactly one of export_context, insight_id, insight_short_id or dashboard_id")
     if export_context is not None:
         _validate_adhoc_export_context(export_context)
         # An ad-hoc render runs whatever query the caller supplies, so it needs the same gate as
@@ -226,6 +237,12 @@ def render_png_export(
         ):
             raise ValueError("Insight not found")
         insight_id = insight.id
+    if dashboard_id is not None:
+        dashboard = Dashboard.objects.filter(team_id=team.id, id=dashboard_id, deleted=False).first()
+        if dashboard is None or not UserAccessControl(user=created_by, team=team).check_access_level_for_object(
+            dashboard, "viewer"
+        ):
+            raise ValueError("Dashboard not found")
 
     asset = ExportedAsset.objects.create(
         team=team,
@@ -233,6 +250,7 @@ def render_png_export(
         export_format=ExportedAsset.ExportFormat.PNG,
         export_context=export_context,
         insight_id=insight_id,
+        dashboard_id=dashboard_id,
         is_system=is_system,
         # None keeps the model's format-default TTL (see ExportedAsset.save).
         expires_after=expires_after,

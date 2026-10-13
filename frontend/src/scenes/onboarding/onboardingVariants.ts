@@ -6,7 +6,7 @@ export type OnboardingFlowVariant = 'legacy' | 'self-driving'
 
 /**
  * Chrome rendered around an onboarding variant.
- * - `minimal`: slim top bar (logo + account menu) — the existing onboarding experience.
+ * - `minimal`: slim top bar (logo + account menu).
  * - `none`: no navbar at all; the variant component owns the entire viewport.
  */
 export type OnboardingVariantChrome = 'minimal' | 'none'
@@ -25,15 +25,15 @@ const DEFAULT_VARIANT_CONFIG: OnboardingVariantConfig = { chrome: 'minimal' }
  * `onboardingVariantRegistry.tsx` — add a variant in both places to ship a new onboarding.
  */
 export const ONBOARDING_FLOW_VARIANTS: Record<OnboardingFlowVariant, OnboardingVariantConfig> = {
-    legacy: { chrome: 'minimal' },
+    legacy: { chrome: 'none' },
     'self-driving': { chrome: 'none' },
 }
 
 /**
  * Resolve the active flow variant from the raw flag value. The flag's variant values are `control`
- * and `self-driving`; only `self-driving` selects the redesign. Everything else — `control`, the
- * historical `legacy` value (treated as an alias of control), unknown values, booleans, unset —
- * maps to the internal `legacy` variant (the existing design).
+ * and `self-driving`; only `self-driving` selects the redesigned flow. Everything else — `control`,
+ * the historical `legacy` value (treated as an alias of control), unknown values, booleans, unset —
+ * maps to the internal `legacy` flow.
  */
 export function resolveOnboardingFlowVariant(featureFlags: FeatureFlagsSet): OnboardingFlowVariant {
     const variant = featureFlags[FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]

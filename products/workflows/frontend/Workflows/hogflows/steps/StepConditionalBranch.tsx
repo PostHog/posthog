@@ -136,6 +136,7 @@ export function StepConditionalBranchConfiguration({
     return (
         <div className="flex flex-col gap-3">
             <StepSchemaErrors />
+            <p className="mb-0 text-secondary">Conditions run from top to bottom. The first match sets the path.</p>
             {conditions.map((condition, index) => {
                 return (
                     <HogFlowBranchCard

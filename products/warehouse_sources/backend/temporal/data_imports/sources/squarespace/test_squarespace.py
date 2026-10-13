@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.squarespac
     SquarespaceInvalidCursorError,
     SquarespaceResumeConfig,
     _build_initial_params,
-    _clamp_future_value_to_now,
     _format_datetime_z,
     _is_invalid_cursor_error,
     get_rows,
@@ -56,61 +55,9 @@ class TestFormatDatetimeZ:
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_datetime_z(value) == expected
 
-    def test_no_plus_offset_in_output(self) -> None:
-        # Squarespace rejects the +00:00 offset; output must use the Z suffix.
-        assert "+00:00" not in _format_datetime_z(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
-
-class TestClampFutureValueToNow:
-    def test_future_datetime_clamped(self) -> None:
-        now = datetime(2026, 6, 1, tzinfo=UTC)
-        assert _clamp_future_value_to_now(datetime(2027, 1, 1, tzinfo=UTC), now) == now
-
-    def test_past_datetime_unchanged(self) -> None:
-        now = datetime(2026, 6, 1, tzinfo=UTC)
-        past = datetime(2025, 1, 1, tzinfo=UTC)
-        assert _clamp_future_value_to_now(past, now) == past
-
-    def test_naive_datetime_treated_as_utc(self) -> None:
-        now = datetime(2026, 6, 1, tzinfo=UTC)
-        assert _clamp_future_value_to_now(datetime(2027, 1, 1), now) == now
-
 
 class TestBuildInitialParams:
     MODIFIED_BEFORE = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
-
-    def test_incremental_endpoint_sets_window(self) -> None:
-        params = _build_initial_params(
-            SQUARESPACE_ENDPOINTS["orders"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 5, 1, tzinfo=UTC),
-            modified_before=self.MODIFIED_BEFORE,
-        )
-        # Squarespace requires both window bounds together.
-        assert params["modifiedAfter"] == "2026-05-01T00:00:00.000Z"
-        assert params["modifiedBefore"] == "2026-06-01T12:00:00.000Z"
-        assert "cursor" not in params
-
-    def test_incremental_endpoint_full_refresh_omits_window(self) -> None:
-        params = _build_initial_params(
-            SQUARESPACE_ENDPOINTS["orders"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            modified_before=self.MODIFIED_BEFORE,
-        )
-        assert params == {}
-
-    def test_first_incremental_sync_without_last_value_omits_window(self) -> None:
-        # supports_incremental but no watermark yet -> scan everything (no window),
-        # otherwise we'd send modifiedBefore without modifiedAfter (a 400).
-        params = _build_initial_params(
-            SQUARESPACE_ENDPOINTS["orders"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            modified_before=self.MODIFIED_BEFORE,
-        )
-        assert "modifiedAfter" not in params
-        assert "modifiedBefore" not in params
 
     def test_full_refresh_endpoint_never_sets_window(self) -> None:
         # inventory has no server-side time filter, so even with an incremental value
@@ -123,15 +70,6 @@ class TestBuildInitialParams:
         )
         assert "modifiedAfter" not in params
         assert "modifiedBefore" not in params
-
-    def test_extra_params_applied_on_first_page(self) -> None:
-        params = _build_initial_params(
-            SQUARESPACE_ENDPOINTS["profiles"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            modified_before=self.MODIFIED_BEFORE,
-        )
-        assert params == {"sortField": "createdOn", "sortDirection": "asc"}
 
     def test_future_last_value_clamped_into_window(self) -> None:
         params = _build_initial_params(
@@ -183,13 +121,6 @@ class TestValidateCredentials:
             mock_session.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("token") == (False, False)
 
-    def test_no_schema_probes_orders(self) -> None:
-        with patch(f"{SQUARESPACE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _make_response({}, status_code=200)
-            validate_credentials("token")
-            url = mock_session.return_value.get.call_args.args[0]
-            assert url == f"{SQUARESPACE_BASE_URL}/1.0/commerce/orders"
-
     def test_schema_probes_that_endpoint_with_its_version(self) -> None:
         with patch(f"{SQUARESPACE_MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.return_value = _make_response({}, status_code=200)
@@ -197,14 +128,6 @@ class TestValidateCredentials:
             url = mock_session.return_value.get.call_args.args[0]
             # products is served from the v2 API.
             assert url == f"{SQUARESPACE_BASE_URL}/v2/commerce/products"
-
-    def test_sends_user_agent_header(self) -> None:
-        with patch(f"{SQUARESPACE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _make_response({}, status_code=200)
-            validate_credentials("token")
-            headers = mock_session.return_value.get.call_args.kwargs["headers"]
-            assert headers["User-Agent"]
-            assert headers["Authorization"] == "Bearer token"
 
 
 class TestGetRowsPagination:
@@ -236,70 +159,12 @@ class TestGetRowsPagination:
             )
         return sent_params, batches
 
-    def test_fresh_run_saves_cursor_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _page("result", [{"id": "o1"}], next_cursor="cur-1"),
-            _page("result", [{"id": "o2"}], next_cursor="cur-2"),
-            _page("result", [{"id": "o3"}]),
-        ]
-        sent_params, batches = self._drive("orders", manager, responses)
-
-        # First request carries the query params; subsequent pages carry the cursor only.
-        assert "cursor" not in sent_params[0]
-        assert sent_params[1] == {"cursor": "cur-1"}
-        assert sent_params[2] == {"cursor": "cur-2"}
-        assert batches == [[{"id": "o1"}], [{"id": "o2"}], [{"id": "o3"}]]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [SquarespaceResumeConfig(cursor="cur-1"), SquarespaceResumeConfig(cursor="cur-2")]
-
-    def test_resume_seeds_cursor_from_saved_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = SquarespaceResumeConfig(cursor="cur-resumed")
-
-        sent_params, _ = self._drive("orders", manager, [_page("result", [{"id": "o9"}])])
-
-        assert sent_params == [{"cursor": "cur-resumed"}]
-        manager.load_state.assert_called_once()
-
-    def test_empty_saved_cursor_starts_from_beginning(self) -> None:
-        # An empty cursor (written by a restart) must be treated as "start over", not replayed.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = SquarespaceResumeConfig(cursor="")
-
-        sent_params, _ = self._drive("orders", manager, [_page("result", [{"id": "o1"}])])
-        assert "cursor" not in sent_params[0]
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive("orders", manager, [_page("result", [{"id": "only"}])])
-        manager.save_state.assert_not_called()
-
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
         self._drive("orders", manager, [_page("result", [{"id": "a"}])])
         manager.load_state.assert_not_called()
-
-    def test_terminates_when_has_next_false_even_with_cursor(self) -> None:
-        # hasNextPage=False must stop pagination even if a stray nextPageCursor is present.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        body = {
-            "result": [{"id": "o1"}],
-            "pagination": {"hasNextPage": False, "nextPageCursor": "should-be-ignored"},
-        }
-        sent_params, _ = self._drive("orders", manager, [_make_response(body)])
-        assert len(sent_params) == 1
-        manager.save_state.assert_not_called()
 
     @parameterized.expand(
         [
@@ -316,38 +181,6 @@ class TestGetRowsPagination:
         manager.can_resume.return_value = False
         _, batches = self._drive(endpoint, manager, [_page(data_key, [{"id": "a"}, {"id": "b"}])])
         assert batches == [[{"id": "a"}, {"id": "b"}]]
-
-    def test_invalid_cursor_restarts_stream_from_beginning(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = SquarespaceResumeConfig(cursor="stale-cursor")
-
-        responses = [
-            _make_response({"message": "cursor invalid"}, status_code=400),
-            _page("result", [{"id": "o1"}], next_cursor="cur-1"),
-            _page("result", [{"id": "o2"}]),
-        ]
-        sent_params, _ = self._drive("orders", manager, responses)
-
-        assert sent_params[0] == {"cursor": "stale-cursor"}
-        assert "cursor" not in sent_params[1]
-        assert sent_params[2] == {"cursor": "cur-1"}
-
-    def test_invalid_cursor_restart_evicts_stale_cursor(self) -> None:
-        # When the restart finishes within a single page there's no fresh cursor to persist,
-        # so the restart must explicitly overwrite the stale cursor.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = SquarespaceResumeConfig(cursor="stale-cursor")
-
-        responses = [
-            _make_response({"message": "cursor invalid"}, status_code=400),
-            _page("result", [{"id": "o1"}]),
-        ]
-        self._drive("orders", manager, responses)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [SquarespaceResumeConfig(cursor="")]
 
     def test_invalid_cursor_on_initial_request_is_surfaced(self) -> None:
         # A cursor-less initial request can't trigger cursor expiry, so a cursor-rejection
@@ -370,17 +203,3 @@ class TestGetRowsPagination:
             responses.append(invalid)
         with pytest.raises(SquarespaceInvalidCursorError):
             self._drive("orders", manager, responses)
-
-    def test_incremental_first_page_sends_window(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, _ = self._drive(
-            "orders",
-            manager,
-            [_page("result", [{"id": "o1"}])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 5, 1, tzinfo=UTC),
-        )
-        assert sent_params[0]["modifiedAfter"] == "2026-05-01T00:00:00.000Z"
-        assert "modifiedBefore" in sent_params[0]

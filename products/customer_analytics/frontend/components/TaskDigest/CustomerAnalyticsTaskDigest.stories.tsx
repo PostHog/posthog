@@ -7,17 +7,20 @@ import { useStorybookMocks } from '~/mocks/browser'
 import type { UserCustomerAnalyticsConfigApi } from '../../generated/api.schemas'
 import { CustomerAnalyticsNotifications } from './CustomerAnalyticsNotifications'
 import { CustomerAnalyticsTaskDigest } from './CustomerAnalyticsTaskDigest'
+import { TaskDigestModal } from './TaskDigestModal'
 
 const CONFIG_URL = '/api/projects/:team_id/user_customer_analytics_config/@me/'
 
 const disabledConfig: UserCustomerAnalyticsConfigApi = {
     pinned_properties: [],
     task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
+    account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
 }
 
 const enabledConfig: UserCustomerAnalyticsConfigApi = {
     pinned_properties: [],
     task_digest: { enabled: true, send_time: '07:00', cadence: 'every_day' },
+    account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
 }
 
 interface TaskDigestStoryProps {
@@ -25,6 +28,7 @@ interface TaskDigestStoryProps {
     loading?: boolean
     failing?: boolean
     notifications?: boolean
+    modal?: boolean
     saving?: boolean
     saveFails?: boolean
     width?: 'normal' | 'narrow'
@@ -36,6 +40,7 @@ function TaskDigestStory({
     failing,
     width,
     notifications,
+    modal,
     saving,
     saveFails,
 }: TaskDigestStoryProps): JSX.Element {
@@ -68,7 +73,13 @@ function TaskDigestStory({
 
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[900px] p-4'}>
-            {notifications ? <CustomerAnalyticsNotifications /> : <CustomerAnalyticsTaskDigest />}
+            {modal ? (
+                <TaskDigestModal onClose={() => {}} />
+            ) : notifications ? (
+                <CustomerAnalyticsNotifications />
+            ) : (
+                <CustomerAnalyticsTaskDigest />
+            )}
         </div>
     )
 }
@@ -113,3 +124,8 @@ export const Notifications: Story = {
 export const NotificationsNarrow: Story = { ...Notifications, args: { notifications: true, width: 'narrow' } }
 export const Saving: Story = { args: { saving: true } }
 export const SaveFailed: Story = { args: { saveFails: true } }
+
+export const TasksModal: Story = {
+    args: { modal: true },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+}

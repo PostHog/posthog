@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+    useMountedLogic,
+    useSelector,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -223,3 +234,15 @@ export const prCiStatusLogic = kea<prCiStatusLogicType>([
         }, 'prCiStatusPoll')
     }),
 ])
+
+/**
+ * One row's CI state. A row must read only its own entry: subscribing to the whole map made every
+ * card in the list repaint each time the minute poll answered, which is a few hundred cards of
+ * React work for a glyph on one of them.
+ */
+export function useReportCiStatus(reportId: string | null): PullRequestCiStatusEnumApi | undefined {
+    useMountedLogic(prCiStatusLogic)
+    return useSelector((state) =>
+        reportId ? prCiStatusLogic.selectors.ciStatusByReportId(state)[reportId] : undefined
+    )
+}

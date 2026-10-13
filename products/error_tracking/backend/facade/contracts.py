@@ -69,6 +69,25 @@ class ErrorTrackingExternalReference:
     id: UUID
     integration: ErrorTrackingExternalReferenceIntegration
     external_url: str
+    external_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class GitHubExternalReferenceJob:
+    team_id: int
+    installation_id: str
+    repository_full_name: str
+    number: int
+    title: str
+    resource_type: Literal["issue", "pull_request"]
+    actor_login: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
 
 
 @dataclass(frozen=True)
@@ -101,6 +120,20 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueUpdate:
+    issue: ErrorTrackingIssue
+    # Only the fields whose value differs from the stored one, so a no-op update lists nothing.
+    changed_fields: list[str]
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueMerge:
+    result: Literal["merged", "no_source_issues", "stale_issues", "stale_fingerprints"]
+    # Source issues that disappeared before the merge locked its rows are not counted.
+    merged_issue_count: int
 
 
 @dataclass(frozen=True)

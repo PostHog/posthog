@@ -110,6 +110,7 @@ describe('HogFunctionHandler', () => {
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(null),
+            isFrequencyCapped: jest.fn().mockResolvedValue(false),
         } as any
         mockEmailValidationService = {
             getSkipReason: jest.fn().mockResolvedValue(null),
@@ -447,6 +448,41 @@ describe('HogFunctionHandler', () => {
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
+    // A broadcast run carries a parentRunId, and its run view reads metrics keyed on that ID.
+    it.each([
+        ['a workflow run', undefined],
+        ['a broadcast run', 'broadcast-run-id'],
+    ])(
+        'should skip the send and emit message_frequency_capped when the recipient reached the frequency cap for %s',
+        async (_label, parentRunId) => {
+            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            invocation.parentRunId = parentRunId
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            expect(invocationResult.logs[0].message).toContain(
+                `[Action:function] Skipping send: recipient reached the frequency cap.`
+            )
+            expect(invocationResult.metrics).toEqual([
+                {
+                    team_id: team.id,
+                    app_source_id: parentRunId ?? invocation.functionId,
+                    instance_id: action.id,
+                    metric_kind: 'other',
+                    metric_name: 'message_frequency_capped',
+                    count: 1,
+                },
+            ])
+            expect(mockFetch).not.toHaveBeenCalled()
+        }
+    )
+
     it('should skip the send and emit email_bounce_prevented when validation predicts a hard bounce', async () => {
         ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
             'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.'
@@ -481,7 +517,6 @@ describe('HogFunctionHandler', () => {
     it.each([
         ['fetch', 'workflow_billable_invocations'],
         ['email', 'workflow_emails_sent'],
-        ['push', 'workflow_push_sent'],
         ['sms', 'workflow_sms_sent'],
     ] as const)(
         'emits a single billable_invocation with %s kind matching the handler billing type',
@@ -523,6 +558,49 @@ describe('HogFunctionHandler', () => {
             )
         }
     )
+
+    // A push with no device token finishes unskipped, so only the send knows nobody was reached.
+    it.each([
+        ['reached a device', true, true],
+        ['found no device token', false, false],
+    ] as const)('bills a push step only when the send %s', async (_label, delivered, shouldBill) => {
+        const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
+            reportBillableInvocation: jest.fn(),
+        }
+        const handler = new HogFunctionHandler(
+            mockHogFlowFunctionsService,
+            mockRecipientPreferencesService,
+            mockEmailValidationService,
+            'push',
+            usageReporter
+        )
+
+        const executeWithAsyncFunctions =
+            mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            async (hogFunctionInvocation, options) => {
+                const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
+                functionResult.deliveredToRecipient = delivered
+                return functionResult
+            }
+        )
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await handler.execute({ invocation, action, result: invocationResult })
+
+        expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
+        if (shouldBill) {
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
+            )
+        } else {
+            expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
+        }
+    })
 
     // Live edits reach runs already in flight, so a run that entered on one version can send its
     // message under a newer one. The conversion belongs to the version whose message the person

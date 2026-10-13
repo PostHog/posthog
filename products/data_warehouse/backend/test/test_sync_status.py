@@ -49,6 +49,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         sync_frequency_interval: timedelta | None = timedelta(hours=6),
         latest_error: str | None = None,
         should_sync: bool = True,
+        last_full_run_at: str | None = None,
     ) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name="Charge",
@@ -60,6 +61,7 @@ class TestWarehouseSyncWarnings(BaseTest):
             sync_frequency_interval=sync_frequency_interval,
             latest_error=latest_error,
             should_sync=should_sync,
+            sync_type_config={"last_full_run_at": last_full_run_at} if last_full_run_at is not None else {},
         )
 
     def test_no_warnings_for_self_managed_table(self) -> None:
@@ -121,6 +123,71 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert "db-prod-1.internal" not in warnings[0].message
         assert "password" not in warnings[0].message
         assert "data warehouse source" in warnings[0].message.lower()
+
+    def test_no_warning_when_recent_runs_extracted_nothing(self) -> None:
+        # The v3 pipeline leaves `last_synced_at` alone on a run that extracts zero rows, because
+        # it doubles as the signals watermark. Such a run stamps `last_full_run_at`, so a schema
+        # whose source is simply quiet must not be reported as stale.
+        self._make_schema(
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=self.now - timedelta(hours=15),
+            last_full_run_at=(self.now - timedelta(hours=1)).isoformat(),
+        )
+        assert get_warehouse_sync_warnings(self.table, now=self.now) == []
+
+    def test_warning_when_both_the_last_sync_and_the_last_run_are_old(self) -> None:
+        # A schema that has genuinely stopped running still warns: the run stamp is no fresher
+        # than the sync, so neither says the source was checked recently.
+        self._make_schema(
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=self.now - timedelta(hours=15),
+            last_full_run_at=(self.now - timedelta(hours=14)).isoformat(),
+        )
+        warnings = get_warehouse_sync_warnings(self.table, now=self.now)
+        assert len(warnings) == 1
+        assert "more than twice its configured sync interval" in warnings[0].message
+
+    @parameterized.expand(
+        [
+            ("not_a_timestamp", "whenever"),
+            # A naive stamp cannot be compared against an aware `now`, and assuming a zone would
+            # invent freshness a schema may not have.
+            ("naive_timestamp", "2026-01-01T11:00:00"),
+        ]
+    )
+    def test_an_unusable_run_stamp_falls_back_to_the_last_sync(self, _name: str, stamp: str) -> None:
+        self._make_schema(
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=self.now - timedelta(hours=15),
+            last_full_run_at=stamp,
+        )
+        warnings = get_warehouse_sync_warnings(self.table, now=self.now)
+        assert len(warnings) == 1
+
+    def test_a_fast_returned_run_still_reads_as_fresh(self) -> None:
+        # A fast return writes `last_synced_at` and deliberately not `last_full_run_at`, so the
+        # freshest of the two has to be what staleness measures from.
+        self._make_schema(
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=self.now - timedelta(hours=1),
+            last_full_run_at=(self.now - timedelta(hours=20)).isoformat(),
+        )
+        assert get_warehouse_sync_warnings(self.table, now=self.now) == []
+
+    def test_no_warning_before_a_schema_has_ever_synced(self) -> None:
+        # A run stamp without a sync means the table has never had data land in it; the
+        # never-synced messages cover that, and a staleness warning would be noise.
+        self._make_schema(
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=None,
+            last_full_run_at=(self.now - timedelta(hours=20)).isoformat(),
+        )
+        assert get_warehouse_sync_warnings(self.table, now=self.now) == []
 
     def test_warning_when_running_but_stale(self) -> None:
         self._make_schema(

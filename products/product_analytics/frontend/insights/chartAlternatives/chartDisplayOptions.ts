@@ -1,4 +1,6 @@
-import type { BreakdownFilter, TrendsFilter } from '~/queries/schema/schema-general'
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+
+import type { BreakdownFilter, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 export type ChartDisplayIcon =
@@ -12,6 +14,7 @@ export type ChartDisplayIcon =
     | 'metric'
     | 'number'
     | 'pie'
+    | 'proportionBar'
     | 'table'
     | 'worldMap'
 
@@ -37,11 +40,12 @@ export interface ChartDisplayOptionEligibility {
     isTrends: boolean
     breakdown?: BreakdownFilter['breakdown']
     breakdowns?: BreakdownFilter['breakdowns']
+    isComparing?: boolean
 }
 
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
 
-function isCountryProperty(value: unknown): boolean {
+export function isCountryProperty(value: unknown): boolean {
     return typeof value === 'string' && COUNTRY_PROPERTIES.has(value)
 }
 
@@ -61,6 +65,28 @@ export function hasTrendsFormula(trendsFilter?: TrendsFilter | null): boolean {
     return !!trendsFilter?.formula || !!trendsFilter?.formulas?.length || !!trendsFilter?.formulaNodes?.length
 }
 
+function worldMapBreakdownFilter(query: TrendsQuery): BreakdownFilter {
+    const math = query.series?.[0]?.math ?? ''
+    return {
+        breakdown: '$geoip_country_code',
+        breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math) ? 'person' : 'event',
+    }
+}
+
+export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType): TrendsQuery {
+    const next: TrendsQuery = { ...query, trendsFilter: { ...query.trendsFilter, display } }
+    if (NON_BREAKDOWN_DISPLAY_TYPES.includes(display)) {
+        next.breakdownFilter = undefined
+    }
+    if (display === ChartDisplayType.BoxPlot) {
+        next.trendsFilter = { ...next.trendsFilter, formula: undefined, formulas: undefined, formulaNodes: [] }
+    }
+    if (display === ChartDisplayType.WorldMap) {
+        next.breakdownFilter = worldMapBreakdownFilter(query)
+    }
+    return next
+}
+
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
     hasMetricInsight,
@@ -69,6 +95,7 @@ export function getChartDisplayOptions({
     isTrends,
     breakdown,
     breakdowns,
+    isComparing,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
     const breakdownProps = breakdownProperties({ breakdown, breakdowns })
     const worldMapBreakdownDisabled =
@@ -77,9 +104,15 @@ export function getChartDisplayOptions({
     const singleSeriesOnlyDisabledReason = !hasSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
+    const breakdownDisabledReason = breakdownProps.length > 0 ? "This type doesn't support breakdowns." : undefined
     const boxPlotDisabledReason =
         trendsOnlyDisabledReason ||
+        breakdownDisabledReason ||
         (boxPlotMissingProperty ? 'Select a numeric property to use a box plot.' : undefined)
+    // One bar has one total, so a second period's parts would share it.
+    const proportionBarDisabledReason =
+        trendsOnlyDisabledReason ||
+        (isComparing ? "This type doesn't support comparing to a previous period." : undefined)
 
     return [
         {
@@ -145,7 +178,8 @@ export function getChartDisplayOptions({
                     icon: 'number',
                     label: 'Number',
                     description: 'A big number showing the total value.',
-                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                    disabledReason:
+                        trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                 },
                 ...(hasMetricInsight
                     ? [
@@ -154,7 +188,8 @@ export function getChartDisplayOptions({
                               icon: 'metric' as const,
                               label: 'Metric',
                               description: 'A headline value with a sparkline and period-over-period change.',
-                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                              disabledReason:
+                                  trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                           },
                       ]
                     : []),
@@ -171,6 +206,13 @@ export function getChartDisplayOptions({
                     label: 'Donut chart',
                     description: 'Proportions of a whole as a ring.',
                     disabledReason: trendsOnlyDisabledReason,
+                },
+                {
+                    display: ChartDisplayType.ActionsProportionBar,
+                    icon: 'proportionBar',
+                    label: 'Proportion bar',
+                    description: 'Proportions of a whole as one flat bar.',
+                    disabledReason: proportionBarDisabledReason,
                 },
                 {
                     display: ChartDisplayType.ActionsBarValue,
@@ -209,7 +251,8 @@ export function getChartDisplayOptions({
                     icon: 'calendarHeatmap',
                     label: 'Calendar heatmap',
                     description: 'Values per day and hour.',
-                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                    disabledReason:
+                        trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                 },
             ],
         },

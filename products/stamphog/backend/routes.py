@@ -11,8 +11,8 @@ from .presentation.views import DigestRunViewSet, PullRequestViewSet, ReviewRunV
 
 # Stamphog runs on its own GitHub App, with its own signing secret and its own consumers, so it
 # gets its own view rather than sharing the customer-facing App's endpoint.
-urlpatterns: list[URLPattern] = [
-    opt_slash_path("webhooks/stamphog/github", build_webhook_view(build_github_provider("stamphog"))),
+webhook_urlpatterns: list[URLPattern] = [
+    opt_slash_path("github", build_webhook_view(build_github_provider("stamphog"))),
 ]
 
 

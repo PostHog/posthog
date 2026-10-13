@@ -592,3 +592,48 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "class StripeSwitchGroupConfig(config.Config):" in output
         assert "switch_group: StripeSwitchGroupConfig" in output
+
+    def test_a_nested_config_is_declared_before_the_nested_config_that_references_it(self):
+        """Python evaluates an annotation when the class body runs, so a generated module whose
+        classes are ordered alphabetically raises `NameError` on import as soon as one nested config
+        names another. A file upload inside a select option is the shape that produces that pair."""
+        config = SourceConfig(
+            name=ExternalDataSourceType.STRIPE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldSelectConfig(
+                        name="auth_type",
+                        label="auth type label",
+                        required=True,
+                        defaultValue="key_file",
+                        options=[
+                            SourceFieldSelectConfigOption(
+                                label="key file",
+                                value="key_file",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldFileUploadConfig(
+                                            name="key_file",
+                                            label="key file label",
+                                            fileFormat=SourceFieldFileUploadJsonFormatConfig(
+                                                format=".json", keys=["project_id"]
+                                            ),
+                                            required=False,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
+                    )
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.STRIPE: config})
+
+        referenced = output.index("class StripeAuthTypeConfigKeyFileConfig(config.Config):")
+        referencing = output.index("class StripeAuthTypeConfig(config.Config):")
+        assert referenced < referencing

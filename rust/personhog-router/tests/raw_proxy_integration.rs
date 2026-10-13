@@ -257,6 +257,7 @@ async fn raw_proxy_delete_persons_routes_to_replica() {
         .delete_persons(DeletePersonsRequest {
             team_id: 1,
             person_uuids: vec!["00000000-0000-0000-0000-000000000042".to_string()],
+            mode: 0,
         })
         .await;
 

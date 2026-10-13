@@ -1,10 +1,7 @@
 from typing import Any
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
-
-from django.core.exceptions import ValidationError
 
 from parameterized import parameterized
 
@@ -20,10 +17,8 @@ from products.tasks.backend.logic.services.ai_run_defaults import (
     resolve_ai_run_selection,
     update_team_ai_run_preferences,
     update_user_ai_run_preferences,
-    validate_ai_run_preferences,
 )
-from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
-from products.tasks.backend.presentation.serializers import TaskRunCreateRequestSerializer
+from products.tasks.backend.models import Task, TaskRun, TeamTasksConfig, UserTasksConfig
 
 FACADE = "products.tasks.backend.facade.api"
 
@@ -202,51 +197,6 @@ class TestResolveAIRunDefaults(APIBaseTest):
             "claude-opus-4-8",
             "low",
         )
-
-
-class TestValidateAIRunPreferences:
-    """The write-path guard. The config endpoints reject most of this at the serializer, so
-    these call it directly: the admin form and any future writer reach it with no serializer
-    in front."""
-
-    @parameterized.expand(
-        [
-            ("pi_with_an_adapter", "pi", "codex", "gpt-5.6-terra", None),
-            ("pi_without_a_model", "pi", None, None, "high"),
-            ("pi_with_a_value_that_is_not_a_depth", "pi", None, "gpt-5.6-terra", "deep"),
-            ("pi_with_a_depth_it_cannot_run", "pi", None, "gpt-5.6-terra", "ultracode"),
-            ("acp_with_a_value_that_is_not_a_depth", None, "codex", "gpt-5.6-terra", "deep"),
-            ("acp_with_a_model_and_no_adapter", None, None, "gpt-5.6-terra", None),
-        ]
-    )
-    def test_rejects(self, _name, runtime, runtime_adapter, model, reasoning_effort):
-        with pytest.raises(ValidationError):
-            validate_ai_run_preferences(runtime_adapter, model, reasoning_effort, runtime=runtime)
-
-    @parameterized.expand(
-        [
-            ("a_pi_pair", "pi", None, "gpt-5.6-terra", "off"),
-            ("an_acp_triple", None, "codex", "gpt-5.6-terra", "high"),
-            ("an_all_null_clear", None, None, None, None),
-        ]
-    )
-    def test_accepts(self, _name, runtime, runtime_adapter, model, reasoning_effort):
-        validate_ai_run_preferences(runtime_adapter, model, reasoning_effort, runtime=runtime)
-
-
-class TestRunCreateSerializerModeWithoutAdapter(APIBaseTest):
-    # A composer that pins nothing must still be able to state the launch mode — the
-    # server resolves the runtime from the stored default and clamps the mode to it.
-    def test_mode_without_adapter_is_accepted(self):
-        serializer = TaskRunCreateRequestSerializer(data={"initial_permission_mode": "plan"})
-        assert serializer.is_valid(), serializer.errors
-
-    def test_mode_outside_the_pinned_adapters_vocabulary_is_still_rejected(self):
-        serializer = TaskRunCreateRequestSerializer(
-            data={"runtime_adapter": "codex", "model": "gpt-5.5", "initial_permission_mode": "acceptEdits"}
-        )
-        assert not serializer.is_valid()
-        assert "initial_permission_mode" in serializer.errors
 
 
 class TestModelAccessGating(APIBaseTest):
@@ -437,6 +387,45 @@ class TestRunTaskWarmMatchingUnderDefaults(APIBaseTest):
         warm_run.refresh_from_db()
         assert "await_user_message" not in warm_run.state
 
+    def test_default_carrying_warm_run_is_activated_by_a_continue_from_an_import_run(self):
+        update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        import_run = task.create_run(mode="interactive", extra_state={"imported_from": "conversation"})
+        import_run.status = TaskRun.Status.COMPLETED
+        import_run.save(update_fields=["status"])
+        warm_run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "await_user_message": True,
+                "resume_from_run_id": str(import_run.id),
+                "initial_permission_mode": "default",
+            },
+        )
+        assert warm_run.state["model"] == "claude-opus-4-8"
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(import_run.id),
+                    "pending_user_message": "go",
+                },
+            )
+
+        assert result is not None and result.error is None
+        assert task.runs.count() == 2
+        warm_run.refresh_from_db()
+        assert "await_user_message" not in warm_run.state
+
 
 class TestTasksConfigAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -447,7 +436,7 @@ class TestTasksConfigAPI(APIBaseTest):
     def test_team_config_round_trip(self):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES}
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         assert response.status_code == 200
@@ -494,18 +483,19 @@ class TestTasksConfigAPI(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", EMPTY_PREFERENCES)
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES}
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
         assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
-            "ai_run_preferences": EMPTY_PREFERENCES
+            "ai_run_preferences": EMPTY_PREFERENCES,
+            "agent_instructions": "",
         }
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
         for path in ("config", "@me/config"):
             url = f"/api/projects/{self.team.id}/tasks/{path}/"
-            # 403, not 401: DRF's SessionAuthentication denies without a WWW-Authenticate challenge.
-            assert self.client.get(url).status_code == 403
-            assert self.client.post(url, TEAM_TRIPLE).status_code == 403
+            # 401, not 403: PostHog's SessionAuthentication sets a WWW-Authenticate challenge.
+            assert self.client.get(url).status_code == 401
+            assert self.client.post(url, TEAM_TRIPLE).status_code == 401
 
     def test_an_outsider_cannot_reach_another_projects_config(self):
         outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@posthog.com", None)

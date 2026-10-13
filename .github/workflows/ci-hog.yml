@@ -93,11 +93,6 @@ jobs:
         name: Hog tests
         runs-on: ubuntu-24.04
         if: needs.changes.outputs.hog == 'true'
-        outputs:
-            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
-            published-version: ${{ steps.check-package-version.outputs.published-version }}
-            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
-
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -188,66 +183,3 @@ jobs:
                   ./test.sh && git diff --exit-code
               env:
                   TEST: 1
-
-            - name: Check package version and detect an update
-              id: check-package-version
-              uses: PostHog/check-package-version@f540540cb12d45ec3c58d42dbf1d60070ed2d268 # v2.1.1
-              with:
-                  path: common/hogvm/typescript
-
-    release-hogvm:
-        name: Release new HogVM TypeScript version
-        runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        needs: hog-tests
-        if: needs.hog-tests.outputs.is-new-version == 'true'
-        permissions:
-            contents: read
-            id-token: write
-        env:
-            COMMITTED_VERSION: ${{ needs.hog-tests.outputs.committed-version }}
-            PUBLISHED_VERSION: ${{ needs.hog-tests.outputs.published-version }}
-        steps:
-            - name: Checkout the repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-            - name: Install uv
-              id: setup-uv-hogql-python
-              uses: ./.github/actions/setup-uv
-            - name: Install SAML (python3-saml) dependencies
-              if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
-            - name: Install Python dependencies
-              run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-            - name: Fix node-gyp permissions
-              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  registry-url: https://registry.npmjs.org
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-            - name: Install package.json dependencies
-              run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
-            - name: Publish the package in the npm registry
-              run: cd common/hogvm/typescript && npm publish --access public

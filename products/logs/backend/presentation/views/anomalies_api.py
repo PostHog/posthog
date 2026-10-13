@@ -270,18 +270,19 @@ class LogsSeriesBandBucketSerializer(serializers.Serializer):
     observed = serializers.IntegerField(help_text="Log count observed in this bucket.")
     lower = serializers.FloatField(
         allow_null=True,
-        help_text="Lower edge of the expected band. Null while no validated band is available for this series.",
+        help_text="Lower edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
     )
     upper = serializers.FloatField(
         allow_null=True,
-        help_text="Upper edge of the expected band. Null while no validated band is available for this series.",
+        help_text="Upper edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
     )
     verdict = serializers.ChoiceField(
         choices=LogsSeriesBandVerdict.choices,
         allow_null=True,
         help_text=(
             "Where the observed count sits against the band: above when it exceeds upper, below when it falls "
-            "under lower. Null while it sits inside the band, or while the band is not ready."
+            "under lower. Null while it sits inside the band, or while the band is not ready. "
+            "An out-of-range bucket is not a confirmed incident or an alert."
         ),
     )
 
@@ -300,7 +301,7 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
     baseline_weeks = serializers.IntegerField(
         help_text=(
             f"Full weeks of history behind the band, 0 to {BASELINE_WEEKS}. "
-            "History depth alone does not enable a band; a validated readiness policy is also required."
+            "Four complete weeks are required: at least two for fitting and two separate weeks for calibration."
         )
     )
     history_start = serializers.DateTimeField(
@@ -313,8 +314,8 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
     band_ready_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "When this series gains its band under a validated readiness policy. "
-            "Null when the band is ready or no validated readiness date is available. "
+            "Earliest end of a rolling window of this length with four complete preceding weeks. "
+            "Null when the band is ready. A fixed historical window does not gain history by waiting. "
             "Check the buckets' lower and upper values to determine whether a band is present."
         ),
     )

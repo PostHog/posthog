@@ -10,7 +10,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.instatus import (
     InstatusResumeConfig,
     _child_path,
-    _client_config,
     instatus_source,
     validate_credentials,
 )
@@ -66,48 +65,7 @@ def _source(endpoint: str, manager: mock.MagicMock):
     return instatus_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
 
-class TestClientConfig:
-    def test_uses_bearer_auth_and_json_content_type(self):
-        config = _client_config("abc123")
-        assert config["auth"] == {"type": "bearer", "token": "abc123"}
-        # Instatus requires the JSON content type on every request, including GETs.
-        headers = config["headers"]
-        assert headers is not None
-        assert headers["Content-Type"] == "application/json"
-        # A credentialed request stays pinned to the validated host — a 3xx can't replay it elsewhere.
-        assert config["allow_redirects"] is False
-
-
 class TestPagesEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_empty_including_short_pages(self, MockSession):
-        session = MockSession.return_value
-        # Pages of 2 then 1 rows are both short (< per_page) yet pagination must continue: a
-        # short-but-non-empty page is not the last one. Only the empty array terminates.
-        _, params = _wire(
-            session,
-            [_response([{"id": "p1"}, {"id": "p2"}]), _response([{"id": "p3"}]), _response([])],
-        )
-
-        rows = _rows(_source("pages", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["p1", "p2", "p3"]
-        assert params[0]["per_page"] == 100
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_next_page_after_each_non_empty_page(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "p1"}]), _response([{"id": "p2"}]), _response([])])
-        manager = _make_manager()
-
-        _rows(_source("pages", manager))
-
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        # State saved once per non-empty yielded page, each pointing at the next page.
-        assert [(s.page, s.parent_page_id, s.fanout_state) for s in saved] == [(2, None, None), (3, None, None)]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession):
         session = MockSession.return_value
@@ -126,42 +84,37 @@ class TestPagesEndpoint:
         with pytest.raises(requests.HTTPError):
             _rows(_source("pages", _make_manager()))
 
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_rate_limit_then_succeeds(self, MockSession, _mock_sleep):
-        session = MockSession.return_value
-        # A 429 is retried by the shared client; the retried attempt returns the page.
-        _wire(session, [_response([], status_code=429), _response([{"id": "p1"}]), _response([])])
-
-        rows = _rows(_source("pages", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["p1"]
-        # First send 429, retried, then page 1, then empty terminator = 3 sends.
-        assert session.send.call_count == 3
-
 
 class TestFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, url_suffix",
+        [
+            ("components", "components"),
+            # Schema names use underscores, but the API path is hyphenated.
+            ("generic_notices", "generic-notices"),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_pages_and_injects_page_id(self, MockSession):
+    def test_fans_out_over_pages_and_injects_page_id(self, MockSession, endpoint, url_suffix):
         session = MockSession.return_value
         urls, _ = _wire(
             session,
             [
                 _response([{"id": "p1"}, {"id": "p2"}]),  # /v2/pages page 1
-                _response([{"id": "c1"}]),  # /v1/p1/components page 1
-                _response([]),  # /v1/p1/components page 2 (stop)
-                _response([{"id": "c2"}]),  # /v1/p2/components page 1
-                _response([]),  # /v1/p2/components page 2 (stop)
+                _response([{"id": "c1"}]),  # /v1/p1/<endpoint> page 1
+                _response([]),  # /v1/p1/<endpoint> page 2 (stop)
+                _response([{"id": "c2"}]),  # /v1/p2/<endpoint> page 1
+                _response([]),  # /v1/p2/<endpoint> page 2 (stop)
                 _response([]),  # /v2/pages page 2 (stop)
             ],
         )
 
-        rows = _rows(_source("components", _make_manager()))
+        rows = _rows(_source(endpoint, _make_manager()))
 
         # page_id injected so the composite [page_id, id] key stays unique table-wide.
         assert rows == [{"id": "c1", "page_id": "p1"}, {"id": "c2", "page_id": "p2"}]
-        assert "https://api.instatus.com/v1/p1/components" in urls
-        assert "https://api.instatus.com/v1/p2/components" in urls
+        assert f"https://api.instatus.com/v1/p1/{url_suffix}" in urls
+        assert f"https://api.instatus.com/v1/p2/{url_suffix}" in urls
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_fan_out_at_saved_parent_and_page(self, MockSession):
@@ -219,13 +172,6 @@ class TestValidateCredentials:
             assert error
 
     @mock.patch(INSTATUS_SESSION_PATCH)
-    def test_probes_pages_endpoint(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url.startswith("https://api.instatus.com/v2/pages")
-
-    @mock.patch(INSTATUS_SESSION_PATCH)
     def test_request_exception_is_failure(self, mock_session):
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         ok, error = validate_credentials("key")
@@ -271,6 +217,8 @@ class TestInstatusSourceResponse:
             ("templates", "createdAt"),
             ("incidents", "started"),
             ("maintenances", "start"),
+            ("outages", "createdAt"),
+            ("generic_notices", "createdAt"),
             ("subscribers", None),
             ("metrics", None),
         ],

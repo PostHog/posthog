@@ -12,13 +12,15 @@ import { skillPublishPreviewLogic } from './skillPublishPreviewLogic'
 
 export function PublishToCommunityContents({
     skillName,
+    teamId,
     onPreviewChange,
 }: {
     skillName: string
+    teamId?: number
     onPreviewChange: (preview: LLMSkillApi | null) => void
 }): JSX.Element {
-    const { publishPreview, publishPreviewLoading } = useValues(skillPublishPreviewLogic({ skillName }))
-    const { loadPublishPreview } = useActions(skillPublishPreviewLogic({ skillName }))
+    const { publishPreview, publishPreviewLoading } = useValues(skillPublishPreviewLogic({ skillName, teamId }))
+    const { loadPublishPreview } = useActions(skillPublishPreviewLogic({ skillName, teamId }))
 
     useEffect(() => {
         onPreviewChange(publishPreview)

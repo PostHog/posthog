@@ -164,7 +164,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert body["forwarded"] is False
 
         assert self._notes() == []
-        action = SignalReportAction.objects.get(report=report, user=self.user)
+        action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.type == SignalReportAction.ActionType.FEEDBACK
         assert action.metadata == {"sentiment": "positive"}
 
@@ -176,7 +176,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
         self._feedback(report, sentiment="positive")
         self._feedback(report, sentiment="negative")
 
-        action = SignalReportAction.objects.get(report=report, user=self.user)
+        action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.count == 2
         assert action.metadata == {"sentiment": "negative"}
 
@@ -190,7 +190,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
         self._feedback(report, sentiment="positive")
         self._feedback(report, sentiment="positive", note="the staging spike is a known issue")
 
-        action = SignalReportAction.objects.get(report=report, user=self.user)
+        action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.count == 1
         assert action.metadata == {"sentiment": "positive"}
         assert len(self._notes()) == 1
@@ -202,7 +202,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
         self._feedback(report, sentiment="negative", note="not useful")
 
-        action = SignalReportAction.objects.get(report=report, user=self.user)
+        action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.count == 1
         assert action.metadata == {"sentiment": "negative"}
 

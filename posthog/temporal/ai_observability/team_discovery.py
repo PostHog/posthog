@@ -15,11 +15,17 @@ import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
+from django.db import InterfaceError, OperationalError
+
 import structlog
 import posthoganalytics
 import temporalio.activity
 from temporalio.common import RetryPolicy
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.ai_observability.coordinator_metrics import increment_consent_query_failed
+from posthog.temporal.ai_observability.shared_activities import consented_team_ids
 from posthog.temporal.common.heartbeat import Heartbeater
 
 logger = structlog.get_logger(__name__)
@@ -138,23 +144,40 @@ def get_min_traces_override(team_id: int) -> int | None:
 # overhead so the activity doesn't get killed before the fallback path runs.
 DISCOVERY_ACTIVITY_TIMEOUT = timedelta(minutes=5)
 DISCOVERY_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
+DISCOVERY_FAIL_CLOSED_PATCH_ID = "ai-observability-discovery-fail-closed-2026-09"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TeamDiscoveryInput:
-    # Empty: discovery config is read from the flag payload inside the activity.
-    pass
+    # A coordinator that processes one window sets it, so a team with no AI events in that window does not cost
+    # a child workflow and its sampling query. Without a window, discovery uses the flag's lookback days.
+    window_start: str | None = None
+    window_end: str | None = None
 
 
-# TODO: drop `inputs`/TeamDiscoveryInput next release; kept so pre-rollout activity tasks still deserialize.
+@retry(
+    retry=retry_if_exception_type((InterfaceError, OperationalError)),
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    reraise=True,
+)
+async def _consented_team_ids_with_retry(team_ids: list[int]) -> set[int]:
+    return await database_sync_to_async_pool(consented_team_ids)(team_ids)
+
+
 @temporalio.activity.defn(name="get_team_ids_for_llm_analytics")
 async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = None) -> list[int]:
     """
     Discover teams for AI observability workflows.
 
     Config (guaranteed/skip/sample/lookback) is read from the feature flag payload.
-    Returns guaranteed allowlist teams + a random sample of other teams with AI events.
-    On failure, falls back to guaranteed teams only.
+    Candidates are the guaranteed allowlist teams + a random sample of other teams with AI
+    events. If that sampling query fails, the candidates are the guaranteed teams only.
+
+    Every candidate then passes the third-party AI data processing consent filter, guaranteed
+    teams included, so a team whose organization did not approve is never returned. The filter
+    fails closed: if the consent query itself fails, this returns no teams at all rather than a
+    possibly non-consenting set.
     """
     async with Heartbeater():
         config = await asyncio.to_thread(_get_ai_observability_workflow_config)
@@ -165,8 +188,12 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
         lookback_days = config.discovery_lookback_days
 
         try:
-            end = datetime.now(UTC)
-            begin = end - timedelta(days=lookback_days)
+            if inputs is not None and inputs.window_start and inputs.window_end:
+                begin = datetime.fromisoformat(inputs.window_start)
+                end = datetime.fromisoformat(inputs.window_end)
+            else:
+                end = datetime.now(UTC)
+                begin = end - timedelta(days=lookback_days)
 
             from posthog.tasks.ai_observability_usage_report import (
                 LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
@@ -187,21 +214,16 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
 
             # Guaranteed teams first: the coordinator processes teams in this order and
             # may exhaust its run budget before reaching the tail, so allowlisted teams
-            # must never sit behind the sampled set.
-            result = sorted(guaranteed - skip) + sorted(sampled)
-
-            logger.info(
-                "Team discovery completed",
-                guaranteed_count=len(guaranteed),
-                skip_count=len(skip),
-                ai_event_teams_count=len(ai_event_teams),
-                remaining_count=len(remaining),
-                sampled_count=len(sampled),
-                total_count=len(result),
-                sample_percentage=sample_percentage,
-            )
-
-            return result
+            # must never sit behind the sampled set. The sampled set keeps its random
+            # order, so a run that stops early skips different teams each hour.
+            discovered = sorted(guaranteed - skip) + sampled
+            discovery_context = {
+                "discovery_begin": begin.isoformat(),
+                "discovery_end": end.isoformat(),
+                "ai_event_teams_count": len(ai_event_teams),
+                "remaining_count": len(remaining),
+                "sampled_count": len(sampled),
+            }
 
         except Exception:
             logger.warning(
@@ -210,4 +232,28 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
                 guaranteed_count=len(guaranteed),
                 skip_count=len(skip),
             )
-            return sorted(guaranteed - skip)
+            discovered = sorted(guaranteed - skip)
+            discovery_context = {}
+
+        try:
+            consented = await _consented_team_ids_with_retry(discovered)
+        except Exception:
+            # Fail closed: an unreadable consent flag must not let trace content reach a
+            # third-party model.
+            logger.exception("AI data processing consent filter failed, discovering no teams")
+            increment_consent_query_failed()
+            return []
+
+        result = [team_id for team_id in discovered if team_id in consented]
+
+        logger.info(
+            "Team discovery completed",
+            guaranteed_count=len(guaranteed),
+            skip_count=len(skip),
+            discovered_count=len(discovered),
+            total_count=len(result),
+            sample_percentage=sample_percentage,
+            **discovery_context,
+        )
+
+        return result

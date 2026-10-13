@@ -12,6 +12,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_SOURCES, VALIDATOR_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_output_config,
     anthropic_text,
     create_message,
     llm_attempts,
@@ -109,6 +110,7 @@ TICKET TYPE: {input.ticket_type}"""
         max_tokens=512,
         system=REPLY_REVIEW_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        **anthropic_output_config(ReplyReviewResult),
         **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)

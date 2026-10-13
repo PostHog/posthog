@@ -19,8 +19,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -39,6 +39,7 @@ import {
 
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
+import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsWaitlistBanner'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -273,7 +274,7 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs tabKey="cohorts" />
+            <ActivitySceneTabs activeKey="cohorts" />
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Cohorts].name}
@@ -301,6 +302,8 @@ export function Cohorts(): JSX.Element {
                     </Shortcut>
                 }
             />
+
+            <RealtimeCohortsWaitlistBanner />
 
             <div>{filtersSection}</div>
             <LemonTable

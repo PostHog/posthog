@@ -15,6 +15,7 @@ const feedbackImage = z.object({
 export const feedbackSubmissionInput = z.object({
   response: z.string().trim().min(1).max(4_000),
   source: z.string().min(1).max(100),
+  feedbackType: z.enum(["bug", "feature", "general"]).optional(),
   feedbackView: z.string().min(1).max(100),
   feedbackTaskId: z.string().max(100).optional(),
   feedbackFolderId: z.string().max(100).optional(),

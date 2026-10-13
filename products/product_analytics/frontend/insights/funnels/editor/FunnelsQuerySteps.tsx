@@ -79,6 +79,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                         TaxonomicFilterGroupType.AutocaptureEvents,
                         TaxonomicFilterGroupType.DataWarehouse,
                     ]}
+                    flagCallsFromFlagEvaluations
                     definitionPopoverRenderer={FunnelDataWarehouseStepDefinitionPopover}
                     dataWarehousePopoverFields={[
                         {

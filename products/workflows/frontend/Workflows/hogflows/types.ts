@@ -37,7 +37,6 @@ export const HogFlowSchema = z.object({
     conversion: z
         .object({
             window: z.string().optional(),
-            window_minutes: z.number().nullable().optional(),
             filters: z.any(),
             events: z
                 .array(
@@ -91,6 +90,8 @@ export const HogFlowBatchJobSchema = z.object({
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
+    // UX discriminator set by purpose-built surfaces; 'broadcast' rows are managed via the
+    // broadcasts UI and hidden from the ordinary workflows list.
     // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
     origin_product?: HogFlowOriginProductEnumApi | null
     // Effective access level of the current user for this workflow (resource access control).
@@ -108,6 +109,9 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // True when only PostHog can lift the pause: staff placed it, or it re-tripped soon after a resume.
     email_sending_pause_requires_support?: boolean
     email_sending_resumed_at?: string | null
+    // Suggested changes waiting for a person. Only the list endpoint counts it.
+    pending_suggestions?: number | null
+    suggestions_enabled?: boolean | null
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

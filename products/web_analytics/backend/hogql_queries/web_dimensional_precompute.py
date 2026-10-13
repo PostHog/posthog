@@ -316,6 +316,7 @@ def ensure_web_stats_dimensional_precomputed(
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
+        read_after_write=False,
     )
 
 
@@ -333,4 +334,5 @@ def ensure_web_bounces_dimensional_precomputed(
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
+        read_after_write=False,
     )

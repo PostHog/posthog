@@ -35,7 +35,7 @@ import {
 } from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import { isScannerScoutConfig, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
+import { isScannerScoutConfig, isTemplateScout, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -118,7 +118,6 @@ export interface scannerScoutLogicValues {
     createTemplateKey: ScannerScoutTemplateKey | null
     creating: boolean
     enrolled: boolean | null
-    expanded: boolean
     expandedSkillNames: string[]
     latestReportRow: ScoutReportApi | null
     latestRun: SignalScoutRunSummary | null
@@ -126,6 +125,7 @@ export interface scannerScoutLogicValues {
     openedReport: ScoutReportApi | null
     openedReportLoading: boolean
     reportsBySkill: Map<string, ScoutReportApi[]>
+    rootCauseScout: SignalScoutConfigApi | null
     runningRun: SignalScoutRunSummary | null
     scoutConfigsFailed: boolean
     scoutConfigsForScanner: SignalScoutConfigApi[]
@@ -311,9 +311,6 @@ export interface scannerScoutLogicActions {
     setScoutConfigsFailed: (failed: boolean) => {
         failed: boolean
     }
-    toggleExpanded: () => {
-        value: true
-    }
     toggleScoutExpanded: (skillName: string) => {
         skillName: string
     }
@@ -341,6 +338,7 @@ export interface scannerScoutLogicMeta {
         ) => string
         latestReportRow: (scoutReports: ScoutReportApi[]) => ScoutReportApi | null
         reportsBySkill: (scoutReports: ScoutReportApi[]) => Map<string, ScoutReportApi[]>
+        rootCauseScout: (scoutConfigsForScanner: SignalScoutConfigApi[]) => SignalScoutConfigApi | null
         latestRun: (
             rollups: Map<string, ScoutRollup>,
             scoutConfigsForScanner: SignalScoutConfigApi[]
@@ -402,7 +400,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
 
     actions({
         setScoutConfigsFailed: (failed: boolean) => ({ failed }),
-        toggleExpanded: true,
         toggleScoutExpanded: (skillName: string) => ({ skillName }),
         openReport: (reportId: string) => ({ reportId }),
         closeReport: true,
@@ -554,13 +551,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     state.includes(skillName) ? state.filter((name) => name !== skillName) : [...state, skillName],
             },
         ],
-        // Whether the Overview card shows the whole digest or the clipped preview.
-        expanded: [
-            false,
-            {
-                toggleExpanded: (state) => !state,
-            },
-        ],
         creating: [
             false,
             {
@@ -672,6 +662,12 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 }
                 return bySkill
             },
+        ],
+        // The scanner's root cause scout, if any. While one exists the prompts stop offering another.
+        rootCauseScout: [
+            (s) => [s.scoutConfigsForScanner],
+            (scoutConfigsForScanner: SignalScoutConfigApi[]): SignalScoutConfigApi | null =>
+                scoutConfigsForScanner.find((config) => isTemplateScout(config.skill_name, 'root-cause')) ?? null,
         ],
         // Newest run across all of the scanner's scouts, for the quiet-day "last checked" line.
         latestRun: [
@@ -857,6 +853,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             body: form.body,
                             cron: form.cron,
                             outputDestinations: form.outputDestinations,
+                            templateKey,
                         })
                     )
                     return result.config

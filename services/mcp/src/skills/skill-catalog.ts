@@ -11,6 +11,7 @@ const SEARCH_CONTEXT_LINES = 2
 const MAX_ARCHIVE_FILES = 5_000
 const MAX_ARCHIVE_FILE_BYTES = 8 * 1024 * 1024
 const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+const EXACT_NAME_SCORE_BONUS = 5_000
 
 type SkillFileKind = 'markdown' | 'script' | 'other'
 
@@ -423,45 +424,23 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
     return fitLearnOutput(sections.join('\n\n'))
 }
 
-// Per-match tier bonuses mirroring `rankSkill`'s content weights, keyed by the
-// backend's `matched_field`. Name and description already score via their own
-// text below, so they add no tier bonus here.
-const MATCHED_FIELD_TIER_BONUS: Record<string, number> = {
-    body: 80,
-    file_path: 120,
-    file_content: 40,
-}
-
-/**
- * Client-side relevance score for a project search result, comparable to `SkillCatalog`'s
- * `rankSkill` scores so both sources can merge into one ranked list. The project body/file
- * text is not available client-side, so per-match tier bonuses derived from `matched_field`
- * stand in for content scoring.
- */
-export function scoreProjectSearchResult(
-    query: string,
-    name: string,
-    description: string,
-    matchedFields: readonly string[]
-): number {
-    const normalizedQuery = normalizeQuery(query)
-    let score = scoreText(name, normalizedQuery, 1_000) + scoreText(description, normalizedQuery, 300)
-    for (const field of matchedFields) {
-        score += MATCHED_FIELD_TIER_BONUS[field] ?? 0
-    }
-    return score
-}
-
 function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill | null {
-    let score = scoreText(skill.name, query, 1_000) + scoreText(skill.description, query, 300)
-    const snippets: LearnSearchSnippet[] = []
+    let score =
+        (skill.name.toLowerCase() === query.phrase ? EXACT_NAME_SCORE_BONUS : 0) +
+        scoreText(skill.name, query, 1_000) +
+        scoreText(skill.description, query, 300)
+    let filePathScore = 0
+    let fileContentScore = 0
+    const snippetCandidates: { score: number; snippet: LearnSearchSnippet }[] = []
 
     for (const file of skill.files) {
-        score += scoreText(file.path, query, 120)
+        const isSkillFile = file.path === 'SKILL.md'
+        if (!isSkillFile) {
+            filePathScore = Math.max(filePathScore, scoreText(file.path, query, 120))
+        }
         if (file.kind !== 'markdown') {
             continue
         }
-        const isSkillFile = file.path === 'SKILL.md'
         // Exclude the YAML frontmatter from SKILL.md scoring and snippets: the
         // description already scores via `skill.description` (avoid double-counting)
         // and its snippet would just repeat the description line already printed.
@@ -469,21 +448,30 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
         const contentWeight = isSkillFile ? 80 : 40
         const scoredContent =
             frontmatterLines > 0 ? splitLines(file.content).slice(frontmatterLines).join('\n') : file.content
-        score += scoreText(scoredContent, query, contentWeight)
-        if (snippets.length < MAX_GLOBAL_SNIPPETS) {
-            const snippet = findSnippet(file, query, frontmatterLines)
-            if (snippet) {
-                snippets.push(snippet)
-            }
+        const contentScore = scoreText(scoredContent, query, contentWeight)
+        if (isSkillFile) {
+            score += contentScore
+        } else {
+            fileContentScore = Math.max(fileContentScore, contentScore)
+        }
+        const snippet = findSnippet(file, query, frontmatterLines)
+        if (snippet) {
+            snippetCandidates.push({ score: contentScore, snippet })
         }
     }
+
+    score += filePathScore + fileContentScore
+    const snippets = snippetCandidates
+        .sort((left, right) => right.score - left.score || left.snippet.path.localeCompare(right.snippet.path))
+        .slice(0, MAX_GLOBAL_SNIPPETS)
+        .map(({ snippet }) => snippet)
 
     return score > 0 ? { skill, score, snippets } : null
 }
 
 interface QueryToken {
     // A token matches text if the text includes ANY variant. Variants add light
-    // stemming (analyzing → analyz → analy) so related word forms still match.
+    // stemming so related word forms still match.
     variants: string[]
 }
 
@@ -492,17 +480,19 @@ interface NormalizedQuery {
     tokens: QueryToken[]
 }
 
-// Longest-first so the longest matching suffix is stripped (e.g. "sessions" → "session", not "sessionation").
-const STEM_SUFFIXES = ['ations', 'ation', 'tions', 'tion', 'ings', 'ing', 'es', 'ed', 's']
+const DERIVATIONAL_STEM_SUFFIXES = ['ations', 'ation', 'tions', 'tion', 'ings', 'ing', 'ed']
+const SIBILANT_ES_ENDINGS = ['ches', 'shes', 'sses', 'xes', 'zes']
+const MAX_SEARCH_TOKENS = 8
+const MIN_SEARCH_TOKEN_LENGTH = 2
 // Shortest token length the scorer treats as informative — also the floor for derived stems.
 export const MIN_STEM_VARIANT_LENGTH = 5
 
 /**
- * Deduped, lower-cased query tokens using the same tokenization the scorer applies, exported so
- * callers derive tokens identically instead of inventing a divergent tokenizer.
+ * Bounded, deduped, lower-cased query tokens using the same tokenization the scorer applies,
+ * exported so callers derive tokens identically instead of inventing a divergent tokenizer.
  */
 export function extractQueryTokens(query: string): string[] {
-    return [
+    const rawTokens = [
         ...new Set(
             query
                 .trim()
@@ -510,6 +500,12 @@ export function extractQueryTokens(query: string): string[] {
                 .match(/[\p{L}\p{N}]+/gu) ?? []
         ),
     ]
+    const informativeTokens = rawTokens.filter((token) => token.length >= MIN_SEARCH_TOKEN_LENGTH)
+    return (informativeTokens.length > 0 ? informativeTokens : rawTokens.slice(0, 1))
+        .map((token, index) => ({ index, token }))
+        .sort((left, right) => right.token.length - left.token.length || left.index - right.index)
+        .slice(0, MAX_SEARCH_TOKENS)
+        .map(({ token }) => token)
 }
 
 function normalizeQuery(query: string): NormalizedQuery {
@@ -530,12 +526,31 @@ function stemVariants(token: string): string[] {
     if (token.length < 6 || !/^[a-z]+$/.test(token)) {
         return [token]
     }
-    const suffix = STEM_SUFFIXES.find((candidate) => token.length > candidate.length && token.endsWith(candidate))
-    if (!suffix) {
+    const stems: string[] = []
+    const suffix = DERIVATIONAL_STEM_SUFFIXES.find(
+        (candidate) => token.length > candidate.length && token.endsWith(candidate)
+    )
+    if (suffix) {
+        stems.push(token.slice(0, -suffix.length))
+    } else if (token.endsWith('ies')) {
+        stems.push(`${token.slice(0, -3)}y`)
+    } else if (SIBILANT_ES_ENDINGS.some((ending) => token.endsWith(ending))) {
+        stems.push(token.slice(0, -2))
+    } else if (token.endsWith('es')) {
+        stems.push(token.slice(0, -1), token.slice(0, -2))
+    } else if (token.endsWith('s') && token !== 'status' && !token.endsWith('is') && !token.endsWith('ss')) {
+        stems.push(token.slice(0, -1))
+    } else {
         return [token]
     }
-    const stem = token.slice(0, -suffix.length)
-    const variants = [token, stem, stem.slice(0, -1)]
+
+    const variants = [token]
+    for (const stem of stems) {
+        variants.push(stem)
+        if (stem.length >= 2 && stem.at(-1) === stem.at(-2)) {
+            variants.push(stem.slice(0, -1))
+        }
+    }
     return [...new Set(variants.filter((variant) => variant.length >= MIN_STEM_VARIANT_LENGTH))]
 }
 

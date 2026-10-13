@@ -27,6 +27,37 @@ describe('handleAuthorize', () => {
         expect(html).toContain('EU Cloud')
     })
 
+    it.each([
+        ['neither region cookie', ''],
+        ['both region cookies', 'ph_authenticated_us=1; ph_authenticated_eu=1'],
+        ['only the Strict cookie the proxy never receives', 'ph_current_instance="https://eu.posthog.com"'],
+    ])('shows region picker with %s', async (_label, cookie) => {
+        const request = new Request(
+            'https://oauth.posthog.com/oauth/authorize/?client_id=abc&redirect_uri=http://localhost:3000/callback&response_type=code',
+            cookie ? { headers: { Cookie: cookie } } : undefined
+        )
+        const response = await handleAuthorize(request, mockKV)
+
+        expect(response.status).toBe(200)
+    })
+
+    it.each([
+        ['us', 'ph_authenticated_us=1', 'https://us.posthog.com/oauth/authorize/'],
+        ['eu', 'ph_authenticated_eu=1', 'https://eu.posthog.com/oauth/authorize/'],
+    ])('redirects to %s without the picker when only that region has a live session', async (_region, cookie, base) => {
+        const request = new Request(
+            'https://oauth.posthog.com/oauth/authorize/?client_id=abc&redirect_uri=http://localhost:3000/callback&response_type=code&state=xyz',
+            { headers: { Cookie: `${cookie}; ph_current_instance="https://us.posthog.com"` } }
+        )
+        const response = await handleAuthorize(request, mockKV)
+
+        expect(response.status).toBe(302)
+        const location = new URL(response.headers.get('location') as string)
+        expect(`${location.origin}${location.pathname}`).toBe(base)
+        expect(location.searchParams.get('client_id')).toBe('abc')
+        expect(location.searchParams.get('_region')).toBeNull()
+    })
+
     it('redirects to US authorize with translated client_id and proxy callback when _region=us', async () => {
         const mapping = {
             us_client_id: 'us_real_id',

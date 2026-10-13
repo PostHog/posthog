@@ -22,7 +22,7 @@ const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
     }
 })
 
-export function CustomerAnalyticsTaskDigest(): JSX.Element {
+export function CustomerAnalyticsTaskDigest({ source = 'settings' }: { source?: 'tasks' | 'settings' }): JSX.Element {
     const { draft, hasChanges, configLoading, isInitialLoading, configLoadFailed, timezone, validSendTime } =
         useValues(taskDigestLogic)
     const { setDraft, resetDraft, saveTaskDigest, loadConfig } = useActions(taskDigestLogic)
@@ -106,7 +106,7 @@ export function CustomerAnalyticsTaskDigest(): JSX.Element {
                 <LemonButton
                     data-attr="save-customer-analytics-task-digest"
                     type="primary"
-                    onClick={saveTaskDigest}
+                    onClick={() => saveTaskDigest({ source })}
                     loading={configLoading}
                     disabledReason={!validSendTime ? 'Choose a valid send time' : hasChanges ? undefined : 'No changes'}
                 >

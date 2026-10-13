@@ -1,5 +1,4 @@
-// Plain pull request counts for a delivery scope. No repo figure on purpose: comparing how much an author
-// or a team ships ranks people, and these counts are only the denominators for the cards next to it.
+// No repo figure: comparing how much an author or a team ships would rank people.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 

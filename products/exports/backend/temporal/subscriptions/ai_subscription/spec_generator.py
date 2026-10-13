@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
 
-from django.db.models import F, Q
+from django.db.models import BigIntegerField, F, IntegerField, Q
+from django.db.models.functions import Coalesce
 
 import structlog
 from pydantic import ValidationError
@@ -338,8 +339,15 @@ def _no_data_event_names(team: Team, limit: int) -> list[str]:
 
 def _person_property_names(team: Team, limit: int) -> list[str]:
     names = (
-        PropertyDefinition.objects.filter(team_id=team.pk, type=PropertyDefinition.Type.PERSON)
-        .order_by("name")
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=BigIntegerField()),
+            group_type_index_key=Coalesce("group_type_index", -1, output_field=IntegerField()),
+        )
+        .filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, group_type_index_key=-1)
+        # The filter and the order are the key of index_property_def_query_proj, so Postgres reads `limit` entries
+        # and stops. Do not order by name alone: that plan uses posthog_propdef_proj_uniq, where `type` comes after
+        # `name`, so in a project with many event properties and few person properties it walks the whole project.
+        .order_by(F("query_usage_30_day").desc(nulls_last=True), "name")
         .values_list("name", flat=True)[:limit]
     )
     sanitized = (sanitize_user_text(name, EVENT_NAME_MAX_LENGTH) for name in names)
@@ -494,13 +502,16 @@ def _select_relevant_events(
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
-    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
+    # One indexed (project, event) query. Without it the planner gets no event-property schema and guesses
     # property names — the top cause of InternalHogQLError.
     if not events:
         return {}
     by_event: dict[str, list[str]] = {}
     rows = (
-        EventProperty.objects.filter(team_id=team.pk, event__in=events)
+        EventProperty.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, event__in=events)
         .order_by("event", "property")
         # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
         # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,

@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useId } from 'react'
+import { useEffect, useId } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { userLogic } from 'scenes/userLogic'
 
 import { MCPAnalyticsFeedbackPromptConfig, MCP_ANALYTICS_FEEDBACK_RATINGS } from './constants'
@@ -17,9 +19,11 @@ const thumbRatings = [
 export function MCPAnalyticsFeedbackPrompt({
     contextKey,
     prompt: promptConfig,
+    eligible = true,
 }: {
     contextKey: string
     prompt: MCPAnalyticsFeedbackPromptConfig
+    eligible?: boolean
 }): JSX.Element | null {
     const questionId = useId()
     const detailId = useId()
@@ -27,18 +31,27 @@ export function MCPAnalyticsFeedbackPrompt({
     const logic = mcpAnalyticsFeedbackLogic({
         userId: user?.uuid ?? '',
         contextKey,
+        eligible,
         prompt: promptConfig,
         isImpersonated: user?.is_impersonated ?? false,
     })
     const { visible, survey, prompt, answer, detail, completed, submitting, error } = useValues(logic)
-    const { dismissPrompt, setDetail, submitResponse } = useActions(logic)
+    const { dismissPrompt, recordImpression, setDetail, submitResponse } = useActions(logic)
+    const { ref, inView } = useInView({ threshold: 0.5, skip: !visible })
+    const { isVisible: pageVisible } = usePageVisibility()
+
+    useEffect(() => {
+        if (visible && inView && pageVisible) {
+            recordImpression()
+        }
+    }, [visible, inView, pageVisible, recordImpression])
 
     if (!visible || !survey) {
         return null
     }
 
     return (
-        <div className="shrink-0 p-2" data-attr="mcp-analytics-feedback-prompt">
+        <div ref={ref} className="shrink-0 p-2" data-attr="mcp-analytics-feedback-prompt">
             <LemonBanner type="info" hideIcon onClose={dismissPrompt}>
                 {completed ? (
                     <div role="status">Thanks for your feedback.</div>

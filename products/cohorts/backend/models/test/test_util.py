@@ -1296,6 +1296,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
             (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
             (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
+            (CohortErrorCode.FLAG_EVALUATION_FAILED, "couldn't evaluate the feature flag"),
             (CohortErrorCode.UNKNOWN, "an error occurred"),
         ]
     )

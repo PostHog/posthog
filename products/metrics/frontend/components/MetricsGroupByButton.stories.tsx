@@ -15,10 +15,10 @@ const meta: Meta<typeof MetricsGroupByButton> = {
                 '/api/projects/:team_id/metrics/values/': { results: [] },
                 '/api/projects/:team_id/metrics/attributes/': {
                     results: [
-                        { name: 'service_name', series_count: 12000 },
-                        { name: 'environment', series_count: 8000 },
-                        { name: 'k8s.pod.name', series_count: 350 },
-                        { name: 'resource.attribute.with.a.long.name', series_count: 25 },
+                        { name: 'k8s.pod.name', value_count: 350 },
+                        { name: 'service_name', value_count: 20 },
+                        { name: 'environment', value_count: 2 },
+                        { name: 'resource.attribute.with.a.long.name', value_count: 1 },
                     ],
                     count: 4,
                 },
@@ -49,7 +49,7 @@ export const Default: Story = {
         trigger.click()
         await waitFor(() => {
             if (!document.querySelector('.tabular-nums')) {
-                throw new Error('Series counts are not visible')
+                throw new Error('Distinct value counts are not visible')
             }
         })
     },

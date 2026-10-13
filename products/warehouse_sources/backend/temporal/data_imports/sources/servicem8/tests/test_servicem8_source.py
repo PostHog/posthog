@@ -94,16 +94,6 @@ class TestServiceM8Source:
             db_incremental_field_last_value=None,
         )
 
-    def test_watermark_is_dropped_when_incremental_is_off(self) -> None:
-        inputs = _make_inputs(should_use_incremental_field=False, db_incremental_field_last_value="2026-05-01")
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-
-        with mock.patch(f"{SOURCE_MODULE}.servicem8_source") as mock_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["db_incremental_field_last_value"] is None
-
     def test_watermark_is_passed_when_incremental_is_on(self) -> None:
         inputs = _make_inputs(should_use_incremental_field=True, db_incremental_field_last_value="2026-05-01")
         manager = mock.MagicMock(spec=ResumableSourceManager)

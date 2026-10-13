@@ -1,6 +1,7 @@
 pub mod async_gzip;
 pub mod client;
 pub mod grpc;
+pub mod h2_window;
 pub mod metrics;
 pub mod partitioning;
 pub mod persons;

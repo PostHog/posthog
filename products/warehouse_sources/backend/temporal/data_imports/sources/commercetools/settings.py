@@ -47,10 +47,20 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         path="/carts",
         scope="view_orders",
     ),
+    "shopping_lists": CommercetoolsEndpointConfig(
+        name="shopping_lists",
+        path="/shopping-lists",
+        scope="view_shopping_lists",
+    ),
     "product_projections": CommercetoolsEndpointConfig(
         name="product_projections",
         path="/product-projections",
         scope="view_products",
+    ),
+    "product_types": CommercetoolsEndpointConfig(
+        name="product_types",
+        path="/product-types",
+        scope="view_product_types",
     ),
     "categories": CommercetoolsEndpointConfig(
         name="categories",
@@ -66,6 +76,40 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         name="inventory",
         path="/inventory",
         scope="view_products",
+    ),
+    "standalone_prices": CommercetoolsEndpointConfig(
+        name="standalone_prices",
+        path="/standalone-prices",
+        scope="view_standalone_prices",
+    ),
+    "stores": CommercetoolsEndpointConfig(
+        name="stores",
+        path="/stores",
+        scope="view_stores",
+    ),
+    "channels": CommercetoolsEndpointConfig(
+        name="channels",
+        path="/channels",
+        scope="view_channels",
+    ),
+    "customer_groups": CommercetoolsEndpointConfig(
+        name="customer_groups",
+        path="/customer-groups",
+        scope="view_customer_groups",
+    ),
+    "states": CommercetoolsEndpointConfig(
+        name="states",
+        path="/states",
+        scope="view_states",
+    ),
+    # Rows only exist once the Messages Query feature is switched on for the
+    # project; before that commercetools persists no messages and the table syncs empty.
+    # commercetools also deletes messages past the project's retention period, so this
+    # table can only ever cover that window.
+    "messages": CommercetoolsEndpointConfig(
+        name="messages",
+        path="/messages",
+        scope="view_messages",
     ),
 }
 

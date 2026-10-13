@@ -1,12 +1,12 @@
 import pytest
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.services.integration_resolver import routable_projects
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"

@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -9,10 +10,8 @@ import structlog
 
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
-from posthog.temporal.common.client import sync_connect
 
 from products.ai_training.backend.facade.api import queue_training_deletion
-from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
@@ -41,6 +40,11 @@ TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
 # Out of Django state since replay/0002, so the Team cascade cannot reach it. Delete with the table.
 RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
+
+
+class TeamPurgeStopped(Exception):
+    """A team purge stopped between batches because its caller asked it to, so the purge is incomplete."""
+
 
 actions_that_require_current_team = [
     "rotate_secret_token",
@@ -81,6 +85,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
 
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
+    from products.today.backend.facade import api as today_facade
 
     error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
@@ -94,6 +99,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
+    # Briefings carry team_id as a plain integer, so nothing cascades to them.
+    today_facade.delete_briefings_for_teams(team_ids)
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
@@ -182,38 +189,43 @@ def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:
         _delete_cohort_members_for_teams(team_ids, cohort_ids)
 
 
-def _delete_persons_for_teams(team_ids: list[int]) -> None:
+def _delete_persons_for_teams(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     """Delete Person + PersonDistinctId rows for teams via personhog RPC.
 
-    The RPC handles PersonDistinctId deletion automatically.
+    The RPC handles PersonDistinctId deletion automatically. ``should_stop`` is checked before each batch.
     """
     from functools import partial
 
     from posthog.personhog_client.client import personhog_call
 
     for team_id in team_ids:
-        personhog_call(
+        finished = personhog_call(
             "delete_persons_for_team",
-            partial(_delete_persons_for_team_via_personhog, team_id),
+            partial(_delete_persons_for_team_via_personhog, team_id, should_stop),
         )
+        if not finished:
+            raise TeamPurgeStopped(f"The person purge of team {team_id} stopped before it finished")
 
 
-def _delete_persons_for_team_via_personhog(team_id: int) -> None:
+def _delete_persons_for_team_via_personhog(team_id: int, should_stop: Callable[[], bool] | None = None) -> bool:
+    """Return False when ``should_stop`` stopped the loop before every person was deleted."""
     from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
 
     client = require_personhog_client()
 
     while True:
+        if should_stop is not None and should_stop():
+            return False
         resp = client.delete_persons_batch_for_team(
             DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE),
             timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
         )
         if resp.deleted_count == 0:
-            break
+            return True
 
 
-def _delete_groups_for_teams(team_ids: list[int]) -> None:
+def _delete_groups_for_teams(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     from posthog.personhog_client.client import personhog_call, require_personhog_client
     from posthog.personhog_client.proto import DeleteGroupsBatchForTeamRequest
 
@@ -221,19 +233,22 @@ def _delete_groups_for_teams(team_ids: list[int]) -> None:
 
     for team_id in team_ids:
 
-        def _fn(tid: int = team_id) -> None:
+        def _fn(tid: int = team_id) -> bool:
             while True:
+                if should_stop is not None and should_stop():
+                    return False
                 resp = client.delete_groups_batch_for_team(
                     DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=10000),
                     timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
-                    break
+                    return True
 
-        personhog_call("delete_groups_for_team", _fn)
+        if not personhog_call("delete_groups_for_team", _fn):
+            raise TeamPurgeStopped(f"The group purge of team {team_id} stopped before it finished")
 
 
-def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
+def _delete_group_type_mappings_for_teams(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     from posthog.personhog_client.client import personhog_call, require_personhog_client
     from posthog.personhog_client.proto import DeleteGroupTypeMappingsBatchForTeamRequest
 
@@ -241,16 +256,19 @@ def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
 
     for team_id in team_ids:
 
-        def _fn(tid: int = team_id) -> None:
+        def _fn(tid: int = team_id) -> bool:
             while True:
+                if should_stop is not None and should_stop():
+                    return False
                 resp = client.delete_group_type_mappings_batch_for_team(
                     DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=10000),
                     timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
-                    break
+                    return True
 
-        personhog_call("delete_group_type_mappings_for_team", _fn)
+        if not personhog_call("delete_group_type_mappings_for_team", _fn):
+            raise TeamPurgeStopped(f"The group type mapping purge of team {team_id} stopped before it finished")
 
 
 def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int]) -> None:
@@ -307,30 +325,6 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
             break
 
         time.sleep(0.1)
-
-
-def delete_batch_exports(team_ids: list[int]):
-    """Delete BatchExports for deleted teams.
-
-    Using normal CASCADE doesn't trigger a delete from Temporal.
-    """
-    from products.batch_exports.backend.models.batch_export import BatchExport
-
-    temporal = sync_connect()
-
-    for batch_export in BatchExport.objects.filter(team_id__in=team_ids, deleted=False):
-        schedule_id = batch_export.id
-
-        batch_export.delete()
-        batch_export.destination.delete()
-
-        try:
-            batch_export_delete_schedule(temporal, str(schedule_id))
-        except BatchExportServiceScheduleNotFound as e:
-            logger.warning(
-                "Schedule not found during team deletion",
-                schedule_id=e.schedule_id,
-            )
 
 
 def delete_team_records(team_ids: list[int]) -> None:

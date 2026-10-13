@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -88,18 +87,6 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             ].default_incremental_lookback_seconds
         return schemas
 
-    def history_lookback_for_schema(
-        self, schema_name: str, config: MetronomeSourceConfig | None = None
-    ) -> timedelta | None:
-        # Only the bucketed usage tables bound their first sync. Everything else reads a list the
-        # account already bounds, and the lifetime `usage` aggregate is one row per customer and
-        # metric however far back it reaches.
-        return usage_history_window(
-            schema_name,
-            config.usage_hourly_history_days if config else None,
-            config.usage_daily_history_months if config else None,
-        )
-
     def validate_credentials(
         self,
         config: MetronomeSourceConfig,
@@ -129,7 +116,14 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
-            history_start=inputs.history_start,
+            # Resolved per run rather than recorded once, so a depth the user edits after the first
+            # sync takes effect, and the window stays the size they asked for rather than widening
+            # as the source ages.
+            usage_history=usage_history_window(
+                inputs.schema_name,
+                config.usage_hourly_history_days,
+                config.usage_daily_history_months,
+            ),
         )
 
     @property

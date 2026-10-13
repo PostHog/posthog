@@ -1,6 +1,12 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the local-multi/small node. Apply to a fresh ClickHouse to build it.
 
+CREATE TABLE posthog.distributed_person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = Distributed('aux', 'posthog', 'person_group_membership_config', sipHash64(team_id));
 CREATE TABLE posthog.kafka_app_metrics (
   team_id Int64,
   timestamp DateTime64(6, 'UTC'),
@@ -91,6 +97,15 @@ CREATE TABLE posthog.kafka_ingestion_warnings (
   details String CODEC(ZSTD(3)),
   timestamp DateTime64(6, 'UTC')
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_ingestion_warnings';
+CREATE TABLE posthog.kafka_log_entries_aux (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_aux', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_log_entries_v3 (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -288,7 +303,10 @@ CREATE TABLE posthog.query_log_archive (
   lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
   lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+  lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+  lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
 CREATE TABLE posthog.writable_app_metrics (
   team_id Int64,
@@ -430,6 +448,17 @@ CREATE TABLE posthog.writable_log_entries (
   _timestamp DateTime,
   _offset UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_log_entries', rand());
+CREATE TABLE posthog.writable_log_entries_aux (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('aux', 'posthog', 'log_entries_data');
 CREATE TABLE posthog.writable_person (
   id UUID,
   created_at DateTime64(3),
@@ -462,6 +491,14 @@ CREATE TABLE posthog.writable_person_distinct_id_overrides (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'person_distinct_id_overrides');
+CREATE TABLE posthog.writable_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE TABLE posthog.writable_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -664,6 +701,18 @@ CREATE MATERIALIZED VIEW posthog.ingestion_warnings_mv TO posthog.writable_inges
   _offset,
   _partition
 FROM posthog.kafka_ingestion_warnings;
+CREATE MATERIALIZED VIEW posthog.log_entries_aux_mv TO posthog.writable_log_entries_aux (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp DateTime, _offset UInt64) AS SELECT
+  team_id,
+  log_source,
+  log_source_id,
+  instance_id,
+  timestamp,
+  level,
+  message,
+  _timestamp,
+  _offset
+FROM kafka_log_entries_aux
+WHERE toDate(timestamp) <= today();
 CREATE MATERIALIZED VIEW posthog.log_entries_v3_mv TO posthog.writable_log_entries (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   team_id,
   log_source,
@@ -795,3 +844,4 @@ CREATE MATERIALIZED VIEW posthog.usage_report_events_preagg_mv TO posthog.writab
 FROM posthog.kafka_usage_report_events_preagg
 GROUP BY
   date, team_id, person_mode, lib, event;
+CREATE OR REPLACE DICTIONARY posthog.person_group_membership_config_dict (`team_id` Int64, `group_type_index` UInt8 DEFAULT 255, `enabled` UInt8 DEFAULT 0) PRIMARY KEY team_id SOURCE(CLICKHOUSE(USER 'default' QUERY 'SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4')) LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 60 MAX 120);

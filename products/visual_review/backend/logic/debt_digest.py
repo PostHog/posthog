@@ -12,13 +12,15 @@ The two conditions:
   a day of overlap so two weekly runs cannot skip one. Somebody has to extend it, lift it, or decide
   to let it lapse.
 
-  Variant pile-up. `VARIANT_PILEUP_MIN` or more accepted variants standing against the baseline's
-  current hash, with no quarantine already covering the identity. The baseline has stopped
-  describing one rendering.
+  Toleration pile-up. `VARIANT_PILEUP_MIN` or more tolerations by a person or agent in the last
+  `TOLERATION_PILEUP_WINDOW_DAYS`, with no quarantine already covering the identity. Each toleration
+  covers one exact rendering, so a snapshot that keeps needing them renders differently from run to
+  run, and the fix is in the story.
 
-A baseline change clears the second condition, and that is not the same as the story recovering: it
-invalidates the tolerations recorded against the old baseline, because they can never match again.
-Nothing here claims a snapshot got better.
+The pile-up counts across baselines. A flaky story's baseline often moves between tolerations, and
+a count scoped to the current baseline drops to zero at every move while the tolerations go on.
+Automatic tolerations do not count: they absorb renderings under the diff thresholds, which never
+block anybody.
 
 Attribution runs through the Storybook build behind the current baseline. Its story index names the
 file each story lives in, and the repository's own ownership files name the team that owns that file.
@@ -46,50 +48,37 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-from posthog_owners.resolver import Purpose, team_channel
-from posthog_owners.schema import Producer, TeamEntry
+from owners_yaml.schema import TeamEntry
 
-from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.egress.limiter.policies import Priority
 from posthog.models.user import User
-from posthog.team_notifications.slack import (
+from posthog.ownership.github_files import fetcher_for_team
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership, resolve_path_owners
+from posthog.slack.channels import (
     MAX_BLOCKS,
     MAX_BUTTON_URL_CHARS,
     MAX_SECTION_CHARS,
     MAX_TEXT_CHARS,
     SlackButton,
-    SlackChannel,
-    SlackPostRefused,
     actions_block,
     clip_text,
     context_block,
     divider_block,
-    fetch_channel_map,
     fields_block,
-    find_channel,
     header_block,
-    post_message,
-    post_with_join,
     section_block,
 )
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import human_list, pluralize
 
-from products.engineering_analytics.backend.facade.api import resolve_path_owners
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
-
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, VARIANT_PILEUP_MIN
+from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
 from ..facade.enums import RunType
 from ..models import QuarantinedIdentifier, Repo, Run
-from . import quarantine, run_queries, story_index, toleration
+from . import quarantine, run_queries, story_index, team_channels, toleration
+from .team_channels import SlackMessage
 
 logger = structlog.get_logger(__name__)
-
-# The digest is automation, so it asks the registry where automation posts rather than where the
-# team's people are. That falls back to the people channel when a team never separates the two.
-_CHANNEL_PURPOSE: Purpose = "notifications"
-# Named so a team can keep this digest out of its channel while other bots keep posting there.
-_PRODUCER: Producer = "visual_review"
 
 # Whose digest carries the items no team owns. The people who built the product can read a story
 # name and find who to ask; nobody else can. Routed like any other team, so there is no second
@@ -123,9 +112,9 @@ _QUARANTINE_HEADING = (
     "A lapsed quarantine fails the gate again."
 )
 _PILEUP_HEADING = (
-    "*Snapshots with piled-up variants*\n"
-    f"{VARIANT_PILEUP_MIN} or more accepted renderings mean the baseline is wrong. "
-    "Approve the current rendering as the baseline and the variants stop counting."
+    "*Snapshots that keep getting tolerated*\n"
+    "A toleration covers one exact rendering, so these snapshots render differently from run to run. "
+    "Fix the story, or quarantine it until someone can."
 )
 
 
@@ -227,14 +216,6 @@ class RepoDigests:
 
 
 @frozen
-class SlackMessage:
-    """One post: the blocks Slack renders, and the plain text it shows wherever they do not."""
-
-    blocks: list[dict[str, Any]]
-    text: str
-
-
-@frozen
 class MessagePart:
     """One block, and the plain line that stands in for it in the message's fallback text."""
 
@@ -259,14 +240,6 @@ class Post:
     replies: list[SlackMessage]
     item_count: int
     triage_count: int
-
-
-@frozen
-class Delivery:
-    """Where one team's digest goes."""
-
-    channel_id: str
-    channel_name: str
 
 
 def _snapshot_url(repo: Repo, run_type: str, identifier: str) -> str:
@@ -294,12 +267,12 @@ def _quarantined_story_url(repo: Repo, story: str) -> str:
     return url if len(url) <= MAX_BUTTON_URL_CHARS else _repo_flakiness_url(repo)
 
 
-def _snapshot_button(repo: Repo, item: DebtItem, text: str) -> SlackButton:
-    """The item's button, pointing at the repo's list when the snapshot URL is too long for Slack.
+def snapshot_button(repo: Repo, run_type: str, identifier: str, text: str) -> SlackButton:
+    """The snapshot's button, pointing at the repo's list when the snapshot URL is too long for Slack.
 
     Same reason as `_linked_line` below: an encoded identifier can outgrow the cap on its own.
     """
-    url = _snapshot_url(repo, item.run_type, item.identifier)
+    url = _snapshot_url(repo, run_type, identifier)
     return SlackButton(text=text, url=url if len(url) <= MAX_BUTTON_URL_CHARS else _repo_snapshots_url(repo))
 
 
@@ -347,15 +320,16 @@ def _author_name(entry: QuarantinedIdentifier, authors: dict[int, str]) -> str:
     return escape_slack_mrkdwn(authors.get(entry.created_by_id or 0, "someone"))
 
 
-def _quarantine_facts(entry: QuarantinedIdentifier, authors: dict[int, str], now: datetime) -> str:
+def quarantine_facts(entry: QuarantinedIdentifier, authors: dict[int, str], now: datetime) -> str:
+    expiry = f"Expires *{_expiry_word(entry.expires_at, now)}*" if entry.expires_at is not None else "No expiry"
     return (
-        f"Expires *{_expiry_word(entry.expires_at, now)}* · opened by {_author_name(entry, authors)}\n"
+        f"{expiry} · opened by {_author_name(entry, authors)}\n"
         f'_"{escape_slack_mrkdwn(clip_text(entry.reason, _MAX_REASON_CHARS))}"_'
     )
 
 
 def _pileup_facts(count: int) -> str:
-    return f"*{count}* accepted variants of the current baseline"
+    return f"Tolerated *{count}* times in the last {TOLERATION_PILEUP_WINDOW_DAYS} days"
 
 
 def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int, str], now: datetime) -> str:
@@ -372,13 +346,13 @@ def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int
 
 def _pileup_line(repo: Repo, run_type: str, identifier: str, count: int) -> str:
     body = (
-        f"{count} accepted variants of the current baseline"
+        f"Tolerated {count} times in {TOLERATION_PILEUP_WINDOW_DAYS} days"
         f" · {escape_slack_mrkdwn(clip_text(identifier, _MAX_IDENTIFIER_CHARS))} ({escape_slack_mrkdwn(run_type)})"
     )
     return _linked_line(repo, body, run_type, identifier)
 
 
-def _display_names(user_ids: set[int]) -> dict[int, str]:
+def display_names(user_ids: set[int]) -> dict[int, str]:
     if not user_ids:
         return {}
     return {
@@ -421,19 +395,17 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     expiring = quarantine.list_expiring_quarantines(repo.id, now=now, within_days=_DIGEST_EXPIRY_WINDOW_DAYS)
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
-        key: count
-        for key, count in toleration.count_active_variants_against_current_baseline(
-            repo.id, now=now, newest_run_by_type=newest_run_by_type
-        ).items()
+        key: counts.intentional
+        for key, counts in toleration.list_toleration_pileups(repo.id, now=now, newest_run_by_type=newest_run_by_type)
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is
-        # unreliable, so asking them about the variants underneath it is a second reminder about
+        # unreliable, so asking them about the tolerations underneath it is a second reminder about
         # one problem.
-        if count >= VARIANT_PILEUP_MIN and key not in quarantined_keys
+        if key not in quarantined_keys
     }
 
     run_types = {entry.run_type for entry in expiring} | {key.run_type for key in piled_up}
     sources = _attribution_sources(repo, run_types, newest_run_by_type)
-    authors = _display_names({entry.created_by_id for entry in expiring if entry.created_by_id})
+    authors = display_names({entry.created_by_id for entry in expiring if entry.created_by_id})
 
     return RepoDebt(
         expiring_quarantines=[
@@ -442,7 +414,7 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
                 run_type=entry.run_type,
                 attribution=_attribution(sources, entry.run_type, entry.identifier),
                 line=_quarantine_line(repo, entry, authors, now),
-                facts=_quarantine_facts(entry, authors, now),
+                facts=quarantine_facts(entry, authors, now),
             )
             for entry in expiring
         ],
@@ -454,10 +426,8 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
                 line=_pileup_line(repo, key.run_type, key.identifier, count),
                 facts=_pileup_facts(count),
             )
-            # Biggest pile first, then by identity so a tie reads the same way every morning.
-            for key, count in sorted(
-                piled_up.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier)
-            )
+            # Already in pile order: `list_toleration_pileups` sorts, and the dict keeps it.
+            for key, count in piled_up.items()
         ],
     )
 
@@ -619,7 +589,9 @@ def _item_text(entry: ListedEntry, extra: str = "") -> str:
 
 def _item_part(repo: Repo, item: DebtItem, button_text: str, line: str | None = None) -> MessagePart:
     return MessagePart(
-        block=section_block(_item_text(_single_entry(item)), _snapshot_button(repo, item, button_text)),
+        block=section_block(
+            _item_text(_single_entry(item)), snapshot_button(repo, item.run_type, item.identifier, button_text)
+        ),
         line=item.line if line is None else line,
     )
 
@@ -657,7 +629,9 @@ def _count_phrases(digest: TeamDigest, emphasis: str = "") -> list[str]:
         )
     pileups = len(digest.variant_pileups)
     if pileups:
-        phrases.append(f"{emphasis}{pluralize(pileups, 'snapshot')}{emphasis} with piled-up variants")
+        phrases.append(
+            f"{emphasis}{pluralize(pileups, 'snapshot')}{emphasis} keep{'s' if pileups == 1 else ''} getting tolerated"
+        )
     return phrases
 
 
@@ -701,7 +675,7 @@ def thread_messages(repo: Repo, digest: TeamDigest, now: datetime) -> list[Slack
         ),
         ReplyGroup(
             heading=_heading_part(_PILEUP_HEADING),
-            items=[_item_part(repo, item, "Reset baseline") for item in digest.variant_pileups],
+            items=[_item_part(repo, item, "Fix or quarantine") for item in digest.variant_pileups],
         ),
     ]
     return _split_into_messages(groups, _footer_parts(now))
@@ -785,27 +759,6 @@ def maintainers_messages(repo: Repo, digest: MaintainersDigest) -> list[SlackMes
     return _split_into_messages(groups, _unavailable_parts(unavailable), preamble)
 
 
-def resolve_channel(
-    team_slug: str, registry: Mapping[str, TeamEntry], channels_by_name: Mapping[str, SlackChannel]
-) -> Delivery | None:
-    """The team's own notifications channel, or None when it opted out or the name does not resolve."""
-    answer = team_channel(team_slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
-    if answer.channel is None:
-        logger.info("visual_review.debt_digest_team_opted_out", team_slug=team_slug)
-        return None
-    name = answer.channel.removeprefix("#")
-    match = find_channel(channels_by_name, name, allow_shared=False)
-    if match.channel is None:
-        logger.info(
-            "visual_review.debt_digest_channel_unusable",
-            team_slug=team_slug,
-            channel_name=name,
-            reason=match.reason,
-        )
-        return None
-    return Delivery(channel_id=match.channel.channel_id, channel_name=name)
-
-
 def plan_posts(repo: Repo, digests: RepoDigests, now: datetime) -> list[Post]:
     """Every message this run sends, in the order it sends them.
 
@@ -856,7 +809,13 @@ def send_debt_digest(repo: Repo, mode: str) -> list[str]:
         logger.info("visual_review.debt_digest_nothing_owed", repo_id=str(repo.id), team_id=repo.team_id)
         return []
 
-    ownership = resolve_path_owners(repo.repo_full_name, paths_to_resolve(debt))
+    ownership = resolve_path_owners(
+        repo.repo_full_name,
+        paths_to_resolve(debt),
+        # The digest is scheduled work that nobody waits on, so it sheds first when the
+        # installation's GitHub budget runs hot and sends the same items next week.
+        files=fetcher_for_team(repo.team_id, repo.repo_full_name, priority=Priority.BATCH),
+    )
     if not ownership.resolved:
         # A blind answer names no team and carries no registry, so every item would read as
         # unowned and be dropped. Say so instead, and send the same items next week.
@@ -867,16 +826,15 @@ def send_debt_digest(repo: Repo, mode: str) -> list[str]:
     if mode == MODE_PREVIEW:
         return [_preview_one(repo, post, ownership.registry) for post in posts]
 
-    integration = Integration.objects.filter(team_id=repo.team_id, kind="slack").first()
-    if integration is None:
-        logger.info("visual_review.debt_digest_no_slack_integration", team_id=repo.team_id)
+    workspace = team_channels.open_workspace(repo.team_id)
+    if workspace is None:
         return []
-    channels_by_name = fetch_channel_map(integration)
 
     rendered: list[str] = []
     for post in posts:
         try:
-            rendered.append(_send_one(repo, post, ownership.registry, channels_by_name, integration))
+            if team_channels.post_to_team(workspace, post.team_slug, ownership.registry, post.lead, post.replies):
+                rendered.append(_post_text(post))
         except Exception as e:
             # One team's Slack failure must not cost the rest of the repo its reminder, and there is
             # nothing to retry against: next Monday's run sends the same items again.
@@ -898,7 +856,7 @@ def _preview_one(repo: Repo, post: Post, registry: Mapping[str, TeamEntry]) -> s
     rendered = _post_text(post)
     # Preview holds no channel map, because fetching one needs the integration it deliberately does
     # not touch. So the routing here only ever reports the team's own opt-out.
-    resolved = resolve_channel(post.team_slug, registry, {})
+    resolved = team_channels.resolve_channel(post.team_slug, registry, {})
     logger.info(
         "visual_review.debt_digest_preview",
         repo_id=str(repo.id),
@@ -909,33 +867,6 @@ def _preview_one(repo: Repo, post: Post, registry: Mapping[str, TeamEntry]) -> s
         rendered=rendered,
     )
     return rendered
-
-
-def _send_one(
-    repo: Repo,
-    post: Post,
-    registry: Mapping[str, TeamEntry],
-    channels_by_name: Mapping[str, SlackChannel],
-    integration: Integration,
-) -> str:
-    delivery = resolve_channel(post.team_slug, registry, channels_by_name)
-    if delivery is None:
-        return ""
-
-    slack = SlackIntegration(integration)
-    try:
-        thread_ts = post_with_join(
-            slack, delivery.channel_id, post.lead.blocks, post.lead.text, channel_name=delivery.channel_name
-        )
-    except SlackPostRefused as e:
-        logger.warning("visual_review.debt_digest_post_refused", team_slug=post.team_slug, error=str(e))
-        return ""
-    # Without a parent to hang them on, the item blocks land in the channel as separate top-level
-    # posts, which is the noise the thread exists to remove.
-    if thread_ts is not None:
-        for reply in post.replies:
-            post_message(slack, delivery.channel_id, reply.blocks, reply.text, thread_ts=thread_ts)
-    return _post_text(post)
 
 
 def repos_in_scope() -> list[Repo]:

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE posthog_person\n                SET is_deleted = false,\n                    version = GREATEST(\n                        COALESCE(version, 0) + CASE WHEN is_deleted THEN 1 ELSE 0 END,\n                        $3\n                    )\n                WHERE team_id = $1 AND uuid = ANY($2)\n                RETURNING uuid as \"uuid!\", version as \"version!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "3d4d238676f2e13b60a24262ae14f2242b3e1db6953311a5ad4d02c0dae7e93e"
+}

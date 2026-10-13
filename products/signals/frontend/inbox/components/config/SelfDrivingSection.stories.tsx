@@ -28,6 +28,9 @@ interface CardState {
     projectPrReady?: boolean
     /** Personal override for that, or null to follow the project ("Default"). */
     myPrReady?: boolean | null
+    /** Whether the project labels self-driving PRs, and the name it labels them with. */
+    prLabelEnabled?: boolean
+    prLabel?: string | null
     /** Connected integrations the issue tracker picker can choose from. */
     integrations?: Record<string, unknown>[]
     /** Integration id the project already tracks issues in, and where inside it they land. */
@@ -47,6 +50,8 @@ function useAutonomyMocks({
     githubAssign = false,
     projectPrReady = false,
     myPrReady = null,
+    prLabelEnabled = false,
+    prLabel = null,
     integrations = [],
     issueTrackingIntegration = null,
     issueTrackingConfig = {},
@@ -64,6 +69,8 @@ function useAutonomyMocks({
                 reports_generated_today: reportsToday,
                 daily_report_limit_reached: dailyLimit != null && reportsToday >= dailyLimit,
                 default_open_pull_request_ready: projectPrReady,
+                pull_request_label_enabled: prLabelEnabled,
+                pull_request_label: prLabel,
             },
             '/api/users/@me/signal_autonomy/': {
                 id: 'auto-1',
@@ -162,6 +169,12 @@ export const SettingsTabIssueTrackerJira: Story = {
             issueTrackingConfig={{ project_key: 'ENG' }}
         />
     ),
+}
+
+// The PR label turned on with a name of the team's own: the name input renders under the row.
+export const SettingsTabPullRequestLabel: Story = {
+    parameters: REDESIGN,
+    render: () => <SettingsCard width="wide" prLabelEnabled prLabel="agent-pr" />,
 }
 
 // Master switch off in the Settings tab: the project threshold hides. Base branches and your own threshold stay.

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -114,5 +115,30 @@ func TestRegistryEvictsCatalogsToStayWithinMemoryBudget(t *testing.T) {
 	}
 	if _, _, ok := registry.Get(second); !ok {
 		t.Fatal("new catalog was not retained")
+	}
+}
+
+func TestRegistryCountsAliasesAgainstMemoryBudget(t *testing.T) {
+	canonicalName := "orders." + strings.Repeat("canonical", 32)
+	aliasName := "demo_" + strings.Repeat("alias", 32)
+	base := &Catalog{Tables: map[string]Table{canonicalName: {Fields: map[string]Field{"id": {Type: "integer"}}}}, Properties: map[string][]Property{}}
+	withAlias := &Catalog{
+		Tables:       base.Tables,
+		TableAliases: map[string]string{aliasName: strings.Clone(canonicalName)},
+		Properties:   base.Properties,
+	}
+	baseSize := Prepare(base).EstimatedBytes()
+	aliased := Prepare(withAlias)
+	expectedAliasBytes := int64(len(aliasName) + len(canonicalName) + 96)
+	if actual := aliased.EstimatedBytes() - baseSize; actual != expectedAliasBytes {
+		t.Fatalf("alias bytes = %d, want %d", actual, expectedAliasBytes)
+	}
+	rightSized := NewRegistry(1, baseSize+expectedAliasBytes, time.Hour)
+	if err := rightSized.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", aliased); err != nil {
+		t.Fatalf("Put() error = %v for exact derived budget", err)
+	}
+	registry := NewRegistry(1, baseSize, time.Hour)
+	if err := registry.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", aliased); err != ErrCatalogTooLarge {
+		t.Fatalf("Put() error = %v, want %v", err, ErrCatalogTooLarge)
 	}
 }

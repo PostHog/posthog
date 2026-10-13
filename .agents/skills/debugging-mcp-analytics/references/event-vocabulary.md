@@ -88,11 +88,28 @@ refusals into tool error rates, which is also why the status has its own field. 
 time, never by person.
 
 Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
-`$mcp_validation_fields` and `$mcp_validation_input_keys` (which fields failed validation, and
-which keys the caller actually sent), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
-verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). Those four are
-stamped in `tool-executor.ts` but are **not registered in `posthog/taxonomy/taxonomy.py`**, so they
-have no descriptions in the property picker — they still query fine. `execute-sql` calls additionally emit a separate `$ai_generation` event
+`$mcp_validation_fields` (which fields failed validation), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
+verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). These properties are
+stamped in `tool-executor.ts` and registered in `posthog/taxonomy/taxonomy.py`.
+
+A `$mcp_tool_call` that named a tool and its arguments (a direct-mode call, `render-ui`, or an
+exec `call`) also carries the call's shape, stamped in `tool-executor.ts` from the raw input before
+any alias is folded away, by the `@posthog/mcp` SDK helper `getToolInputProperties`:
+`$mcp_input_keys` (the top-level argument names the caller sent, never values: declared names and
+aliases first, then undeclared names that look like parameter names (any other name becomes one `[redacted]` entry), capped at 20; in exec mode parsed from the `call` command's JSON) and
+`$mcp_input_aliases_used` (`alias:canonical` tokens such as `experimentId:id`, present only when
+the normaliser filled the canonical from that alias). Exec
+discovery verbs (`tools`, `search`, `info`, `schema`) carry neither, so rate alias use against the
+rows where `$mcp_input_keys` is set, not against every `$mcp_tool_call`. Group the two by
+`$mcp_client_name` to see which spelling each agent reaches for and how much of it the alias layer
+absorbs. A tool that wraps `normalizeParamAliases` inside its own preprocess (`read-data-schema`)
+reads as alias-free.
+A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),
+stamped before the availability check so a rejected skill command still records its form, plus
+the raw `exec_search_query` for `search` (and for a `load` that searches inside the skill with `-s`) and `exec_learn_target` (the qualified skill) for `load`.
+A successful call carries `mcp_result_empty: true` when the handler returned zero rows, and
+`mcp_discovery_hint` (`empty_state` or `related_capability`) when the response builder appended a
+hint footer (`services/mcp/src/lib/discovery-hints.ts`). `execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 
 ## Exec-mode properties

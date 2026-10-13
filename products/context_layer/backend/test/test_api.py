@@ -153,6 +153,60 @@ class TestContextLayerAPI(APIBaseTest):
         assert "&#91;&#91;unfinished notes." in page["content"]
         assert "Some wiki-link brackets in this imported context were encoded" in page["content"]
 
+    @parameterized.expand(
+        [
+            ("lint clean", "summary: Tracks weekly activation.", "    name: Activation", True),
+            ("invalid goal", "summary: Tracks weekly activation.", "    period: yearly", False),
+            ("escaping wikilink", "summary: See [[../secrets]]", "    name: Activation", False),
+            ("unclosed wikilink", "summary: See [[unfinished", "    name: Activation", False),
+            ("spaced summary key", "summary : Tracks weekly activation.", "    name: Activation", False),
+        ]
+    )
+    def test_enable_lifts_legacy_context_frontmatter_only_when_lint_clean(
+        self, _flag: MagicMock, _name: str, summary_line: str, goal_line: str, lifted: bool
+    ) -> None:
+        imported = (
+            f"---\n{summary_line}\nstatus: active\nteam_id: 999\n"
+            "channel_id: 00000000-0000-0000-0000-000000000000\nsources: space-setup\nautonomy: propose\n"
+            f"goals:\n  - id: primary\n{goal_line}\n---\n# Goal: Activation\n\nBody text."
+        )
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="goal-space", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content=imported, base_version=0
+            )
+
+        self._enable()
+
+        page = self.client.get(
+            f"{self.base_url}/pages/", {"path": f"projects/{self.team.id}/spaces/goal-space.md"}
+        ).json()
+        frontmatter, body = page["content"].removeprefix("---\n").split("\n---\n", 1)
+        identity = [f"team_id: {self.team.id}", f"channel_id: {channel.id}"]
+        if lifted:
+            assert frontmatter.splitlines() == [
+                *identity,
+                "summary: Tracks weekly activation.",
+                "status: active",
+                "sources: space-setup",
+                "autonomy: propose",
+                "goals:",
+                "  - id: primary",
+                goal_line,
+            ]
+            assert "\n---\n" not in body
+            assert "# Goal: Activation\n\nBody text." in body
+        else:
+            assert frontmatter.splitlines() == [
+                *identity,
+                "summary: Context imported from goal-space.",
+                "status: active",
+                "sources: channel-instructions-import",
+            ]
+            assert "sources: space-setup\nautonomy: propose" in body
+            assert "# Goal: Activation\n\nBody text." in body
+
     def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="empty-space", star=False)

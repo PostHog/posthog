@@ -9,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from PIL import Image
 from rest_framework import status
 
@@ -55,6 +56,7 @@ class TestDesktopFeedback(APIBaseTest):
                 "response": "The page did not load",
                 "source": "Generic (Leave feedback button)",
                 "feedback_view": "task-detail",
+                "feedback_type": "bug",
                 "feedback_task_id": "task-123",
                 "feedback_app_logs": "[info] Example log",
                 "app_version": "1.2.3",
@@ -65,6 +67,7 @@ class TestDesktopFeedback(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert client.capture.call_args.kwargs["properties"]["feedback_type"] == "bug"
         assert response.json() == {
             "accepted": True,
             "response_id": "00000000-0000-0000-0000-000000000001",
@@ -212,9 +215,10 @@ class TestDesktopFeedback(APIBaseTest):
         assert denied_response.status_code == status.HTTP_403_FORBIDDEN
         assert client.capture.call_count == 1
 
+    @parameterized.expand([("bug",), ("feature",), ("general",), (None,)])
     @override_settings(CLOUD_DEPLOYMENT="EU")
     @patch("products.surveys.backend.desktop_feedback.get_client")
-    def test_captures_feedback_in_the_instance_region(self, get_client) -> None:
+    def test_captures_feedback_in_the_instance_region(self, feedback_type: str | None, get_client) -> None:
         client = MagicMock()
         client.capture.return_value = "00000000-0000-0000-0000-000000000001"
         get_client.return_value = client
@@ -225,11 +229,17 @@ class TestDesktopFeedback(APIBaseTest):
                 "response": "The page did not load",
                 "source": "Generic (Leave feedback button)",
                 "feedback_view": "task-detail",
+                **({"feedback_type": feedback_type} if feedback_type else {}),
             },
             format="multipart",
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        properties = client.capture.call_args.kwargs["properties"]
+        if feedback_type:
+            assert properties["feedback_type"] == feedback_type
+        else:
+            assert "feedback_type" not in properties
         get_client.assert_called_once_with(
             "EU",
             sync_mode=True,
@@ -237,6 +247,23 @@ class TestDesktopFeedback(APIBaseTest):
             timeout=5,
             max_retries=2,
         )
+
+    @patch("products.surveys.backend.desktop_feedback.get_client")
+    def test_rejects_unknown_feedback_type(self, get_client) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_feedback/",
+            {
+                "response": "Example feedback",
+                "source": "Generic (Leave feedback button)",
+                "feedback_view": "home",
+                "feedback_type": "unknown",
+            },
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "feedback_type"
+        get_client.assert_not_called()
 
     @patch("products.surveys.backend.desktop_feedback.object_storage.delete")
     @patch("posthog.models.uploaded_media.object_storage.write")

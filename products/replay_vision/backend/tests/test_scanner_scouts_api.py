@@ -6,10 +6,18 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
+from products.replay_vision.backend.tests.helpers import create_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+from products.replay_vision.backend.variant_analysis import (
+    VARIANT_ANALYSIS_SCHEMA,
+    VARIANT_ANALYSIS_TAG,
+    pause_variant_analysis_scouts,
+)
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.model_selection import scout_model_pin_catalog
+from products.signals.backend.scout_harness.tools.structured_output import validate_structured_output_schema
 
 
 class TestScannerScoutCreate(_VisionAPITestCase):
@@ -36,6 +44,57 @@ class TestScannerScoutCreate(_VisionAPITestCase):
             config = SignalScoutConfig.objects.get(skill_name="signals-scout-daily-digest")
         assert config.source_product == SCOUT_SOURCE_PRODUCT
         assert config.source_id == str(self.scanner.id)
+
+    def test_a_variant_analysis_scout_gets_the_record_schema_and_is_the_one_paused(self) -> None:
+        experiment = create_experiment(self.team, "checkout-flag", launched=True, variants=["control", "test"])
+        scanner = self._create_scanner(
+            name="experiment-scanner",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": experiment.id},
+        )
+        url = self._scouts_url(str(scanner.id))
+        analysis = self.client.post(
+            url, data=self._payload(name="signals-scout-variant-analysis", variant_analysis=True), format="json"
+        )
+        digest = self.client.post(url, data=self._payload(), format="json")
+        assert analysis.status_code == 201, analysis.json()
+        assert digest.status_code == 201, digest.json()
+
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name="signals-scout-variant-analysis")
+        # The readout reads only records of this shape, and Signals refuses a schema it can't compile
+        # when the scout first records.
+        assert config.structured_output_schema == VARIANT_ANALYSIS_SCHEMA
+        validate_structured_output_schema(config.structured_output_schema)
+        assert VARIANT_ANALYSIS_TAG in config.tag_list
+
+        # A retried create adopts the same scout, but a second one would split the readout's records.
+        retry = self.client.post(
+            url, data=self._payload(name="signals-scout-variant-analysis", variant_analysis=True), format="json"
+        )
+        assert retry.status_code == 200, retry.json()
+
+        assert pause_variant_analysis_scouts(scanner) == 1
+        with team_scope(self.team.id):
+            enabled = dict(
+                SignalScoutConfig.objects.filter(source_id=str(scanner.id)).values_list("skill_name", "enabled")
+            )
+        assert enabled == {"signals-scout-variant-analysis": False, "signals-scout-daily-digest": True}
+
+        # Paused still counts: the way back is to turn it on, not to add another.
+        second = self.client.post(
+            url, data=self._payload(name="signals-scout-variant-analysis-2", variant_analysis=True), format="json"
+        )
+        assert second.status_code == 400, second.json()
+        assert second.json()["attr"] == "variant_analysis"
+
+    def test_variant_analysis_needs_an_experiment_scanner(self) -> None:
+        response = self.client.post(
+            self._scouts_url(str(self.scanner.id)), data=self._payload(variant_analysis=True), format="json"
+        )
+        assert response.status_code == 400, response.json()
+        with team_scope(self.team.id):
+            assert not SignalScoutConfig.objects.filter(source_id=str(self.scanner.id)).exists()
 
     def test_a_scout_can_be_created_with_a_slack_destination(self) -> None:
         # The create modal offers a Slack channel, so the destination arrives on the create call
@@ -159,6 +218,24 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         response = self.client.post(
             self._scouts_url(str(self.scanner.id)), data=self._payload(**overrides), format="json"
         )
+        assert response.status_code == 400, response.json()
+
+    def test_a_scout_with_only_a_display_name_gets_a_derived_name_and_keeps_its_label(self) -> None:
+        payload = self._payload(display_name="Checkout digest")
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
+        assert response.status_code == 201, response.json()
+
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name=response.json()["config"]["skill_name"])
+        assert config.display_name == "Checkout digest"
+        assert config.skill_name.endswith("checkout-digest")
+        assert config.source_id == str(self.scanner.id)
+
+    def test_a_scout_with_neither_name_nor_display_name_is_rejected(self) -> None:
+        payload = self._payload()
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
         assert response.status_code == 400, response.json()
 
     def test_a_scout_that_already_exists_without_an_owner_is_not_adopted(self) -> None:

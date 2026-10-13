@@ -48,7 +48,7 @@ export function ContextUsageIndicator({
   const showCost = taskUsage !== undefined;
   const showCostText = showCost && costVisible;
   const costText = showCostText ? (
-    <Text className="select-none font-medium text-[13px] text-gray-11 tabular-nums">
+    <Text className="select-none font-medium text-[13px] text-muted-foreground tabular-nums">
       {formatCostUsd(taskUsage.total_cost_usd)}
     </Text>
   ) : null;

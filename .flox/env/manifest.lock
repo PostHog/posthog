@@ -2,7 +2,7 @@
   "lockfile-version": 1,
   "manifest": {
     "schema-version": "1.10.0",
-    "minimum-cli-version": "1.15.0",
+    "minimum-cli-version": "1.16.0",
     "install": {
       "air": {
         "pkg-path": "air"
@@ -42,6 +42,11 @@
           "out",
           "dev"
         ]
+      },
+      "depot-cli": {
+        "pkg-path": "depot-cli",
+        "pkg-group": "depot",
+        "version": "^2.102"
       },
       "emscripten": {
         "pkg-path": "emscripten",
@@ -198,10 +203,10 @@
       "on-activate": "source \"$FLOX_ENV_PROJECT/.flox/env/on-activate.sh\"\n"
     },
     "profile": {
-      "bash": "  if [ -f \"$HOME/.bash_profile\" ]; then\n    source \"$HOME/.bash_profile\"\n    # ensure even with your shell prefs in place we know this is a Flox.dev env\n    export PS1=\"\\033[47m(flox)\\033[0m $PS1\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$FLOX_ENV_CACHE/go\"\n  export GOCACHE=\"$FLOX_ENV_CACHE/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ] || [ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Source hogli bash completions\n  [ -f \"$FLOX_ENV_CACHE/completions/hogli.bash\" ] && source \"$FLOX_ENV_CACHE/completions/hogli.bash\"\n  # Load phw worktree helper\n  [ -f \"$FLOX_ENV_PROJECT/bin/phw\" ] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
-      "zsh": "  if [[ -f \"$HOME/.zshrc\" ]]; then\n    source \"$HOME/.zshrc\"\n    # ensure even with your shell prefs in place we know this is a Flox.dev env\n    export PS1=\"%K{white}%F{black}(flox)%k%f $PS1\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$FLOX_ENV_CACHE/go\"\n  export GOCACHE=\"$FLOX_ENV_CACHE/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [[ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [[ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]] || [[ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Add hogli completions to zsh\n  [[ -f \"$FLOX_ENV_CACHE/completions/_hogli\" ]] && fpath=(\"$FLOX_ENV_CACHE/completions\" $fpath)\n  autoload -Uz compinit && compinit -i\n  # Load phw worktree helper\n  [[ -f \"$FLOX_ENV_PROJECT/bin/phw\" ]] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [[ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ]] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
-      "fish": "  set -e GOROOT\n  set -gx GOTOOLCHAIN local\n  set -gx GOPATH \"$FLOX_ENV_CACHE/go\"\n  set -gx GOCACHE \"$FLOX_ENV_CACHE/go-build\"\n  set -gx GOMODCACHE \"$GOPATH/pkg/mod\"\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  fish_add_path -g \"$FLOX_ENV/bin\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  set -gx UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if not test -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.fish\"\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if not test -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"; or not test -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  end\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.fish\n",
-      "tcsh": "  unsetenv GOROOT\n  setenv GOTOOLCHAIN local\n  setenv GOPATH \"$FLOX_ENV_CACHE/go\"\n  setenv GOCACHE \"$FLOX_ENV_CACHE/go-build\"\n  setenv GOMODCACHE \"$GOPATH/pkg/mod\"\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  setenv PATH \"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  setenv UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if ( ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.csh\" ) then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if ( ! -l \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" || ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ) then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  endif\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.csh\n"
+      "bash": "  if [ -f \"$HOME/.bash_profile\" ]; then\n    source \"$HOME/.bash_profile\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$FLOX_ENV_CACHE/go\"\n  export GOCACHE=\"$FLOX_ENV_CACHE/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  export GOFLAGS=-modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ] || [ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Source hogli bash completions\n  [ -f \"$FLOX_ENV_CACHE/completions/hogli.bash\" ] && source \"$FLOX_ENV_CACHE/completions/hogli.bash\"\n  # Load phw worktree helper\n  [ -f \"$FLOX_ENV_PROJECT/bin/phw\" ] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
+      "zsh": "  if [[ -f \"$HOME/.zshrc\" ]]; then\n    source \"$HOME/.zshrc\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$FLOX_ENV_CACHE/go\"\n  export GOCACHE=\"$FLOX_ENV_CACHE/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  export GOFLAGS=-modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [[ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [[ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]] || [[ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Add hogli completions to zsh\n  [[ -f \"$FLOX_ENV_CACHE/completions/_hogli\" ]] && fpath=(\"$FLOX_ENV_CACHE/completions\" $fpath)\n  autoload -Uz compinit && compinit -i\n  # Load phw worktree helper\n  [[ -f \"$FLOX_ENV_PROJECT/bin/phw\" ]] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [[ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ]] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
+      "fish": "  set -e GOROOT\n  set -gx GOTOOLCHAIN local\n  set -gx GOPATH \"$FLOX_ENV_CACHE/go\"\n  set -gx GOCACHE \"$FLOX_ENV_CACHE/go-build\"\n  set -gx GOMODCACHE \"$GOPATH/pkg/mod\"\n  set -gx GOFLAGS -modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  fish_add_path -g \"$FLOX_ENV/bin\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  set -gx UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if not test -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.fish\"\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if not test -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"; or not test -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  end\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.fish\n",
+      "tcsh": "  unsetenv GOROOT\n  setenv GOTOOLCHAIN local\n  setenv GOPATH \"$FLOX_ENV_CACHE/go\"\n  setenv GOCACHE \"$FLOX_ENV_CACHE/go-build\"\n  setenv GOMODCACHE \"$GOPATH/pkg/mod\"\n  setenv GOFLAGS -modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  setenv PATH \"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  setenv UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if ( ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.csh\" ) then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if ( ! -l \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" || ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ) then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  endif\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.csh\n"
     },
     "options": {
       "systems": [
@@ -302,6 +307,93 @@
       },
       "system": "x86_64-linux",
       "group": "cmake",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/8hnwcq7wrlzwizkrxjhib7bx82llp5xi-depot-cli-2.102.9.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
+      "pname": "depot-cli",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T04:58:05.803991Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.102.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/1bi1y13kr74rlmj8j4vslq993j1vdm5c-depot-cli-2.102.9"
+      },
+      "system": "aarch64-darwin",
+      "group": "depot",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/zkw5dmf93pfr1wm7f2622g7lyw8yz10w-depot-cli-2.102.9.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
+      "pname": "depot-cli",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T05:29:39.537297Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.102.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ld8k0nmfl02ysjkkr9l2m5i3hy893sn3-depot-cli-2.102.9"
+      },
+      "system": "aarch64-linux",
+      "group": "depot",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/vjh6m3hgsafr06qx6ajfmva818rfwq2f-depot-cli-2.102.9.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
+      "pname": "depot-cli",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T06:06:17.967455Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.102.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/y9pf0adrvbwj3ki0ab9nch76p9y1d05v-depot-cli-2.102.9"
+      },
+      "system": "x86_64-linux",
+      "group": "depot",
       "priority": 5
     },
     {

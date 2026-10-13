@@ -21,8 +21,10 @@ from posthog.models import Organization, Team
 from posthog.models.event.util import create_event
 from posthog.ph_client import PH_US_API_KEY
 from posthog.tasks.ai_observability_usage_report import (
+    AI_EVENT_NAME_PREFIX,
     AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS,
     AI_OBSERVABILITY_USAGE_EVENT,
+    LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
     _get_all_ai_observability_reports,
     capture_ai_observability_report,
     get_ai_trace_counts,
@@ -195,6 +197,24 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
 
         # The root-event count stays available as its own signal, so the two can be compared.
         assert get_all_ai_metrics(period.start, period.end, team_ids)[self.team.id].ai_trace_event_count == 1
+
+    def test_unlisted_ai_prefixed_events_count_for_the_report_but_not_for_discovery(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period = get_previous_day()
+        trace_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_custom_step", 3, properties={"$ai_trace_id": trace_id})
+
+        assert self.team.id not in get_teams_with_ai_events(
+            period.start, period.end, LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS
+        )
+
+        team_ids = get_teams_with_ai_events(
+            period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS, event_prefix=AI_EVENT_NAME_PREFIX
+        )
+        assert self.team.id in team_ids
+        assert get_ai_trace_counts(period.start, period.end, team_ids)[self.team.id] == 1
 
     def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
         """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""
@@ -983,6 +1003,25 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert team_4.id in team_ids
         assert team_3.id not in team_ids
         assert len(team_ids) == 3
+
+    @parameterized.expand(
+        [
+            ("inside", "$ai_generation", timedelta(minutes=30), True),
+            ("at_start_is_included", "$ai_trace", timedelta(0), True),
+            ("span_only", "$ai_span", timedelta(minutes=45), True),
+            ("just_before_start", "$ai_generation", -timedelta(seconds=1), False),
+            ("at_end_is_excluded", "$ai_generation", timedelta(hours=1), False),
+        ]
+    )
+    def test_get_teams_with_ai_events_hour_window_boundaries(
+        self, _name: str, event: str, offset: timedelta, expected: bool
+    ) -> None:
+        start = datetime(2022, 1, 9, 10, tzinfo=UTC)
+        self._create_ai_events(self.team, str(uuid4()), event, 1, timestamp=start + offset)
+
+        team_ids = get_teams_with_ai_events(start, start + timedelta(hours=1), LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS)
+
+        assert (self.team.id in team_ids) == expected
 
     def test_get_llm_prompt_fetched_counts(self) -> None:
         """Test that get_llm_prompt_fetched_counts returns per-team prompt fetch totals."""

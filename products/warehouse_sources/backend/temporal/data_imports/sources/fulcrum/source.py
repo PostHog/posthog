@@ -96,8 +96,9 @@ You can create an API token in your [Fulcrum account settings](https://web.fulcr
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only `records` carries incremental fields, so build_endpoint_schemas marks it (and only it)
-        # incremental + append and leaves the rest full-refresh — matching the per-endpoint config.
+        # Only `records` and `audit_logs` carry incremental fields, so build_endpoint_schemas marks
+        # those two incremental + append and leaves the rest full-refresh — matching the per-endpoint
+        # config.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

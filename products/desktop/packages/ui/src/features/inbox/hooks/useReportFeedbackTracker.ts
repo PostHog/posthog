@@ -8,7 +8,6 @@ import type { SignalReport } from "@posthog/shared/types";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCallback, useMemo } from "react";
 
-/** Input bound; analytics captures only the note length, never its contents. */
 export const FEEDBACK_NOTE_MAX_LENGTH = 4000;
 
 /**
@@ -46,7 +45,7 @@ export function useReportFeedbackTracker(
       track(ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE, {
         ...base,
         sentiment,
-        note_length: text.length,
+        note: text,
       });
     },
     [base],

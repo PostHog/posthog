@@ -1,11 +1,12 @@
 import gzip
 import json
 import threading
+from concurrent.futures import Future
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.utils.dateparse import parse_datetime
 
@@ -18,6 +19,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache import EntryFreshness
+from posthog.scheduling.jitter import deterministic_offset
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.backend.models.web_analytics_filter_preset import WebAnalyticsFilterPreset
@@ -25,6 +27,7 @@ from products.web_analytics.dags import cache_warming
 from products.web_analytics.dags.cache_warming import (
     PRESET_LANE_MAX_PRESETS_PER_TEAM,
     PRESET_LANE_MAX_SHAPES_PER_PRESET,
+    WARMING_RELEASE_WINDOW_SECONDS,
     WarmQueriesConfig,
     build_replay_runner,
     canonicalize_lazy_replay_json,
@@ -35,6 +38,8 @@ from products.web_analytics.dags.cache_warming import (
     queries_to_keep_fresh,
     split_warmable_queries_op,
     warm_queries_op,
+    web_analytics_cache_warming_job,
+    web_analytics_cache_warming_schedule,
 )
 
 
@@ -262,7 +267,7 @@ class TestBuildReplayRunner(BaseTest):
             # buckets the shape's real queries can never consume, held only to
             # the lazy demand floor instead of the raw one.
             ("uuid_join_mode", {"modifiers": {"sessionsV2JoinMode": "uuid"}}, ["-7d"], "-7d"),
-            ("only_over_cap_demand", {"dateRange": {"date_from": "-180d"}}, ["-180d"], "-180d"),
+            ("only_over_cap_demand", {"dateRange": {"date_from": "-400d"}}, ["-400d"], "-400d"),
         ]
     )
     def test_ineligible_shape_is_not_canonicalized_into_eligibility(
@@ -455,6 +460,22 @@ class TestSplitWarmableQueries(BaseTest):
     def test_unknown_mode_fails_before_fanout(self) -> None:
         with self.assertRaises(ValueError):
             list(split_warmable_queries_op(dagster.build_op_context(), WarmQueriesConfig(mode="bogus"), []))
+
+    def test_hourly_schedule_config_reaches_every_shard(self) -> None:
+        # The schedule writes its run config as a raw dict, so a renamed op alias or
+        # config field fails every hourly launch. Dagster checks the window bound only
+        # when the op builds WarmQueriesConfig, so the test builds it too.
+        with patch("products.web_analytics.dags.cache_warming.check_for_concurrent_runs", return_value=None):
+            request = web_analytics_cache_warming_schedule(dagster.build_schedule_context())
+        assert isinstance(request, dagster.RunRequest)
+        resolved = dagster.validate_run_config(web_analytics_cache_warming_job, request.run_config)
+        config = WarmQueriesConfig(**resolved["ops"]["warm_queries_op"]["config"])
+
+        outputs = list(
+            split_warmable_queries_op(dagster.build_op_context(), config, [self._shape(1, 1), self._shape(2, 2)])
+        )
+
+        self.assertEqual({out.value["release_window_seconds"] for out in outputs}, {WARMING_RELEASE_WINDOW_SECONDS})
 
 
 class TestFleetQuerySelection(BaseTest):
@@ -1152,6 +1173,92 @@ class TestWarmQueriesOp(BaseTest):
         # true last_refresh and would return the fresh cached response, turning
         # the early warm into a silent no-op.
         self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+    @parameterized.expand([("released", False, 2), ("cancelled", True, 1), ("cancelled_backlog", True, 3)])
+    def test_release_window_delays_work_and_cancellation_wakes_workers(
+        self, _name: str, cancel: bool, shape_count: int
+    ) -> None:
+        early_team = Team.objects.create(id=987655, organization=self.organization, name="early release")
+        late_team = Team.objects.create(id=987654, organization=self.organization, name="late release")
+        window = timedelta(minutes=10)
+        early_delay = deterministic_offset(str(early_team.pk), window).total_seconds()
+        late_delay = deterministic_offset(str(late_team.pk), window).total_seconds()
+        self.assertLess(0, early_delay)
+        self.assertLess(early_delay, late_delay)
+        clock = SimpleNamespace(now=0.0)
+        entered = threading.Event()
+        stop = threading.Event()
+        finish_worker = threading.Event()
+        waits: list[float] = []
+        real_wait = cache_warming.wait
+
+        class ControlledRelease:
+            def wait(self, timeout: float) -> bool:
+                waits.append(timeout)
+                entered.set()
+                if cancel:
+                    stop.wait()
+                    finish_worker.wait()
+                    return True
+                clock.now += timeout
+                return False
+
+            def set(self) -> None:
+                stop.set()
+
+        def wait_for_work(
+            pending: set[Future[str]], timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set[Future[str]], set[Future[str]]]:
+            if cancel and return_when == "FIRST_COMPLETED":
+                self.assertTrue(entered.wait(5))
+                raise KeyboardInterrupt()
+            if cancel:
+                finish_worker.set()
+                for future in pending:
+                    if not future.cancelled():
+                        future.result(timeout=5)
+                return real_wait(pending, timeout=0)
+            done, remaining = real_wait(pending, timeout=5)
+            self.assertFalse(remaining)
+            return done, remaining
+
+        context = dagster.build_op_context()
+        try:
+            with (
+                patch(
+                    "products.web_analytics.dags.cache_warming.threading",
+                    SimpleNamespace(Lock=threading.Lock, Event=ControlledRelease),
+                ),
+                patch("products.web_analytics.dags.cache_warming.time", SimpleNamespace(monotonic=lambda: clock.now)),
+                patch("products.web_analytics.dags.cache_warming.wait", side_effect=wait_for_work),
+                patch("products.web_analytics.dags.cache_warming.WARMING_QUERIES_COUNTER") as counter,
+                patch(
+                    "products.web_analytics.dags.cache_warming.os._exit", side_effect=AssertionError("unexpected exit")
+                ),
+                override_instance_config("WEB_ANALYTICS_WARMING_SHARD_THREADS", 1),
+            ):
+                # The early team's shape comes last, so it starts first only if the shapes are sorted by release time.
+                shapes = [
+                    {"team_id": team.pk, "query_json": {"kind": "WebVitalsQuery"}, "normalized_query_hash": f"h{index}"}
+                    for index, team in enumerate([late_team] * (shape_count - 1) + [early_team])
+                ]
+                config = WarmQueriesConfig(release_window_seconds=int(window.total_seconds()))
+                if cancel:
+                    with self.assertRaises(KeyboardInterrupt):
+                        warm_queries_op(context, config, shapes)
+                    counter.labels.assert_not_called()
+                    self.assertEqual(waits, [early_delay])
+                else:
+                    warm_queries_op(context, config, shapes)
+                    self.assertEqual(
+                        counter.labels.call_args_list, [call(lane="demand", outcome="unsupported")] * shape_count
+                    )
+                    # The late team waits only for the part of its offset that the early team's wait did not cover.
+                    self.assertEqual(waits, [early_delay, late_delay - early_delay])
+                    self.assertEqual(clock.now, late_delay)
+        finally:
+            stop.set()
+            finish_worker.set()
 
     def test_cancellation_drains_or_exits_within_grace(self) -> None:
         # Cancellation mid-pass must not hand the executor a queue to drain nor

@@ -112,7 +112,13 @@ test("detects skill edits, additions, renames, removals and renderer changes but
   temporaryDirectories.push(root);
   await mkdir(join(root, "products"));
   const skillDir = join(root, "products", "example", "skills", "example");
-  const rendererDir = join(root, "products", "posthog_ai", "scripts");
+  const rendererDir = join(
+    root,
+    "products",
+    "posthog_ai",
+    "scripts",
+    "build_skills",
+  );
   const outputDir = join(root, "products", "posthog_ai", "dist", "skills");
   let fingerprint = await skillSourceFingerprint(root);
   const changes = [
@@ -125,7 +131,7 @@ test("detects skill edits, additions, renames, removals and renderer changes but
     () => rm(join(skillDir, "SKILL.md.j2")),
     async () => {
       await mkdir(rendererDir, { recursive: true });
-      await writeFile(join(rendererDir, "build_skills.py"), "renderer");
+      await writeFile(join(rendererDir, "skill_builder.py"), "renderer");
     },
   ];
   for (const change of changes) {

@@ -10,6 +10,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     DurationDistribution,
     PRTimeline,
     PRTimelinePush,
+    PRTimelineRedTime,
     PRTimelineSegment,
     PullRequestReadyToMerge,
     PullRequestTimelines,
@@ -92,8 +93,8 @@ class DeliveryLeadTimeSerializer(DataclassSerializer):
             },
             "merged_pr_count": {"help_text": "PRs in scope merged in the window (bots and drafts excluded)."},
             "deployed_merged_pr_count": {
-                "help_text": "Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are "
-                "still waiting for a deploy or fall outside the scan."
+                "help_text": "Of merged_pr_count, the PRs whose first successful in-scope deployment was observed "
+                "by the window end. The rest are still waiting for a deploy or fall outside the scan."
             },
         }
 
@@ -204,6 +205,15 @@ class PRTimelinePushSerializer(DataclassSerializer):
         }
 
 
+class PRTimelineRedTimeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PRTimelineRedTime
+        extra_kwargs = {
+            "kind": {"help_text": "The red segment cause."},
+            "seconds_per_merged_pr": {"help_text": "Average seconds per merged pull request attributed to this cause."},
+        }
+
+
 class PRTimelineSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="The repository the pull request belongs to.")
     pushes = PRTimelinePushSerializer(
@@ -248,6 +258,10 @@ class PullRequestTimelinesSerializer(DataclassSerializer):
         help_text="The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one "
         "pull request of a pull_request scope.",
     )
+    red_seconds_per_merged_pr = PRTimelineRedTimeSerializer(
+        many=True,
+        help_text="Average red time per merged pull request, grouped by the evidence that classifies each red stretch.",
+    )
 
     class Meta:
         dataclass = PullRequestTimelines
@@ -269,6 +283,7 @@ class PullRequestTimelinesSerializer(DataclassSerializer):
                 "help_text": "True when the Trunk merge-queue table is synced, so out_of_merge_queue can appear."
             },
             "generated_at": {"help_text": "The now every open PR's timeline ends at."},
+            "merged_pr_count": {"help_text": "Every pull request merged in the selected scope and window."},
             "truncated": {"help_text": "True when more PRs matched than the limit."},
             "limit": {"help_text": "The maximum number of PRs returned."},
         }

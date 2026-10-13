@@ -280,11 +280,11 @@ export function ActivityFeedList({
               ))}
             </div>
           )}
-          <div ref={loadMoreRef} className="flex h-8 justify-center py-2">
-            {mentionsIncluded &&
-              taskActivity.hasNextPage &&
-              taskActivity.isFetchingNextPage && <Spinner />}
-          </div>
+          {mentionsIncluded && taskActivity.hasNextPage && (
+            <div ref={loadMoreRef} className="flex h-8 justify-center py-2">
+              {taskActivity.isFetchingNextPage && <Spinner />}
+            </div>
+          )}
         </AutocompleteList>
       </div>
     </Autocomplete>

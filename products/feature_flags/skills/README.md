@@ -38,9 +38,9 @@ So:
 - **Do not add a second skill covering the same trigger**, for example `wrapping-code-in-feature-flags`.
   Two entry points for one job means agents pick one at random and the two drift.
   A rename needs an atomic rename and migration agreed with the skills-distribution owner.
-- The same applies to the other five omnibus skills: `instrument-integration`, `instrument-product-analytics`, `instrument-error-tracking`, `instrument-llm-analytics`, and `instrument-logs`.
+- The same applies to the other six omnibus skills: `instrument-integration`, `instrument-product-analytics`, `instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, and `instrument-metrics`.
 
 Baseline trigger coverage lives in [`products/feature_flags/evals/eval_instrument_flags.py`](../evals/eval_instrument_flags.py).
 It grades the context-mill skill itself, so it needs that skill present in the sandbox and refuses to run without it — read its module docstring before running it.
 
-`hogli lint:skills` fails when any of the six omnibus names appears under `products/*/skills/`, so the rule above is enforced rather than trusted.
+`hogli lint:skills` fails when any of the seven omnibus names appears under `products/*/skills/`, so the rule above is enforced rather than trusted.

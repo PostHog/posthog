@@ -12,9 +12,9 @@ import {
     MetricsAlertConfig,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
-import { QueryBasedInsightModel, UserBasicType } from '~/types'
+import { InsightModel, UserBasicType } from '~/types'
 
-import type { AlertDeliveryApi } from './generated/api.schemas'
+import type { AlertApi, AlertDeliveryApi, AlertSimulateResponseApi } from './generated/api.schemas'
 
 export type AlertCheckDelivery = AlertDeliveryApi
 
@@ -82,7 +82,10 @@ export interface BreakdownSimulationResult {
     sub_detector_scores?: SubDetectorScores[]
 }
 
-export interface AlertSimulationResult {
+export interface AlertSimulationResult extends Pick<
+    AlertSimulateResponseApi,
+    'evaluation_delay_intervals' | 'evaluated_interval_start' | 'evaluated_interval_end' | 'evaluated_interval_timezone'
+> {
     data: number[]
     dates: string[]
     scores: (number | null)[]
@@ -108,12 +111,12 @@ export type AlertThreshold = Omit<InsightThreshold, 'bounds'> & {
     bounds?: InsightsThresholdBounds | null
 }
 
-export interface AlertTypeBase {
+export interface AlertTypeBase extends Pick<AlertApi, 'evaluation_delay_intervals'> {
     name: string
     condition: AlertCondition
     threshold: { configuration: AlertThreshold }
     enabled: boolean
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     config: AlertConfig
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
@@ -167,6 +170,8 @@ export interface AlertType extends AlertTypeBase {
     next_check_at?: string | null
     checks_total?: number
     checks?: AlertCheck[]
+    /** Whether the alert's creator can use the AI detector. Only set when a single alert was retrieved. */
+    llm_detector_available?: boolean | null
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

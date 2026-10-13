@@ -9,6 +9,7 @@ import {
     postSection,
     renderComment,
     STATUS_EMOJI,
+    updateSectionIfPresent,
     upsertSection,
 } from './update-ci-report.mjs'
 
@@ -323,6 +324,48 @@ describe('ci-report section helper', () => {
             expect(github.comments.some((comment) => parseSections(comment.body).has('bundle-size'))).toBe(true)
         })
 
+        it('posts to PR_NUMBER on a workflow_dispatch run, whose event has no pull_request', async () => {
+            const pullRequestEventPath = process.env.GITHUB_EVENT_PATH
+            const dispatchEventPath = path.join(tmpDir, 'dispatch-event.json')
+            fs.writeFileSync(dispatchEventPath, JSON.stringify({ inputs: { pr_number: '7' } }))
+            process.env.GITHUB_EVENT_PATH = dispatchEventPath
+            process.env.PR_NUMBER = '7'
+            try {
+                const github = fakeGitHub()
+                const fakeFetch = globalThis.fetch
+                const postUrls: string[] = []
+                globalThis.fetch = async (url: RequestInfo | URL, options: RequestInit = {}): Promise<Response> => {
+                    if (options.method === 'POST') {
+                        postUrls.push(String(url))
+                    }
+                    return fakeFetch(url, options)
+                }
+                await postSection({ id: 'hogbox-preview', status: 'info', summary: 'building', body: 'BOX' }, opts)
+                expect(postUrls).toEqual(['https://api.github.com/repos/PostHog/posthog/issues/7/comments'])
+                expect(parseSections(github.comments[0].body).has('hogbox-preview')).toBe(true)
+            } finally {
+                process.env.GITHUB_EVENT_PATH = pullRequestEventPath
+                delete process.env.PR_NUMBER
+            }
+        })
+
+        it.each([
+            {
+                name: 'leaves a report without the section untouched',
+                initial: [{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }],
+                expected: undefined,
+            },
+            {
+                name: 'rewrites an existing section with the given status',
+                initial: [{ id: 'hogbox-preview', status: 'ok', summary: 'ready', body: 'READY' }],
+                expected: { status: 'info', summary: 'torn down', inner: 'GONE' },
+            },
+        ])('updateSectionIfPresent $name', async ({ initial, expected }) => {
+            const github = fakeGitHub([{ body: renderComment(build(initial)) }])
+            await updateSectionIfPresent({ id: 'hogbox-preview', status: 'info', summary: 'torn down', body: 'GONE' })
+            expect(parseSections(github.comments[0].body).get('hogbox-preview')).toEqual(expected)
+        })
+
         it('removes a resolved legacy comment even when no report section exists yet', async () => {
             const github = fakeGitHub([{ body: '## Old result\nNo longer relevant' }])
             await clearSectionIfPresent(
@@ -355,13 +398,20 @@ describe('ci-report section helper', () => {
             expect(get(sections, 'eager-graph').inner).toBe('EAGER')
         })
 
-        it('merges duplicate report comments into the oldest and deletes the rest', async () => {
+        it('merges report comments from either CI identity into the oldest and deletes the rest', async () => {
             const github = fakeGitHub([
-                { body: renderComment(build([{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }])) },
-                { body: renderComment(build([{ id: 'dist-size', status: 'info', summary: 'd', body: 'DIST' }])) },
+                {
+                    body: renderComment(build([{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }])),
+                    author: 'tests-posthog[bot]',
+                },
+                {
+                    body: renderComment(build([{ id: 'dist-size', status: 'info', summary: 'd', body: 'DIST' }])),
+                    author: 'github-actions[bot]',
+                },
             ])
             await postSection({ id: 'eager-graph', status: 'warn', summary: 'e', body: 'EAGER' }, opts)
             expect(github.comments).toHaveLength(1)
+            expect(github.comments[0].author).toBe('tests-posthog[bot]')
             const sections = parseSections(github.comments[0].body)
             expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph', 'dist-size'])
         })

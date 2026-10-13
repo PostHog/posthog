@@ -238,7 +238,7 @@ def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(produce, integ
     properties = produce.call_args.args[1].properties
     assert properties["github_event"] == {"truncated": True}
     # The flat fields a trigger filters on still deliver, so the run isn't lost.
-    assert properties["repository"] == "PostHog/posthog"
+    assert properties["repository"] == "posthog/posthog"
     assert properties["event_type"] == "push"
 
 
@@ -273,7 +273,7 @@ def test_properties_carry_what_a_filter_needs(produce, integration) -> None:
     properties = produce.call_args.args[1].properties
     assert properties["event_type"] == "issues"
     assert properties["action"] == "opened"
-    assert properties["repository"] == "PostHog/posthog"
+    assert properties["repository"] == "posthog/posthog"
     assert properties["title"] == "The database is on fire"
     assert properties["github_event"] == ISSUE_EVENT
 
@@ -307,7 +307,7 @@ def test_a_kafka_failure_does_not_reach_the_webhook(produce, integration) -> Non
 def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produce, integration) -> None:
     # The facade unpacks the delivery into emit's three arguments. The delivery id only shows up
     # in the event uuid, so dropping it emits an event that looks correct and dedupes wrong.
-    (consumer,) = WEBHOOK_CONSUMERS
+    (consumer,) = [consumer for consumer in WEBHOOK_CONSUMERS if consumer.name == "workflows"]
     delivery = WebhookDelivery(
         provider="github",
         app="posthog",

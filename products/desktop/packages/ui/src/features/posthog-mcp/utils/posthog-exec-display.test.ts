@@ -29,7 +29,7 @@ describe("getPostHogExecDisplay", () => {
       expect(
         getPostHogExecDisplay({ command: "call experiment-list" }),
       ).toEqual({
-        label: "experiment-list",
+        label: "List experiment",
         input: undefined,
       });
     });
@@ -40,7 +40,7 @@ describe("getPostHogExecDisplay", () => {
           command: 'call execute-sql {"query":"SELECT 1"}',
         }),
       ).toEqual({
-        label: "execute-sql",
+        label: "Execute sql",
         input: '{"query":"SELECT 1"}',
       });
     });
@@ -51,7 +51,7 @@ describe("getPostHogExecDisplay", () => {
           command: 'call --json experiment-update {"id":1}',
         }),
       ).toEqual({
-        label: "experiment-update",
+        label: "Update experiment",
         input: '{"id":1}',
       });
     });
@@ -138,7 +138,7 @@ describe("getPostHogExecDisplay", () => {
           command: 'call execute-sql {"query":"SELECT 1"}',
           input: "SELECT 2",
         }),
-      ).toEqual({ label: "execute-sql", input: "SELECT 2" });
+      ).toEqual({ label: "Execute sql", input: "SELECT 2" });
     });
 
     it("prefers an explicit object `input` (serialised) over command-embedded args (call)", () => {
@@ -147,7 +147,7 @@ describe("getPostHogExecDisplay", () => {
           command: "call execute-sql",
           input: { query: "SELECT 1" },
         }),
-      ).toEqual({ label: "execute-sql", input: '{"query":"SELECT 1"}' });
+      ).toEqual({ label: "Execute sql", input: '{"query":"SELECT 1"}' });
     });
 
     it("folds explicit `input` into the schema dotted locator", () => {
@@ -165,7 +165,7 @@ describe("getPostHogExecDisplay", () => {
           command: 'call execute-sql {"query":"x"}',
           input: "   ",
         }),
-      ).toEqual({ label: "execute-sql", input: '{"query":"x"}' });
+      ).toEqual({ label: "Execute sql", input: '{"query":"x"}' });
     });
   });
 
@@ -196,7 +196,7 @@ describe("getPostHogExecDisplay", () => {
       });
       expect(
         getPostHogExecDisplay({ command: "  call execute-sql  " }),
-      ).toEqual({ label: "execute-sql", input: undefined });
+      ).toEqual({ label: "Execute sql", input: undefined });
     });
   });
 });
@@ -209,7 +209,7 @@ describe("mcp proxy shape (Pi harness)", () => {
         args: '{"command":"call query-trends --from=-7d"}',
       }),
     ).toEqual({
-      label: "query-trends",
+      label: "Query trends",
       input: "--from=-7d",
     });
   });

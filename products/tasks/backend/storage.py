@@ -56,10 +56,22 @@ def _append_lock(object_storage_key: str, attempts: int) -> Iterator[None]:
             logger.warning("task_log_append_lock_release_failed", object_storage_key=object_storage_key, exc_info=True)
 
 
-def append_jsonl_object(object_storage_key: str, entries: list[dict[str, Any]], *, lock_attempts: int = 1) -> bool:
+def append_jsonl_object(
+    object_storage_key: str, entries: list[dict[str, Any]], *, lock_attempts: int = 1, batch_id: str | None = None
+) -> bool:
+    """Append ``entries`` as JSON lines. Returns whether the object was created by this call.
+
+    ``batch_id`` makes the append idempotent: every entry is written with ``"batch": batch_id``,
+    and the append is skipped when the object already holds that batch. A caller that appended,
+    then failed before recording it, can retry without writing the lines twice.
+    """
     with _append_lock(object_storage_key, lock_attempts):
         existing_content = object_storage.read(object_storage_key, missing_ok=True) or ""
         is_new_object = not existing_content
+        if batch_id is not None:
+            if f'"batch": {json.dumps(batch_id)}' in existing_content:
+                return False
+            entries = [{**entry, "batch": batch_id} for entry in entries]
         new_lines = "\n".join(json.dumps(entry) for entry in entries)
         content = existing_content + ("\n" if existing_content else "") + new_lines
 

@@ -231,7 +231,7 @@ describe("LoopForm", () => {
     expect(
       await screen.findByText("This loop changed elsewhere"),
     ).toBeInTheDocument();
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true");
     expect(mocks.toastError).toHaveBeenCalledWith(
       "Loop changed elsewhere",
       expect.anything(),
@@ -309,7 +309,7 @@ describe("LoopForm", () => {
     expect(
       await screen.findByText("This loop changed elsewhere"),
     ).toBeInTheDocument();
-    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true");
   });
 
   it("keeps a workflow loop on the trigger step until it has one trigger", async () => {
@@ -319,11 +319,17 @@ describe("LoopForm", () => {
     render(<LoopForm loop={hogFlowToLoop(flow, { projectId: PROJECT_ID })} />);
 
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Next" })).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
 
     await user.click(screen.getByRole("button", { name: "Remove triggers" }));
 
-    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it.each([

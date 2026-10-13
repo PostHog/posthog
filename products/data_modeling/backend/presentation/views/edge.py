@@ -1,6 +1,8 @@
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import filters, serializers, viewsets
 from rest_framework.pagination import PageNumberPagination
 
@@ -17,8 +19,8 @@ def _connects_a_metric(edge: Edge) -> bool:
 
 
 class EdgeSerializer(serializers.ModelSerializer):
-    source_id = serializers.UUIDField(source="source.id", read_only=True)
-    target_id = serializers.UUIDField(source="target.id", read_only=True)
+    source_id = serializers.UUIDField(read_only=True, help_text="ID of the upstream node.")
+    target_id = serializers.UUIDField(read_only=True, help_text="ID of the downstream node.")
     dag_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -61,6 +63,19 @@ class EdgePagination(PageNumberPagination):
     page_size = 5000
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="dag",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Return only the edges of this DAG.",
+            )
+        ]
+    )
+)
 class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Edge.objects.select_related("dag").all()

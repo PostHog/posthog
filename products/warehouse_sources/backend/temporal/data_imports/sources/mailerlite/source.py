@@ -50,7 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -181,11 +181,11 @@ Copy the `secret` from the response into the field below. MailerLite never retur
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         endpoint_config = MAILERLITE_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint_config is not None and endpoint_config.fanout is not None:
+            # A fan-out path needs a parent id, so probe the parent list the child is reached through.
+            endpoint_config = MAILERLITE_ENDPOINTS[endpoint_config.fanout.parent_name]
         path = endpoint_config.path if endpoint_config else "/subscribers"
-        if validate_mailerlite_credentials(config.api_key, path):
-            return True, None
-
-        return False, "Invalid MailerLite API key"
+        return validate_mailerlite_credentials(config.api_key, path)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailerLiteResumeConfig]:
         return ResumableSourceManager[MailerLiteResumeConfig](inputs, MailerLiteResumeConfig)

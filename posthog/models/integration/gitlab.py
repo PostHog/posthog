@@ -1,12 +1,15 @@
 """GitLab integration."""
 
+import re
 from typing import Any
+from urllib.parse import urlencode, urlparse
 
 import requests
 
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 
 class GitLabIntegrationError(Exception):
@@ -17,11 +20,17 @@ class GitLabIntegration:
     integration: model.Integration
 
     @staticmethod
-    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
-        url = f"{hostname}/api/v4/{endpoint}"
+    def _validate_api_url(url: str) -> None:
+        if urlparse(url).scheme != "https":
+            raise GitLabIntegrationError("Invalid GitLab hostname: HTTPS is required")
         allowed, error = is_url_allowed(url)
         if not allowed:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
+    @staticmethod
+    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        GitLabIntegration._validate_api_url(url)
 
         response = requests.get(
             url,
@@ -36,9 +45,7 @@ class GitLabIntegration:
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
         url = f"{hostname}/api/v4/{endpoint}"
-        allowed, error = is_url_allowed(url)
-        if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+        GitLabIntegration._validate_api_url(url)
 
         response = requests.post(
             url,
@@ -83,23 +90,51 @@ class GitLabIntegration:
     def hostname(self) -> str:
         return common.dot_get(self.integration.config, "hostname")
 
+    def list_assignees(self, search: str = "") -> list[Assignee]:
+        """Active members of the connected project, including inherited ones, matching ``search``."""
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        params: dict[str, str | int] = {"state": "active", "per_page": MAX_ASSIGNEES}
+        if search.strip():
+            params["query"] = search.strip()
+        query = urlencode(params)
+        # This endpoint answers with a JSON array, unlike the objects `get` is typed for.
+        members: object = GitLabIntegration.get(hostname, f"projects/{project_id}/members/all?{query}", access_token)
+        if not isinstance(members, list):
+            # GitLab reports failures as an object such as {"message": "403 Forbidden"}.
+            error = members.get("message") or members.get("error") if isinstance(members, dict) else None
+            raise AssigneeLookupFailed(f"Failed to list the GitLab project's members: {error or 'unexpected response'}")
+        # The state query filter only applies on paid GitLab tiers, so filter here as well.
+        return [
+            Assignee(id=str(member["id"]), name=member.get("name") or member["username"])
+            for member in members
+            if member.get("state", "active") == "active"
+        ]
+
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
         description: str = config.pop("body")
+        assignee = config.pop("assignee", None)
 
         hostname = self.integration.config.get("hostname")
         project_id = self.integration.config.get("project_id")
         access_token = self.integration.sensitive_config.get("access_token")
 
+        payload: dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "labels": "posthog",
+        }
+        if assignee:
+            payload["assignee_ids"] = [int(assignee)]
+
         issue = GitLabIntegration.post(
             hostname,
             f"projects/{project_id}/issues",
             access_token,
-            {
-                "title": title,
-                "description": description,
-                "labels": "posthog",
-            },
+            payload,
         )
 
         return {"issue_id": issue["iid"]}
@@ -111,9 +146,7 @@ class GitLabIntegration:
         access_token = self.integration.sensitive_config.get("access_token")
 
         url = f"{hostname}/api/v4/projects/{project_id}/issues/{issue_id}"
-        allowed, error = is_url_allowed(url)
-        if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+        self._validate_api_url(url)
 
         response = requests.put(
             url,
@@ -125,16 +158,59 @@ class GitLabIntegration:
         if response.status_code != 200:
             raise GitLabIntegrationError(f"GitLabIntegration: failed to close issue: {response.text[:300]}")
 
-    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Search existing GitLab issues in the connected project for the link-existing flow."""
+    def _get_issue_by_iid(self, issue_iid: int) -> dict[str, Any] | None:
         hostname = self.integration.config.get("hostname")
         project_id = self.integration.config.get("project_id")
         access_token = self.integration.sensitive_config.get("access_token")
+        url = f"{hostname}/api/v4/projects/{project_id}/issues/{issue_iid}"
+        self._validate_api_url(url)
 
+        response = requests.get(
+            url,
+            headers={"PRIVATE-TOKEN": access_token},
+            allow_redirects=False,
+            timeout=10,
+        )
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to retrieve issue: {response.text[:300]}",
+            )
+        issue = response.json()
+        return issue if isinstance(issue, dict) else None
+
+    @staticmethod
+    def _issue_results(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for issue in issues:
+            iid = issue.get("iid")
+            if iid is None:
+                continue
+            results.append(
+                {
+                    "id": str(iid),
+                    "title": issue.get("title") or f"#{iid}",
+                    "url": issue.get("web_url") or "",
+                    # Matches the shape GitLabIntegration.create_issue stores.
+                    "external_context": {"issue_id": iid},
+                }
+            )
+        return results
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing GitLab issues in the connected project for the link-existing flow."""
+        issue_id_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
+        if issue_id_match:
+            issue = self._get_issue_by_iid(int(issue_id_match.group(1)))
+            if issue:
+                return self._issue_results([issue])
+
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
         url = f"{hostname}/api/v4/projects/{project_id}/issues"
-        allowed, error = is_url_allowed(url)
-        if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+        self._validate_api_url(url)
 
         # A blank query lists the project's recent issues instead of filtering.
         params: dict[str, str | int] = {"per_page": limit, "order_by": "updated_at"}
@@ -156,18 +232,4 @@ class GitLabIntegration:
         if not isinstance(issues, list):
             return []
 
-        results: list[dict[str, Any]] = []
-        for issue in issues:
-            iid = issue.get("iid")
-            if iid is None:
-                continue
-            results.append(
-                {
-                    "id": str(iid),
-                    "title": issue.get("title") or f"#{iid}",
-                    "url": issue.get("web_url") or "",
-                    # Matches the shape GitLabIntegration.create_issue stores.
-                    "external_context": {"issue_id": iid},
-                }
-            )
-        return results
+        return self._issue_results(issues)

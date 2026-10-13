@@ -373,10 +373,3 @@ class PlaylistCount(BaseModel):
     refreshed_at: datetime
     error_count: int
     errored_at: Optional[datetime]
-
-
-class ClickHouseResponse(BaseModel):
-    meta: list
-    data: list
-    statistics: dict
-    rows: int

@@ -10,6 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
 import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
 import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
+import { zodJitlessPlugin } from './plugins/vite-zod-jitless-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -25,6 +26,7 @@ export default defineConfig(({ mode }) => {
             publicAssetsPlugin(),
             // Copy posthog-js files from node_modules to dist for development
             posthogJsPlugin(),
+            zodJitlessPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -71,6 +73,7 @@ export default defineConfig(({ mode }) => {
                 public: resolve(__dirname, 'src/assets'),
                 // Required for production builds — @posthog/icons is in the pnpm store, not node_modules root
                 '@posthog/icons': resolve(__dirname, 'node_modules/@posthog/icons'),
+                '@posthog/quill-charts': resolve(__dirname, 'node_modules/@posthog/quill-charts'),
                 // Source-only workspace package (exports map points at src/*.ts) — Vite can't resolve
                 // it by default when imported from products/*/frontend, like the @posthog/icons case above.
                 // Alias each export explicitly, subpath first: a lone package-root alias would rewrite the
@@ -88,6 +91,7 @@ export default defineConfig(({ mode }) => {
                 '@tiptap/core': resolve(__dirname, 'node_modules/@tiptap/core'),
                 '@tiptap/react': resolve(__dirname, 'node_modules/@tiptap/react'),
                 '@tiptap/pm': resolve(__dirname, 'node_modules/@tiptap/pm'),
+                '@tiptap/extension-image': resolve(__dirname, 'node_modules/@tiptap/extension-image'),
                 '@tiptap/extension-placeholder': resolve(__dirname, 'node_modules/@tiptap/extension-placeholder'),
                 products: resolve(__dirname, '../products'),
                 '@posthog/shared-onboarding': resolve(__dirname, '../docs/onboarding'),
@@ -117,7 +121,7 @@ export default defineConfig(({ mode }) => {
         },
         worker: {
             format: 'es', // Use ES modules to support WASM imports
-            plugins: () => [react()],
+            plugins: () => [react(), zodJitlessPlugin()],
             rollupOptions: {
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
@@ -160,6 +164,10 @@ export default defineConfig(({ mode }) => {
             // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
             // art silently 404s in dev serve (production builds are unaffected).
             exclude: ['snappy-wasm', '@posthog/brand'],
+            // Pre-bundled deps skip the main plugin list, and zod is pre-bundled.
+            rolldownOptions: {
+                plugins: [zodJitlessPlugin()],
+            },
         },
     }
 })

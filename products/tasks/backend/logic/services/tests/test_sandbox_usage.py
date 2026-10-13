@@ -227,6 +227,33 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert props["prewarmed"] is False
         assert props["origin_product"] == Task.OriginProduct.USER_CREATED
 
+    @parameterized.expand(
+        [
+            ("modal", None, 21600.0, 583200.0),
+            ("hogland", "hogland", 604800.0, 0.0),
+        ]
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_close_clamps_late_stamp_to_provider_kill_deadline(
+        self, _name, sandbox_backend, expected_seconds, expected_lag, mock_capture
+    ):
+        opened_at = datetime(2026, 9, 14, 4, tzinfo=UTC)
+        run = self._run(state={"sandbox_backend": sandbox_backend} if sandbox_backend else None)
+
+        with time_machine.travel(opened_at, tick=False):
+            open_sandbox_session(run_id=run.id, sandbox_id="sb-stale", config=_config())
+            record_task_run_user_activity(run.id, self.team.id)
+
+        with time_machine.travel(opened_at + timedelta(days=7), tick=False):
+            close_sandbox_session("sb-stale", reason=SandboxSession.EndedReason.CLEANUP)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
+        props = captured[0].kwargs["properties"]
+        assert props["attributed_seconds"] == expected_seconds
+        assert props["runtime_seconds"] == expected_seconds
+        assert props["idle_seconds"] == expected_seconds
+        assert props["close_stamp_lag_seconds"] == expected_lag
+
     def test_close_records_provider_cpu_usage(self):
         run = self._run()
         open_sandbox_session(run_id=run.id, sandbox_id="sb-usage", config=_config(vm_runtime=True))
@@ -365,17 +392,18 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             memory_gib_second_usd=memory_gib_second_usd,
         )
 
-    def test_billable_compute_requires_trusted_desktop_user_created_snapshot(self):
-        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+    def test_billable_compute_requires_trusted_first_party_client_user_created_snapshot(self):
+        for provenance in TaskClientProvenance:
+            self._session(client_provenance=provenance)
         for origin in (Task.OriginProduct.SLACK, Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.LOOP, None):
             self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP, origin_product=origin)
         self._session(client_provenance=None)
 
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
-        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
-        assert usage.memory_mib_seconds == [(self.team.id, 58_982_400)]
-        assert usage.credits == [(self.team.id, 2016)]
+        assert usage.cpu_millicore_seconds == [(self.team.id, 43_200_000)]
+        assert usage.memory_mib_seconds == [(self.team.id, 176_947_200)]
+        assert usage.credits == [(self.team.id, 6048)]
 
     def test_billable_compute_includes_user_loops_and_excludes_internal_loops(self):
         self._loop_session(internal=False)

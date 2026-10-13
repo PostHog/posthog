@@ -507,6 +507,39 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
+        it('reads the person fresh at dequeue when a matched event woke the wait', async () => {
+            const event = { distinct_id: 'distinct_A_1', properties: {} } as any
+            await processor.processInvocations([createSerializedHogFlowInvocation(hogFlows[2], { event })])
+
+            const personRepository = processor['personsManager'][
+                'personRepository'
+            ] as jest.Mocked<PersonReadRepository>
+            personRepository.fetchPersonsByDistinctIds.mockResolvedValueOnce([
+                {
+                    ...toInternalPerson({
+                        id: '1',
+                        uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                        teamId: team.id,
+                        distinctId: 'distinct_A_1',
+                        properties: { name: 'Person A 1', email: 'woke-the-wait@posthog.com' },
+                    }),
+                    distinct_id: 'distinct_A_1',
+                },
+            ])
+
+            const results = (await processor.processInvocations([
+                createSerializedHogFlowInvocation(hogFlows[2], {
+                    event,
+                    currentAction: { id: 'wait', startedAtTimestamp: Date.now(), eventMatched: true },
+                }),
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results[0].invocation.person?.properties).toEqual({
+                name: 'Person A 1',
+                email: 'woke-the-wait@posthog.com',
+            })
+        })
+
         it('keeps the cached read at dequeue when the flow has no push step', async () => {
             const getPerson = jest.spyOn(processor['personsManager'], 'getCyclotronPerson')
 

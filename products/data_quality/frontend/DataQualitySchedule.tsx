@@ -26,8 +26,9 @@ function NextRunTime({ nextRunAt }: { nextRunAt: string }): JSX.Element {
 }
 
 export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.Element {
-    const { schedule, scheduleLoading, scheduleError } = useValues(dataQualityScheduleLogic(props))
-    const { loadSchedule, updateSchedule } = useActions(dataQualityScheduleLogic(props))
+    const logic = dataQualityScheduleLogic(props)
+    const { schedule, scheduleLoading, scheduleError } = useValues(logic)
+    const { loadSchedule, updateSchedule } = useActions(logic)
 
     if (!schedule) {
         return scheduleError ? (

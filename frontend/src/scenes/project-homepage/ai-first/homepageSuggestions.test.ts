@@ -1,7 +1,9 @@
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
-import { SUGGESTIONS_LIMIT, buildSuggestionItems } from './homepageSuggestions'
+import type { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+
+import { ResumableChat, SUGGESTIONS_LIMIT, buildSuggestionItems, pickLastChat } from './homepageSuggestions'
 
 const conversation: Conversation = {
     id: 'conv-1',
@@ -13,7 +15,34 @@ const conversation: Conversation = {
     updated_at: '2026-01-01T00:00:00Z',
 }
 
-describe('buildSuggestionItems', () => {
+const webTask = {
+    id: 'task-1',
+    slug: 'TASK-1',
+    title: 'Find semantic layer users',
+    origin_product: 'posthog_ai',
+    updated_at: '2025-12-01T00:00:00Z',
+    last_activity_at: '2026-02-01T00:00:00Z',
+} as TaskListItemApi
+
+describe('homepageSuggestions', () => {
+    it.each<[string, Conversation[], TaskListItemApi | null, Pick<ResumableChat, 'kind' | 'id'> | null]>([
+        // The task row's `updated_at` predates the conversation, so only `last_activity_at` shows it is newer
+        ['a task active after the conversation', [conversation], webTask, { kind: 'task', id: 'task-1' }],
+        [
+            'a conversation updated after the task',
+            [{ ...conversation, updated_at: '2026-03-01T00:00:00Z' }],
+            webTask,
+            { kind: 'conversation', id: 'conv-1' },
+        ],
+        ['only a task', [], webTask, { kind: 'task', id: 'task-1' }],
+        ['a conversation without a title', [{ ...conversation, title: null }], null, null],
+        ['a tool-call conversation', [{ ...conversation, type: ConversationType.ToolCall }], null, null],
+    ])('picks the last chat from %s', (_case, conversationHistory, latestWebTask, expected) => {
+        const lastChat = pickLastChat(conversationHistory, latestWebTask)
+
+        expect(lastChat === null ? null : { kind: lastChat.kind, id: lastChat.id }).toEqual(expected)
+    })
+
     it('orders continue, recents-derived prompts, then static fill', () => {
         const recents: FileSystemEntry[] = [
             { id: '1', path: 'Marketing dashboard', type: 'dashboard' },
@@ -24,7 +53,10 @@ describe('buildSuggestionItems', () => {
             { id: '4', path: 'Scratch notebook', type: 'notebook' },
         ]
 
-        const items = buildSuggestionItems(conversation, recents)
+        const items = buildSuggestionItems(
+            { kind: 'conversation', id: 'conv-1', title: 'Retention dip investigation' },
+            recents
+        )
 
         expect(items).toHaveLength(SUGGESTIONS_LIMIT)
         expect(items[0]).toMatchObject({ kind: 'suggestion', source: 'continue', conversationId: 'conv-1' })
@@ -44,11 +76,5 @@ describe('buildSuggestionItems', () => {
         // A fill-in topic suggestion has no complete prompt, so every emitted item must carry one
         expect(items.every((item) => item.source === 'static' && !!item.prompt)).toBe(true)
         expect(new Set(items.map((item) => item.id)).size).toBe(items.length)
-    })
-
-    it('skips a conversation without a title', () => {
-        const items = buildSuggestionItems({ ...conversation, title: null }, [])
-
-        expect(items.every((item) => item.source === 'static')).toBe(true)
     })
 })

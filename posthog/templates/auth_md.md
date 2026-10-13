@@ -14,7 +14,7 @@ PostHog is an open-source platform for product analytics, session replay, featur
 
 ## Agent registration via ID-JAG (Enterprise, beta)
 
-Available on the Enterprise plan with XAA enabled, and currently in beta, so most clients should use one of the options above. With it configured, an agent presents an [ID-JAG](https://xaa.dev) identity assertion (`identity_assertion`) to the token endpoint using the JWT-bearer grant (`urn:ietf:params:oauth:grant-type:jwt-bearer`) and receives a scoped, short-lived OAuth access token bound to the user. See https://posthog.com/docs/settings/id-jag
+Available on the Enterprise plan with XAA enabled, and currently in beta, so most clients should use one of the options above. With it configured, an agent presents an [ID-JAG](https://xaa.dev) identity assertion (`identity_assertion`) to the token endpoint using the JWT-bearer grant (`urn:ietf:params:oauth:grant-type:jwt-bearer`) and receives a scoped, short-lived OAuth access token bound to the user. The agent must also authenticate as a registered client, with a client secret or `private_key_jwt`, and the ID-JAG's `client_id` must name that client. See https://posthog.com/docs/settings/id-jag
 
 - Identity endpoint: `{{ base_url }}/oauth/token/`
 - Assertion type: `urn:ietf:params:oauth:token-type:id-jag`

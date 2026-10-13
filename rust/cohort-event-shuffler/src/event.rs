@@ -1,9 +1,10 @@
 //! The `cohort_stream_events` envelope and the canonical re-key derivation.
 //!
 //! Forwards only the fields the downstream bytecode evaluation needs; group properties,
-//! `person_mode`, `created_at`, `project_id` and similar are intentionally dropped.
+//! `created_at`, `project_id` and similar are intentionally dropped. `person_mode` is consumed, not
+//! forwarded: it decides whether `person_properties` is the person's properties or a placeholder.
 
-use common_types::ClickHouseEvent;
+use common_types::{ClickHouseEvent, PersonMode};
 use serde::{Deserialize, Serialize};
 
 /// Single source of truth for the re-key string. Every producer targeting a topic co-partitioned
@@ -32,9 +33,23 @@ pub struct CohortStreamEvent {
     pub source_partition: i32,
 }
 
+/// The label of a `person_mode` under which ingestion processed the event without a person profile.
+/// Such an event carries the real `person_id` but `{}` as `person_properties`, and the processor
+/// cannot tell that placeholder from a person who has no properties. `None` for `full`, the only
+/// mode under which ingestion attaches the person's properties to the event.
+pub(crate) fn personless_mode(mode: PersonMode) -> Option<&'static str> {
+    match mode {
+        PersonMode::Full => None,
+        PersonMode::Propertyless => Some("propertyless"),
+        PersonMode::ForceUpgrade => Some("force_upgrade"),
+    }
+}
+
 impl CohortStreamEvent {
     /// Moves every owned field out of `event` rather than cloning; `person_id` is extracted
-    /// upstream and passed in separately.
+    /// upstream and passed in separately. A personless event forwards `person_properties` as null,
+    /// so the processor leaves the person's record alone and still counts the event for behavioral
+    /// conditions.
     pub fn from_clickhouse(
         event: ClickHouseEvent,
         person_id: String,
@@ -49,7 +64,9 @@ impl CohortStreamEvent {
             event: event.event,
             timestamp: event.timestamp,
             properties: event.properties,
-            person_properties: event.person_properties,
+            person_properties: event
+                .person_properties
+                .filter(|_| personless_mode(event.person_mode).is_none()),
             elements_chain: event.elements_chain,
             source_offset,
             source_partition,
@@ -63,7 +80,6 @@ impl CohortStreamEvent {
 
 #[cfg(test)]
 pub(crate) fn sample_clickhouse_event(team_id: i32, person_id: Option<&str>) -> ClickHouseEvent {
-    use common_types::PersonMode;
     use uuid::Uuid;
 
     ClickHouseEvent {
@@ -158,6 +174,35 @@ mod tests {
         assert!(envelope.properties.is_none());
         assert!(envelope.person_properties.is_none());
         assert!(envelope.elements_chain.is_none());
+    }
+
+    #[test]
+    fn from_clickhouse_forwards_a_person_payload_only_for_a_full_event() {
+        let envelope = |person_mode| {
+            let event = ClickHouseEvent {
+                person_mode,
+                person_properties: Some("{}".to_string()),
+                ..sample_event(2, Some("p"))
+            };
+            CohortStreamEvent::from_clickhouse(event, "p".to_string(), 0, 0)
+        };
+
+        let full = envelope(PersonMode::Full);
+        assert_eq!(
+            full.person_properties.as_deref(),
+            Some("{}"),
+            "a full event with no person properties still describes the person"
+        );
+        for mode in [PersonMode::Propertyless, PersonMode::ForceUpgrade] {
+            assert_eq!(
+                envelope(mode),
+                CohortStreamEvent {
+                    person_properties: None,
+                    ..full.clone()
+                },
+                "a {mode:?} event drops only its person payload"
+            );
+        }
     }
 
     #[test]

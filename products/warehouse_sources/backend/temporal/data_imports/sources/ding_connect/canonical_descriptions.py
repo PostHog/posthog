@@ -30,6 +30,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "CurrencyName": "English currency name.",
         },
     },
+    "Regions": {
+        "description": "A region within a country. A provider may only service a subset of a country's regions, and a product may only be valid for a subset.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "RegionCode": "The region code.",
+            "RegionName": "The region name.",
+            "CountryIso": "The country ISO code of the region.",
+        },
+    },
     "Providers": {
         "description": "A mobile operator or biller whose products can be sold through DingConnect.",
         "docs_url": _DOCS_URL,
@@ -41,6 +50,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ValidationRegex": "Account numbers must match this regular expression.",
             "CustomerCareNumber": "Customer care number of the provider.",
             "RegionCodes": "Regions supported by the provider within the country.",
+        },
+    },
+    "ProviderStatus": {
+        "description": "Whether each provider can currently accept transfers. Providers can be suspended or in an error state.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "ProviderCode": "The unique provider code.",
+            "IsProcessingTransfers": "Indicates if the provider is processing transfers.",
+            "Message": "Details of operator status. Unformatted, non-localized text aimed at the distributor rather than the end customer.",
         },
     },
     "Products": {
@@ -59,6 +77,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Benefits": "The benefit type the transfer grants the target account.",
             "ValidityPeriodIso": "How long the product is valid for after purchase (ISO 8601 duration).",
             "RegionCode": "Region for this product.",
+        },
+    },
+    "ProductDescriptions": {
+        "description": "Localized long-form product text, keyed by the LocalizationKey carried on each product. Large blocks of text are CommonMark.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "DisplayText": "A short description of the product.",
+            "DescriptionMarkdown": "A longer description of the product.",
+            "ReadMoreMarkdown": "More detailed information about the product.",
+            "LocalizationKey": "The key that links the description back to a product.",
+            "LanguageCode": "The language this description is written in. English (en) is always present.",
         },
     },
     "Promotions": {
@@ -80,6 +109,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "Balance": "The distributor's balance.",
             "CurrencyIso": "ISO 4217 currency code of the balance.",
+        },
+    },
+    "ErrorCodeDescriptions": {
+        "description": "Human readable descriptions for the error codes returned in the ErrorCodes array of an API response. Aimed at the distributor rather than the end customer.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Code": "The identifying error code that was returned in the response.",
+            "Message": "Error description.",
         },
     },
     "TransferRecords": {

@@ -31,13 +31,13 @@ export class SkillsUnavailableError extends Error {
 
 const SKILL_COMMANDS = [
     'learn skills',
-    'learn -s <query>',
+    'learn -s "<up to 8 keywords>"',
     'learn -d <source>:<skill> [...]',
     'learn posthog:<skill> [path]',
     'learn project:<skill> [path]',
     'learn <source>:<skill> <path> [path...]',
     'learn <source>:<skill> [<source>:<skill>...]',
-    'learn <source>:<skill> <path> -s <query>',
+    'learn <source>:<skill> <path> -s "<up to 8 keywords>"',
     'learn <source>:<skill> <path> --lines <start>:<end>',
 ] as const
 const MAX_SEARCH_QUERY_LENGTH = 200

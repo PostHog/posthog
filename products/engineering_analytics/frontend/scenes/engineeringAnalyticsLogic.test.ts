@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -345,8 +347,6 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('scopes workflow health to the shared run group', async () => {
-        // The scope lives in the shared filters logic so it carries into the workflow detail page; the
-        // Workflows tab reads it and reloads workflow health whenever the group changes.
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
@@ -359,7 +359,6 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', run_scope: 'pull_request' })
 
-        // The group persists across a window change.
         filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', run_scope: 'pull_request' })
@@ -465,7 +464,11 @@ describe('engineeringAnalyticsLogic', () => {
 
     it.each([
         ['workflows', () => urls.engineeringAnalyticsWorkflows()],
-        ['test health', () => urls.engineeringAnalyticsTestHealth()],
+        ['tests', () => urls.engineeringAnalyticsTests()],
+        ['teams', () => urls.engineeringAnalyticsTeams()],
+        ['authors', () => urls.engineeringAnalyticsAuthors()],
+        ['team detail', () => urls.engineeringAnalyticsTeam('team-replay')],
+        ['deploys', () => urls.engineeringAnalyticsDeploys()],
     ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -474,6 +477,96 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
         expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
+    })
+
+    it('requests the hub once on a scoped direct load', async () => {
+        router.actions.push(urls.engineeringAnalyticsTeam('team-replay'), { source: 'src-newer' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer' })
+    })
+
+    const openPullRequestList = async (
+        searchParams: Record<string, string>,
+        sources: GitHubSourceApi[] = SOURCES
+    ): Promise<jest.SpyInstance> => {
+        mockSources.mockResolvedValue(sources)
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(), searchParams)
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        return jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+    }
+    const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
+        capture.mock.calls
+            .filter(([event]) => event === 'pull request jump submitted')
+            .map(([, properties]) => properties)
+    const routedPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
+
+    const PICKED = { source: 'src-older', repo: 'posthog/posthog', date_from: '-30d' }
+
+    it.each<[string, Record<string, string>, string, string, Record<string, string>, string]>([
+        [
+            'a link to the repository in scope with no source when none is picked',
+            {},
+            'https://github.com/PostHog/posthog/pull/42',
+            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
+            {},
+            'link',
+        ],
+        [
+            'a link to another repository without the source and repo of this one',
+            PICKED,
+            'https://github.com/PostHog/posthog.com/pull/42/files',
+            urls.engineeringAnalyticsCIExplorer('PostHog', 'posthog.com', 42),
+            { date_from: '-30d' },
+            'link',
+        ],
+        [
+            'a bare number in the picked repository',
+            PICKED,
+            '#42',
+            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
+            PICKED,
+            'number',
+        ],
+    ])('the pull request jump opens %s once', async (_label, opened, text, pathname, searchParams, inputKind) => {
+        const capture = await openPullRequestList(opened)
+
+        logic.actions.setPullRequestJumpText(text)
+        logic.actions.submitPullRequestJump()
+        logic.actions.submitPullRequestJump()
+
+        expect(routedPath()).toBe(pathname)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(jumpEvents(capture)).toEqual([{ outcome: 'opened', input_kind: inputKind }])
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+    })
+
+    it('the pull request jump says why it cannot open, until the cause is fixed', async () => {
+        const capture = await openPullRequestList({}, [{ ...SOURCES[0], repo: '' }])
+
+        logic.actions.setPullRequestJumpText('not a pr')
+        logic.actions.submitPullRequestJump()
+        expect(logic.values.pullRequestJumpFailure).toBe('invalid')
+
+        logic.actions.setPullRequestJumpText('42')
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+        logic.actions.submitPullRequestJump()
+        expect(logic.values.pullRequestJumpFailure).toBe('needs_repository')
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
+        expect(jumpEvents(capture)).toEqual([
+            { outcome: 'invalid', input_kind: null },
+            { outcome: 'needs_repository', input_kind: 'number' },
+        ])
+
+        logic.actions.setPullRequestJumpText('PostHog/posthog#42')
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+        logic.actions.submitPullRequestJump()
+        expect(routedPath()).toBe(urls.engineeringAnalyticsCIExplorer('PostHog', 'posthog', 42))
     })
 
     it.each([
@@ -722,16 +815,17 @@ describe('engineeringAnalyticsLogic', () => {
         ])
     })
 
-    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
-        silenceKeaLoadersErrors() // the loader failure is the scenario under test
-        mockQuarantine.mockRejectedValue(
-            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
-        )
+    it.each([
+        [400, 'notConnected'],
+        [500, 'error'],
+    ])('maps a quarantine %i response to %s', async (statusCode, expectedStatus) => {
+        silenceKeaLoadersErrors()
+        mockTrunkQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
 
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineFailure'])
 
-        expect(logic.values.quarantineLoadFailed).toBe(true)
+        expect(logic.values.trunkQuarantineStatus).toBe(expectedStatus)
     })
 })

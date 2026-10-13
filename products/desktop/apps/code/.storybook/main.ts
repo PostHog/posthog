@@ -83,35 +83,35 @@ const config: StorybookConfig = {
             find: "@posthog/agent/adapters/claude/permissions/permission-options",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/adapters/claude/permissions/permission-options.js",
+              "../../../../../packages/agent/packages/agent/dist/adapters/claude/permissions/permission-options.js",
             ),
           },
           {
             find: "@posthog/agent/adapters/claude/conversion/tool-use-to-acp",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/adapters/claude/conversion/tool-use-to-acp.js",
+              "../../../../../packages/agent/packages/agent/dist/adapters/claude/conversion/tool-use-to-acp.js",
             ),
           },
           {
             find: "@posthog/agent/adapters/claude/questions/utils",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/adapters/claude/questions/utils.js",
+              "../../../../../packages/agent/packages/agent/dist/adapters/claude/questions/utils.js",
             ),
           },
           {
             find: "@posthog/agent/adapters/reasoning-effort",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/adapters/reasoning-effort.js",
+              "../../../../../packages/agent/packages/agent/dist/adapters/reasoning-effort.js",
             ),
           },
           {
             find: "@posthog/agent/gateway-models",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/gateway-models.js",
+              "../../../../../packages/agent/packages/agent/dist/gateway-models.js",
             ),
           },
           {

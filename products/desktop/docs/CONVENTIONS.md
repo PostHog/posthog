@@ -138,6 +138,13 @@ Barrel files hide dependency edges, increase circular import risk, and make refa
 
 ## Styling
 
+The cloud GitHub setup dialog separates its introduction from its actions.
+Use full-width primary and dismiss buttons, followed by a muted permissions caption with an inline, underlined Details link.
+Keep the action order: Connect GitHub, Not now, Details.
+The caption must cover repository writes, read access to email addresses and organization membership, and authorization to act as the user.
+Do not imply that writes are limited to pull requests or that every connection requires a new repository selection.
+Existing installations can use the personal OAuth flow without the repository picker.
+
 Use Tailwind first. The project uses Tailwind v4 with Radix CSS variables. Those *variables* are fine and stay; Radix *components* are banned (see [UI Components](../AGENTS.md#ui-components)).
 
 Examples:

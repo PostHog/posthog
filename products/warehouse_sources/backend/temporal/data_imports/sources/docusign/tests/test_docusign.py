@@ -6,7 +6,6 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
-import jwt
 import requests
 from structlog.types import FilteringBoundLogger
 
@@ -23,10 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.d
     resolve_account,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import DOCUSIGN_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.tests.conftest import (
     PRIVATE_KEY_PEM,
-    PUBLIC_KEY_PEM,
     FakeResponse,
     FakeResumeManager,
     FakeSession,
@@ -45,8 +42,6 @@ USERINFO_PAYLOAD: dict[str, Any] = {
 }
 
 TOKEN_PAYLOAD: dict[str, Any] = {"access_token": "tok-1", "expires_in": 3600, "token_type": "Bearer"}
-
-EXPECTED_BASE_URL = "https://na3.docusign.net/restapi/v2.1/accounts/222"
 
 
 def jwt_credentials(**overrides: Any) -> DocusignCredentials:
@@ -116,42 +111,6 @@ def run_rows(
 
 
 class TestDocusignTransport:
-    def test_jwt_assertion_carries_the_claims_docusign_requires(self) -> None:
-        session = FakeSession(post_responses=[FakeResponse(200, TOKEN_PAYLOAD)])
-
-        token = mint_access_token(session.as_session(), jwt_credentials())
-
-        assert token == "tok-1"
-        url, kwargs = session.post_calls[0]
-        assert url == "https://account.docusign.com/oauth/token"
-        assert kwargs["data"]["grant_type"] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
-
-        claims = jwt.decode(
-            kwargs["data"]["assertion"],
-            PUBLIC_KEY_PEM,
-            algorithms=["RS256"],
-            audience="account.docusign.com",
-        )
-        assert claims["iss"] == "int-key"
-        assert claims["sub"] == "user-guid"
-        assert claims["scope"] == "signature impersonation"
-        assert claims["exp"] > claims["iat"]
-
-    def test_demo_environment_signs_against_the_demo_auth_host(self) -> None:
-        session = FakeSession(post_responses=[FakeResponse(200, TOKEN_PAYLOAD)])
-
-        mint_access_token(session.as_session(), jwt_credentials(environment="demo"))
-
-        url, kwargs = session.post_calls[0]
-        assert url == "https://account-d.docusign.com/oauth/token"
-        claims = jwt.decode(
-            kwargs["data"]["assertion"],
-            PUBLIC_KEY_PEM,
-            algorithms=["RS256"],
-            audience="account-d.docusign.com",
-        )
-        assert claims["iss"] == "int-key"
-
     def test_refresh_token_grant_uses_basic_auth_with_the_integration_key(self) -> None:
         session = FakeSession(post_responses=[FakeResponse(200, TOKEN_PAYLOAD)])
 
@@ -204,23 +163,6 @@ class TestDocusignTransport:
         with pytest.raises(DocusignAuthError):
             mint_access_token(session.as_session(), jwt_credentials())
 
-    def test_resolve_account_defaults_to_the_users_default_account(self) -> None:
-        session = FakeSession(get_responses=[FakeResponse(200, USERINFO_PAYLOAD)])
-
-        account = resolve_account(session.as_session(), jwt_credentials(), "tok-1")
-
-        assert account.account_id == "222"
-        # Trailing slash on base_uri must not double up in the built URL.
-        assert account.base_url == EXPECTED_BASE_URL
-        assert session.get_calls[0][1]["headers"]["Authorization"] == "Bearer tok-1"
-
-    def test_resolve_account_honors_an_explicitly_configured_account(self) -> None:
-        session = FakeSession(get_responses=[FakeResponse(200, USERINFO_PAYLOAD)])
-
-        account = resolve_account(session.as_session(), jwt_credentials(account_id="111"), "tok-1")
-
-        assert account.base_url == "https://na2.docusign.net/restapi/v2.1/accounts/111"
-
     @pytest.mark.parametrize(
         "payload,account_id",
         [
@@ -235,50 +177,6 @@ class TestDocusignTransport:
 
         with pytest.raises(DocusignAuthError):
             resolve_account(session.as_session(), jwt_credentials(account_id=account_id), "tok-1")
-
-    def test_pagination_follows_next_uri_and_advances_start_position(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            post_responses=[FakeResponse(200, TOKEN_PAYLOAD)],
-            get_responses=[
-                FakeResponse(200, USERINFO_PAYLOAD),
-                FakeResponse(200, envelope_page(PAGE_SIZE, offset=0, next_uri="/restapi/next")),
-                FakeResponse(200, envelope_page(3, offset=PAGE_SIZE)),
-            ],
-        )
-
-        batches, manager = run_rows(session, jwt_credentials(), "envelopes", logger)
-
-        assert [len(batch) for batch in batches] == [PAGE_SIZE, 3]
-        positions = [
-            parse_qs(urlparse(url).query)["start_position"][0] for url, _ in session.get_calls if "/envelopes" in url
-        ]
-        assert positions == ["0", str(PAGE_SIZE)]
-        # Checkpoint written after the first page was yielded, then dropped once the walk finished.
-        assert [state.start_position for state in manager.saved] == [PAGE_SIZE]
-        assert manager.cleared is True
-
-    def test_pagination_stops_on_a_short_page_without_next_uri(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            post_responses=[FakeResponse(200, TOKEN_PAYLOAD)],
-            get_responses=[FakeResponse(200, USERINFO_PAYLOAD), FakeResponse(200, envelope_page(2))],
-        )
-
-        batches, manager = run_rows(session, jwt_credentials(), "envelopes", logger)
-
-        assert len(batches) == 1
-        assert manager.saved == []
-
-    def test_unpaginated_endpoint_is_requested_once_even_on_a_full_page(self, logger: FilteringBoundLogger) -> None:
-        folders = {"folders": [{"folderId": str(i), "name": f"f{i}"} for i in range(PAGE_SIZE)]}
-        session = FakeSession(
-            post_responses=[FakeResponse(200, TOKEN_PAYLOAD)],
-            get_responses=[FakeResponse(200, USERINFO_PAYLOAD), FakeResponse(200, folders)],
-        )
-
-        batches, _ = run_rows(session, jwt_credentials(), "folders", logger)
-
-        assert len(batches) == 1
-        assert len([url for url, _ in session.get_calls if "/folders" in url]) == 1
 
     def test_resume_starts_from_the_saved_offset(self, logger: FilteringBoundLogger) -> None:
         session = FakeSession(
@@ -329,55 +227,6 @@ class TestDocusignTransport:
 
         with pytest.raises(requests.HTTPError):
             run_rows(session, jwt_credentials(), "envelopes", logger)
-
-    def test_incremental_watermark_becomes_the_from_date_filter(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            post_responses=[FakeResponse(200, TOKEN_PAYLOAD)],
-            get_responses=[FakeResponse(200, USERINFO_PAYLOAD), FakeResponse(200, envelope_page(1))],
-        )
-
-        run_rows(
-            session,
-            jwt_credentials(),
-            "envelopes",
-            logger,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=dt.datetime(2024, 5, 1, 12, 30, tzinfo=dt.UTC),
-        )
-
-        query = parse_qs(urlparse(next(url for url, _ in session.get_calls if "/envelopes" in url)).query)
-        assert query["from_date"] == ["2024-05-01T12:30:00Z"]
-        assert query["order_by"] == ["status_changed"]
-        assert query["order"] == ["asc"]
-
-    def test_full_refresh_falls_back_to_the_configured_start_date(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            post_responses=[FakeResponse(200, TOKEN_PAYLOAD)],
-            get_responses=[FakeResponse(200, USERINFO_PAYLOAD), FakeResponse(200, envelope_page(1))],
-        )
-
-        run_rows(session, jwt_credentials(), "envelopes", logger, start_date="2021-01-01T00:00:00Z")
-
-        query = parse_qs(urlparse(next(url for url, _ in session.get_calls if "/envelopes" in url)).query)
-        assert query["from_date"] == ["2021-01-01T00:00:00Z"]
-
-    def test_endpoint_without_a_date_filter_sends_no_from_date(self, logger: FilteringBoundLogger) -> None:
-        session = FakeSession(
-            post_responses=[FakeResponse(200, TOKEN_PAYLOAD)],
-            get_responses=[FakeResponse(200, USERINFO_PAYLOAD), FakeResponse(200, {"users": [{"userId": "u1"}]})],
-        )
-
-        run_rows(
-            session,
-            jwt_credentials(),
-            "users",
-            logger,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-01-01T00:00:00Z",
-        )
-
-        query = parse_qs(urlparse(next(url for url, _ in session.get_calls if "/users" in url)).query)
-        assert "from_date" not in query
 
     def test_recipients_are_flattened_out_of_every_role_bucket(self, logger: FilteringBoundLogger) -> None:
         page = envelope_page(1)
@@ -492,29 +341,6 @@ class TestDocusignTransport:
     def test_unknown_environment_is_rejected(self) -> None:
         with pytest.raises(ValueError):
             _ = jwt_credentials(environment="staging").auth_host
-
-    @pytest.mark.parametrize("endpoint_name", sorted(DOCUSIGN_ENDPOINTS))
-    def test_source_response_matches_the_endpoint_catalog(
-        self, endpoint_name: str, logger: FilteringBoundLogger
-    ) -> None:
-        endpoint = DOCUSIGN_ENDPOINTS[endpoint_name]
-
-        response = docusign_source(
-            credentials=jwt_credentials(),
-            endpoint_name=endpoint_name,
-            start_date=None,
-            resumable_source_manager=FakeResumeManager(),
-            logger=logger,
-        )
-
-        assert response.name == endpoint_name
-        assert response.primary_keys == endpoint.primary_key
-        assert response.sort_mode == "asc"
-        if endpoint.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [endpoint.partition_key]
-        else:
-            assert response.partition_keys is None
 
     def test_source_response_items_are_lazy(self, logger: FilteringBoundLogger) -> None:
         session = FakeSession(

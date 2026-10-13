@@ -25,7 +25,12 @@ const meta: Meta<typeof ModelHealthSummary> = {
         downstreamCount: 3,
         metadata: <ModelMetadata createdAt="2026-01-10T10:00:00Z" />,
     },
-    parameters: { testOptions: { snapshotBrowsers: ['chromium'] } },
+    parameters: {
+        // The card reads every date through TZLabel, which renders it relative to now, so the
+        // snapshot changes on its own once the real clock moves past the fixtures.
+        mockDate: '2026-09-12T10:42:00Z',
+        testOptions: { snapshotBrowsers: ['chromium'] },
+    },
 }
 export default meta
 

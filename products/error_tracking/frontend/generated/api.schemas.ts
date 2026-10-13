@@ -631,22 +631,13 @@ export interface PatchedErrorTrackingAssignmentRuleUpdateRequestApi {
 }
 
 /**
- * @nullable
+ * Mapping from assignment rule UUID to its new evaluation order.
  */
-export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
-    readonly type?: 'user' | 'role'
-    readonly id?: number | string
-} | null
+export type PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders = { [key: string]: number }
 
-export interface PatchedErrorTrackingAssignmentRuleApi {
-    readonly id?: string
-    filters?: unknown
-    /** @nullable */
-    readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
-    order_key?: number
-    disabled_data?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
+export interface PatchedErrorTrackingAssignmentRuleReorderRequestApi {
+    /** Mapping from assignment rule UUID to its new evaluation order. */
+    orders?: PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingBypassRuleApi {
@@ -688,19 +679,14 @@ export interface PatchedErrorTrackingBypassRuleUpdateRequestApi {
     filters?: PropertyGroupFilterValueApi
 }
 
-export interface PatchedErrorTrackingBypassRuleApi {
-    /** Unique identifier of the bypass rule. */
-    readonly id?: string
-    /** Property-group filters that define which incoming error events bypass rate limiting. */
-    filters?: unknown
-    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
-    order_key?: number
-    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
-    disabled_data?: unknown
-    /** When the rule was created. */
-    readonly created_at?: string
-    /** When the rule was last updated. */
-    readonly updated_at?: string
+/**
+ * Mapping from bypass rule UUID to its new evaluation order.
+ */
+export type PatchedErrorTrackingBypassRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingBypassRuleReorderRequestApi {
+    /** Mapping from bypass rule UUID to its new evaluation order. */
+    orders?: PatchedErrorTrackingBypassRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingExternalReferenceIntegrationResultApi {
@@ -722,6 +708,10 @@ export interface ErrorTrackingExternalReferenceResultApi {
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
     /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
+    /** Provider-native identifier of the linked issue. */
+    readonly external_id: string
+    /** Title of the linked issue. */
+    readonly title: string
 }
 
 export interface PaginatedErrorTrackingExternalReferenceResultListApi {
@@ -734,7 +724,7 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 }
 
 /**
- * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.
  */
 export type ErrorTrackingExternalReferenceCreateApiConfig = { [key: string]: string }
 
@@ -748,16 +738,20 @@ export interface ErrorTrackingExternalReferenceCreateApi {
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
     /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
+    /** Provider-native identifier of the linked issue. */
+    readonly external_id: string
+    /** Title of the linked issue. */
+    readonly title: string
     /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
     integration_id: number
-    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
     config: ErrorTrackingExternalReferenceCreateApiConfig
     /** ID of the error tracking issue to link the reference to. */
     issue: string
 }
 
 /**
- * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
  */
 export type ErrorTrackingExternalReferenceLinkApiExternalContext = { [key: string]: unknown }
 
@@ -766,7 +760,7 @@ export interface ErrorTrackingExternalReferenceLinkApi {
     integration_id: number
     /** ID of the error tracking issue to link the reference to. */
     issue: string
-    /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
     external_context: ErrorTrackingExternalReferenceLinkApiExternalContext
 }
 
@@ -889,35 +883,13 @@ export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
 }
 
 /**
- * @nullable
+ * Mapping from grouping rule UUID to its new evaluation order.
  */
-export type PatchedErrorTrackingGroupingRuleApiAssignee = {
-    readonly type?: 'user' | 'role'
-    readonly id?: number | string
-} | null
+export type PatchedErrorTrackingGroupingRuleReorderRequestApiOrders = { [key: string]: number }
 
-/**
- * Issue linked to this rule
- * @nullable
- */
-export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
-
-export interface PatchedErrorTrackingGroupingRuleApi {
-    readonly id?: string
-    filters?: unknown
-    /** @nullable */
-    readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
-    /** @nullable */
-    description?: string | null
-    /**
-     * Issue linked to this rule
-     * @nullable
-     */
-    readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
-    order_key?: number
-    disabled_data?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
+export interface PatchedErrorTrackingGroupingRuleReorderRequestApi {
+    /** Mapping from grouping rule UUID to its new evaluation order. */
+    orders?: PatchedErrorTrackingGroupingRuleReorderRequestApiOrders
 }
 
 export type ErrorTrackingIssueSeverityApi =
@@ -968,15 +940,20 @@ export interface PaginatedErrorTrackingIssueReadListApi {
     results: ErrorTrackingIssueReadApi[]
 }
 
+export interface ErrorTrackingIssueRedirectResponseApi {
+    /** Issue the requested fingerprint now belongs to. */
+    issue_id: string
+}
+
 /**
  * * `active` - active
  * * `resolved` - resolved
  * * `suppressed` - suppressed
  */
-export type ErrorTrackingIssueWriteStatusEnumApi =
-    (typeof ErrorTrackingIssueWriteStatusEnumApi)[keyof typeof ErrorTrackingIssueWriteStatusEnumApi]
+export type ErrorTrackingIssueWritableStatusEnumApi =
+    (typeof ErrorTrackingIssueWritableStatusEnumApi)[keyof typeof ErrorTrackingIssueWritableStatusEnumApi]
 
-export const ErrorTrackingIssueWriteStatusEnumApi = {
+export const ErrorTrackingIssueWritableStatusEnumApi = {
     Active: 'active',
     Resolved: 'resolved',
     Suppressed: 'suppressed',
@@ -988,7 +965,7 @@ export interface ErrorTrackingIssueWriteApi {
      * * `active` - active
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
-    status?: ErrorTrackingIssueWriteStatusEnumApi
+    status?: ErrorTrackingIssueWritableStatusEnumApi
     /** Issue severity to set, or null to remove the assigned severity. */
     severity?: ErrorTrackingIssueSeverityApi | null
     /**
@@ -1009,7 +986,7 @@ export interface PatchedErrorTrackingIssueWriteApi {
      * * `active` - active
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
-    status?: ErrorTrackingIssueWriteStatusEnumApi
+    status?: ErrorTrackingIssueWritableStatusEnumApi
     /** Issue severity to set, or null to remove the assigned severity. */
     severity?: ErrorTrackingIssueSeverityApi | null
     /**
@@ -1046,6 +1023,16 @@ export interface ErrorTrackingIssueAssignResponseApi {
     success: boolean
 }
 
+export interface ErrorTrackingIssueCohortRequestApi {
+    /** ID of the cohort to attach to the issue. */
+    cohortId: number
+}
+
+export interface ErrorTrackingIssueSuccessResponseApi {
+    /** Whether the update completed successfully. */
+    success: boolean
+}
+
 export interface ErrorTrackingIssueMergeRequestApi {
     /** IDs of the issues to merge into the current issue. */
     ids: string[]
@@ -1077,6 +1064,53 @@ export interface ErrorTrackingIssueSplitResponseApi {
     new_issue_ids: string[]
 }
 
+/**
+ * * `set_status` - set_status
+ * * `assign` - assign
+ */
+export type ErrorTrackingIssueBulkRequestActionEnumApi =
+    (typeof ErrorTrackingIssueBulkRequestActionEnumApi)[keyof typeof ErrorTrackingIssueBulkRequestActionEnumApi]
+
+export const ErrorTrackingIssueBulkRequestActionEnumApi = {
+    SetStatus: 'set_status',
+    Assign: 'assign',
+} as const
+
+export interface ErrorTrackingIssueBulkRequestApi {
+    /** Which mutation to apply to every listed issue.
+     *
+     * * `set_status` - set_status
+     * * `assign` - assign */
+    action: ErrorTrackingIssueBulkRequestActionEnumApi
+    /** IDs of the issues to update. */
+    ids: string[]
+    /** Status to set. Required when action is set_status.
+     *
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWritableStatusEnumApi
+    /** Assignment target. Required when action is assign; null unassigns. */
+    assignee?: ErrorTrackingIssueAssigneeWriteApi | null
+}
+
+export interface ErrorTrackingIssueExistsResponseApi {
+    /** Whether the project has recorded any issue at all. */
+    exists: boolean
+}
+
+export interface ErrorTrackingIssueValueApi {
+    /** One distinct value of the requested property. */
+    name: string
+}
+
+export interface ErrorTrackingIssueValuesResponseApi {
+    /** Distinct values, for the taxonomic filter. */
+    results: ErrorTrackingIssueValueApi[]
+    /** Always false. Kept for the taxonomic filter's shared shape. */
+    refreshing: boolean
+}
+
 export interface ErrorTrackingDateRangeApi {
     /** Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d. */
     date_from?: string
@@ -1095,13 +1129,15 @@ export interface ErrorTrackingIssueQueryRequestApi {
     /** When true, exclude internal/test account data from results. Defaults to true. */
     filterTestAccounts?: boolean
     /**
-     * Volume buckets. Maximum 200.
+     * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true.
      * @minimum 0
      * @maximum 200
      */
     volumeResolution?: number
     /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
     includeSparkline?: boolean
+    /** Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false. */
+    includeBreakdown?: boolean
 }
 
 export interface ErrorTrackingAssigneeResponseApi {
@@ -1174,6 +1210,47 @@ export interface ErrorTrackingImpactApi {
     sessions?: number
 }
 
+export interface ErrorTrackingBreakdownValueApi {
+    /** Property value. */
+    value: string
+    /** Number of matching events with this value. */
+    count: number
+}
+
+export interface ErrorTrackingBreakdownTopValuesApi {
+    /** Most common $pathname values, most frequent first. */
+    path?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with backend SDKs. */
+    url?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $screen_name values, most frequent first. */
+    screen?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $browser values, most frequent first. */
+    browser?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $os values, most frequent first. */
+    os?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $lib values, most frequent first. */
+    library?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $lib_version values, most frequent first. */
+    library_version?: ErrorTrackingBreakdownValueApi[]
+    /** Most common $app_version values, most frequent first. */
+    app_version?: ErrorTrackingBreakdownValueApi[]
+}
+
+export interface ErrorTrackingIssueBreakdownApi {
+    /** Start of the range that the breakdown covers. */
+    date_from: string
+    /** End of the range that the breakdown covers. */
+    date_to: string
+    /** True when the requested range was longer than 30 days and the breakdown covers only the last 30. */
+    range_limited: boolean
+    /** Matching exception events in the breakdown range. */
+    occurrences: number
+    /** Up to 5 $session_id values with the most matching events, for session recording lookups. */
+    sample_session_ids: string[]
+    /** Most common values for each dimension. A dimension with no values is left out. */
+    top_values: ErrorTrackingBreakdownTopValuesApi
+}
+
 export interface ErrorTrackingIssueDetailApi {
     /** Error tracking issue ID. */
     id: string
@@ -1183,7 +1260,7 @@ export interface ErrorTrackingIssueDetailApi {
      */
     name?: string | null
     /**
-     * Issue description.
+     * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
      * @nullable
      */
     description?: string | null
@@ -1228,6 +1305,8 @@ export interface ErrorTrackingIssueDetailApi {
     impact?: ErrorTrackingImpactApi
     /** Optional compact occurrence sparkline. */
     sparkline?: number[]
+    /** Aggregate over matching events. Returned only when includeBreakdown is true. */
+    breakdown?: ErrorTrackingIssueBreakdownApi
 }
 
 /**
@@ -1546,7 +1625,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
-     * Page size.
+     * Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.
      * @minimum 1
      * @maximum 100
      */
@@ -1557,7 +1636,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      */
     offset?: number
     /**
-     * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+     * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
      * @minimum 0
      * @maximum 200
      */
@@ -1599,7 +1678,7 @@ export interface ErrorTrackingIssueListItemApi {
      */
     name?: string | null
     /**
-     * Issue description.
+     * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
      * @nullable
      */
     description?: string | null
@@ -2106,14 +2185,14 @@ export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
     sampling_rate?: number
 }
 
-export interface PatchedErrorTrackingSuppressionRuleApi {
-    readonly id?: string
-    filters?: unknown
-    order_key?: number
-    disabled_data?: unknown
-    sampling_rate?: number
-    readonly created_at?: string
-    readonly updated_at?: string
+/**
+ * Mapping from suppression rule UUID to its new evaluation order.
+ */
+export type PatchedErrorTrackingSuppressionRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingSuppressionRuleReorderRequestApi {
+    /** Mapping from suppression rule UUID to its new evaluation order. */
+    orders?: PatchedErrorTrackingSuppressionRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingSymbolSetApi {
@@ -2161,6 +2240,12 @@ export interface ErrorTrackingSymbolSetUploadApi {
      * @nullable
      */
     content_hash?: string | null
+    /**
+     * Optional byte count of the content about to be uploaded. When given, the upload response also carries a presigned PUT signed for exactly this length, which S3-compatible stores without presigned POST support (such as Cloudflare R2) accept.
+     * @minimum 0
+     * @nullable
+     */
+    content_length?: number | null
 }
 
 export interface ErrorTrackingSymbolSetBulkCheckUploadApi {
@@ -2227,6 +2312,10 @@ export interface ErrorTrackingSymbolSetBulkStartUploadEntryApi {
     presigned_url: ErrorTrackingSymbolSetPresignedPostApi
     /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
     fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPostApi
+    /** Presigned PUT for the upload, present only when the request declared `content_length`. Send the raw bytes with a matching `Content-Length` header. Prefer this over `presigned_url`: presigned POST is an AWS extension that some S3-compatible stores reject. */
+    presigned_put_url?: string
+    /** Presigned PUT against the standard S3 endpoint, present only when the primary PUT uses transfer acceleration. */
+    fallback_presigned_put_url?: string
 }
 
 /**
@@ -2295,12 +2384,16 @@ export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
      */
     repository?: string
     /**
-     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
      */
     search?: string
 }
 
 export type ErrorTrackingFingerprintsListParams = {
+    /**
+     * Return only the fingerprints of this issue.
+     */
+    issue_id?: string
     /**
      * Number of results to return per page.
      */
@@ -2375,6 +2468,24 @@ export type ErrorTrackingIssuesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingIssuesRetrieveParams = {
+    /**
+     * Resolve the issue that currently owns this fingerprint first.
+     */
+    fingerprint?: string
+}
+
+export type ErrorTrackingIssuesValuesRetrieveParams = {
+    /**
+     * Issue property to list values for.
+     */
+    key: string
+    /**
+     * Substring the returned values must contain.
+     */
+    value?: string
+}
+
 export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
@@ -2384,6 +2495,17 @@ export type ErrorTrackingRecommendationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * True reads the current state without scheduling a refresh.
+     */
+    poll?: boolean
+}
+
+export type ErrorTrackingRecommendationsRefreshCreateParams = {
+    /**
+     * False skips the recompute when the current result is still fresh. Defaults to true.
+     */
+    force?: boolean
 }
 
 export type ErrorTrackingReleasesListParams = {
@@ -2399,6 +2521,18 @@ export type ErrorTrackingReleasesListParams = {
 
 export type ErrorTrackingSpikeEventsListParams = {
     /**
+     * Include spikes detected at or after this time.
+     */
+    date_from?: string
+    /**
+     * Include spikes detected at or before this time.
+     */
+    date_to?: string
+    /**
+     * Comma-separated issue UUIDs to include.
+     */
+    issue_ids?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -2406,6 +2540,10 @@ export type ErrorTrackingSpikeEventsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Field to order by. Prefix with a hyphen for descending.
+     */
+    order_by?: string
 }
 
 export type ErrorTrackingStackFramesListParams = {

@@ -333,12 +333,17 @@ class TestDirectContentResponse(APIBaseTest):
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=export_format,
-            content=b"bytes" if expected_status == 200 else None,
-            content_location="exports/some/key" if expected_status == 302 else None,
+            content_location="exports/some/key",
         )
-        with patch(
-            "products.exports.backend.models.exported_asset.object_storage.get_presigned_url",
-            return_value="https://storage.example.com/presigned",
+        with (
+            patch(
+                "products.exports.backend.models.exported_asset.object_storage.get_presigned_url",
+                return_value="https://storage.example.com/presigned",
+            ),
+            patch(
+                "products.exports.backend.models.exported_asset.object_storage.read_bytes",
+                return_value=b"bytes",
+            ),
         ):
             response = get_content_response(asset, direct=True)
         assert response.status_code == expected_status

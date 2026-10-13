@@ -8,6 +8,7 @@ Both may import this package.
 - `attribution.py` resolves a GitHub login to an organization member, under a bounded statement timeout, so a slow lookup degrades to no attribution.
 - `pull_request_events.py` emits the canonical `pr_created`, `pr_closed`, `pr_merged` and `pr_reviewed` analytics events.
 - `metrics.py` holds the Prometheus counters for dropped events and attribution outcomes.
+- `merge_queue.py` reads the Trunk merge queue state off the comment Trunk keeps on each pull request. A bot that pushes to pull request branches checks it first, because a push removes a queued pull request from the queue. `GitHubIntegration.get_pull_request_merge_queue_state` does the read.
 
 ## PR analytics
 

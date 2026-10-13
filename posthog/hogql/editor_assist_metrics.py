@@ -7,6 +7,12 @@ EDITOR_ASSIST_DURATION_SECONDS = Histogram(
     buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 )
 
+EDITOR_ASSIST_RESPONSES_TOTAL = Counter(
+    "hogql_editor_assist_responses",
+    "Successful HogQL editor-assist responses by operation, serving backend, and routing reason",
+    labelnames=["operation", "backend", "reason"],
+)
+
 LANGUAGE_SERVICE_HTTP_DURATION_SECONDS = Histogram(
     "hogql_language_service_http_duration_seconds",
     "Duration of HTTP requests from Django to the HogQL language service",

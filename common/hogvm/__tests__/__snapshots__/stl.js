@@ -1,4 +1,4 @@
-function upper (value) { return value.toUpperCase() }
+function upper (value) { return value === null || value === undefined ? null : value.toUpperCase() }
 function __x_typeof (value) {
     if (value === null || value === undefined) { return 'null'
     } else if (__isHogDateTime(value)) { return 'datetime'
@@ -74,9 +74,9 @@ function startsWith(str, prefix) {
     return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix);
 }
 function round(a) { return Math.round(a) }
-function reverse (value) { return value.split('').reverse().join('') }
-function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }
-function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }
+function reverse (value) { return value === null || value === undefined ? null : value.split('').reverse().join('') }
+function replaceOne (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replace(searchValue, replaceValue) }
+function replaceAll (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replaceAll(searchValue, replaceValue) }
 function range(...args) {
     if (args.length === 1) {
         const end = args[0];
@@ -96,9 +96,9 @@ function notEmpty (value) { return !empty(value) }
 function minus(a, b) { return a - b }
 function min2(a, b) { return a < b ? a : b }
 function lower (value) { if (value === null || value === undefined) { return null } return value.toLowerCase() }
-function lessOrEquals(a, b) { return a <= b }
-function less(a, b) { return a < b }
-function length (value) { return value.length }
+function lessOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a <= b }
+function less(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a < b }
+function length (value) { return value === null || value === undefined ? null : value.length }
 function jsonStringify (value, spacing) {
     function convert(x, marked) {
         if (!marked) { marked = new Set() }
@@ -135,8 +135,8 @@ function __x_in(val, arr) {
     }
     return false;
 }
-function greaterOrEquals(a, b) { return a >= b }
-function greater(a, b) { return a > b }
+function greaterOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a >= b }
+function greater(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a > b }
 function generateUUIDv4 () { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { const r = (Math.random() * 16) | 0; const v = c === 'x' ? r : (r & 0x3) | 0x8; return v.toString(16) })}
 function floor(a) { return Math.floor(a) }
 function extract(part, val) {

@@ -40,6 +40,10 @@ class TestGeminiAdapterErrorMapping:
             ("403_permission", 403, "PERMISSION_DENIED", "permission denied", ModelPermissionError),
             ("401_auth", 401, "UNAUTHENTICATED", "invalid api key", AuthenticationError),
             ("429_rate_limit", 429, "RESOURCE_EXHAUSTED", "rate limit exceeded", RateLimitError),
+            # A cancelled call is retryable, so it shares the transport lane. Without this the
+            # per-occurrence message files a new error tracking issue on every cancellation.
+            ("499_cancelled", 499, "CANCELLED", "The operation was cancelled.", ProviderConnectionError),
+            ("cancelled_message", 400, "UNKNOWN", "The operation was cancelled.", ProviderConnectionError),
         ]
     )
     def test_api_error_is_mapped_to_llm_error(

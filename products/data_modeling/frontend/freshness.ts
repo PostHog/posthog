@@ -1,4 +1,4 @@
-import { DataModelingNode, DataModelingSyncInterval } from '~/types'
+import { DataModelingNode, DataModelingNodeType, DataModelingSyncInterval } from '~/types'
 
 export const SYNC_INTERVAL_SECONDS: Record<DataModelingSyncInterval, number> = {
     '15min': 900,
@@ -12,7 +12,7 @@ export const SYNC_INTERVAL_SECONDS: Record<DataModelingSyncInterval, number> = {
 }
 
 /** A plain view runs its query on read, so it stores nothing that can go stale. */
-const MATERIALIZING_TYPES = new Set(['matview', 'endpoint'])
+export const MATERIALIZING_TYPES = new Set<DataModelingNodeType>(['matview', 'endpoint'])
 
 /**
  * Age climbs to a full interval between every pair of runs, so a one-interval bar would

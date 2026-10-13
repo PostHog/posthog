@@ -32,7 +32,11 @@ describe('SessionFormatFileStorage', () => {
     it('routes sessions to separate objects and byte ranges in mixed batches', async () => {
         const legacy = storage('rrweb/object')
         const raw = storage('rrweb_2/object')
-        const mixed = new SessionFormatFileStorage(legacy, () => raw)
+        const mixed = new SessionFormatFileStorage(
+            legacy,
+            () => raw,
+            () => raw
+        )
         for (let batch = 0; batch < 2; batch++) {
             const writer = mixed.newBatch()
             for (const entry of cases.cases) {
@@ -59,9 +63,8 @@ describe('SessionFormatFileStorage', () => {
         const legacy = storage('rrweb/object')
         const september = storage('rrweb_2/2026-09/object')
         const october = storage('rrweb_2/2026-10/object')
-        const writer = new SessionFormatFileStorage(legacy, (month) =>
-            month === '2026-09' ? september : october
-        ).newBatch()
+        const byMonth = (month?: string): SessionBatchFileStorage => (month === '2026-09' ? september : october)
+        const writer = new SessionFormatFileStorage(legacy, byMonth, byMonth).newBatch()
         for (const [date, prefix] of [
             ['2026-09-30T23:59:59.999Z', '2026-09'],
             ['2026-10-01T00:00:00Z', '2026-10'],
@@ -81,6 +84,32 @@ describe('SessionFormatFileStorage', () => {
         expect(october.buffers).toHaveLength(1)
     })
 
+    it('routes a session that started at the v3 cutoff to v3 storage and one just before to v2', async () => {
+        const raw = storage('rrweb_2/2026-09/object')
+        const v3 = storage('rrweb_3/2026-09/object')
+        const writer = new SessionFormatFileStorage(
+            storage('rrweb/object'),
+            () => raw,
+            () => v3
+        ).newBatch()
+        for (const [date, prefix] of [
+            ['2026-09-21T16:59:59.999Z', 'rrweb_2/2026-09/object'],
+            ['2026-09-21T17:00:00Z', 'rrweb_3/2026-09/object'],
+        ]) {
+            const hex = Date.parse(date).toString(16).padStart(12, '0')
+            const result = await writer.writeSession({
+                buffer: Buffer.from('abc'),
+                sessionId: `${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000001`,
+                teamId: 7,
+                retentionPeriod: '30d',
+            })
+            expect(result.url).toBe(`${prefix}?range=bytes=0-2`)
+        }
+        await writer.finish()
+        expect(raw.buffers).toHaveLength(1)
+        expect(v3.buffers).toHaveLength(1)
+    })
+
     it('waits for both uploads before reporting a failure', async () => {
         const legacy = storage('rrweb/object')
         const raw = storage('rrweb_2/object')
@@ -91,7 +120,11 @@ describe('SessionFormatFileStorage', () => {
                 completeRaw = resolve
             })
         )
-        const writer = new SessionFormatFileStorage(legacy, () => raw).newBatch()
+        const writer = new SessionFormatFileStorage(
+            legacy,
+            () => raw,
+            () => raw
+        ).newBatch()
         for (const entry of cases.cases.slice(0, 2)) {
             await writer.writeSession({
                 buffer: Buffer.from('abc'),

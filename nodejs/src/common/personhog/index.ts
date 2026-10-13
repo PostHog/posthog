@@ -33,6 +33,8 @@ export type PersonHogConfig = Pick<
     | 'PERSONHOG_PING_IDLE_CONNECTION'
     | 'PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS'
     | 'PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS'
+    | 'PERSONHOG_INITIAL_STREAM_WINDOW_BYTES'
+    | 'PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES'
     | 'PLUGIN_SERVER_MODE'
 >
 
@@ -55,6 +57,8 @@ export function createPersonHogClient(config: PersonHogConfig): PersonHogClient 
         pingIdleConnection: config.PERSONHOG_PING_IDLE_CONNECTION,
         idleConnectionTimeoutMs: config.PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS,
         stateMonitorPollIntervalMs: config.PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS,
+        initialStreamWindowBytes: config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
+        initialConnectionWindowBytes: config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
     })
 }
 

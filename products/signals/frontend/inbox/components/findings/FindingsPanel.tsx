@@ -22,7 +22,6 @@ const SORT_OPTIONS: { value: FindingsSortKey; label: string }[] = [
     { value: 'newest', label: 'Newest' },
     { value: 'oldest', label: 'Oldest' },
     { value: 'severity', label: 'Severity' },
-    { value: 'confidence', label: 'Confidence' },
 ]
 
 /**

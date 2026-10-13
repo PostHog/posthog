@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { formatLocalizedDate } from 'lib/utils/datetime'
+import { formatLocalizedDate, formatLocalizedTime } from 'lib/utils/datetime'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { TimestampFormat } from '../player/playerSettingsLogic'
@@ -24,7 +24,7 @@ export function ItemTimeDisplay({
         <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
             {timestampFormat !== TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? timestamp.tz('UTC') : timestamp).format(
-                    `${formatLocalizedDate()}, HH:mm:ss`
+                    `${formatLocalizedDate()}, ${formatLocalizedTime()}`
                 )
             ) : (
                 <>

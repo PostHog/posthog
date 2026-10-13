@@ -40,6 +40,22 @@ describe('ArtefactLogList', () => {
         expect(screen.getByText('The root cause moved to the ingestion path.')).toBeInTheDocument()
     })
 
+    it('labels an inconclusive check result and explains why', () => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        { outcome: 'inconclusive', explanation: 'The measurement window cannot fit before expiry.' },
+                        'check_result'
+                    ),
+                ]}
+            />
+        )
+        expect(screen.getByText('Inconclusive')).toBeInTheDocument()
+        expect(screen.getByText('The measurement window cannot fit before expiry.')).toBeInTheDocument()
+    })
+
     it('links the selected predecessors when a replacement starts', () => {
         const oldPr = 'https://github.com/example/repo/pull/1'
         render(
@@ -139,6 +155,8 @@ describe('ArtefactLogList', () => {
                         url,
                         state: 'unknown',
                         merged: false,
+                        review_decision: null,
+                        merged_at: null,
                         claim_id: null,
                         attached_at: null,
                         attached_by: { kind: 'task', user: null, agent: null, task_id: 'task-3' },
@@ -153,5 +171,123 @@ describe('ArtefactLogList', () => {
         expect(screen.getByText('Status unavailable')).toBeInTheDocument()
         expect(screen.queryByText('Unrelated implementation')).not.toBeInTheDocument()
         expect(screen.queryByText('Open')).not.toBeInTheDocument()
+    })
+
+    // Without a branch for this type the row falls through to the raw type name and the reader
+    // cannot tell why nothing started, which is the whole point of the entry.
+    it.each([
+        ['duplicate_of', 'Duplicate'],
+        ['blocked_by_dependency', 'Waiting on a dependency'],
+        ['plan_parent', 'Tracked by other reports'],
+    ])('says why automatic work was held back for %s', (skipReason, expectedTag) => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            skip_reason: skipReason,
+                            linked_report_id: '0198c0de-0000-7000-8000-000000000001',
+                            detail: 'No work started here because a report this one depends on has no pull request yet.',
+                        },
+                        'autostart_skip'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Work not started')).toBeInTheDocument()
+        expect(screen.queryByText('autostart_skip')).not.toBeInTheDocument()
+        expect(screen.getByText(expectedTag)).toBeInTheDocument()
+        expect(screen.getByText('Open that report').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringContaining('0198c0de-0000-7000-8000-000000000001')
+        )
+    })
+
+    it('shows the three scores first, with the other heads and the challengers behind collapsed disclosures', () => {
+        const { container } = render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            scored_at: '2026-06-11T09:00:00Z',
+                            manifest_version: '12',
+                            served_key: 'report_embeddings@2026-06-10',
+                            results: {
+                                'report_embeddings@2026-06-10': {
+                                    status: 'scored',
+                                    roles: ['served'],
+                                    scores: { pr_merged: 0.52, action: 0.78, refund: 0.04, open: 0.9, fixed: 0.3 },
+                                    lifts: { action: 1.5 },
+                                    metadata: {
+                                        heads: [
+                                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                                            { head: 'refund', readable: false, refit_classification_threshold: 0.01 },
+                                            { head: 'open', readable: true },
+                                            { head: 'fixed', readable: true, refit_classification_threshold: 0.15 },
+                                        ],
+                                    },
+                                },
+                                'signal_counts@2026-06-10': {
+                                    status: 'skipped',
+                                    roles: ['challenger'],
+                                    skip_reason: 'missing report vector',
+                                    scores: {},
+                                },
+                            },
+                        },
+                        'ranking_score'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Ranking scored')).toBeInTheDocument()
+        expect(screen.getByText('Open')).toBeInTheDocument()
+        expect(screen.getByText('Engage')).toBeInTheDocument()
+        expect(screen.getByText('Fix')).toBeInTheDocument()
+        // The scores keep their display order. The other heads sort highest lift first, and stored lifts win over the metadata threshold.
+        expect(screen.getAllByText(/^[\d.]+x$/).map((node) => node.textContent)).toEqual([
+            '1.5x',
+            '2.0x',
+            '4.0x',
+            '2.6x',
+        ])
+        expect(screen.getAllByText(/^[\d.]+%$/).map((node) => node.textContent)).toEqual([
+            '90%',
+            '78%',
+            '30%',
+            '4.0%',
+            '52%',
+        ])
+        expect(screen.getByLabelText('No holdout read for this head yet').closest('span')).toHaveTextContent('4.0%')
+        expect(screen.getByText('Other heads (2)').closest('details')).toContainElement(screen.getByText('Refund'))
+        expect(screen.getByText('Other models (1)')).toBeInTheDocument()
+        container.querySelectorAll('details').forEach((details) => expect(details).not.toHaveAttribute('open'))
+        expect(screen.getByText('Skipped: missing report vector')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['a served key missing from the results', { served_key: 'gone@1', results: {} }],
+        ['content with no results', { served_key: 'a@1' }],
+        ['a served result with an unknown status', { served_key: 'a@1', results: { 'a@1': { status: 'pending' } } }],
+    ])('falls back to the ranking label alone for %s', (_name, content) => {
+        const { container } = render(
+            <ArtefactLogList reportId="report-1" artefacts={[makeArtefact(content, 'ranking_score')]} />
+        )
+        expect(screen.getByText('Ranking scored')).toBeInTheDocument()
+        expect(container.querySelector('.LemonCard')).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['work_claim', { display_name: 'Ada' }, 'Work claimed', 'Ada'],
+        ['work_release', { reason: 'taken_over' }, 'Work released', 'Taken over'],
+    ])('labels a %s row', (type, content, label, detail) => {
+        render(<ArtefactLogList reportId="report-1" artefacts={[makeArtefact(content, type)]} />)
+        expect(screen.getByText(label)).toBeInTheDocument()
+        expect(screen.getByText(detail)).toBeInTheDocument()
     })
 })

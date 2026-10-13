@@ -1,1 +1,1 @@
-1368_sessionrecording_untrack_lts_fields
+1396_events_retention_config

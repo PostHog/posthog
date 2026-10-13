@@ -609,6 +609,7 @@ class QuarantinedIdentifierAdmin(admin.ModelAdmin):
         "reason",
         "source",
         "expires_at",
+        "lifted_at_sha",
         "created_by_id",
         "created_by_link",
         "created_at",

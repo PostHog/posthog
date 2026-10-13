@@ -74,7 +74,7 @@ function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum 
 /**
  * One box-and-whisker per bucket (quill BoxPlot): whisker min→max, box p25→p75, a median line
  * and a mean dot, on a shared seconds scale. Empty buckets stay empty slots so a quiet stretch
- * reads as "nothing deployed", not missing data. One lead-time stage per instance; the Health
+ * reads as "nothing deployed", not missing data. One lead-time stage per instance; the Deploys
  * tab stacks three vertical ones so the stages compare bucket by bucket.
  */
 export function LeadTimeBoxPlot({

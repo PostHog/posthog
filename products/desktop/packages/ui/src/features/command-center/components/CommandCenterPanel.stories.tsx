@@ -3,7 +3,7 @@ import { Plus, X } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
-import { TaskRepositoryChip } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
+import { TaskRepositoryChip } from "@posthog/ui/features/canvas/components/TaskRepositoryChip";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { PromptHistoryDialog } from "@posthog/ui/features/message-editor/components/PromptHistoryDialog";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
@@ -96,10 +96,13 @@ function CloudTaskComposer() {
           />
           <TaskRepositoryChip
             cloud
-            repositoryCount={0}
+            repositories={[]}
+            integrationId={null}
             hasFolder={false}
             disabled={false}
-            onOpen={() => {}}
+            onRepositoriesChange={() => {}}
+            onOpenSettings={() => {}}
+            settingsOpen={false}
           />
         </div>
         <PromptInput

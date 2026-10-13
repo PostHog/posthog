@@ -301,6 +301,13 @@ class TestRealtimeReadiness(BaseTest):
         run = self._run(cohort=cohort)
         self._participate(run, cohort)
         self._chunks(run, total=4, confirmed=1)
+        # Readiness does not wait for a held trailing day, so it is no part of the scan's progress.
+        CohortBackfillChunk.objects.for_team(self.team.id).create(
+            run=run,
+            team_id=self.team.id,
+            day=timezone.now().date() + timedelta(days=1),
+            claimable_after=timezone.now() + timedelta(hours=1),
+        )
 
         build = resolve_realtime_readiness([cohort])[cohort.id].build
         assert build is not None

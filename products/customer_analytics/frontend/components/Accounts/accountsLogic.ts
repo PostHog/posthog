@@ -31,6 +31,7 @@ import type { UserBasicType } from '~/types'
 import {
     accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
+    accountsPresenceList,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
@@ -42,8 +43,9 @@ import {
     ACCOUNTS_METRICS_DATA_NODE_KEY,
     CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from '../../constants'
-import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import type {
+    AccountPresenceApi,
+    AccountPresenceViewerApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
     CustomPropertyValueWriteApi,
@@ -64,22 +66,22 @@ import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
     accountsTableCell,
+    accountsTableDatasetKey,
     buildAccountsTableQueryPlan,
     isAccountsTableRow,
     supportedAccountFilters,
 } from './accountsTableQuery'
-import {
-    AccountsViewState,
-    normalizeRoleFilter,
-    readAccountsViewDraft,
-    writeAccountsViewDraft,
-} from './accountsViewState'
+import { getAccountsViewSession } from './accountsViewSessionLogic'
+import { AccountsViewState, normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents, DEFAULT_TILES } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
 
 // Debounce tag edits because ObjectTags emits each addition and removal separately.
 export const TAGS_SAVE_DEBOUNCE_MS = 300
+export const ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS = 30_000
+
+type AccountPresenceResponse = AccountPresenceApi[]
 
 // Wait for refetched rows before scrolling to an account.
 const SCROLL_TO_ACCOUNT_POLL_MS = 100
@@ -107,13 +109,21 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to'
+export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to' | 'or_group'
 
 export type AccountSortableColumn = string
 
 export type AccountSortDirection = 'asc' | 'desc'
 
 export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
+
+export type AccountListDataCompleteness = 'unknown' | 'complete' | 'paginated'
+
+interface AccountListResponseState {
+    datasetKey: string
+    completeness: Exclude<AccountListDataCompleteness, 'unknown'>
+    serverSortOrder: AccountSortOrder
+}
 
 export const savingRoleKey = (accountId: string, column: string): string => `${accountId}:${column}`
 
@@ -128,10 +138,6 @@ function accountsPathToWriteBackTo(accountIdFilter: string | null): string | nul
     }
     const deepLinkPath = accountIdFilter ? urls.customerAnalyticsAccount(accountIdFilter) : null
     return deepLinkPath && pathname.startsWith(deepLinkPath) ? pathname : null
-}
-
-function isAccountsListPath(): boolean {
-    return removeProjectIdIfPresent(router.values.location.pathname) === urls.customerAnalyticsAccounts()
 }
 
 function hasSharedView(hashParams: Record<string, any> | undefined): boolean {
@@ -164,7 +170,6 @@ function persistViewStateAndUrl(
         return
     }
     actions.persistViewState()
-    actions.syncViewStateToUrl()
 }
 
 export interface AccountsViewUrlState {
@@ -184,6 +189,7 @@ export interface AccountsViewUrlState {
     columnDisplay?: AccountColumnDisplayState
     tileFilter?: TileFilter
     customProperties?: AccountFilter[]
+    filterGroups?: AccountFilter[][]
 }
 
 export type AccountsViewStateSource = 'defaults' | 'draft' | 'saved_view' | 'shared_url'
@@ -191,25 +197,6 @@ export type AccountsViewStateSource = 'defaults' | 'draft' | 'saved_view' | 'sha
 export interface ApplyAccountsViewStateOptions {
     source: AccountsViewStateSource
     columns: 'restore' | 'defaults' | 'keep'
-}
-
-function viewStateWithMineOnly(
-    viewState: AccountsViewState,
-    mineOnly: boolean,
-    currentUserId: number | null
-): AccountsViewState {
-    if (currentUserId === null) {
-        return viewState
-    }
-    const assignedToCurrentUser =
-        viewState.filters.assignedTo.length === 1 && viewState.filters.assignedTo[0] === currentUserId
-    if (mineOnly) {
-        return {
-            ...viewState,
-            filters: { ...viewState.filters, assignmentStatus: 'assigned', assignedTo: [currentUserId] },
-        }
-    }
-    return assignedToCurrentUser ? { ...viewState, filters: { ...viewState.filters, assignedTo: [] } } : viewState
 }
 
 function accountsViewStateFromUrl(
@@ -247,6 +234,9 @@ function accountsViewStateFromUrl(
             tags: Array.isArray(view.tags) ? view.tags.filter((tag): tag is string => typeof tag === 'string') : [],
             tileFilter: view.tileFilter && typeof view.tileFilter === 'object' ? view.tileFilter : null,
             customProperties: Array.isArray(view.customProperties) ? view.customProperties : [],
+            filterGroups: Array.isArray(view.filterGroups)
+                ? view.filterGroups.filter((group): group is AccountFilter[] => Array.isArray(group))
+                : [],
         },
         tiles,
         columnDisplay: view.columnDisplay && typeof view.columnDisplay === 'object' ? view.columnDisplay : {},
@@ -268,12 +258,12 @@ export interface accountsLogicValues {
     overviewMetrics: AccountsTableMetric[] // accountsOverviewTilesLogic
     tileFilter: TileFilter | null // accountsOverviewTilesLogic
     tiles: AccountsOverviewTile[] // accountsOverviewTilesLogic
-    mineOnly: boolean // customerAnalyticsSceneLogic
-    listHasMoreData: boolean // dataNodeLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    accountFilterGroups: AccountFilter[][]
     accountFilters: AccountFilter[]
     accountIdFilter: string | null
+    accountPresenceByAccountId: Record<string, AccountPresenceViewerApi[]>
     accountsDataTableQuery: DataTableNode
     accountsQuerySource: AccountsTableQuery | null
     accountsTableQueryPlan: AccountsTableQueryPlan
@@ -286,11 +276,12 @@ export interface accountsLogicValues {
     canSortClientSide: boolean
     currentUserId: number | null
     customPropertyOverrides: Record<string, CustomPropertyValueWriteApi['value']>
-    draftRestored: boolean
     isCustomPropertySaving: (accountId: string, definitionId: string) => boolean
     isRoleSaving: (accountId: string, column: string) => boolean
     isTagsSaving: (accountId: string) => boolean
-    listPaginated: boolean
+    listDataCompleteness: AccountListDataCompleteness
+    listDatasetKey: string
+    listResponseState: AccountListResponseState | null
     metricsQuery: AccountsTableQuery | null
     relationshipOverrides: Record<string, number[]>
     savingCustomProperties: Record<string, true>
@@ -298,13 +289,13 @@ export interface accountsLogicValues {
     savingTags: Record<string, true>
     searchInput: string
     searchQuery: string
+    serverSortOrder: AccountSortOrder
     sortOrder: AccountSortOrder
     sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
     tagOverrides: Record<string, string[]>
     tagsFilter: string[]
     viewState: AccountsViewState
     viewStateHydrated: boolean
-    viewUrlState: AccountsViewUrlState
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -368,9 +359,6 @@ export interface accountsLogicActions {
     setTiles: (tiles: AccountsOverviewTile[]) => {
         tiles: AccountsOverviewTile[]
     } // accountsOverviewTilesLogic
-    setMineOnly: (mineOnly: boolean) => {
-        mineOnly: boolean
-    } // customerAnalyticsSceneLogic
     listLoadData: (
         refresh?: RefreshType | undefined,
         alreadyRunningQueryId?: string | undefined,
@@ -397,6 +385,7 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined,
         payload?:
             | {
@@ -428,9 +417,9 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined
     } // dataNodeLogic
-    listLoadNextData: () => any // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
@@ -447,6 +436,9 @@ export interface accountsLogicActions {
         }
         user: UserType | null
     } // userLogic
+    addAccountFilterGroup: () => {
+        value: true
+    }
     addTagToFilter: (tag: string) => {
         tag: string
     }
@@ -457,8 +449,8 @@ export interface accountsLogicActions {
         options: ApplyAccountsViewStateOptions
         viewState: AccountsViewState
     }
-    clearCustomPropertyOverrides: () => {
-        value: true
+    clearCustomPropertyOverrides: (keys: string[]) => {
+        keys: string[]
     }
     customPropertyUpdateFinished: (
         accountId: string,
@@ -473,6 +465,15 @@ export interface accountsLogicActions {
     ) => {
         accountId: string
         definitionId: string
+    }
+    loadAccountPresence: (accountIds: string[]) => {
+        accountIds: string[]
+    }
+    loadAccountPresenceFailure: () => {
+        value: true
+    }
+    loadAccountPresenceSuccess: (presence: AccountPresenceResponse) => {
+        presence: AccountPresenceResponse
     }
     openAccount: (
         accountId: string,
@@ -489,6 +490,12 @@ export interface accountsLogicActions {
         search: string | undefined
     }
     refresh: () => {
+        value: true
+    }
+    removeAccountFilterGroup: (index: number) => {
+        index: number
+    }
+    removeFirstAccountFilterGroup: () => {
         value: true
     }
     reportFilterChange: (filterType: AccountFilterType) => {
@@ -511,6 +518,9 @@ export interface accountsLogicActions {
         accountId: string
         column: string
     }
+    setAccountFilterGroups: (groups: AccountFilter[][]) => {
+        groups: AccountFilter[][]
+    }
     setAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
     }
@@ -532,14 +542,20 @@ export interface accountsLogicActions {
     setCustomPropertyOverride: (
         accountId: string,
         definitionId: string,
-        value: CustomPropertyValueWriteApi['value'] | null
+        value: CustomPropertyValueWriteApi['value'] | undefined
     ) => {
         accountId: string
         definitionId: string
-        value: boolean | number | string | null
+        value: boolean | number | string | null | undefined
     }
-    setDraftRestored: (restored: boolean) => {
-        restored: boolean
+    setListResponseState: (
+        datasetKey: string,
+        completeness: Exclude<AccountListDataCompleteness, 'unknown'>,
+        serverSortOrder: AccountSortOrder
+    ) => {
+        completeness: 'complete' | 'paginated'
+        datasetKey: string
+        serverSortOrder: AccountSortOrder
     }
     setRelationshipOverride: (
         accountId: string,
@@ -593,6 +609,13 @@ export interface accountsLogicActions {
         definition: CustomPropertyDefinitionApi
         value: boolean | number | string | null
     }
+    updateAccountFilterGroup: (
+        index: number,
+        filters: AccountFilter[]
+    ) => {
+        filters: AccountFilter[]
+        index: number
+    }
     updateAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
     }
@@ -628,7 +651,8 @@ export interface accountsLogicMeta {
             searchQuery: string,
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
-            accountFilters: AccountFilter[]
+            accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][]
         ) => number
         viewState: (
             selectColumns: string[],
@@ -640,21 +664,33 @@ export interface accountsLogicMeta {
             tileFilter: TileFilter | null,
             tiles: AccountsOverviewTile[],
             accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][],
             columnDisplay: AccountColumnDisplayState
         ) => AccountsViewState
-        viewUrlState: (
+        listDatasetKey: (
+            currentTeamId: number | null,
             searchQuery: string,
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
-            sortOrder: AccountSortOrder,
-            selectColumns: string[],
-            defaultSelectColumns: string[],
+            accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
-            columnDisplay: AccountColumnDisplayState
-        ) => AccountsViewUrlState
-        canSortClientSide: (listHasMoreData: boolean, listPaginated: boolean) => boolean
+            accountFilterGroups: AccountFilter[][],
+            relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
+            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+        ) => string
+        listDataCompleteness: (
+            listResponseState: AccountListResponseState | null,
+            listDatasetKey: string
+        ) => AccountListDataCompleteness
+        canSortClientSide: (listDataCompleteness: AccountListDataCompleteness) => boolean
+        serverSortOrder: (
+            listDataCompleteness: AccountListDataCompleteness,
+            listResponseState: AccountListResponseState | null,
+            sortOrder: AccountSortOrder,
+            visibleColumnNames: string[]
+        ) => AccountSortOrder
         sortedRowsTransformer: (
             canSortClientSide: boolean,
             sortOrder: AccountSortOrder,
@@ -670,11 +706,11 @@ export interface accountsLogicMeta {
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][],
             relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             columnDisplay: AccountColumnDisplayState,
-            sortOrder: AccountSortOrder,
-            canSortClientSide: boolean
+            serverSortOrder: AccountSortOrder
         ) => BuildAccountsTableQueryPlanInput
         accountsTableQueryPlan: (
             accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
@@ -729,10 +765,6 @@ export const accountsLogic = kea<accountsLogicType>([
             ],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter', 'tiles'],
-            customerAnalyticsSceneLogic,
-            ['mineOnly'],
-            dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
-            ['hasMoreData as listHasMoreData'],
         ],
         actions: [
             accountsColumnConfigLogic,
@@ -752,14 +784,12 @@ export const accountsLogic = kea<accountsLogicType>([
             ['setTileFilter', 'setTiles'],
             accountsExpansionLogic,
             ['openAccountTab'],
-            customerAnalyticsSceneLogic,
-            ['setMineOnly'],
             userLogic,
             ['loadUserSuccess'],
             membersLogic,
             ['ensureAllMembersLoaded'],
             dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
-            ['loadData as listLoadData', 'loadDataSuccess as listLoadDataSuccess', 'loadNextData as listLoadNextData'],
+            ['loadData as listLoadData', 'loadDataSuccess as listLoadDataSuccess'],
         ],
     })),
     actions({
@@ -773,11 +803,24 @@ export const accountsLogic = kea<accountsLogicType>([
         syncViewStateToUrl: true,
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAccountFilters: (filters: AccountFilter[]) => ({ filters }),
+        setAccountFilterGroups: (groups: AccountFilter[][]) => ({ groups }),
+        addAccountFilterGroup: true,
+        removeFirstAccountFilterGroup: true,
+        removeAccountFilterGroup: (index: number) => ({ index }),
+        updateAccountFilterGroup: (index: number, filters: AccountFilter[]) => ({ index, filters }),
         updateAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         setAssignmentStatus: (status: AssignmentStatus) => ({ status }),
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
         setAssignedToCurrentUser: (value: boolean) => ({ value }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
+        setListResponseState: (
+            datasetKey: string,
+            completeness: Exclude<AccountListDataCompleteness, 'unknown'>,
+            serverSortOrder: AccountSortOrder
+        ) => ({ datasetKey, completeness, serverSortOrder }),
+        loadAccountPresence: (accountIds: string[]) => ({ accountIds }),
+        loadAccountPresenceSuccess: (presence: AccountPresenceResponse) => ({ presence }),
+        loadAccountPresenceFailure: true,
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
         restoreViewStateFromRoute: (method?: 'POP' | 'PUSH' | 'REPLACE') => ({ method }),
@@ -790,11 +833,11 @@ export const accountsLogic = kea<accountsLogicType>([
         ) => ({ accountId, definition, value }),
         customPropertyUpdateStarted: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
         customPropertyUpdateFinished: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
-        clearCustomPropertyOverrides: true,
+        clearCustomPropertyOverrides: (keys: string[]) => ({ keys }),
         setCustomPropertyOverride: (
             accountId: string,
             definitionId: string,
-            value: CustomPropertyValueWriteApi['value'] | null
+            value: CustomPropertyValueWriteApi['value'] | undefined
         ) => ({ accountId, definitionId, value }),
         updateAccountRole: (accountId: string, column: string, user: UserBasicType | null) => ({
             accountId,
@@ -821,7 +864,6 @@ export const accountsLogic = kea<accountsLogicType>([
         }),
         setAccountIdFilter: (accountId: string | null) => ({ accountId }),
         setAwaitingSavedView: (awaiting: boolean) => ({ awaiting }),
-        setDraftRestored: (restored: boolean) => ({ restored }),
         setViewStateHydrated: (hydrated: boolean) => ({ hydrated }),
     }),
     reducers({
@@ -850,6 +892,16 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAccountFilters: (_, { filters }) => filters,
             },
         ],
+        accountFilterGroups: [
+            [] as AccountFilter[][],
+            {
+                setAccountFilterGroups: (_, { groups }) => groups,
+                addAccountFilterGroup: (groups) => [...groups, []],
+                removeAccountFilterGroup: (groups, { index }) => groups.filter((_, groupIndex) => groupIndex !== index),
+                updateAccountFilterGroup: (groups, { index, filters }) =>
+                    groups.map((group, groupIndex) => (groupIndex === index ? filters : group)),
+            },
+        ],
         assignmentStatus: [
             'all' as AssignmentStatus,
             {
@@ -869,15 +921,9 @@ export const accountsLogic = kea<accountsLogicType>([
             },
         ],
         awaitingSavedView: [
-            false,
+            true,
             {
                 setAwaitingSavedView: (_, { awaiting }) => awaiting,
-            },
-        ],
-        draftRestored: [
-            false,
-            {
-                setDraftRestored: (_, { restored }) => restored,
             },
         ],
         viewStateHydrated: [
@@ -892,13 +938,23 @@ export const accountsLogic = kea<accountsLogicType>([
                 setSortOrder: (_, { sortOrder }) => sortOrder,
             },
         ],
-        // Keep server sorting through the last page so a query change does not discard accumulated rows.
-        // A fresh load replaces those rows and permits client sorting again.
-        listPaginated: [
-            false,
+        listResponseState: [
+            null as AccountListResponseState | null,
             {
-                listLoadData: () => false,
-                listLoadNextData: () => true,
+                setListResponseState: (_, { datasetKey, completeness, serverSortOrder }) => ({
+                    datasetKey,
+                    completeness,
+                    serverSortOrder,
+                }),
+            },
+        ],
+
+        accountPresenceByAccountId: [
+            {} as Record<string, AccountPresenceViewerApi[]>,
+            {
+                loadAccountPresenceSuccess: (_, { presence }) =>
+                    Object.fromEntries(presence.map(({ account_id, viewers }) => [account_id, [...viewers]])),
+                loadAccountPresenceFailure: () => ({}),
             },
         ],
         savingCustomProperties: [
@@ -921,14 +977,20 @@ export const accountsLogic = kea<accountsLogicType>([
                 setCustomPropertyOverride: (state, { accountId, definitionId, value }) => {
                     const next = { ...state }
                     const key = customPropertySavingKey(accountId, definitionId)
-                    if (value === null) {
+                    if (value === undefined) {
                         delete next[key]
                     } else {
                         next[key] = value
                     }
                     return next
                 },
-                clearCustomPropertyOverrides: () => ({}),
+                clearCustomPropertyOverrides: (state, { keys }) => {
+                    const next = { ...state }
+                    for (const key of keys) {
+                        delete next[key]
+                    }
+                    return next
+                },
             },
         ],
         savingRoles: [
@@ -1008,18 +1070,19 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingTags[accountId],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters],
+            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters, s.accountFilterGroups],
             (
                 searchQuery: string,
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
-                accountFilters: AccountFilter[]
+                accountFilters: AccountFilter[],
+                accountFilterGroups: AccountFilter[][]
             ): number =>
                 [
                     !!searchQuery.trim(),
                     tagsFilter.length > 0,
                     assignmentStatus !== 'all',
-                    accountFilters.length > 0,
+                    accountFilters.length > 0 || accountFilterGroups.some((group) => group.length > 0),
                 ].filter(Boolean).length,
         ],
         viewState: [
@@ -1033,6 +1096,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tileFilter,
                 s.tiles,
                 s.accountFilters,
+                s.accountFilterGroups,
                 s.columnDisplay,
             ],
             (
@@ -1045,81 +1109,80 @@ export const accountsLogic = kea<accountsLogicType>([
                 tileFilter: TileFilter | null,
                 tiles: import('./accountsOverviewTilesLogic').AccountsOverviewTile[],
                 customProperties: AccountFilter[],
+                filterGroups: AccountFilter[][],
                 columnDisplay: AccountColumnDisplayState
             ): AccountsViewState => ({
                 columns,
                 sortOrder,
-                filters: { search, assignmentStatus, assignedTo, tags, tileFilter, customProperties },
+                filters: { search, assignmentStatus, assignedTo, tags, tileFilter, customProperties, filterGroups },
                 tiles,
                 columnDisplay,
             }),
         ],
-        viewUrlState: [
+        listDatasetKey: [
             (s) => [
+                s.currentTeamId,
                 s.searchQuery,
                 s.tagsFilter,
                 s.assignmentStatus,
                 s.assignedToFilter,
-                s.sortOrder,
-                s.selectColumns,
-                s.defaultSelectColumns,
+                s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
-                s.columnDisplay,
+                s.accountFilterGroups,
+                s.relationshipDefinitionsById,
+                s.customPropertyDefinitionsById,
             ],
             (
+                currentTeamId: number | null,
                 searchQuery: string,
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
-                sortOrder: AccountSortOrder,
-                selectColumns: string[],
-                defaultSelectColumns: string[],
+                accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
-                columnDisplay: AccountColumnDisplayState
-            ): AccountsViewUrlState => {
-                const state: AccountsViewUrlState = {}
-                const trimmedSearch = searchQuery.trim()
-                if (trimmedSearch) {
-                    state.search = trimmedSearch
-                }
-                if (tagsFilter.length > 0) {
-                    state.tags = tagsFilter
-                }
-                if (assignmentStatus === 'unassigned') {
-                    state.assignmentStatus = 'unassigned'
-                } else if (assignmentStatus === 'assigned') {
-                    state.assignmentStatus = 'assigned'
-                    if (assignedToFilter.length > 0) {
-                        state.assignedTo = assignedToFilter
-                    }
-                }
-                if (sortOrder) {
-                    state.sort = sortOrder
-                }
-                if (!objectsEqual(selectColumns, defaultSelectColumns)) {
-                    state.columns = selectColumns
-                }
-                if (Object.keys(columnDisplay).length > 0) {
-                    state.columnDisplay = columnDisplay
-                }
-                if (tileFilter) {
-                    state.tileFilter = tileFilter
-                }
-                if (accountFilters.length > 0) {
-                    state.customProperties = accountFilters
-                }
-                // Without an explicit status, a nonempty hash would restore as a legacy assigned-only view.
-                if (assignmentStatus === 'all' && Object.keys(state).length > 0) {
-                    state.assignmentStatus = 'all'
-                }
-                return state
-            },
+                accountFilterGroups: AccountFilter[][],
+                relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
+                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+            ): string =>
+                `${currentTeamId ?? 'none'}:${accountsTableDatasetKey({
+                    searchQuery,
+                    tagsFilter,
+                    assignmentStatus,
+                    assignedToFilter,
+                    accountIdFilter,
+                    tileFilter,
+                    accountFilters,
+                    accountFilterGroups,
+                    relationshipDefinitionsById,
+                    customPropertyDefinitionsById,
+                })}`,
+        ],
+        listDataCompleteness: [
+            (s) => [s.listResponseState, s.listDatasetKey],
+            (listResponseState: AccountListResponseState | null, listDatasetKey: string): AccountListDataCompleteness =>
+                listResponseState?.datasetKey === listDatasetKey ? listResponseState.completeness : 'unknown',
         ],
         canSortClientSide: [
-            (s) => [s.listHasMoreData, s.listPaginated],
-            (listHasMoreData: boolean, listPaginated: boolean): boolean => !listHasMoreData && !listPaginated,
+            (s) => [s.listDataCompleteness],
+            (listDataCompleteness: AccountListDataCompleteness): boolean => listDataCompleteness === 'complete',
+        ],
+        serverSortOrder: [
+            (s) => [s.listDataCompleteness, s.listResponseState, s.sortOrder, s.visibleColumnNames],
+            (
+                listDataCompleteness: AccountListDataCompleteness,
+                listResponseState: AccountListResponseState | null,
+                sortOrder: AccountSortOrder,
+                visibleColumnNames: string[]
+            ): AccountSortOrder =>
+                listDataCompleteness === 'complete' &&
+                listResponseState &&
+                sortOrder &&
+                listResponseState.serverSortOrder &&
+                visibleColumnNames.includes(listResponseState.serverSortOrder.column)
+                    ? listResponseState.serverSortOrder
+                    : sortOrder,
         ],
         sortedRowsTransformer: [
             (s) => [s.canSortClientSide, s.sortOrder, s.accountsTableQueryPlan],
@@ -1146,11 +1209,11 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
+                s.accountFilterGroups,
                 s.relationshipDefinitionsById,
                 s.customPropertyDefinitionsById,
                 s.columnDisplay,
-                s.sortOrder,
-                s.canSortClientSide,
+                s.serverSortOrder,
             ],
             (
                 querySelectColumns: string[],
@@ -1162,11 +1225,11 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
+                accountFilterGroups: AccountFilter[][],
                 relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
                 columnDisplay: AccountColumnDisplayState,
-                sortOrder: AccountSortOrder,
-                canSortClientSide: boolean
+                serverSortOrder: AccountSortOrder
             ): BuildAccountsTableQueryPlanInput => ({
                 querySelectColumns,
                 visibleColumnNames,
@@ -1177,11 +1240,11 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter,
                 tileFilter,
                 accountFilters,
+                accountFilterGroups,
                 relationshipDefinitionsById,
                 customPropertyDefinitionsById,
                 columnDisplay,
-                sortOrder,
-                canSortClientSide,
+                serverSortOrder,
             }),
         ],
         accountsTableQueryPlan: [
@@ -1253,10 +1316,10 @@ export const accountsLogic = kea<accountsLogicType>([
     }),
     listeners(({ actions, values, cache, selectors }) => ({
         applyViewState: ({ viewState, options }) => {
-            cache.assignmentStateResolved = true
-            if (options.source === 'draft') {
-                actions.setDraftRestored(true)
+            if (options.columns !== 'keep') {
+                getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null).columnMode = options.columns
             }
+            cache.assignmentStateResolved = true
             cache.searchGeneration = (cache.searchGeneration ?? 0) + 1
             cache.applyingViewState = true
             try {
@@ -1273,13 +1336,13 @@ export const accountsLogic = kea<accountsLogicType>([
                     viewState.filters.assignmentStatus === 'assigned' ? viewState.filters.assignedTo : []
                 )
                 actions.setAccountFilters(viewState.filters.customProperties)
+                actions.setAccountFilterGroups(viewState.filters.filterGroups)
                 actions.setSortOrder(viewState.sortOrder)
                 actions.setTiles(viewState.tiles)
                 actions.setTileFilter(viewState.filters.tileFilter)
             } finally {
                 cache.applyingViewState = false
             }
-            // A fallback snapshot would become a draft that blocks the pending saved view.
             if (options.source !== 'defaults') {
                 actions.persistViewState()
             }
@@ -1288,7 +1351,6 @@ export const accountsLogic = kea<accountsLogicType>([
             const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
             if (
                 !values.viewStateHydrated ||
-                values.awaitingSavedView ||
                 cache.applyingViewState ||
                 !draftIdentity ||
                 !objectsEqual(cache.viewStateDraftIdentity, draftIdentity) ||
@@ -1300,20 +1362,35 @@ export const accountsLogic = kea<accountsLogicType>([
                 ...values.viewState,
                 filters: { ...values.viewState.filters, search: search ?? values.searchInput },
             }
-            writeAccountsViewDraft(draftIdentity.teamId, draftIdentity.userId, viewState)
-        },
-        setAwaitingSavedView: ({ awaiting }) => {
-            if (!awaiting) {
-                actions.syncViewStateToUrl()
-            }
+            const session = getAccountsViewSession(draftIdentity.teamId, draftIdentity.userId)
+            session.state = viewState
+            session.revision++
+            session.initialized = true
+            actions.setAwaitingSavedView(false)
         },
         setSearchQuery: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         setTagsFilter: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         setSortOrder: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
-        restoreSelectColumns: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
-        selectColumn: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
-        [accountsColumnConfigLogic.actionTypes.moveColumn]: () =>
-            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        restoreSelectColumns: () => {
+            if (!cache.applyingViewState) {
+                getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null).columnMode = 'restore'
+            }
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+        },
+        [accountsColumnConfigLogic.actionTypes.setDefaultSelectColumns]: () => {
+            const session = getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null)
+            if (session.initialized && session.state) {
+                actions.persistViewState()
+            }
+        },
+        selectColumn: () => {
+            getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null).columnMode = 'restore'
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+        },
+        [accountsColumnConfigLogic.actionTypes.moveColumn]: () => {
+            getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null).columnMode = 'restore'
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+        },
         setColumnDisplay: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         setColumnDisplayConfig: () =>
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
@@ -1330,17 +1407,80 @@ export const accountsLogic = kea<accountsLogicType>([
         [accountsOverviewTilesLogic.actionTypes.resetTiles]: () =>
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         listLoadData: ({ queryId }) => {
+            cache.latestListRequestState = {
+                queryId,
+                datasetKey: values.listDatasetKey,
+                serverSortOrder: values.serverSortOrder,
+            }
             if (cache.awaitingCustomPropertyRefresh) {
                 cache.awaitingCustomPropertyRefresh = false
                 cache.customPropertyRefreshQueryId = queryId
             }
         },
-        listLoadDataSuccess: ({ payload }) => {
-            if (payload?.queryId !== cache.customPropertyRefreshQueryId) {
+        listLoadDataSuccess: ({ response, payload }) => {
+            const accountIds =
+                response && typeof response === 'object' && 'results' in response && Array.isArray(response.results)
+                    ? response.results.filter(isAccountsTableRow).map((account) => account.id)
+                    : []
+            cache.disposables.dispose('accountPresencePoll')
+            if (accountIds.length) {
+                cache.disposables.add(() => {
+                    actions.loadAccountPresence(accountIds)
+                    const intervalId = window.setInterval(
+                        () => actions.loadAccountPresence(accountIds),
+                        ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS
+                    )
+                    return () => window.clearInterval(intervalId)
+                }, 'accountPresencePoll')
+            } else {
+                actions.loadAccountPresence([])
+            }
+            const queryId = payload?.queryId
+            const requestState = cache.latestListRequestState
+            if (
+                requestState &&
+                queryId === requestState.queryId &&
+                response &&
+                typeof response === 'object' &&
+                'hasMore' in response &&
+                typeof response.hasMore === 'boolean'
+            ) {
+                // Pin the request sort for complete sets so this response does not change the query that produced it.
+                actions.setListResponseState(
+                    requestState.datasetKey,
+                    response.hasMore ? 'paginated' : 'complete',
+                    requestState.serverSortOrder
+                )
+            }
+            if (queryId === cache.customPropertyRefreshQueryId) {
+                cache.customPropertyRefreshQueryId = undefined
+                // The override of a write that is still pending is newer than this response.
+                // It stays until the refresh that follows that write.
+                const writtenKeys: string[] = cache.writtenCustomPropertyKeys ?? []
+                const isPending = (key: string): boolean => !!values.savingCustomProperties[key]
+                cache.writtenCustomPropertyKeys = writtenKeys.filter(isPending)
+                actions.clearCustomPropertyOverrides(writtenKeys.filter((key) => !isPending(key)))
+            }
+        },
+        loadAccountPresence: async ({ accountIds }) => {
+            cache.accountPresenceRequestSequence = (cache.accountPresenceRequestSequence ?? 0) + 1
+            const requestSequence = cache.accountPresenceRequestSequence
+            if (!values.currentTeamId || !accountIds.length) {
+                actions.loadAccountPresenceSuccess([])
                 return
             }
-            cache.customPropertyRefreshQueryId = undefined
-            actions.clearCustomPropertyOverrides()
+            try {
+                const presence = await accountsPresenceList(String(values.currentTeamId), {
+                    account_ids: accountIds.slice(0, 100),
+                })
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceSuccess(presence)
+                }
+            } catch {
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceFailure()
+                }
+            }
         },
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
             cache.customPropertyDefinitionsLoaded = true
@@ -1358,6 +1498,12 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, definitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
         },
         loadRelationshipDefinitionsSuccess: () => {
             cache.relationshipDefinitionsLoaded = true
@@ -1372,10 +1518,60 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, values.customPropertyDefinitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
         },
         loadRelationshipDefinitionsFailure: () => {
             cache.relationshipDefinitionsLoaded = true
             actions.setAccountFilters(values.accountFilters)
+            if (!cache.customPropertyDefinitionsLoaded) {
+                return
+            }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, values.customPropertyDefinitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
+        },
+        setAccountFilterGroups: ({ groups }) => {
+            if (cache.customPropertyDefinitionsLoaded && cache.relationshipDefinitionsLoaded) {
+                const supportedGroups = groups.map((group) =>
+                    supportedAccountFilters(
+                        group,
+                        values.customPropertyDefinitionsById,
+                        values.relationshipDefinitionsById
+                    )
+                )
+                if (!objectsEqual(supportedGroups, groups)) {
+                    actions.setAccountFilterGroups(supportedGroups)
+                    return
+                }
+            }
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+        },
+        addAccountFilterGroup: () => {
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.reportFilterChange('or_group')
+        },
+        removeFirstAccountFilterGroup: () => {
+            const [first = [], ...remaining] = values.accountFilterGroups
+            actions.setAccountFilterGroups(remaining)
+            actions.setAccountFilters(first)
+            actions.reportFilterChange('or_group')
+        },
+        removeAccountFilterGroup: () => {
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.reportFilterChange('or_group')
+        },
+        updateAccountFilterGroup: () => {
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.setAccountFilterGroups(values.accountFilterGroups)
+            actions.reportFilterChange('or_group')
         },
         setAccountFilters: ({ filters }) => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
@@ -1459,6 +1655,12 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.role_count = values.assignedToFilter.length
                     properties.is_cleared = values.assignedToFilter.length === 0
                     break
+                case 'or_group':
+                    properties.group_count = values.accountFilterGroups.length + 1
+                    properties.is_cleared =
+                        values.accountFilters.length === 0 &&
+                        values.accountFilterGroups.every((group) => group.length === 0)
+                    break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
         },
@@ -1470,74 +1672,29 @@ export const accountsLogic = kea<accountsLogicType>([
             }
         },
         setAssignedToCurrentUser: ({ value }) => {
-            actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
+            if (!value) {
+                actions.setAssignmentStatus('all')
+            } else if (values.currentUserId !== null) {
+                actions.setAssignedToFilter([values.currentUserId])
+            }
         },
         setAssignedToFilter: ({ value }) => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             if (value.length > 0 && values.assignmentStatus !== 'assigned') {
                 actions.setAssignmentStatus('assigned')
             }
-            // Notes uses the same My accounts preference.
-            if (!cache.pendingMineOnlyRestore) {
-                cache.mirroringMineOnly = true
-                try {
-                    actions.setMineOnly(values.assignedToCurrentUser)
-                } finally {
-                    cache.mirroringMineOnly = false
-                }
-            }
-        },
-        setMineOnly: ({ mineOnly }) => {
-            if (cache.mirroringMineOnly) {
-                return
-            }
-            if (!isAccountsListPath()) {
-                cache.mineOnlyChangedOutsideAccounts = mineOnly
-                return
-            }
-            if (cache.userUnavailable) {
-                cache.pendingMineOnlyRestore = mineOnly
-                return
-            }
-            if (mineOnly && values.currentUserId !== null) {
-                actions.setAssignedToFilter([values.currentUserId])
-            } else if (!mineOnly && values.assignedToCurrentUser) {
-                actions.setAssignedToFilter([])
-            }
         },
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
             const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
-            if (
-                !values.viewStateHydrated ||
-                (draftIdentity && !objectsEqual(cache.viewStateDraftIdentity, draftIdentity))
-            ) {
+            if (!values.viewStateHydrated || !objectsEqual(cache.viewStateDraftIdentity, draftIdentity)) {
                 actions.restoreViewStateFromRoute()
             }
         },
-        // Viewer-relative preferences and legacy mine links must wait for the user ID.
-        loadUserSuccess: ({ user }) => {
-            cache.userUnavailable = user === null
+        // Legacy mine links must wait for the user ID.
+        loadUserSuccess: () => {
             const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
-            if (
-                !values.viewStateHydrated ||
-                (draftIdentity && !objectsEqual(cache.viewStateDraftIdentity, draftIdentity))
-            ) {
+            if (!values.viewStateHydrated || !objectsEqual(cache.viewStateDraftIdentity, draftIdentity)) {
                 actions.restoreViewStateFromRoute()
-                return
-            }
-            if (cache.pendingMineOnlyRestore && values.currentUserId !== null) {
-                cache.pendingMineOnlyRestore = false
-                actions.setAssignedToFilter([values.currentUserId])
-                return
-            }
-            if (
-                !cache.assignmentStateResolved &&
-                values.mineOnly &&
-                values.currentUserId !== null &&
-                !values.assignedToFilter.length &&
-                values.assignmentStatus !== 'unassigned'
-            ) {
-                actions.setAssignedToFilter([values.currentUserId])
             }
         },
         toggleSort: ({ column }) => {
@@ -1557,16 +1714,21 @@ export const accountsLogic = kea<accountsLogicType>([
             })
         },
         setSelectColumns: () => {
+            if (!cache.applyingViewState) {
+                getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null).columnMode = 'restore'
+            }
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             clearSortIfColumnRemoved(values, actions)
         },
         unselectColumn: () => {
+            getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null).columnMode = 'restore'
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             clearSortIfColumnRemoved(values, actions)
         },
         resetColumns: () => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             clearSortIfColumnRemoved(values, actions)
+            getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null).columnMode = 'defaults'
         },
         refresh: () => {
             posthog.capture(AccountsEvents.Refreshed, {
@@ -1578,91 +1740,97 @@ export const accountsLogic = kea<accountsLogicType>([
             dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
         restoreViewStateFromRoute: ({ method }) => {
-            const pathname = removeProjectIdIfPresent(router.values.location.pathname)
-            const sharedView = hasSharedView(router.values.hashParams)
-                ? (router.values.hashParams.view as AccountsViewUrlState)
-                : null
-            const pendingUrlRestore = cache.pendingUrlRestore
-            cache.pendingUrlRestore = undefined
-            if (
-                method === 'REPLACE' &&
-                pendingUrlRestore &&
-                pendingUrlRestore.pathname === pathname &&
-                objectsEqual(pendingUrlRestore.view, sharedView ?? {})
-            ) {
+            const identity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
+            const session = getAccountsViewSession(identity?.teamId ?? null, identity?.userId ?? null)
+            const scopeChanged = !objectsEqual(cache.viewStateDraftIdentity, identity)
+            cache.viewStateDraftIdentity = identity
+            if (cache.skipReturnCleanup && method === 'REPLACE') {
+                cache.skipReturnCleanup = false
+                session.entryLocation = router.values.currentLocation
                 return
             }
-
-            const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
-            if (!sharedView && !draftIdentity) {
+            if (!identity) {
+                actions.setAwaitingSavedView(true)
                 actions.setViewStateHydrated(false)
                 return
             }
-
-            const previousDraftIdentity = cache.viewStateDraftIdentity
-            cache.assignmentStateResolved = false
-            cache.pendingMineOnlyRestore = false
-            cache.viewStateDraftIdentity = draftIdentity
-            actions.setDraftRestored(false)
-            let restored = false
-            const draft = draftIdentity ? readAccountsViewDraft(draftIdentity.teamId, draftIdentity.userId) : null
+            const explicitReference =
+                typeof router.values.searchParams.view === 'string' ? router.values.searchParams.view : null
+            const sharedView =
+                explicitReference === null && hasSharedView(router.values.hashParams)
+                    ? (router.values.hashParams.view as AccountsViewUrlState)
+                    : null
+            const isList =
+                removeProjectIdIfPresent(router.values.location.pathname) === urls.customerAnalyticsAccounts()
+            const enteringList = isList && session.entryLocation !== router.values.currentLocation
+            const returning = session.returnView
+            const restoreReturn =
+                enteringList &&
+                returning &&
+                router.values.searchParams.restore_view === returning.token &&
+                returning.viewId === explicitReference
+            if (enteringList) {
+                session.entryLocation = router.values.currentLocation
+                if (restoreReturn) {
+                    session.state = returning.state
+                    session.currentViewId = returning.viewId
+                    session.reference = returning.viewId
+                    session.columnMode = returning.columnMode
+                    session.initialized = returning.state !== null
+                    session.returnView = null
+                    session.revision++
+                } else if (method !== 'REPLACE') {
+                    session.state = null
+                    session.initialized = false
+                    session.returnView = null
+                    session.allowRemembered = true
+                    session.reference = explicitReference ?? session.currentViewId
+                    session.revision++
+                }
+            }
+            const reference = explicitReference ?? (!sharedView ? (session.reference ?? null) : null)
+            const referenceChanged = session.reference !== undefined && reference !== session.reference
+            if (referenceChanged) {
+                session.state = null
+                session.currentViewId = null
+                session.initialized = false
+                session.allowRemembered = false
+                session.revision++
+            }
+            session.reference = reference
+            actions.setAwaitingSavedView(!session.initialized)
             if (sharedView) {
-                cache.mineOnlyChangedOutsideAccounts = undefined
-                cache.pendingMineOnlyRestore = !!sharedView.mine && values.currentUserId === null
                 actions.applyViewState(
                     accountsViewStateFromUrl(
                         sharedView,
                         values.defaultSelectColumns,
                         values.currentUserId,
-                        draft?.tiles ?? values.tiles
+                        DEFAULT_TILES
                     ),
                     { source: 'shared_url', columns: Array.isArray(sharedView.columns) ? 'restore' : 'defaults' }
                 )
-                restored = true
-            } else if (isAccountsListPath() || pathname.startsWith(`${urls.customerAnalyticsAccounts()}/`)) {
-                const mineOnly = cache.mineOnlyChangedOutsideAccounts
-                cache.mineOnlyChangedOutsideAccounts = undefined
-                if (mineOnly !== undefined) {
-                    cache.pendingMineOnlyRestore = mineOnly && values.currentUserId === null
-                    actions.applyViewState(
-                        viewStateWithMineOnly(draft ?? values.viewState, mineOnly, values.currentUserId),
-                        {
-                            source: draft ? 'draft' : 'defaults',
-                            columns: draft ? 'restore' : 'keep',
-                        }
-                    )
-                    restored = true
-                } else if (draft) {
-                    actions.applyViewState(draft, { source: 'draft', columns: 'restore' })
-                    restored = true
-                } else if (previousDraftIdentity && !objectsEqual(previousDraftIdentity, draftIdentity)) {
-                    actions.applyViewState(
-                        viewStateWithMineOnly(
-                            accountsViewStateFromUrl(
-                                {},
-                                values.defaultSelectColumns,
-                                values.currentUserId,
-                                DEFAULT_TILES
-                            ),
-                            values.mineOnly,
-                            values.currentUserId
-                        ),
-                        { source: 'defaults', columns: 'defaults' }
-                    )
-                } else if (values.mineOnly) {
-                    if (values.currentUserId === null) {
-                        cache.pendingMineOnlyRestore = true
-                    } else {
-                        actions.applyViewState(viewStateWithMineOnly(values.viewState, true, values.currentUserId), {
-                            source: 'defaults',
-                            columns: 'keep',
-                        })
-                    }
-                }
+                session.state = values.viewState
+                session.currentViewId = null
+                session.initialized = true
+            } else if (session.state) {
+                actions.applyViewState(session.state, { source: 'draft', columns: session.columnMode })
+            } else if (scopeChanged || referenceChanged || (enteringList && !restoreReturn && method !== 'REPLACE')) {
+                actions.applyViewState(
+                    accountsViewStateFromUrl({}, values.defaultSelectColumns, values.currentUserId, DEFAULT_TILES),
+                    { source: 'defaults', columns: 'defaults' }
+                )
             }
             actions.setViewStateHydrated(true)
-            if (restored) {
-                actions.persistViewState()
+            actions.setAwaitingSavedView(!session.initialized)
+            if (isList && Object.hasOwn(router.values.searchParams, 'restore_view')) {
+                const { restore_view: _, ...search } = router.values.searchParams
+                cache.skipReturnCleanup = true
+                router.actions.replace(router.values.location.pathname, search, router.values.hashParams)
+                session.entryLocation = router.values.currentLocation
+            }
+            if (hasSharedView(router.values.hashParams)) {
+                const { view: _, ...hash } = router.values.hashParams
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, hash)
             }
         },
         updateAccountCustomProperty: async ({ accountId, definition, value }) => {
@@ -1674,7 +1842,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 return
             }
             const key = customPropertySavingKey(accountId, definition.id)
-            const previous = values.customPropertyOverrides[key] ?? null
+            const previous = values.customPropertyOverrides[key]
             actions.customPropertyUpdateStarted(accountId, definition.id)
             actions.setCustomPropertyOverride(accountId, definition.id, value)
             try {
@@ -1686,6 +1854,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     display_type: definition.display_type,
                     workflow_reference: definition.has_workflow_reference,
                 })
+                cache.writtenCustomPropertyKeys = [...(cache.writtenCustomPropertyKeys ?? []), key]
                 cache.awaitingCustomPropertyRefresh = true
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
@@ -1790,6 +1959,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.accountFilters.length > 0) {
                     actions.setAccountFilters([])
                 }
+                if (values.accountFilterGroups.length > 0) {
+                    actions.setAccountFilterGroups([])
+                }
                 const term = externalId || name
                 if (term) {
                     actions.setSearchQuery(term)
@@ -1826,35 +1998,25 @@ export const accountsLogic = kea<accountsLogicType>([
         actions.ensureAllMembersLoaded()
         actions.restoreViewStateFromRoute()
     }),
-    actionToUrl(({ values, cache }) => ({
+    actionToUrl(({ values }) => ({
         syncViewStateToUrl: () => {
-            if (!values.viewStateHydrated || values.awaitingSavedView) {
-                return undefined
-            }
             const pathname = accountsPathToWriteBackTo(values.accountIdFilter)
-            if (!pathname) {
+            if (!pathname || !values.viewStateHydrated) {
                 return undefined
             }
-            const view = objectsEqual(values.viewUrlState, {}) ? {} : values.viewUrlState
-            const currentView = hasSharedView(router.values.hashParams)
-                ? (router.values.hashParams.view as AccountsViewUrlState)
-                : {}
-            if (objectsEqual(currentView, view)) {
-                return undefined
-            }
-            const pendingUrlRestore = {
-                pathname: removeProjectIdIfPresent(pathname),
-                view,
-            }
-            cache.pendingUrlRestore = pendingUrlRestore
-            queueMicrotask(() => {
-                if (cache.pendingUrlRestore === pendingUrlRestore) {
-                    cache.pendingUrlRestore = undefined
-                }
-            })
-            return [pathname, router.values.searchParams, objectsEqual(view, {}) ? {} : { view }, { replace: true }]
+            const session = getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null)
+            const { view: _, ...search } = router.values.searchParams
+            const { view: __, ...hash } = router.values.hashParams
+            session.reference = session.currentViewId
+            return [
+                pathname,
+                session.currentViewId ? { ...search, view: session.currentViewId } : search,
+                hash,
+                { replace: true },
+            ]
         },
     })),
+
     urlToAction(({ actions, values }) => {
         const openAccountByPath = (accountId: string | undefined, rawTab?: string): void => {
             if (!accountId || !isUUIDLike(accountId)) {
@@ -1876,13 +2038,15 @@ export const accountsLogic = kea<accountsLogicType>([
                     actions.setAccountIdFilter(null)
                 }
             },
-            // Keep the list draft while the account ID controls the detail query.
-            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }, __, ___, { method }): void => {
-                actions.restoreViewStateFromRoute(method)
+            // Account navigation must not replace the active list edits.
+            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }): void => {
+                actions.restoreViewStateFromRoute()
                 openAccountByPath(accountId)
             },
-            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }, __, ___, { method }): void => {
-                actions.restoreViewStateFromRoute(method)
+            // This is a route template, not a navigable URL. `customerAnalyticsAccount` encodes
+            // tab values for real links, so append the literal matcher segment here.
+            [`${urls.customerAnalyticsAccount(':accountId')}/:tab`]: ({ accountId, tab }): void => {
+                actions.restoreViewStateFromRoute()
                 openAccountByPath(accountId, tab)
             },
         }

@@ -57,7 +57,7 @@ class ConvertKitSource(ResumableSource[ConvertKitSourceConfig, ConvertKitResumeC
 You can create a v4 API key in your [Kit account settings](https://app.kit.com/account_settings/developer_settings).""",
             iconPath="/static/services/convertkit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/convertkit",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

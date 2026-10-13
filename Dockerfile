@@ -25,7 +25,8 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:24.13.0-bookworm-slim AS node-base
+# Digest-pinned because the runtime stage copies its `node` binary out of this stage.
+FROM node:24.13.0-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -83,6 +84,11 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
 # which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
 #
+# Two passes. The stable-name copies (`*-S<10 hex>.js`, see frontend/bin/stableChunkNames.mjs) keep
+# one URL for as long as their code is unchanged, so they must not carry the per-release id that the
+# first pass injects. The second pass runs with no release flags and without GITHUB_ACTIONS, so the CLI
+# resolves no release and injects only the chunk id, which it derives from the file's own content.
+#
 # The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
@@ -94,7 +100,8 @@ ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e2
 # directory to fall back on: without these the release is created with no link back to the code it
 # was built from, and the CLI skips the metadata silently because --release-name/--release-version
 # already let it create the release. The CLI treats empty values as absent, so local builds that
-# pass none of these behave as before.
+# pass none of these behave as before. In the CD workflow the release usually exists already, created
+# with the same metadata before the build, and this stage only looks it up by name and version.
 ARG GITHUB_ACTIONS
 ARG GITHUB_SHA
 ARG GITHUB_REF_NAME
@@ -117,12 +124,19 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
         export PATH="/root/.posthog:$PATH" && \
         export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
         export POSTHOG_CLI_ENV_ID=2 && \
+        STABLE_CHUNKS='**/*-S[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F].js' && \
         posthog-cli sourcemap process \
             --directory /code/frontend/dist \
+            --exclude "$STABLE_CHUNKS" \
             --public-path-prefix /static \
             --release-mode event \
             --release-name posthog \
-            --release-version "${COMMIT_HASH:-unknown}" \
+            --release-version "${COMMIT_HASH:-unknown}" && \
+        env -u GITHUB_ACTIONS posthog-cli sourcemap process \
+            --directory /code/frontend/dist \
+            --include "$STABLE_CHUNKS" \
+            --public-path-prefix /static \
+            --release-mode event \
     ); then \
         echo uploaded > /tmp/.sourcemaps-status; \
     else \
@@ -169,7 +183,7 @@ RUN cd /code/common/plugin_transpiler && \
 FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build
+FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS posthog-build
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -200,10 +214,11 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     # uv sync validates workspace membership even with --no-dev, so every workspace member must be
-    # present in the build context. tools/owners is also a real install source here: posthog-owners
+    # present in the build context. packages/owners-yaml is also a real install source here: owners-yaml
     # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
     # copies it into the venv so the image never depends on this bind mount's path surviving.
-    --mount=type=bind,source=tools/owners,target=tools/owners \
+    --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
+    --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
     uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -272,15 +287,16 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.13.13-bookworm@sha256:0544e35a04d3d3272a5e180a402065bfa84402bf39431a727f8989e32ffce979
+# Same digest as the posthog-build stage, so the interpreter matches the one the wheels were built against.
+FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1
 # Granian embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
 # coercion never runs and open() defaults to ASCII under the container's bare locale.
 # Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
-ENV PYTHONUTF8 1
-ENV LANG C.UTF-8
+ENV PYTHONUTF8=1
+ENV LANG=C.UTF-8
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
 # Runtime-only shared libs: lxml/xmlsec are compiled --no-binary in the build stage (which keeps
@@ -288,6 +304,8 @@ ENV LANG C.UTF-8
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
+    # The deploy chart's asset-upload hook runs in this image and downloads s5cmd with curl.
+    "curl" \
     "git" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
@@ -297,56 +315,24 @@ RUN apt-get update && \
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \
     "libjemalloc2" \
+    # Numba's OpenMP backend needs the system libgomp runtime.
+    "libgomp1" \
+    # Python's mimetypes uses /etc/mime.types for artifact content types.
+    "media-types" \
+    # psutil is not installed, so joblib's loky kills worker process trees with pgrep.
+    # Operators also need ps to find a PID for py-spy.
+    "procps" \
     && \
     rm -rf /var/lib/apt/lists/*
 
 # Note: no MS SQL ODBC driver is installed — the data-warehouse MSSQL source uses pymssql, which
 # bundles FreeTDS in its wheel and does not use msodbcsql18/unixodbc (there is no pyodbc in the tree).
 
-# Install Node.js 24.13.0 for standalone scripts with architecture detection and verification.
-# Only the `node` binary is used at runtime (the plugin transpiler subprocess), so npm/npx/corepack/
-# headers are stripped after install. Note: the dev-only `create_channel_definitions_file` management
-# command shells out to `npx prettier` to regenerate a checked-in file; it is not run in this image.
-ENV NODE_VERSION 24.13.0
-
-RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
-    && case "${dpkgArch##*-}" in \
-    amd64) ARCH='x64';; \
-    ppc64el) ARCH='ppc64le';; \
-    s390x) ARCH='s390x';; \
-    arm64) ARCH='arm64';; \
-    armhf) ARCH='armv7l';; \
-    i386) ARCH='x86';; \
-    *) echo "unsupported architecture"; exit 1 ;; \
-    esac \
-    && export GNUPGHOME="$(mktemp -d)" \
-    && set -ex \
-    && for key in \
-    5BE8A3F6C8A5C01D106C0AD820B1A390B168D356 \
-    C0D6248439F1D5604AAFFB4021D900FFDB233756 \
-    DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7 \
-    CC68F5A3106FF448322E48ED27F5E38D5B0A215F \
-    8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600 \
-    890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4 \
-    C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C \
-    108F52B48DB57BB0CC439B2997B01419BD92F80A \
-    A363A499291CBBC940DD62E41F10027AF002F8B0 \
-    ; do \
-    { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$key" && gpg --batch --fingerprint "$key"; } || \
-    { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$key" && gpg --batch --fingerprint "$key"; } ; \
-    done \
-    && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH.tar.xz" \
-    && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc" \
-    && gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc \
-    && gpgconf --kill all \
-    && rm -rf "$GNUPGHOME" \
-    && grep " node-v$NODE_VERSION-linux-$ARCH.tar.xz\$" SHASUMS256.txt | sha256sum -c - \
-    && tar -xJf "node-v$NODE_VERSION-linux-$ARCH.tar.xz" -C /usr/local --strip-components=1 --no-same-owner \
-    && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
-    && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
-    && node --version \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/include/node \
-    && rm -rf /tmp/*
+# Only the `node` binary is used at runtime (the plugin transpiler subprocess). Note: the dev-only
+# `create_channel_definitions_file` management command shells out to `npx prettier` to regenerate a
+# checked-in file; it is not run in this image.
+COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
+RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && node --version
 
 # Install and use a non-root user.
 # Pin uid/gid to a fixed, host-safe value (avoid 1000, which maps to ec2-user on the nodes).
@@ -358,6 +344,14 @@ USER posthog
 # Add the commit hash
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
+
+# The error tracking release this build belongs to. The CD workflow creates the release before the
+# build and passes its id in (see "Resolve error tracking release" in
+# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
+# $release_id on every event, so a backend exception resolves to the same release as the frontend
+# bundles. Empty in every other build, which the SDK treats as unset.
+ARG POSTHOG_RELEASE_ID
+ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
@@ -404,15 +398,23 @@ COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. The engine arrives with products/ above, and only tools/owners needs its own COPY. This
-# differs from the installation of posthog-owners into the venv as a library: the sandbox receives
+# source. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
+# differs from the installation of owners-yaml into the venv as a library: the sandbox receives
 # files copied into a checkout, and not an import.
-COPY --chown=posthog:posthog tools/owners tools/owners/
-RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+COPY --chown=posthog:posthog packages/owners-yaml packages/owners-yaml/
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d packages/owners-yaml/owners_yaml
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
 COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
+
+# Pre-compile first-party bytecode. Site-packages are already compiled (UV_COMPILE_BYTECODE=1), but
+# the app runs as `nobody` (bin/docker-server), which cannot write __pycache__ under the posthog-owned
+# /code, so without this every process compiled ~1300 first-party modules in memory at every start.
+# Test modules are skipped to keep the layer small. Default (timestamp) validation: one stat per
+# module, and a later COPY of edited .py files still takes effect. See docs/internal/django-startup-time.md.
+RUN /python-runtime/bin/python -m compileall -q -j 0 -x '/tests?/' \
+    manage.py posthog ee common/hogvm common/migration_utils products packages/owners-yaml
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).

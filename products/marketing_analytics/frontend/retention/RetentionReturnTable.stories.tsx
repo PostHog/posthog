@@ -5,13 +5,11 @@ import { RetentionReturnTable } from './RetentionReturnTable'
 const meta: Meta<typeof RetentionReturnTable> = {
     title: 'Marketing analytics/Retention return table',
     component: RetentionReturnTable,
-    decorators: [
-        (Story) => (
-            <div className="w-[1100px] max-w-full">
-                <Story />
-            </div>
-        ),
-    ],
+    render: (args) => (
+        <div className="w-[1100px] max-w-full">
+            <RetentionReturnTable {...args} />
+        </div>
+    ),
     args: {
         dimensionLabel: 'Source',
         loading: false,

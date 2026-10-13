@@ -27,12 +27,12 @@ from posthog.slo.context import SloHandle, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async_pool
 
-from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
+from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
     BatchedAlertCheckQuery,
@@ -43,10 +43,12 @@ from products.logs.backend.alert_check_query import (
     resolve_alert_date_to,
     rolling_check_lookback_minutes,
 )
+from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
 )
+from products.logs.backend.alert_incidents import close_incident, has_incident_destination, incident_closed_properties
 from products.logs.backend.alert_signal_emitter import (
     NotifiedAlert,
     emit_alert_state_change_signal,
@@ -57,9 +59,12 @@ from products.logs.backend.alert_state_machine import (
     AlertState,
     CheckResult,
     ControlPlaneOutcome,
+    IncidentCloseReason,
+    IncidentEdge,
     NotificationAction,
     apply_outcome,
     evaluate_alert_check,
+    incident_edge,
 )
 from products.logs.backend.alert_utils import (
     advance_next_check_at,
@@ -73,6 +78,7 @@ from products.logs.backend.temporal.constants import (
     EMIT_SIGNAL_CONCURRENCY,
     MAX_ALERT_COHORT_SIZE,
     MAX_COHORTS_PER_BATCH,
+    MAX_CONCURRENT_BATCHES,
     MAX_CONCURRENT_COHORTS_PER_BATCH,
     NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
 )
@@ -284,16 +290,28 @@ class _DispatchedAlert:
 
     `produce_result` is the pending Kafka delivery for this alert's
     notification (None when no notification was attempted or the enqueue itself
-    failed). `produce()` only buffers locally, so `notification_failed` isn't
-    final until `_resolve_notification_deliveries` flushes the producer and
-    folds delivery failures in — persisting before that point would record
-    "notified" for a message that may never reach the broker.
+    failed). `incident_produce_result` is the same for the incident edge event,
+    and a failed delivery of either rolls the state back. `produce()` only
+    buffers locally, so `notification_failed` isn't final until
+    `_resolve_notification_deliveries` flushes the producer and folds delivery
+    failures in — persisting before that point would record "notified" for a
+    message that may never reach the broker.
+
+    Delivery is therefore at least once. For an alert with both an incident
+    destination and a message destination, a lost incident event also resends a
+    notification the broker already took. Retrying only the incident event would
+    need the pending edge stored on the alert row.
     """
 
     evaluation: _AlertEvaluation
     notification_failed: bool
     produce_result: ProduceResult | None = None
+    incident_produce_result: ProduceResult | None = None
     suppressed_by_quiet_hours: bool = False
+
+    @property
+    def produced(self) -> bool:
+        return self.produce_result is not None or self.incident_produce_result is not None
 
     @property
     def committed_outcome(self) -> AlertCheckOutcome:
@@ -328,6 +346,9 @@ class DiscoverCohortsOutput:
     # Recorded in workflow history so replays chunk identically even if the env
     # var changes between runs.
     batch_size: int
+    # Recorded for the same reason. The default keeps histories written before this
+    # field existed replaying with no limit, which is what they ran with.
+    max_concurrent_batches: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -417,7 +438,11 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     # Read MAX_COHORTS_PER_BATCH inside the activity, not in workflow code:
     # module-level env reads are non-deterministic on replay because Temporal's
     # sandbox re-imports the workflow module each time.
-    return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
+    return DiscoverCohortsOutput(
+        manifests=manifests,
+        batch_size=MAX_COHORTS_PER_BATCH,
+        max_concurrent_batches=MAX_CONCURRENT_BATCHES,
+    )
 
 
 def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -> set[UUID]:
@@ -475,11 +500,26 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
     invalid and can never succeed. Runs in the same sync DB pool as discovery —
     each call is its own short transaction so a failure on one row doesn't
     roll back the others.
+
+    A firing alert with an incident destination closes its incident first. Discovery skips BROKEN
+    alerts, so the close must be delivered before the transition commits. When it is not, the alert
+    keeps its state, and the next discovery cycle finds the same bad config and tries again.
     """
     try:
+        state_seen = LogsAlertConfiguration.objects.values_list("state", flat=True).get(pk=alert_id)
+        if state_seen == LogsAlertConfiguration.State.BROKEN:
+            return
+        if incident_edge(state_seen, AlertState.BROKEN) == IncidentEdge.CLOSED:
+            alert_for_close = LogsAlertConfiguration.objects.get(pk=alert_id)
+            if has_incident_destination(alert_for_close) and not close_incident(
+                alert_for_close, IncidentCloseReason.BROKEN, flush_timeout_seconds=NOTIFICATION_FLUSH_TIMEOUT_SECONDS
+            ):
+                logger.warning("Deferring BROKEN until the incident close is delivered", alert_id=alert_id)
+                return
         with transaction.atomic():
             alert = LogsAlertConfiguration.objects.select_for_update().get(pk=alert_id)
-            if alert.state == LogsAlertConfiguration.State.BROKEN:
+            if alert.state != state_seen:
+                # The state moved after the close decision, so decide again on the next cycle.
                 return
             state_before = alert.state
             outcome = ControlPlaneOutcome(
@@ -740,7 +780,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 # back and get retried next cycle. flush() blocks, so run it off
                 # the event loop, and only when something was actually produced,
                 # sparing quiet cohorts the thread hop.
-                if any(d.produce_result is not None for d in dispatched):
+                if any(d.produced for d in dispatched):
                     dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
 
                 for dispatched_alert in dispatched:
@@ -1062,8 +1102,38 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
         date_from=evaluation.date_from,
         date_to=evaluation.date_to,
     )
-    enqueue_failed = evaluation.outcome.notification != NotificationAction.NONE and produce_result is None
-    return _DispatchedAlert(evaluation=evaluation, notification_failed=enqueue_failed, produce_result=produce_result)
+    edge = incident_edge(evaluation.state_before, evaluation.outcome.new_state)
+    incident_expected = edge is not None and has_incident_destination(evaluation.alert)
+    incident_produce_result = _dispatch_incident_edge(edge, evaluation, now) if edge and incident_expected else None
+    enqueue_failed = (evaluation.outcome.notification != NotificationAction.NONE and produce_result is None) or (
+        incident_expected and incident_produce_result is None
+    )
+    return _DispatchedAlert(
+        evaluation=evaluation,
+        notification_failed=enqueue_failed,
+        produce_result=produce_result,
+        incident_produce_result=incident_produce_result,
+    )
+
+
+def _dispatch_incident_edge(edge: IncidentEdge, evaluation: _AlertEvaluation, now: datetime) -> ProduceResult | None:
+    alert = evaluation.alert
+    if edge == IncidentEdge.OPENED:
+        return _emit_alert_event(
+            alert,
+            LOGS_ALERT_INCIDENT_OPENED_EVENT,
+            evaluation.check_result,
+            now,
+            date_from=evaluation.date_from,
+            date_to=evaluation.date_to,
+        )
+    else:
+        reason = (
+            IncidentCloseReason.BROKEN
+            if evaluation.outcome.new_state == AlertState.BROKEN
+            else IncidentCloseReason.RESOLVED
+        )
+        return _emit_incident_closed_event(alert, reason, now)
 
 
 def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list[_DispatchedAlert]:
@@ -1080,25 +1150,30 @@ def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list
     with rolled-back state beats no save at all — the cohort erroring out here
     would skip the save entirely.
     """
-    if all(d.produce_result is None for d in dispatched):
+    if not any(d.produced for d in dispatched):
         return dispatched
 
     flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
 
     resolved: list[_DispatchedAlert] = []
     for d in dispatched:
-        if d.produce_result is None:
-            resolved.append(d)
-            continue
-        if alert_internal_event_delivered(
-            d.produce_result,
-            team_id=d.evaluation.alert.team_id,
-            alert_id=str(d.evaluation.alert.id),
-            event_name=d.evaluation.outcome.notification.value,
-        ):
-            resolved.append(d)
-        else:
-            resolved.append(dataclasses.replace(d, notification_failed=True))
+        alert = d.evaluation.alert
+        edge = incident_edge(d.evaluation.state_before, d.evaluation.outcome.new_state)
+        incident_event = (
+            LOGS_ALERT_INCIDENT_OPENED_EVENT if edge == IncidentEdge.OPENED else LOGS_ALERT_INCIDENT_CLOSED_EVENT
+        )
+        deliveries = (
+            (d.produce_result, d.evaluation.outcome.notification.value),
+            (d.incident_produce_result, incident_event),
+        )
+        delivered = all(
+            alert_internal_event_delivered(
+                produce_result, team_id=alert.team_id, alert_id=str(alert.id), event_name=event_name
+            )
+            for produce_result, event_name in deliveries
+            if produce_result is not None
+        )
+        resolved.append(d if delivered else dataclasses.replace(d, notification_failed=True))
     return resolved
 
 
@@ -1126,7 +1201,7 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
         alert.next_check_at,
         alert.check_interval_minutes,
         now,
-        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+        shard_offset_seconds=compute_shard_offset_seconds(alert.team_id, alert.check_interval_minutes),
     )
     try:
         alert.next_check_at = next_allowed_check_at(
@@ -1534,6 +1609,15 @@ def _emit_auto_disabled_event(
         "last_error_message": outcome.error_message or "",
     }
     return _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)
+
+
+def _emit_incident_closed_event(
+    alert: LogsAlertConfiguration,
+    reason: IncidentCloseReason,
+    now: datetime,
+) -> ProduceResult | None:
+    properties = incident_closed_properties(alert, reason, now)
+    return _produce_alert_internal_event(alert, LOGS_ALERT_INCIDENT_CLOSED_EVENT, properties, now)
 
 
 def _emit_alert_errored_event(

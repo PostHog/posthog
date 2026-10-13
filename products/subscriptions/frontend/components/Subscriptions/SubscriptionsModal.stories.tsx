@@ -211,6 +211,19 @@ const meta: Meta<StoryArgs> = {
             : INSIGHT_SUBSCRIPTIONS
         const dashboardInsightSubscriptions: SubscriptionType[] = INSIGHT_SUBSCRIPTIONS
 
+        const listSubscriptions = ({ request }: { request: Request }): Record<string, any> => {
+            const searchParams = new URL(request.url).searchParams
+            let results = contextualSubscriptions
+
+            if (searchParams.get('resource_type') === 'ai_prompt') {
+                results = AI_PROMPT_SUBSCRIPTIONS
+            } else if (searchParams.has('dashboard_tiles')) {
+                results = dashboardInsightSubscriptions
+            }
+
+            return { count: results.length, results }
+        }
+
         useStorybookMocks({
             get: {
                 '/_preflight': {
@@ -224,24 +237,17 @@ const meta: Meta<StoryArgs> = {
                     ...MOCK_DEFAULT_ORGANIZATION,
                     is_ai_data_processing_approved: true,
                 },
-                '/api/environments/:id/subscriptions': ({ request }) => {
-                    const searchParams = new URL(request.url).searchParams
-                    let results = contextualSubscriptions
-
-                    if (searchParams.get('resource_type') === 'ai_prompt') {
-                        results = AI_PROMPT_SUBSCRIPTIONS
-                    } else if (searchParams.has('dashboard_tiles')) {
-                        results = dashboardInsightSubscriptions
-                    }
-
-                    return { count: results.length, results }
-                },
+                '/api/environments/:id/subscriptions': listSubscriptions,
                 '/api/environments/:id/subscriptions/:subId':
                     formScenario === 'long-ai-prompt' ? LONG_AI_PROMPT_SUBSCRIPTION : createMockSubscription(),
                 '/api/projects/:id/subscriptions/:subId/deliveries': { results: [] },
-                ...(freeTierSubscriptionCount !== undefined
-                    ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
-                    : {}),
+                // The modal's list and subscriptionCountLogic both read this path. Only the count
+                // call passes limit=1, and it drives the free-tier gate, so it answers with the
+                // scenario's count while every other call gets the contextual list.
+                '/api/projects/:id/subscriptions/': (info) =>
+                    new URL(info.request.url).searchParams.get('limit') === '1'
+                        ? { count: freeTierSubscriptionCount ?? 0, results: [] }
+                        : listSubscriptions(info),
                 '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
                     ? { active_count: 10, limit: 10, at_limit: true }
                     : { active_count: 0, limit: 10, at_limit: false },
@@ -286,16 +292,7 @@ export default meta
 type Story = StoryObj<StoryArgs>
 
 export const SubscriptionsNew: Story = {
-    args: { isCreating: true, formScenario: 'default' },
-}
-
-export const SubscriptionWizardNew: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.SUBSCRIPTION_CREATION_WIZARD]: 'test',
-        },
-    },
-    args: { isCreating: true, formScenario: 'default' },
+    args: { formScenario: 'default' },
 }
 
 export const LongAiPrompt: Story = {

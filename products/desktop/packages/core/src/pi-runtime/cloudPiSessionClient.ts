@@ -129,9 +129,11 @@ function isCompletedCompaction(event: AgentConversationEvent): boolean {
 }
 
 function isNoActiveSandboxError(result: SendCommandOutput): boolean {
+  // The server used to word this as a 400; it is a 503 now that the condition
+  // is documented as transient. Accept both so either side can deploy first.
   return (
     result.success === false &&
-    result.status === 400 &&
+    (result.status === 400 || result.status === 503) &&
     (result.code === "sandbox_not_ready" ||
       result.error === "No active sandbox for this task run")
   );

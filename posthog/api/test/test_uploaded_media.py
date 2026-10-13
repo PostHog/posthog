@@ -3,12 +3,14 @@ import os
 import re
 import shutil
 import tempfile
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils.timezone import now
 
 from boto3 import resource
 from botocore.config import Config
@@ -158,6 +160,19 @@ class TestMediaAPI(APIBaseTest):
                 format="multipart",
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_rejects_a_headerless_dib_even_though_pillow_reports_it_as_bmp(self) -> None:
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), color="red").save(buffer, format="DIB")
+        fake_file = SimpleUploadedFile(name="logo.bmp", content=buffer.getvalue(), content_type="image/bmp")
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": fake_file},
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.count() == 0
 
     def test_download_sets_nosniff_and_strict_csp(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
@@ -388,6 +403,26 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert listed["purpose"] == "canvas"
         assert listed["url"] == f"http://localhost:8010/uploaded_media/{second.id}"
         assert listed["created_at"] is not None
+
+    def test_list_pages_stay_stable_when_images_share_a_created_at(self) -> None:
+        # Ordering on a non-unique created_at alone leaves tied rows no fixed position, so a
+        # client walking offset pages can miss an image or receive one twice. The explicit ids
+        # are ascending, against the newest-first order, so insertion order cannot satisfy it.
+        ids = [UUID(f"0192f0f0-0000-7000-8000-00000000000{n}") for n in range(1, 5)]
+        for media_id in ids:
+            self._create_media(purpose="canvas", id=media_id)
+        # auto_now_add discards a created_at passed to create(), so force the tie afterwards.
+        UploadedMedia.objects.filter(id__in=ids).update(created_at=now())
+
+        paged_ids: list[str] = []
+        for offset in (0, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/uploaded_media/?purpose=canvas&limit=2&offset={offset}"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            paged_ids.extend(item["id"] for item in response.json()["results"])
+
+        assert paged_ids == [str(media_id) for media_id in sorted(ids, reverse=True)]
 
     @parameterized.expand(
         [

@@ -434,12 +434,61 @@ export interface PatchedEndpointRequestApi {
 export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null
 
 export interface MaterializationPreviewRequestApi {
+    /** Endpoint version to preview. Defaults to the current version. */
     version?: number
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
      * @nullable
      */
     bucket_overrides?: MaterializationPreviewRequestApiBucketOverrides
+}
+
+export interface MaterializationPreviewRangePairApi {
+    /** Column the query buckets on. */
+    column: string
+    /** Query variables that filter on this column. */
+    variables: string[]
+    /** Bucket function applied to the column. */
+    bucket_fn: string
+}
+
+export interface MaterializationPreviewAggregateApi {
+    /** Aggregate expression in the transformed query. */
+    expression: string
+    /**
+     * Function that combines materialized partials again, or null when there is none.
+     * @nullable
+     */
+    reaggregate_fn: string | null
+}
+
+export interface MaterializationPreviewResponseApi {
+    /** Whether the endpoint query can be materialized. */
+    can_materialize: boolean
+    /**
+     * Why the query cannot be materialized, or null when it can.
+     * @nullable
+     */
+    reason: string | null
+    /**
+     * Query rewritten for materialization, when one could be produced.
+     * @nullable
+     */
+    transformed_query: string | null
+    /**
+     * Query that would run against the materialized table.
+     * @nullable
+     */
+    execution_query: string | null
+    /**
+     * Execution query formatted for display.
+     * @nullable
+     */
+    display_execution_query: string | null
+    /** Bucketed columns and the variables that filter on them. */
+    range_pairs: MaterializationPreviewRangePairApi[]
+    /** Aggregate expressions and how to re-aggregate them. */
+    aggregates: MaterializationPreviewAggregateApi[]
 }
 
 /**
@@ -538,6 +587,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -552,6 +602,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -581,6 +632,13 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
 
 export const IntervalTypeApi = {
@@ -593,6 +651,30 @@ export const IntervalTypeApi = {
     Quarter: 'quarter',
     Year: 'year',
 } as const
+
+export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
+
+export const MetricsFilterOpApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
+
+export const MetricsAttributeScopeApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface MetricsQueryFilterApi {
+    key: string
+    op: MetricsFilterOpApi
+    scope?: MetricsAttributeScopeApi | null
+    value: string
+}
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
@@ -921,6 +1003,8 @@ export interface BehavioralPropertyFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -928,6 +1012,8 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
+    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    metricFilters?: MetricsQueryFilterApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -1084,7 +1170,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -1131,6 +1217,13 @@ export type EndpointsListParams = {
     offset?: number
 }
 
+export type EndpointsRetrieveParams = {
+    /**
+     * Endpoint version to act on. Defaults to the current version.
+     */
+    version?: number
+}
+
 export type EndpointsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
@@ -1163,9 +1256,16 @@ export type EndpointsLogsRetrieveParams = {
     search?: string
 }
 
+export type EndpointsMaterializationStatusRetrieveParams = {
+    /**
+     * Endpoint version to act on. Defaults to the current version.
+     */
+    version?: number
+}
+
 export type EndpointsOpenapiSpecRetrieveParams = {
     /**
-     * Specific endpoint version to generate the spec for. Defaults to latest.
+     * Endpoint version to act on. Defaults to the current version.
      */
     version?: number
 }

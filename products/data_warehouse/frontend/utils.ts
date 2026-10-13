@@ -202,6 +202,12 @@ export function allowedSyncFrequencies(): DataWarehouseSyncInterval[] {
     return SYNC_FREQUENCY_ORDER.filter((frequency) => !LEGACY_SUB_FLOOR_SYNC_FREQUENCIES.includes(frequency))
 }
 
+// A CDC table's change buffer keeps files for 14 days, so the API rejects a CDC table slower than weekly.
+export function allowedCdcSyncFrequencies(): DataWarehouseSyncInterval[] {
+    const slowest = SYNC_FREQUENCY_ORDER.indexOf('7day')
+    return allowedSyncFrequencies().filter((frequency) => SYNC_FREQUENCY_ORDER.indexOf(frequency) <= slowest)
+}
+
 // Raise a requested frequency to the fastest allowed one (e.g. a legacy 1min → 5min).
 export function clampSyncFrequency(requested: DataWarehouseSyncInterval): DataWarehouseSyncInterval {
     const allowed = allowedSyncFrequencies()

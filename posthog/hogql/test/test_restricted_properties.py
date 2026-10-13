@@ -1,6 +1,8 @@
 import re
 from collections.abc import Iterator
 
+import pytest
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import build_database_root_node
@@ -25,6 +27,7 @@ _GROUP_KEYS = tuple(f"restricted_group_{index}_property" for index in range(GROU
 # quietly shrinking the walk below.
 _MASKED_BLOBS: dict[str, frozenset[str]] = {
     "events.properties (EventsTable)": frozenset({_EVENT_KEY}),
+    "ai_events.properties (AiEventsTable)": frozenset({_EVENT_KEY}),
     "events.person_properties (EventsPersonSubTable)": frozenset({_PERSON_KEY}),
     **{
         f"events.group{index}_properties (EventsGroupSubTable)": frozenset({_GROUP_KEYS[index]})
@@ -52,9 +55,6 @@ _UNMASKED_BLOBS: frozenset[str] = frozenset(
         "accounts.properties (PostgresTable)",
         # Metadata attached to an embedded item.
         "pg_embeddings.properties (PgEmbeddingsTable)",
-        # Carries event properties, so unlike the two above this one is owed a branch. Tracked with
-        # team-ai-observability, who own the table.
-        "ai_events.properties (AiEventsTable)",
     }
 )
 
@@ -97,7 +97,10 @@ def _blob_label(table: Table, column: str) -> str:
     return f"{table.to_printed_hogql()}.{column} ({type(table).__name__})"
 
 
-def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_class():
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_class(
+    use_new_events_schema: bool,
+) -> None:
     # The printer wraps a JSON blob in JSONDropKeys only when the column name is in
     # RESTRICTABLE_JSON_BLOB_COLUMNS *and* restricted_property_keys_for_table_type returns keys for the
     # table. The first half matches on a column name, the second on a table type, so either half can stop
@@ -106,7 +109,11 @@ def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_
     # Comparing whole mappings holds both halves: a missing entry means a column left the name set, an entry
     # masking nothing means a catalog table has no dispatch branch, and a wrong value means a table reached
     # the wrong property class or group index.
-    context = HogQLContext(team_id=1, restricted_properties=_restrictions_covering_every_property_class())
+    context = HogQLContext(
+        team_id=1,
+        restricted_properties=_restrictions_covering_every_property_class(),
+        use_new_events_schema=use_new_events_schema,
+    )
 
     masked: dict[str, frozenset[str]] = {}
     for table in _tables_in_node(build_database_root_node(include_posthog_tables=True)):
@@ -125,4 +132,8 @@ def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_
                 label = _blob_label(candidate, column)
                 assert masked.setdefault(label, keys) == keys, f"{label} names blobs that mask different keys"
 
-    assert masked == {**_MASKED_BLOBS, **dict.fromkeys(_UNMASKED_BLOBS, frozenset())}
+    expected = {**_MASKED_BLOBS, **dict.fromkeys(_UNMASKED_BLOBS, frozenset())}
+    if use_new_events_schema:
+        for label in ("events.properties (EventsTable)", "events.person_properties (EventsPersonSubTable)"):
+            expected[label] |= {"$unparseable_properties"}
+    assert masked == expected

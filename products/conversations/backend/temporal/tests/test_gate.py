@@ -26,6 +26,26 @@ class TestFailClosedDefaults(SimpleTestCase):
         draft = SupportReplyDraft(reply="ok", citations=[], confidence=0.9, verdict="idk")
         assert draft.verdict == "blocked_on_knowledge"
 
+    @parameterized.expand(
+        [
+            ("medium",),
+            ("high",),
+            ("",),
+            (None,),
+            (80,),
+            ("80",),
+            (1.5,),
+            (True,),
+        ]
+    )
+    def test_non_numeric_confidence_fails_closed(self, raw: object) -> None:
+        draft = SupportReplyDraft.model_validate({"reply": "ok", "citations": [], "confidence": raw})
+        assert draft.confidence == 0.0
+
+    def test_numeric_confidence_string_is_kept(self) -> None:
+        draft = SupportReplyDraft.model_validate({"reply": "ok", "citations": [], "confidence": "0.85"})
+        assert draft.confidence == 0.85
+
     def test_activity_defaults_do_not_auto_send(self):
         draft = DraftOutput(reply="Looks right.", citations=[], confidence=0.9)
         validate = ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[])

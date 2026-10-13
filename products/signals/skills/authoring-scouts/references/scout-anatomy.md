@@ -18,9 +18,13 @@ Any valid skill name works: lowercase letters, numbers, and hyphens.
 The `SignalScoutConfig` row is what makes a skill a scout.
 Name it in lowercase kebab-case after the surface or question the scout watches: `error-tracking`, `checkout-funnel`, `mcp-feedback`.
 The canonical fleet keeps the `signals-scout-` prefix, and a per-team scout can use it too.
-The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a scout named anything else comes in through `scout-create`, which writes the skill and its config in one call.
+The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a report-producing scout named anything else comes in through `scout-create`, which writes the skill and its config in one call.
+A scout with a product-specific output comes in through `skill-create` and `scout-config-create`, because `scout-create` always grants the report tools; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output).
 
 ## Frontmatter
+
+This template is for a report-producing scout.
+A scout with a product-specific output omits both report tools and avoids the `signals-scout-` prefix; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output) for how to create it.
 
 ```yaml
 ---
@@ -38,8 +42,9 @@ compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_report:write for reports and
   signal_scout_internal:write for scratchpad).
-  Assumes the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report)
+  Assumes the signals-scout MCP family (scout-project-profile-get, scout-runs-list,
+  scout-runs-retrieve, scout-scratchpad-search, scout-scratchpad-remember,
+  scout-scratchpad-forget, scout-emit-report, scout-edit-report)
   plus whatever query tools the scope needs (e.g. execute-sql, read-data-schema,
   query-error-tracking-issues-list, inbox-reports-list).
 metadata:
@@ -49,8 +54,10 @@ metadata:
 ```
 
 `name` and `description` are required and validated at build time.
-`allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
+`allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every report-producing scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
+A scout with a product-specific output omits both tools; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output).
 `compatibility` and `metadata` are optional but conventional — `compatibility` documents the scopes/tools the scout assumes; `metadata.scope` gives downstream tooling a short label.
+A canonical scout can also declare `scout-precheck-query`, the default scheduled-run gate. The harness reads it only from the shipped canonical file, so a custom scout sets `precheck_query` on its config instead. See [`scheduled-precheck.md`](scheduled-precheck.md).
 
 The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the scout's `description` on the config API (`scout-config-list` / `-create` / `-update` responses) — it's how the fleet roster reads to agents and the UI without opening each scout's body.
 Write it to stand alone in that listing, and keep it short: it's also loaded alongside every other scout's into a caller's AI plugin, where a wordy description wastes token budget and gets truncated.
@@ -209,8 +216,9 @@ One paragraph: looked at what, filed/edited what, remembered what, ruled out wha
 
 ## MCP tools
 
-Direct (read-only): <list>. Harness-level: project-profile-get, scratchpad-search,
-runs-list, runs-retrieve, emit-report, edit-report, scratchpad-remember.
+Direct (read-only): <list>. Harness-level: scout-project-profile-get, scout-scratchpad-search,
+scout-runs-list, scout-runs-retrieve, scout-emit-report, scout-edit-report,
+scout-scratchpad-remember.
 ```
 
 ## Skeleton — broad / cross-product scout

@@ -1,8 +1,30 @@
 from typing import Any, Literal
+from uuid import UUID
+
+from django.db import connection, transaction
 
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.models.role import RoleMembership
+
+
+def lock_approval_policies(organization_id: UUID, *, shared: bool = False) -> None:
+    """Prevent policy changes between a flag's final policy lookup and its commit.
+
+    FeatureFlagSerializer.update holds a shared lock through lookup and mutation.
+    ApprovalPolicySerializer.create/update hold the exclusive lock, so different flag
+    writes can proceed together while policy creation and enablement wait for them.
+    """
+    # Org scope covers both team policies and the org fallback, including policies not yet created.
+    if not connection.in_atomic_block:
+        raise transaction.TransactionManagementError("Approval policy locks require an atomic block")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))"
+            if shared
+            else "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"approval-policies:{organization_id}"],
+        )
 
 
 @frozen
@@ -64,6 +86,14 @@ class PolicyEngine:
 
         return policy
 
+    def get_policy_for_action(self, action_class, team, organization):
+        """Get the active policy for an action, falling back to its fallback action keys in order."""
+        for action_key in (action_class.key, *action_class.fallback_policy_action_keys):
+            policy = self.get_policy(action_key, team, organization)
+            if policy:
+                return policy
+        return None
+
     def get_all_matching_policies(self, action_key: str, team, organization, intent: dict):
         """
         Get all active policies for an action that match the given intent.
@@ -94,7 +124,7 @@ class PolicyEngine:
 
         return policies
 
-    def evaluate(self, policy, actor, intent: dict, context: dict) -> PolicyDecision:
+    def evaluate(self, policy, actor, intent: dict, context: dict, ignore_conditions: bool = False) -> PolicyDecision:
         """
         Evaluate if an action requires approval.
 
@@ -114,7 +144,7 @@ class PolicyEngine:
                 policy_snapshot={},
             )
 
-        if not self._evaluate_conditions(policy.conditions, intent):
+        if not ignore_conditions and not self._evaluate_conditions(policy.conditions, intent):
             return PolicyDecision(
                 result="ALLOW",
                 reason="Conditions not matched",
@@ -140,11 +170,14 @@ class PolicyEngine:
                 "users": approver_config.get("users", []),
                 "roles": approver_config.get("roles", []),
                 "allow_self_approve": policy.allow_self_approve,
-                "conditions": policy.conditions or {},
+                "conditions": {} if ignore_conditions else (policy.conditions or {}),
                 "bypass_org_membership_levels": policy.bypass_org_membership_levels,
                 "bypass_roles": bypass_role_ids,
             },
         )
+
+    def conditions_match(self, conditions: dict[str, Any], intent: dict) -> bool:
+        return self._evaluate_conditions(conditions, intent)
 
     def _evaluate_conditions(self, conditions: dict[str, Any], intent: dict) -> bool:
         """
@@ -191,6 +224,9 @@ class PolicyEngine:
         if not compare_fn:
             return True
 
+        if not self._field_changed(field, intent):
+            return False
+
         gated_changes = intent.get("gated_changes", {})
         field_values = gated_changes.get(field, [])
 
@@ -224,18 +260,13 @@ class PolicyEngine:
         if not compare_fn:
             return True
 
-        current_state = intent.get("current_state", {})
-        gated_changes = intent.get("gated_changes", {})
+        if not self._field_changed(field, intent):
+            return False
 
-        before_values = current_state.get(field, [])
-        after_values = gated_changes.get(field, [])
+        before_by_path = self._values_by_path(intent, "current_state", field)
+        after_by_path = self._values_by_path(intent, "gated_changes", field)
 
-        before_by_path = {v["path"]: v["value"] for v in before_values}
-        after_by_path = {v["path"]: v["value"] for v in after_values}
-
-        all_paths = set(before_by_path.keys()) | set(after_by_path.keys())
-
-        for path in all_paths:
+        for path in before_by_path.keys() | after_by_path.keys():
             before_val = before_by_path.get(path)
             after_val = after_by_path.get(path)
 
@@ -261,24 +292,30 @@ class PolicyEngine:
         if not field:
             return True
 
-        current_state = intent.get("current_state", {})
-        gated_changes = intent.get("gated_changes", {})
+        before_by_path = self._values_by_path(intent, "current_state", field)
+        after_by_path = self._values_by_path(intent, "gated_changes", field)
+        return any(
+            before_by_path.get(path) != after_by_path.get(path) for path in before_by_path.keys() | after_by_path.keys()
+        )
 
-        before_values = current_state.get(field, [])
-        after_values = gated_changes.get(field, [])
+    def _field_changed(self, field: str, intent: dict) -> bool:
+        """Whether the change touches the field that a condition names.
 
-        before_by_path = {v["path"]: v["value"] for v in before_values}
-        after_by_path = {v["path"]: v["value"] for v in after_values}
+        `before_after` compares every value of the field, changed or not. Without this check, a
+        "rollout > 50" policy would gate a release condition edit on a flag that some condition set
+        already rolls out to more than 50%.
+        """
+        before_values = intent.get("current_state", {}).get(field)
+        after_values = intent.get("gated_changes", {}).get(field)
+        if not isinstance(before_values, list) or not isinstance(after_values, list):
+            # Not the path and value shape this check reads, so the condition decides alone.
+            return True
 
-        all_paths = set(before_by_path.keys()) | set(after_by_path.keys())
+        return self._evaluate_any_change({"field": field}, intent)
 
-        for path in all_paths:
-            before_val = before_by_path.get(path)
-            after_val = after_by_path.get(path)
-            if before_val != after_val:
-                return True
-
-        return False
+    @staticmethod
+    def _values_by_path(intent: dict, side: str, field: str) -> dict[str, Any]:
+        return {v["path"]: v["value"] for v in intent.get(side, {}).get(field, [])}
 
     def _has_bypass(self, actor, policy, bypass_role_ids: list[str], context: dict) -> bool:
         """Check if user can bypass this policy based on org membership level or RBAC role."""

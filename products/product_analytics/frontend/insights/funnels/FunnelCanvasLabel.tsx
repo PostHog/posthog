@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { FunnelVizType, type QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, type InsightModel } from '~/types'
 
 import { FunnelStepsPicker } from './filters/FunnelStepsPicker'
 import { funnelDataLogic } from './funnelDataLogic'
@@ -92,7 +92,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           })
                       }
                       to={urls.experiment('new', null, {
-                          metric: getExperimentMetricFromInsight(insight as QueryBasedInsightModel),
+                          metric: getExperimentMetricFromInsight(insight as InsightModel),
                           name: insight.name || insight.derived_name || derivedName,
                       })}
                   >

@@ -2,7 +2,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { QueryScanAnalysis, QueryScanSummary, QueryScanWarning } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { DashboardTile, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, InsightShortId } from '~/types'
 
 export interface QueryScanState {
     summary: QueryScanSummary
@@ -106,7 +106,7 @@ export interface QueryScanDashboardEntry {
 }
 
 /** The insights on a dashboard whose last fresh run has advice the viewer can act on. */
-export function queryScanDashboardEntries(tiles: DashboardTile<QueryBasedInsightModel>[]): QueryScanDashboardEntry[] {
+export function queryScanDashboardEntries(tiles: DashboardTile[]): QueryScanDashboardEntry[] {
     const entries: QueryScanDashboardEntry[] = []
     for (const tile of tiles) {
         const insight = tile.insight

@@ -29,7 +29,7 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 <AlphaRelease />
 
-[Everhour](https://everhour.com) is a time-tracking, budgeting, and resource-planning tool for teams. This source syncs your Everhour clients, projects, tasks, team members, and time records into the PostHog data warehouse so you can join time-tracking data with your product and revenue data.
+[Everhour](https://everhour.com) is a time-tracking, budgeting, and resource-planning tool for teams. This source syncs your Everhour clients, projects, tasks, team members, time records, invoices, expenses, expense categories, timecards, timesheets, and resource planner assignments, time off types and allocations into the PostHog data warehouse so you can join time-tracking data with your product and revenue data.
 
 ## Prerequisites
 
@@ -51,7 +51,9 @@ Paste the key into the API key field when connecting the source in PostHog. The 
 
 <SyncModes />
 
-Most Everhour reference tables (clients, projects, users, tasks) have no server-side change timestamp, so they sync as **full refresh**. **Time records** support incremental sync: PostHog uses Everhour's server-side `from`/`to` date window to pull only entries on or after the last synced date.
+**Time records** support incremental sync: PostHog uses Everhour's server-side `from`/`to` date window to pull only entries on or after the last synced date.
+
+Every other table syncs as **full refresh**. Clients, projects, users, tasks, invoices, expenses, expense categories, timesheets, time off types, and allocations have no server-side change timestamp to filter on. Timecards and assignments do accept a date filter, but it selects rows by the day they cover rather than the day they changed, so it cannot tell PostHog what is new since the last sync.
 
 ## Configuration
 
@@ -66,6 +68,12 @@ A few notes:
 - **Time values are in seconds.** The `time` field on time records and tasks is a duration in seconds (e.g. `3600` is one hour).
 - **Tasks are fanned out per project.** Each task row carries the parent `project_id` it was fetched under, and the primary key is `(project_id, id)` because a task can belong to more than one project.
 - **Integration IDs are prefixed.** Projects and tasks imported from integrations use a prefixed id (e.g. `as:` for Asana, `jira:` for Jira, `tr:` for Trello).
+- **Timecards and time records are different things.** A time record is time logged against a task. A timecard is a clock-in and clock-out for one person on one day. Timecards carry no id of their own, so the table is keyed on `(user, date)`.
+- **Invoice line items are nested.** Each invoice row carries its line items in the `invoiceItems` column rather than in a separate table.
+- **Assignments cover planned work and time off.** The `type` column tells the two apart, and the rows reach into the future because they describe scheduled work.
+- **Timesheets are fetched per person.** Everhour's team-wide timesheet endpoint returns one week at a time, so PostHog reads each member's own timesheet history instead, going back about five years. Each row is one person's week, with its tasks, daily totals, timecards, scheduled time off, and approval history nested inside it.
+- **Lookup tables resolve the ids on other rows.** Expense categories name the `category` on an expense, and time off types name the `timeOffType` on an assignment or an allocation.
+- **Allocations are entitlements, not bookings.** A row says how many days off of one type a person has over a period and how many they have used. The time off they actually booked is in assignments.
 
 ## Troubleshooting
 

@@ -80,8 +80,8 @@ def capture_ai_internal_for_team(
     """Capture one AI event for a team, raising on a non-2xx capture response.
 
     Every caller here emits `$ai_*` events, so this goes to the AI lane
-    (`/i/v1/ai/events` on capture-ai). `capture_ai_internal` rejects a non-AI event
-    name client-side, before any HTTP call.
+    (`/i/v1/ai/events` on capture-ai). A non-AI event name would be rerouted to the
+    analytics lane and counted, not rejected.
     """
     token = get_team_api_token(team_id)
     try:

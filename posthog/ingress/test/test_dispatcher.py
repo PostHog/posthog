@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from unittest.mock import Mock, patch
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -17,9 +17,15 @@ from posthog.ingress.contracts import (
     WebhookDelivery,
 )
 from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup, delivery_claim_lease_seconds
+from posthog.ingress.dispatch.dedup import (
+    INGRESS_DEDUP_CACHE_ALIAS,
+    DeliveryClaim,
+    DeliveryDedup,
+    delivery_claim_lease_seconds,
+)
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.registry import ConsumerRegistry
+from posthog.ingress.test import LOCMEM, LOCMEM_CACHES
 
 SPEC = ProviderSpec(provider="github", app="posthog", event_types=frozenset({"pull_request"}))
 
@@ -64,10 +70,11 @@ def _dispatcher(consumers: list[WebhookConsumer], *, budget_seconds: float | Non
     )
 
 
-@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+@override_settings(CACHES=LOCMEM_CACHES)
 class TestWebhookDispatcher(SimpleTestCase):
     def setUp(self) -> None:
-        cache.clear()
+        self.cache = caches[INGRESS_DEDUP_CACHE_ALIAS]
+        self.cache.clear()
 
     @parameterized.expand(
         [
@@ -116,8 +123,10 @@ class TestWebhookDispatcher(SimpleTestCase):
             dispatched = dispatcher.dispatch(_delivery())
 
         self.assertEqual(dispatched.unaccepted_consumers, ("alpha",))
-        self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1")))
-        self.assertTrue(cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1")))
+        self.assertIsNone(
+            self.cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1"))
+        )
+        self.assertTrue(self.cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1")))
 
         with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
             dispatched = dispatcher.dispatch(_delivery())
@@ -146,11 +155,13 @@ class TestWebhookDispatcher(SimpleTestCase):
 
         self.assertEqual(opted_out.call_count, 2)
         self.assertEqual(sibling.call_count, 1)
-        self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1")))
+        self.assertIsNone(
+            self.cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1"))
+        )
 
     def test_a_cache_outage_fails_open_rather_than_dropping_the_delivery(self) -> None:
         handler = Mock()
-        with patch.object(cache, "add", side_effect=RuntimeError("cache down")):
+        with patch.object(self.cache, "add", side_effect=RuntimeError("cache down")):
             _dispatcher([_consumer("alpha", handler)]).dispatch(_delivery())
 
         handler.assert_called_once()
@@ -176,7 +187,9 @@ class TestWebhookDispatcher(SimpleTestCase):
             {"provider": "github", "consumer": "zulu", "outcome": "budget_exceeded"},
             [call.kwargs for call in observe.call_args_list],
         )
-        self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1")))
+        self.assertIsNone(
+            self.cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1"))
+        )
 
         dispatcher_with_room = _dispatcher([_consumer("zulu", skipped)], budget_seconds=10)
         dispatcher_with_room.dispatch(_delivery())
@@ -199,23 +212,11 @@ class TestWebhookDispatcher(SimpleTestCase):
         second.assert_not_called()
 
 
-class _WriteClient:
-    """A django_redis client that answers from the Redis primary, as its write client does."""
-
-    def __init__(self, primary: dict[str, object]) -> None:
-        self.primary = primary
-
-    def get_client(self, write: bool = True) -> dict[str, object]:
-        return self.primary
-
-    def get_many(self, keys: list[str], version: int | None = None, client: dict | None = None) -> dict:
-        return {key: self.primary[key] for key in keys if key in self.primary}
-
-
-@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+@override_settings(CACHES=LOCMEM_CACHES)
 class TestDeliveryDedup(SimpleTestCase):
     def setUp(self) -> None:
-        cache.clear()
+        self.cache = caches[INGRESS_DEDUP_CACHE_ALIAS]
+        self.cache.clear()
         self.mark = {"provider": "github", "consumer": "alpha", "delivery_id": "delivery-1"}
 
     def test_a_claim_reads_as_in_flight_to_the_version_that_knows_no_holder_token(self) -> None:
@@ -224,23 +225,22 @@ class TestDeliveryDedup(SimpleTestCase):
         # The deployed version reads every value but this one as done. On a rolling deploy a token
         # in the mark would have an old worker receipt a delivery the new worker can still fail.
         key = DeliveryDedup.key(**self.mark)
-        self.assertEqual(cache.get(key), "in_progress")
-        self.assertEqual(cache.get(f"{key}:holder"), claim.token)
+        self.assertEqual(self.cache.get(key), "in_progress")
+        self.assertEqual(self.cache.get(f"{key}:holder"), claim.token)
 
-    def test_the_lease_fence_reads_the_cache_primary(self) -> None:
-        dedup = DeliveryDedup()
-        claim = dedup.claim(**self.mark)
-        key = DeliveryDedup.key(**self.mark)
-        # The lease ran out and a newer run took the key, so the primary names the newer run. The
-        # LocMemCache beside it stands in for a replica that still serves this run's token.
-        client = _WriteClient({key: "in_progress", f"{key}:holder": "a-token-from-a-newer-run"})
+    @override_settings(
+        CACHES={
+            "default": {**LOCMEM, "LOCATION": "default"},
+            INGRESS_DEDUP_CACHE_ALIAS: {**LOCMEM, "LOCATION": "ingress_dedup"},
+        }
+    )
+    def test_the_mark_is_written_through_the_dedicated_alias(self) -> None:
+        DeliveryDedup().claim(**self.mark)
 
-        with patch.object(cache, "client", client, create=True):
-            dedup.release(**self.mark, token=claim.token)
-
-        # A replica can still serve a token the primary already replaced, so a fence that read one
-        # would drop the mark the newer run holds and start a third run beside the two going.
-        self.assertEqual(dedup.claim(**self.mark).state, DeliveryClaim.IN_PROGRESS)
+        # The default alias is replica aware in production, and a replica can still serve a token
+        # the primary replaced, which would have a run delete a mark a newer run holds.
+        self.assertIsNone(caches["default"].get(DeliveryDedup.key(**self.mark)))
+        self.assertEqual(caches[INGRESS_DEDUP_CACHE_ALIAS].get(DeliveryDedup.key(**self.mark)), "in_progress")
 
     def test_the_mark_reports_the_state_its_holder_left_it_in(self) -> None:
         dedup = DeliveryDedup()
@@ -267,7 +267,7 @@ class TestDeliveryDedup(SimpleTestCase):
     def test_a_mark_this_run_did_not_write_still_dedupes(
         self, _name: str, held: object, expected: DeliveryClaim
     ) -> None:
-        cache.set(DeliveryDedup.key(**self.mark), held)
+        self.cache.set(DeliveryDedup.key(**self.mark), held)
 
         # Marks live for 24 hours, so a rollout meets the ones the previous version wrote. Reading
         # a flag as in flight would cost a receipt for every delivery still holding it, and reading
@@ -286,7 +286,7 @@ class TestDeliveryDedup(SimpleTestCase):
         dedup = DeliveryDedup()
         stale = dedup.claim(**self.mark)
         # The lease runs out while the first run is still working, and a second run takes the key.
-        cache.delete(DeliveryDedup.key(**self.mark))
+        self.cache.delete(DeliveryDedup.key(**self.mark))
         dedup.claim(**self.mark)
         if settle:
             dedup.complete(**self.mark)
@@ -300,7 +300,7 @@ class TestDeliveryDedup(SimpleTestCase):
     def test_the_run_the_holder_key_names_cannot_drop_a_settled_mark(self) -> None:
         dedup = DeliveryDedup()
         dedup.claim(**self.mark)
-        cache.delete(DeliveryDedup.key(**self.mark))
+        self.cache.delete(DeliveryDedup.key(**self.mark))
         newer = dedup.claim(**self.mark)
         dedup.complete(**self.mark)
 
@@ -319,7 +319,7 @@ class TestDeliveryDedup(SimpleTestCase):
     def test_a_lease_that_expires_between_the_add_and_the_read_is_never_read_as_done(
         self, _name: str, refusals: int, expected: DeliveryClaim
     ) -> None:
-        real_add = cache.add
+        real_add = self.cache.add
         refused = 0
 
         def refuse_then_add(*args, **kwargs):
@@ -329,7 +329,7 @@ class TestDeliveryDedup(SimpleTestCase):
                 return False
             return real_add(*args, **kwargs)
 
-        with patch.object(cache, "add", refuse_then_add):
+        with patch.object(self.cache, "add", refuse_then_add):
             claim = DeliveryDedup().claim(**self.mark)
 
         # A refused add whose follow-up read finds nothing is a lease that ran out under the claim,

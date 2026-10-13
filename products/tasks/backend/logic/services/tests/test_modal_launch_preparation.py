@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.logic.services.agent_server_launcher import AgentServerPreflight
 from products.tasks.backend.logic.services.agentsh import (
     BASH_ENV_SCRIPT,
     ENV_WRAPPER_SCRIPT,
@@ -196,8 +197,6 @@ def test_failed_preparation_never_launches_agent_server(failure: str, log_availa
         return ExecutionResult(stdout="", stderr="", exit_code=0)
 
     with (
-        patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
-        patch.object(sandbox, "_free_agent_server_port"),
         patch.object(sandbox, "execute", side_effect=execute) as remote_execute,
         patch.object(
             sandbox,
@@ -261,8 +260,9 @@ def test_preparation_metric_measures_only_upload_and_execution(export_fails: boo
         patch("products.tasks.backend.logic.services.modal_sandbox.time") as clock,
         patch("products.tasks.backend.logic.services.launch_preparation_metrics.metric_meter") as metric_meter,
         patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "clear_bundled_skills_if_disabled"),
-        patch.object(sandbox, "_agent_server_is_healthy", return_value=True),
+        patch.object(
+            sandbox, "_agent_server_preflight", return_value=AgentServerPreflight(reused=True, capabilities=frozenset())
+        ),
     ):
         clock.monotonic.side_effect = [10.0, 10.5, 11.25]
         if export_fails:

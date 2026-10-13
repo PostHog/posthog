@@ -1,0 +1,3499 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Rosewood assistant tool roster and daily-run traces",
+  "scenario": "Rosie is the AI assistant embedded in Rosewood, a workspace app used by an independent real-estate agent to run notes, tasks, calendar, contacts, listings, and a searchable knowledge base of property documents. This session covers one agent run where Rosie searches saved property records and runs a retrieval embedding before answering, followed by a second, much smaller trace where the app auto-generates a short title for the conversation.",
+  "summary": {
+    "events": {
+      "$ai_trace": 2,
+      "$ai_generation": 3,
+      "$ai_span": 1,
+      "$ai_embedding": 1
+    },
+    "traces": 2,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/pydantic-ai",
+      "posthog-ai"
+    ],
+    "providers": [
+      "anthropic",
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "claude-sonnet-5",
+      "text-embedding-3-small"
+    ],
+    "content_types": [
+      "text",
+      "thinking",
+      "tool_call",
+      "tool_call_response"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_session_id": "6cd95e64-8e22-7057-d840-78cd8c9dffdf",
+        "$ai_span_id": "ec59ce0ea3fcfb8b",
+        "$ai_trace_id": "888f46da3d7a3cd1486ca000f8566849",
+        "$geoip_disable": true,
+        "environment": "stage",
+        "tier": "individual_broker",
+        "internal_request_uid": "98f29237-bef8-7f11-abec-af7bcbf88401",
+        "gen_ai.conversation.id": "8cf23629-acfc-76f7-665a-5101ada1915e",
+        "app.genai.usage.cache_creation_input_tokens": 276,
+        "app.genai.usage.cache_read_input_tokens": 53232,
+        "anthropic.usage.cache_read_input_tokens": 53232,
+        "anthropic.usage.cache_creation_input_tokens": 276,
+        "session.id": "c9c7285be9cf6e56cbd42633893ae5d2",
+        "service": "rosewood-core",
+        "service.name": "rosewood-core",
+        "cloud.region": "use1",
+        "$ai_input_tokens": 53512,
+        "$ai_output_tokens": 737,
+        "$ai_cache_read_input_tokens": 53232,
+        "$ai_cache_creation_input_tokens": 276,
+        "$ai_span_name": "Rosie",
+        "$ai_latency": 10.197206,
+        "$ai_model": "claude-sonnet-5",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_input_state": {
+          "role": "user",
+          "parts": [
+            {
+              "type": "text"
+            }
+          ]
+        },
+        "$ai_output_state": {
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "thinking"
+            },
+            {
+              "type": "text"
+            }
+          ],
+          "finish_reason": "stop"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 8,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ec59ce0ea3fcfb8b",
+        "$ai_session_id": "6cd95e64-8e22-7057-d840-78cd8c9dffdf",
+        "$ai_span_id": "2601b7174b05f6b6",
+        "$ai_trace_id": "888f46da3d7a3cd1486ca000f8566849",
+        "$geoip_disable": true,
+        "environment": "stage",
+        "tier": "individual_broker",
+        "internal_request_uid": "98f29237-bef8-7f11-abec-af7bcbf88401",
+        "gen_ai.agent.name": "Rosie",
+        "gen_ai.conversation.id": "8cf23629-acfc-76f7-665a-5101ada1915e",
+        "gen_ai.response.finish_reasons": [
+          "tool_call"
+        ],
+        "gen_ai.response.id": "msg_nTg1FBTf88saOIEylUm7rFZV",
+        "app.genai.usage.cache_read_input_tokens": 26616,
+        "anthropic.usage.cache_read_input_tokens": 26616,
+        "session.id": "c9c7285be9cf6e56cbd42633893ae5d2",
+        "service": "rosewood-core",
+        "service.name": "rosewood-core",
+        "cloud.region": "use1",
+        "$ai_input_tokens": 26618,
+        "$ai_output_tokens": 254,
+        "$ai_cache_read_input_tokens": 26616,
+        "$ai_model": "claude-sonnet-5",
+        "$ai_provider": "anthropic",
+        "$ai_base_url": "api.anthropic.com",
+        "$ai_span_name": "chat claude-sonnet-5",
+        "$ai_latency": 3.116687,
+        "$ai_stop_reason": "tool_call",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_tools_called": "search_property_records",
+        "$ai_tool_call_count": 1,
+        "$ai_input": [
+          {
+            "role": "system",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "thinking"
+              },
+              {
+                "type": "tool_call",
+                "id": "toolu_DvSBGZab3MoWcs2crLqLn9cJ",
+                "name": "search_property_records"
+              }
+            ],
+            "finish_reason": "tool_call"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "type": "function",
+            "name": "flag_priority_note",
+            "description": "Flags a note with a colored badge so it surfaces at the top\nof the daily briefing until the flag is cleared.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "badge_color": {
+                  "default": "yellow",
+                  "description": "The badge color to show next to the note in the briefing list.",
+                  "type": "string"
+                },
+                "label": {
+                  "default": "",
+                  "description": "A short label to show on the flagged note. Leave this blank\nto show only the colored badge with no extra text.",
+                  "type": "string"
+                },
+                "status": {
+                  "default": "needs_review_before_publish",
+                  "description": "Workflow status shown next to the badge and the label text.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_market_pulse_summary",
+            "description": "Returns a short summary of local market activity for the\nagent's tracked neighborhoods: new listings, price changes, and\nclosed sales from the last 24 hours. Takes no arguments and\nalways covers the agent's saved search areas.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "change_TJXB19DD",
+            "description": "Applies a find-and-replace edit inside a saved document,\nreplacing the first exact match of old_text with new_text\nwithin the named section. Use this for small wording fixes in a\nlisting description or a client email draft rather than\nrewriting the whole section. The match must be exact, including\npunctuation and casing, or the call fails with no changes made.\nCall fetch_5QqGqw1K first if you are not sure of the current\nwording.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "doc_id": {
+                  "type": "string"
+                },
+                "old_text": {
+                  "type": "string"
+                },
+                "new_text": {
+                  "type": "string"
+                },
+                "target_section": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "doc_id",
+                "old_text",
+                "new_text",
+                "target_section"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_current_market_snapshot",
+            "description": "Fetches a point-in-time snapshot of median list price, days\non market, and inventory count for the agent's default service\narea. Cached for fifteen minutes, so calling it twice in a row\nreturns the same numbers. No arguments are needed.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_workspace_note",
+            "description": "Creates a new note in the agent's workspace with the given\nname and content. Notes are the general-purpose place to keep\nclient preferences, showing feedback, and draft listing copy.\nReturns the new note's id, which other note tools need. Does\nnot check for a duplicate name, so two notes can share a name.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "content"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "add_document_paragraph",
+            "description": "Appends a paragraph of content to the end of the named\nsection inside an existing document. Unlike change_TJXB19DD this\ndoes not replace anything, it only adds new text after whatever\nis already there. Use it to log a new update without touching\nearlier wording.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "target_section": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id",
+                "content",
+                "target_section"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_daily_briefing",
+            "description": "Builds the morning briefing for the agent: today's showings\nand open houses pulled from the calendar, any tasks due today\nor overdue, flagged notes that still need review, and unread\nfollow-up reminders for leads that have gone quiet. This is the\nsame content shown on the app's home screen, so prefer this\ntool over combining list_open_houses, get_daily_task_summary,\nand list_active_listings separately when the user just asks\nwhat is on for today. Takes no arguments.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "browse_i7ALoQrkwaUr",
+            "description": "Lists every saved note in the current workspace, most\nrecently updated first, including its id, name, and a short\npreview of the content. Does not return the full body of long\nnotes; call fetch_5QqGqw1K with a note's id for that. Archived\nnotes are excluded from the results.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "enrich_contact_profile",
+            "description": "Looks up a contact's public LinkedIn profile and pulls their\ncurrent job title, employer, and location into the contact\nrecord, which helps when qualifying a lead before a first call.\nThe lookup only reads public profile data; it cannot see\nconnections, posts, or anything behind a login wall. Results\nare cached per contact for thirty days unless refresh is set,\nso repeated calls for the same contact are cheap.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "network_uf5tQu5n": {
+                  "description": "The public LinkedIn profile URL or handle to look up.",
+                  "type": "string"
+                },
+                "refresh": {
+                  "default": false,
+                  "description": "Whether to force a fresh lookup instead of using the last\ncached LinkedIn snapshot for this contact, which otherwise\nrefreshes automatically every thirty days.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "network_uf5tQu5n"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_recent_leads",
+            "description": "Lists the agent's most recently added leads, newest first,\nwith their name, stage, and last contact date. Useful for a\nquick check of who has come in without opening the full CRM\nview. Pair with update_contact_record to move a lead forward\nafter reviewing this list.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "default": null,
+                  "description": "Restrict the results to leads in this category, if given.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limit": {
+                  "default": 7,
+                  "description": "Maximum number of leads to return.",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "fetch_5QqGqw1K",
+            "description": "Fetches the full content of a single saved document by id,\nincluding every section and its current text. Use this before\nchange_TJXB19DD so the old_text argument matches exactly, and\nbefore add_document_paragraph to confirm which section name to\ntarget. Returns an error if the document has been deleted or\narchived.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The unique identifier of the document.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_document_change_log",
+            "description": "Returns the change history for a document: who or what made\neach edit, a short description of the change, and a timestamp.\nUse this to see whether a listing description was recently\nupdated before assuming it is stale, or to explain to the agent\nwhy the wording changed since they last looked. Entries older\nthan ninety days are not kept.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The unique identifier of the document.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_document_comments",
+            "description": "Lists comments left on a document by the agent or a\ncollaborator, newest first, with cursor-based pagination for\ndocuments that have a long comment thread. Comments are plain\ntext notes attached to the document as a whole, not to a\nspecific section or line.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The document ID.",
+                  "type": "string"
+                },
+                "cursor_token": {
+                  "default": null,
+                  "description": "Continuation token returned by an earlier call, if any.",
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "page_limit": {
+                  "default": null,
+                  "description": "Maximum number of comments to return per page.",
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "restore_document_version",
+            "description": "Restores a document to an earlier saved version, overwriting\nthe current content in every section. Use list_document_versions\nfirst to find the version number to restore, since this call\ncannot be undone once the newer content has been overwritten.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The document ID.",
+                  "type": "string"
+                },
+                "version": {
+                  "description": "The version number to restore, from the version list.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "document_id",
+                "version"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_document_versions",
+            "description": "Lists every saved version of a document with its version\nnumber, the time it was saved, and a one-line summary of what\nchanged. Listing descriptions typically go through several\nrevisions before a property goes live, and this is the only way\nto see that history or to find a version number to pass to\nrestore_document_version.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_active_listings",
+            "description": "Lists every listing currently marked active for the agent,\nwith its address, list price, days on market, and status. This\nis the agent's own book of business, not a search of the wider\nmarket: use search_property_records or search_web_listings\ninstead when the question is about comparable properties the\nagent does not represent. The results here always reflect the\nlatest status set through set_listing_status, so a listing that\nwas just marked inactive will not appear. Takes no arguments\nand returns every active listing regardless of how many there\nare, so it can be a long list for a busy agent.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_comparables",
+            "description": "Searches recently closed and active comparable sales in the\nagent's market area using a free-text query, for example\n\"3 bed under 500k in Maple Heights\" or \"closed sales on Birch\nStreet last 90 days\". The search understands street names,\nneighborhoods, price ranges written in plain English, bedroom\nand bathroom counts, and property type, and returns each match\nwith its close price, close date, and price per square foot so\nthe agent can build a comparable market analysis without\nleaving the chat. It does not search the agent's own active\nlistings; use list_active_listings for those. Results are\nlimited to the last three years of closed data plus everything\ncurrently active, and a query that is too broad, such as a bare\ncity name with no other filter, returns only the twenty most\nrecent matches rather than every record, so it is worth\nnarrowing the query with a price range or property type when\nthe agent needs a tighter comparable set.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The free-text search query.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_property_records",
+            "description": "Runs a semantic search over the agent's full knowledge base\nof property records: listing sheets, inspection reports,\ndisclosure documents, and past comparable market analyses that\nhave been saved into the workspace. Unlike search_comparables,\nwhich only covers sale prices, this searches the actual document\ntext, so a query like \"radon mitigation systems installed in the\nlast two years\" or \"listings with a shared driveway easement\"\nwill match on details buried inside inspection reports and\ndisclosures rather than just structured sale data. Pass\nlisting_context with a specific address or MLS number to bias\nthe results toward documents about that property; otherwise the\nsearch ranks across the whole knowledge base. This is the tool\nthe agent reaches for first when a client asks a question about\na property that is more detailed than price and square footage,\nsince the answer is usually sitting in a document rather than in\nstructured data. Returns the top matching passages with the\nsource document id, so a follow-up call to fetch_5QqGqw1K can pull\nthe full document if the excerpt is not enough context to answer\nconfidently.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The free-text search query.",
+                  "type": "string"
+                },
+                "listing_context": {
+                  "default": null,
+                  "description": "An address or MLS number to bias the search toward,\nif the question is about a specific property.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_contact_history",
+            "description": "Searches free-text notes, call logs, and past messages\nattached to the agent's contacts for a matching phrase, such as\n\"asked about waterfront\" or \"wants a fast close\". This searches\nacross every contact rather than one record, which makes it\nuseful for finding every lead who mentioned a particular\nrequirement without paging through the CRM one contact at a\ntime. Returns each match with the contact's name and id so a\nfollow-up call to update_contact_record can act on it directly.\nDoes not search email threads outside the CRM.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The free-text search query.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_web_listings",
+            "description": "Searches public listing sites for homes matching a query,\nfor example \"3 bedroom condos in Riverside under 400k\". This\nlooks outside the agent's own book of business at what is\ncurrently on the open market, which is useful when a buyer asks\nabout competing inventory the agent does not represent. Results\nmay lag the live market by a few hours.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The search query, for example a neighborhood, price range,\nand bedroom count written as plain text.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "set_listing_status",
+            "description": "Marks a listing as active or inactive on the market. Setting\nactive to false pulls the listing out of list_active_listings\nand out of the public-facing site feed, but keeps its documents\nand history intact for later reference. Use this when a listing\ngoes under contract, is temporarily withdrawn, or closes, rather\nthan deleting anything. This does not cancel any scheduled\nshowings or open houses tied to the listing; cancel those\nseparately if the property is coming off the market.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "active": {
+                  "description": "Whether the listing should be marked active on the market.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "active"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "edit_page_section",
+            "description": "Edits or inserts content into a page section.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "section": {
+                  "description": "The name of the section to edit or create, such as\n\"Overview\" or \"Showing Notes\".",
+                  "type": "string"
+                },
+                "after": {
+                  "default": null,
+                  "description": "The name of an existing section to insert this one after.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "block_anchor": {
+                  "default": null,
+                  "description": "Id of a specific block to anchor the edit to, if any.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "replace_mode": {
+                  "default": null,
+                  "description": "Whether to replace the section's content instead of\nappending to what is already there.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "attachments": {
+                  "default": null,
+                  "description": "Optional list of attachment objects to include with the\nsection, such as a photo or a floor plan file. Each object\nneeds at minimum a url and a caption; a missing caption is\nallowed but the attachment will render without one in the final\npage. This is separate from create_attachment, which saves a\nstandalone resource rather than embedding it directly into a\npage section.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "formatting_options": {
+                  "default": null,
+                  "description": "Optional formatting hints such as heading level or\nwhether the section should render as a bulleted list.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "section"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "run_workspace_automation",
+            "description": "Runs a named workspace automation with optional arguments.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "description": "The automation to run.",
+                  "type": "string"
+                },
+                "opts": {
+                  "default": null,
+                  "description": "Extra key-value arguments the automation needs, if any.",
+                  "anyOf": [
+                    {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "update_contact_record",
+            "description": "Updates one or more fields on an existing contact record.\nOnly the fields that are passed are changed; anything left out\nkeeps its current value. Use search_contact_history first if\nyou only have a name or a partial phrase to go on rather than a\ncontact id.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "default": null,
+                  "description": "The contact's full name, if it is changing.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "company_domain": {
+                  "default": null,
+                  "description": "The contact's employer's website domain.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "relationship_stage": {
+                  "default": null,
+                  "description": "Where the contact sits in the pipeline.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lead_source": {
+                  "default": null,
+                  "description": "Where this contact originally came from.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "notes": {
+                  "default": null,
+                  "description": "Free-text notes to add.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "change_LkbRMHYwQP5",
+            "description": "Adds, removes, or renames a calendar event such as a\nshowing, an open house, or a closing appointment. When action\nis \"add\", title and start are required and end defaults to one\nhour after start if it is left out. When action is \"rename\", only\ntitle changes and every other field is ignored even if it is\npassed. When action is \"remove\", only calendar_event_id is used\nand all other fields are ignored. Setting reminder_minutes adds\na notification that many minutes before the event starts; leave\nit unset to use the agent's default reminder time. attendees\ntakes a list of email addresses and sends each of them a\ncalendar invite once the event is saved, so double check the\nlist before adding an event with action \"add\".",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "description": "Whether to add, remove, or rename.",
+                  "enum": [
+                    "add",
+                    "remove",
+                    "rename"
+                  ],
+                  "type": "string"
+                },
+                "calendar_event_id": {
+                  "default": null,
+                  "description": "Required to",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "default": null,
+                  "description": "Event title.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "start": {
+                  "default": null,
+                  "description": "Start time in ISO 8601 format with timezone.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "end": {
+                  "default": null,
+                  "description": "End time in ISO 8601 format; defaults to start plus one hour.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "location": {
+                  "default": null,
+                  "description": "Where it is.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "recurring": {
+                  "default": null,
+                  "description": "Whether this event repeats weekly.",
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reminder_minutes": {
+                  "default": null,
+                  "description": "Minutes before start to remind.",
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "attendees": {
+                  "default": null,
+                  "description": "Email addresses to invite to the event.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "meeting_link": {
+                  "default": null,
+                  "description": "A video call link to attach to the event, if any.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "all_day": {
+                  "default": false,
+                  "description": "Whether this is an all-day event with no start time.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "change_FihCwp7CUFy",
+            "description": "Runs a bulk update across every listing matching the given\nfilters, for example marking every listing in a neighborhood as\nprice-reduced, or tagging a set of listing_ids with an amenity\nthat was missed when they were first entered. Leaving every\nfilter empty matches every active listing, so at least one\nfilter should usually be set before calling this with a write\nlike price_reduced_only.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "listing_ids": {
+                  "default": null,
+                  "description": "Only update listings with one of these ids, if given.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "property_types": {
+                  "default": null,
+                  "description": "Only match listings of these property types.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "neighborhoods": {
+                  "default": null,
+                  "description": "Neighborhoods to match.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "amenities": {
+                  "default": null,
+                  "description": "Only match listings with these amenities.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "price_reduced_only": {
+                  "default": null,
+                  "description": "Only match a recent price drop.",
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "listing_agent_email": {
+                  "default": null,
+                  "description": "Only match listings whose agent-of-record matches this\nemail; leave unset to include listings for every agent on the\nteam, not just the caller.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "custom_metadata_filters": {
+                  "default": null,
+                  "description": "Arbitrary key-value filters to match against custom fields\nset on a listing, such as a virtual tour vendor or a staging\ncompany. Every key given must match exactly; there is no partial\nor case-insensitive matching on these values. Leave this unset\nunless the agent has actually set custom fields on the listings\nbeing targeted, since an unmatched key filters out every result\nrather than being ignored.",
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sort_by": {
+                  "default": null,
+                  "description": "Field to sort the matched listings by.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "region": {
+                  "default": null,
+                  "description": "Only match listings in this region.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "location": {
+                  "default": null,
+                  "description": "Only match this event's location field.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "include_archived_listings": {
+                  "default": null,
+                  "description": "Whether to include archived listings in the match.",
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "view_mode": {
+                  "default": null,
+                  "description": "How the matched listings should be sorted for display.",
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "gallery",
+                        "map"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "compare_listing_snapshots",
+            "description": "Compares two saved sets of listing snapshots and returns\nwhat changed between them: price drops, status changes, and new\nor removed listings. Useful for a weekly market-watch summary.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "current_listing_snapshots": {
+                  "default": null,
+                  "description": "The newer set of listing snapshot objects to compare,\nusually pulled from search_web_listings or\nsearch_property_records.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "previous_listing_snapshots": {
+                  "default": null,
+                  "description": "The older set of listing snapshot objects to compare\nagainst, from an earlier run of the same search.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "archive_workspace_items",
+            "description": "Archives one or more notes, tasks, or documents by id,\nremoving them from their normal list views without permanently\ndeleting them. Archived items can still be found through search\ntools but no longer show up in browse_i7ALoQrkwaUr or\nget_daily_briefing.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "item_ids": {
+                  "description": "The ids of the items to archive. Mixed types are allowed\nin the same call, for example archiving a note and a task\ntogether, as long as every id belongs to one of the supported\nitem kinds.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "item_ids"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_attachment",
+            "description": "Saves a standalone attachment, such as a photo, a floor\nplan, or a reference link, so it can be pointed to from a note\nor a listing without re-uploading it each time. kind must be\nurl, image_upload, or plain_text and controls how content is\ninterpreted: for url it is the link itself, for image_upload it\nis the already-uploaded image reference, and for plain_text it\nis the literal text to save. Pass note_id to associate the new\nattachment with an existing note; otherwise it is saved\nunattached and can be linked in later through edit_page_section.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "description": "What kind of content this attachment holds. url expects a\nlink, image_upload expects an already-uploaded image reference,\nand plain_text expects literal text saved as the attachment's\ncontent.",
+                  "enum": [
+                    "url",
+                    "image_upload",
+                    "plain_text"
+                  ],
+                  "type": "string"
+                },
+                "content": {
+                  "description": "The url, image reference, or plain text, depending on which\nkind was given for this attachment.",
+                  "type": "string"
+                },
+                "note_id": {
+                  "default": null,
+                  "description": "An existing note to attach this to, if any.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "content"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "broadcast_update",
+            "description": "Posts a short update to the office activity feed, such as\n\"just listed 12 Birch Street\" or \"open house moved to Sunday\".\nEvery agent on the team can see the feed from their own app, so\nthis is meant for things worth a quick heads-up rather than\nprivate client details. Set notify_all_agents to also push a\nnotification instead of only adding the update to the feed.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "notify_all_agents": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "pin_workspace_note",
+            "description": "Pins or unpins a note so it stays at the top of\nbrowse_i7ALoQrkwaUr regardless of when it was last updated. Useful\nfor a note that needs to stay visible for the whole time a\nlisting is live, such as seller instructions or lockbox codes,\nrather than getting buried under newer notes.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "note_id": {
+                  "description": "The id of the note to pin or unpin.",
+                  "type": "string"
+                },
+                "pinned": {
+                  "default": true,
+                  "description": "Whether the note is now pinned.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "note_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "delete_saved_note",
+            "description": "Permanently deletes a saved note by id. Unlike\narchive_workspace_items this cannot be undone, so consider\narchiving instead unless the note was created by mistake or is\nno longer needed for any reason.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "note_id": {
+                  "description": "The id of the note to delete. This action is permanent\nand cannot be undone.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "note_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "update_note_details",
+            "description": "Updates the metadata on an existing note without touching\nits content, such as renaming it, moving it into a different\nfolder, or sharing it with another agent. To change the note's\nactual text, use change_TJXB19DD or add_document_paragraph on the\nnote's id instead. Fields left out of the call keep their\ncurrent value.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "note_id": {
+                  "description": "The id of the note to update. Fields left out of the call\nkeep their current value.",
+                  "type": "string"
+                },
+                "title": {
+                  "default": null,
+                  "description": "New title for the note, if it is changing.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "folder_id": {
+                  "default": null,
+                  "description": "Move the note into this folder; pass null to remove it\nfrom any folder.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reminder_date": {
+                  "default": null,
+                  "description": "A date to resurface this note.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "is_shared": {
+                  "default": null,
+                  "description": "Whether other agents can view this note.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "shared_with": {
+                  "default": null,
+                  "description": "Specific agent ids to share the note with, if is_shared.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "archive": {
+                  "default": null,
+                  "description": "Whether to archive the note.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "note_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_page",
+            "description": "Creates a new blank page in the workspace with the given\ntitle and returns its id. A page is a longer-form document made\nup of named sections, meant for things like a full listing\npackage, a buyer presentation, or a closing checklist, rather\nthan the quick single-body notes made by create_workspace_note.\nAfter creating a page, use edit_page_section to add its first\nsection, since a brand-new page starts out with no sections at\nall and cannot be shared with a client until at least one\nsection has content. There is no limit on how many sections a\npage can hold, but very long pages take noticeably longer to\nload in the mobile app, so splitting a large closing package\ninto a few pages tends to work better than one page with dozens\nof sections.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "title": {
+                  "description": "The title for the new page. This is shown in every list\nview and cannot be left blank, though it can be changed later\nwith update_note_details.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "save_quick_highlight",
+            "description": "Saves a short quoted snippet with a label attached, for\nquickly capturing something a client said on a call without\nwriting a full note. For example, saving the text \"wants to be\nin before the school year starts\" with the label \"timeline\" so\nit surfaces later when reviewing that client's file. These show\nup alongside a contact's notes but stay separate from full note\ncontent so they are quick to scan later, and a client's saved\nhighlights are shown together the next time their file is\nopened, in the order they were originally captured.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "description": "The exact text to save, usually a short quote taken\nfrom a call or a message rather than a paraphrase of\nwhat the client actually said, so the wording matches\nexactly what comes up later when reviewing the file.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "A short label to group this highlight with others like\nit, such as \"timeline\", \"budget\", or \"must_have\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "label"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_conversation_thread",
+            "description": "Fetches every message in a saved conversation thread by\nid, in order, along with who sent each one. Threads are used to\nkeep a record of a back-and-forth with a client or another agent\noutside of this chat, for example a text exchange forwarded in\nfor safekeeping. This does not include messages from this\nassistant's own conversation with the agent, only threads that\nwere explicitly saved into the workspace.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "thread_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "thread_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_followup_task",
+            "description": "Creates a follow-up task tied to a document, such as a\nreminder to call a lead back or to chase a signed disclosure.\ndocument_id anchors the task to whatever it is about, most often\na contact note or a listing page. due_date_ts is a Unix\ntimestamp in seconds for when the task is due, priority is a\nsmall integer where a lower number means more urgent, and\nassigned_agent is the id of whoever should see it on their task\nlist, which does not have to be the caller. status defaults to\nactive and can otherwise only be set to completed; there is no\nway to mark a task as skipped or cancelled other than deleting\nit outright. metadata accepts arbitrary extra fields for\nintegrations that read tasks back out, and recurrence_rule\nfollows the same short recurrence syntax used elsewhere in the\napp, such as \"weekly\" or \"monthly\".",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "type": "string"
+                },
+                "due_date_ts": {
+                  "type": "integer"
+                },
+                "priority": {
+                  "type": "integer"
+                },
+                "assigned_agent": {
+                  "type": "string"
+                },
+                "status": {
+                  "default": "active",
+                  "enum": [
+                    "active",
+                    "completed"
+                  ],
+                  "type": "string"
+                },
+                "metadata": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "recurrence_rule": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "document_id",
+                "due_date_ts",
+                "priority",
+                "assigned_agent"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "reschedule_followup_task",
+            "description": "Moves an existing follow-up task to a new due time rather\nthan creating a new one. task_id identifies which task to move,\nhour is the new due hour in the agent's local timezone on the\nsame day the task was already due, and label lets the reason for\nthe move be recorded alongside the change, such as \"client asked\nto push to the afternoon\". Set is_recurring to true if this move\nshould also apply to every future occurrence of a recurring\ntask rather than just the next one; the default only moves the\nsingle upcoming occurrence and leaves the rest of the recurrence\nuntouched.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "task_id": {
+                  "type": "string"
+                },
+                "hour": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "is_recurring": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "task_id",
+                "hour",
+                "label"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "add_checklist_item",
+            "description": "Adds a new item to an existing checklist, such as a moving\nchecklist shared with a buyer or an open-house prep list. list_id\nidentifies which checklist to add to and label is the text of\nthe new item; both are required. Set is_recurring to true for an\nitem that should reappear automatically on every future use of\nthe same checklist template rather than only this one instance,\nwhich is useful for a standing prep step like \"turn on all the\nlights\" that applies to every open house rather than just the\nnext one.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "list_id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "is_recurring": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "list_id",
+                "label"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_by_map_bounds",
+            "description": "Searches active listings and comparable sales within a\nrectangular map area defined by four coordinates, for drawing a\nresult set from a map view rather than a text query. All four\ncorners are required together; passing only some of them returns\nan error rather than falling back to a default area. This is\nmeant to back a map-based search UI and behaves like a narrower,\ncoordinate-based version of search_comparables rather than a\nreplacement for it.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "min_lat": {
+                  "type": "number"
+                },
+                "max_lat": {
+                  "type": "number"
+                },
+                "min_lng": {
+                  "type": "number"
+                },
+                "max_lng": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min_lat",
+                "max_lat",
+                "min_lng",
+                "max_lng"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "log_showing_details",
+            "description": "Logs feedback and details from a showing or open house\nafter the fact, attached to the calendar event_id it belongs to.\nnote is a free-text summary of how it went, response captures\nthe buyer or agent's reaction if one was given, venue records\nwhere it actually took place if that differed from the calendar\nlisting, cost logs any expense tied to the event such as staging\nor printed flyers, parking notes anything worth flagging for the\nnext visitor such as a blocked driveway, and agenda records what\nwas planned to be covered, which is useful when comparing what\nwas meant to happen against what response says actually\nhappened. Only event_id is required; every other field can be\nfilled in over several calls as details come in rather than all\nat once.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "note": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "response": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "venue": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cost": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "parking": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "detail": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "event_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_open_houses",
+            "description": "Lists every open house on the calendar from today onward,\nwith its address, start and end time, and how many people have\nresponded to the associated poll if one was created with\ncreate_showing_poll. Past open houses are not included; use\nget_document_change_log or search_comparables for historical\nsale data instead. Takes no arguments and always covers every\nupcoming open house regardless of listing.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_showing_poll",
+            "description": "Creates a poll to send to a client for picking a showing\ntime, with a topic and a list of time-slot options for them to\nchoose from. Once created, the poll can be shared with the\nclient outside of this chat, and get_poll_results reads back\nwhichever options they picked. topic is a short label such as\n\"12 Birch Street second showing\" rather than a full question,\nand options should be phrased as plain time slots like \"Saturday\n10am\" or \"Sunday 2pm\" so they read cleanly wherever the poll is\nsent. There is no limit on the number of options, but polls with\nmore than about six tend to get lower response rates in\npractice, so it is usually worth narrowing to the times that\nactually work before creating the poll.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "topic": {
+                  "type": "string"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "topic",
+                "options"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "end_poll",
+            "description": "Closes an open showing-time poll so no further responses\ncan be submitted. The poll's results remain available through\nget_poll_results after it is closed, and closing it does not\nnotify anyone who has not yet responded, so it is worth checking\nget_poll_results first if some invitees have gone quiet.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "poll_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "poll_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_poll_results",
+            "description": "Returns every response submitted so far to a showing-time\npoll, including which option each respondent picked. Works on\nboth open and closed polls.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "poll_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "poll_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "delete_poll_response",
+            "description": "Deletes a single response from a showing-time poll, for\nexample after a client changes their mind on the phone instead\nof updating the poll themselves. This removes only that one\nresponse; the poll itself stays open and other respondents'\nanswers are untouched.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "response_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "response_id"
+              ],
+              "type": "object"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 3128,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ec59ce0ea3fcfb8b",
+        "$ai_session_id": "6cd95e64-8e22-7057-d840-78cd8c9dffdf",
+        "$ai_span_id": "b4488f410387bd90",
+        "$ai_trace_id": "888f46da3d7a3cd1486ca000f8566849",
+        "$geoip_disable": true,
+        "environment": "stage",
+        "tier": "individual_broker",
+        "internal_request_uid": "98f29237-bef8-7f11-abec-af7bcbf88401",
+        "gen_ai.agent.name": "Rosie",
+        "gen_ai.conversation.id": "8cf23629-acfc-76f7-665a-5101ada1915e",
+        "session.id": "c9c7285be9cf6e56cbd42633893ae5d2",
+        "service": "rosewood-core",
+        "service.name": "rosewood-core",
+        "cloud.region": "use1",
+        "$ai_span_name": "search_property_records",
+        "$ai_latency": 0.402488,
+        "$ai_lib": "opentelemetry/pydantic-ai"
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 3517,
+      "distinct_id": "user-1",
+      "properties": {
+        "session.id": "c9c7285be9cf6e56cbd42633893ae5d2",
+        "$ai_session_id": "6cd95e64-8e22-7057-d840-78cd8c9dffdf",
+        "service": "rosewood-core",
+        "$python_version": "3.14.7",
+        "$ai_latency": 0.38017892837524414,
+        "$is_server": true,
+        "$python_runtime": "CPython",
+        "$geoip_disable": true,
+        "$lib_version": "7.48.0",
+        "tier": "individual_broker",
+        "$os_version": "26.6.2",
+        "$ai_parent_id": "b4488f410387bd90",
+        "environment": "stage",
+        "cloud.region": "use1",
+        "$ai_input_tokens": 10,
+        "$ai_lib": "posthog-ai",
+        "$ai_provider": "openai",
+        "$ai_trace_id": "888f46da3d7a3cd1486ca000f8566849",
+        "$os": "Mac OS X",
+        "$lib": "posthog-python",
+        "$ai_span_name": "embed",
+        "$ai_base_url": "https://api.openai.com/v1/",
+        "$ai_lib_version": "7.48.0",
+        "$ai_model": "text-embedding-3-small",
+        "$ai_http_status": 200,
+        "$ai_input": null
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 3543,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ec59ce0ea3fcfb8b",
+        "$ai_session_id": "6cd95e64-8e22-7057-d840-78cd8c9dffdf",
+        "$ai_span_id": "685284d7a62d09ca",
+        "$ai_trace_id": "888f46da3d7a3cd1486ca000f8566849",
+        "$geoip_disable": true,
+        "environment": "stage",
+        "tier": "individual_broker",
+        "internal_request_uid": "98f29237-bef8-7f11-abec-af7bcbf88401",
+        "gen_ai.agent.name": "Rosie",
+        "gen_ai.conversation.id": "8cf23629-acfc-76f7-665a-5101ada1915e",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "msg_9BkYjvKqs1WWPF2KXiKyqNq7",
+        "app.genai.usage.cache_creation_input_tokens": 276,
+        "app.genai.usage.cache_read_input_tokens": 26616,
+        "anthropic.usage.cache_read_input_tokens": 26616,
+        "anthropic.usage.cache_creation_input_tokens": 276,
+        "session.id": "c9c7285be9cf6e56cbd42633893ae5d2",
+        "service": "rosewood-core",
+        "service.name": "rosewood-core",
+        "cloud.region": "use1",
+        "$ai_input_tokens": 26894,
+        "$ai_output_tokens": 483,
+        "$ai_cache_read_input_tokens": 26616,
+        "$ai_cache_creation_input_tokens": 276,
+        "$ai_model": "claude-sonnet-5",
+        "$ai_provider": "anthropic",
+        "$ai_base_url": "api.anthropic.com",
+        "$ai_span_name": "chat claude-sonnet-5",
+        "$ai_latency": 6.653891,
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_input": [
+          {
+            "role": "system",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "thinking"
+              },
+              {
+                "type": "tool_call",
+                "id": "toolu_DvSBGZab3MoWcs2crLqLn9cJ",
+                "name": "search_property_records"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_DvSBGZab3MoWcs2crLqLn9cJ",
+                "name": "search_property_records"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "thinking"
+              },
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "type": "function",
+            "name": "flag_priority_note",
+            "description": "Flags a note with a colored badge so it surfaces at the top\nof the daily briefing until the flag is cleared.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "badge_color": {
+                  "default": "yellow",
+                  "description": "The badge color to show next to the note in the briefing list.",
+                  "type": "string"
+                },
+                "label": {
+                  "default": "",
+                  "description": "A short label to show on the flagged note. Leave this blank\nto show only the colored badge with no extra text.",
+                  "type": "string"
+                },
+                "status": {
+                  "default": "needs_review_before_publish",
+                  "description": "Workflow status shown next to the badge and the label text.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_market_pulse_summary",
+            "description": "Returns a short summary of local market activity for the\nagent's tracked neighborhoods: new listings, price changes, and\nclosed sales from the last 24 hours. Takes no arguments and\nalways covers the agent's saved search areas.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "change_TJXB19DD",
+            "description": "Applies a find-and-replace edit inside a saved document,\nreplacing the first exact match of old_text with new_text\nwithin the named section. Use this for small wording fixes in a\nlisting description or a client email draft rather than\nrewriting the whole section. The match must be exact, including\npunctuation and casing, or the call fails with no changes made.\nCall fetch_5QqGqw1K first if you are not sure of the current\nwording.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "doc_id": {
+                  "type": "string"
+                },
+                "old_text": {
+                  "type": "string"
+                },
+                "new_text": {
+                  "type": "string"
+                },
+                "target_section": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "doc_id",
+                "old_text",
+                "new_text",
+                "target_section"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_current_market_snapshot",
+            "description": "Fetches a point-in-time snapshot of median list price, days\non market, and inventory count for the agent's default service\narea. Cached for fifteen minutes, so calling it twice in a row\nreturns the same numbers. No arguments are needed.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_workspace_note",
+            "description": "Creates a new note in the agent's workspace with the given\nname and content. Notes are the general-purpose place to keep\nclient preferences, showing feedback, and draft listing copy.\nReturns the new note's id, which other note tools need. Does\nnot check for a duplicate name, so two notes can share a name.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "content"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "add_document_paragraph",
+            "description": "Appends a paragraph of content to the end of the named\nsection inside an existing document. Unlike change_TJXB19DD this\ndoes not replace anything, it only adds new text after whatever\nis already there. Use it to log a new update without touching\nearlier wording.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "target_section": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id",
+                "content",
+                "target_section"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_daily_briefing",
+            "description": "Builds the morning briefing for the agent: today's showings\nand open houses pulled from the calendar, any tasks due today\nor overdue, flagged notes that still need review, and unread\nfollow-up reminders for leads that have gone quiet. This is the\nsame content shown on the app's home screen, so prefer this\ntool over combining list_open_houses, get_daily_task_summary,\nand list_active_listings separately when the user just asks\nwhat is on for today. Takes no arguments.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "browse_i7ALoQrkwaUr",
+            "description": "Lists every saved note in the current workspace, most\nrecently updated first, including its id, name, and a short\npreview of the content. Does not return the full body of long\nnotes; call fetch_5QqGqw1K with a note's id for that. Archived\nnotes are excluded from the results.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "enrich_contact_profile",
+            "description": "Looks up a contact's public LinkedIn profile and pulls their\ncurrent job title, employer, and location into the contact\nrecord, which helps when qualifying a lead before a first call.\nThe lookup only reads public profile data; it cannot see\nconnections, posts, or anything behind a login wall. Results\nare cached per contact for thirty days unless refresh is set,\nso repeated calls for the same contact are cheap.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "network_uf5tQu5n": {
+                  "description": "The public LinkedIn profile URL or handle to look up.",
+                  "type": "string"
+                },
+                "refresh": {
+                  "default": false,
+                  "description": "Whether to force a fresh lookup instead of using the last\ncached LinkedIn snapshot for this contact, which otherwise\nrefreshes automatically every thirty days.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "network_uf5tQu5n"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_recent_leads",
+            "description": "Lists the agent's most recently added leads, newest first,\nwith their name, stage, and last contact date. Useful for a\nquick check of who has come in without opening the full CRM\nview. Pair with update_contact_record to move a lead forward\nafter reviewing this list.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "default": null,
+                  "description": "Restrict the results to leads in this category, if given.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limit": {
+                  "default": 7,
+                  "description": "Maximum number of leads to return.",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "fetch_5QqGqw1K",
+            "description": "Fetches the full content of a single saved document by id,\nincluding every section and its current text. Use this before\nchange_TJXB19DD so the old_text argument matches exactly, and\nbefore add_document_paragraph to confirm which section name to\ntarget. Returns an error if the document has been deleted or\narchived.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The unique identifier of the document.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_document_change_log",
+            "description": "Returns the change history for a document: who or what made\neach edit, a short description of the change, and a timestamp.\nUse this to see whether a listing description was recently\nupdated before assuming it is stale, or to explain to the agent\nwhy the wording changed since they last looked. Entries older\nthan ninety days are not kept.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The unique identifier of the document.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_document_comments",
+            "description": "Lists comments left on a document by the agent or a\ncollaborator, newest first, with cursor-based pagination for\ndocuments that have a long comment thread. Comments are plain\ntext notes attached to the document as a whole, not to a\nspecific section or line.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The document ID.",
+                  "type": "string"
+                },
+                "cursor_token": {
+                  "default": null,
+                  "description": "Continuation token returned by an earlier call, if any.",
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "page_limit": {
+                  "default": null,
+                  "description": "Maximum number of comments to return per page.",
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "restore_document_version",
+            "description": "Restores a document to an earlier saved version, overwriting\nthe current content in every section. Use list_document_versions\nfirst to find the version number to restore, since this call\ncannot be undone once the newer content has been overwritten.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "description": "The document ID.",
+                  "type": "string"
+                },
+                "version": {
+                  "description": "The version number to restore, from the version list.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "document_id",
+                "version"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_document_versions",
+            "description": "Lists every saved version of a document with its version\nnumber, the time it was saved, and a one-line summary of what\nchanged. Listing descriptions typically go through several\nrevisions before a property goes live, and this is the only way\nto see that history or to find a version number to pass to\nrestore_document_version.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_active_listings",
+            "description": "Lists every listing currently marked active for the agent,\nwith its address, list price, days on market, and status. This\nis the agent's own book of business, not a search of the wider\nmarket: use search_property_records or search_web_listings\ninstead when the question is about comparable properties the\nagent does not represent. The results here always reflect the\nlatest status set through set_listing_status, so a listing that\nwas just marked inactive will not appear. Takes no arguments\nand returns every active listing regardless of how many there\nare, so it can be a long list for a busy agent.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_comparables",
+            "description": "Searches recently closed and active comparable sales in the\nagent's market area using a free-text query, for example\n\"3 bed under 500k in Maple Heights\" or \"closed sales on Birch\nStreet last 90 days\". The search understands street names,\nneighborhoods, price ranges written in plain English, bedroom\nand bathroom counts, and property type, and returns each match\nwith its close price, close date, and price per square foot so\nthe agent can build a comparable market analysis without\nleaving the chat. It does not search the agent's own active\nlistings; use list_active_listings for those. Results are\nlimited to the last three years of closed data plus everything\ncurrently active, and a query that is too broad, such as a bare\ncity name with no other filter, returns only the twenty most\nrecent matches rather than every record, so it is worth\nnarrowing the query with a price range or property type when\nthe agent needs a tighter comparable set.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The free-text search query.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_property_records",
+            "description": "Runs a semantic search over the agent's full knowledge base\nof property records: listing sheets, inspection reports,\ndisclosure documents, and past comparable market analyses that\nhave been saved into the workspace. Unlike search_comparables,\nwhich only covers sale prices, this searches the actual document\ntext, so a query like \"radon mitigation systems installed in the\nlast two years\" or \"listings with a shared driveway easement\"\nwill match on details buried inside inspection reports and\ndisclosures rather than just structured sale data. Pass\nlisting_context with a specific address or MLS number to bias\nthe results toward documents about that property; otherwise the\nsearch ranks across the whole knowledge base. This is the tool\nthe agent reaches for first when a client asks a question about\na property that is more detailed than price and square footage,\nsince the answer is usually sitting in a document rather than in\nstructured data. Returns the top matching passages with the\nsource document id, so a follow-up call to fetch_5QqGqw1K can pull\nthe full document if the excerpt is not enough context to answer\nconfidently.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The free-text search query.",
+                  "type": "string"
+                },
+                "listing_context": {
+                  "default": null,
+                  "description": "An address or MLS number to bias the search toward,\nif the question is about a specific property.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_contact_history",
+            "description": "Searches free-text notes, call logs, and past messages\nattached to the agent's contacts for a matching phrase, such as\n\"asked about waterfront\" or \"wants a fast close\". This searches\nacross every contact rather than one record, which makes it\nuseful for finding every lead who mentioned a particular\nrequirement without paging through the CRM one contact at a\ntime. Returns each match with the contact's name and id so a\nfollow-up call to update_contact_record can act on it directly.\nDoes not search email threads outside the CRM.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The free-text search query.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_web_listings",
+            "description": "Searches public listing sites for homes matching a query,\nfor example \"3 bedroom condos in Riverside under 400k\". This\nlooks outside the agent's own book of business at what is\ncurrently on the open market, which is useful when a buyer asks\nabout competing inventory the agent does not represent. Results\nmay lag the live market by a few hours.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "description": "The search query, for example a neighborhood, price range,\nand bedroom count written as plain text.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "set_listing_status",
+            "description": "Marks a listing as active or inactive on the market. Setting\nactive to false pulls the listing out of list_active_listings\nand out of the public-facing site feed, but keeps its documents\nand history intact for later reference. Use this when a listing\ngoes under contract, is temporarily withdrawn, or closes, rather\nthan deleting anything. This does not cancel any scheduled\nshowings or open houses tied to the listing; cancel those\nseparately if the property is coming off the market.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "active": {
+                  "description": "Whether the listing should be marked active on the market.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "active"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "edit_page_section",
+            "description": "Edits or inserts content into a page section.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "section": {
+                  "description": "The name of the section to edit or create, such as\n\"Overview\" or \"Showing Notes\".",
+                  "type": "string"
+                },
+                "after": {
+                  "default": null,
+                  "description": "The name of an existing section to insert this one after.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "block_anchor": {
+                  "default": null,
+                  "description": "Id of a specific block to anchor the edit to, if any.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "replace_mode": {
+                  "default": null,
+                  "description": "Whether to replace the section's content instead of\nappending to what is already there.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "attachments": {
+                  "default": null,
+                  "description": "Optional list of attachment objects to include with the\nsection, such as a photo or a floor plan file. Each object\nneeds at minimum a url and a caption; a missing caption is\nallowed but the attachment will render without one in the final\npage. This is separate from create_attachment, which saves a\nstandalone resource rather than embedding it directly into a\npage section.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "formatting_options": {
+                  "default": null,
+                  "description": "Optional formatting hints such as heading level or\nwhether the section should render as a bulleted list.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "section"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "run_workspace_automation",
+            "description": "Runs a named workspace automation with optional arguments.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "description": "The automation to run.",
+                  "type": "string"
+                },
+                "opts": {
+                  "default": null,
+                  "description": "Extra key-value arguments the automation needs, if any.",
+                  "anyOf": [
+                    {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "update_contact_record",
+            "description": "Updates one or more fields on an existing contact record.\nOnly the fields that are passed are changed; anything left out\nkeeps its current value. Use search_contact_history first if\nyou only have a name or a partial phrase to go on rather than a\ncontact id.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "default": null,
+                  "description": "The contact's full name, if it is changing.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "company_domain": {
+                  "default": null,
+                  "description": "The contact's employer's website domain.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "relationship_stage": {
+                  "default": null,
+                  "description": "Where the contact sits in the pipeline.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lead_source": {
+                  "default": null,
+                  "description": "Where this contact originally came from.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "notes": {
+                  "default": null,
+                  "description": "Free-text notes to add.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "change_LkbRMHYwQP5",
+            "description": "Adds, removes, or renames a calendar event such as a\nshowing, an open house, or a closing appointment. When action\nis \"add\", title and start are required and end defaults to one\nhour after start if it is left out. When action is \"rename\", only\ntitle changes and every other field is ignored even if it is\npassed. When action is \"remove\", only calendar_event_id is used\nand all other fields are ignored. Setting reminder_minutes adds\na notification that many minutes before the event starts; leave\nit unset to use the agent's default reminder time. attendees\ntakes a list of email addresses and sends each of them a\ncalendar invite once the event is saved, so double check the\nlist before adding an event with action \"add\".",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "description": "Whether to add, remove, or rename.",
+                  "enum": [
+                    "add",
+                    "remove",
+                    "rename"
+                  ],
+                  "type": "string"
+                },
+                "calendar_event_id": {
+                  "default": null,
+                  "description": "Required to",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "default": null,
+                  "description": "Event title.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "start": {
+                  "default": null,
+                  "description": "Start time in ISO 8601 format with timezone.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "end": {
+                  "default": null,
+                  "description": "End time in ISO 8601 format; defaults to start plus one hour.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "location": {
+                  "default": null,
+                  "description": "Where it is.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "recurring": {
+                  "default": null,
+                  "description": "Whether this event repeats weekly.",
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reminder_minutes": {
+                  "default": null,
+                  "description": "Minutes before start to remind.",
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "attendees": {
+                  "default": null,
+                  "description": "Email addresses to invite to the event.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "meeting_link": {
+                  "default": null,
+                  "description": "A video call link to attach to the event, if any.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "all_day": {
+                  "default": false,
+                  "description": "Whether this is an all-day event with no start time.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "change_FihCwp7CUFy",
+            "description": "Runs a bulk update across every listing matching the given\nfilters, for example marking every listing in a neighborhood as\nprice-reduced, or tagging a set of listing_ids with an amenity\nthat was missed when they were first entered. Leaving every\nfilter empty matches every active listing, so at least one\nfilter should usually be set before calling this with a write\nlike price_reduced_only.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "listing_ids": {
+                  "default": null,
+                  "description": "Only update listings with one of these ids, if given.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "property_types": {
+                  "default": null,
+                  "description": "Only match listings of these property types.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "neighborhoods": {
+                  "default": null,
+                  "description": "Neighborhoods to match.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "amenities": {
+                  "default": null,
+                  "description": "Only match listings with these amenities.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "price_reduced_only": {
+                  "default": null,
+                  "description": "Only match a recent price drop.",
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "listing_agent_email": {
+                  "default": null,
+                  "description": "Only match listings whose agent-of-record matches this\nemail; leave unset to include listings for every agent on the\nteam, not just the caller.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "custom_metadata_filters": {
+                  "default": null,
+                  "description": "Arbitrary key-value filters to match against custom fields\nset on a listing, such as a virtual tour vendor or a staging\ncompany. Every key given must match exactly; there is no partial\nor case-insensitive matching on these values. Leave this unset\nunless the agent has actually set custom fields on the listings\nbeing targeted, since an unmatched key filters out every result\nrather than being ignored.",
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sort_by": {
+                  "default": null,
+                  "description": "Field to sort the matched listings by.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "region": {
+                  "default": null,
+                  "description": "Only match listings in this region.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "location": {
+                  "default": null,
+                  "description": "Only match this event's location field.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "include_archived_listings": {
+                  "default": null,
+                  "description": "Whether to include archived listings in the match.",
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "view_mode": {
+                  "default": null,
+                  "description": "How the matched listings should be sorted for display.",
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "gallery",
+                        "map"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "compare_listing_snapshots",
+            "description": "Compares two saved sets of listing snapshots and returns\nwhat changed between them: price drops, status changes, and new\nor removed listings. Useful for a weekly market-watch summary.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "current_listing_snapshots": {
+                  "default": null,
+                  "description": "The newer set of listing snapshot objects to compare,\nusually pulled from search_web_listings or\nsearch_property_records.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "previous_listing_snapshots": {
+                  "default": null,
+                  "description": "The older set of listing snapshot objects to compare\nagainst, from an earlier run of the same search.",
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "archive_workspace_items",
+            "description": "Archives one or more notes, tasks, or documents by id,\nremoving them from their normal list views without permanently\ndeleting them. Archived items can still be found through search\ntools but no longer show up in browse_i7ALoQrkwaUr or\nget_daily_briefing.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "item_ids": {
+                  "description": "The ids of the items to archive. Mixed types are allowed\nin the same call, for example archiving a note and a task\ntogether, as long as every id belongs to one of the supported\nitem kinds.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "item_ids"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_attachment",
+            "description": "Saves a standalone attachment, such as a photo, a floor\nplan, or a reference link, so it can be pointed to from a note\nor a listing without re-uploading it each time. kind must be\nurl, image_upload, or plain_text and controls how content is\ninterpreted: for url it is the link itself, for image_upload it\nis the already-uploaded image reference, and for plain_text it\nis the literal text to save. Pass note_id to associate the new\nattachment with an existing note; otherwise it is saved\nunattached and can be linked in later through edit_page_section.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "description": "What kind of content this attachment holds. url expects a\nlink, image_upload expects an already-uploaded image reference,\nand plain_text expects literal text saved as the attachment's\ncontent.",
+                  "enum": [
+                    "url",
+                    "image_upload",
+                    "plain_text"
+                  ],
+                  "type": "string"
+                },
+                "content": {
+                  "description": "The url, image reference, or plain text, depending on which\nkind was given for this attachment.",
+                  "type": "string"
+                },
+                "note_id": {
+                  "default": null,
+                  "description": "An existing note to attach this to, if any.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "content"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "broadcast_update",
+            "description": "Posts a short update to the office activity feed, such as\n\"just listed 12 Birch Street\" or \"open house moved to Sunday\".\nEvery agent on the team can see the feed from their own app, so\nthis is meant for things worth a quick heads-up rather than\nprivate client details. Set notify_all_agents to also push a\nnotification instead of only adding the update to the feed.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "notify_all_agents": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "pin_workspace_note",
+            "description": "Pins or unpins a note so it stays at the top of\nbrowse_i7ALoQrkwaUr regardless of when it was last updated. Useful\nfor a note that needs to stay visible for the whole time a\nlisting is live, such as seller instructions or lockbox codes,\nrather than getting buried under newer notes.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "note_id": {
+                  "description": "The id of the note to pin or unpin.",
+                  "type": "string"
+                },
+                "pinned": {
+                  "default": true,
+                  "description": "Whether the note is now pinned.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "note_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "delete_saved_note",
+            "description": "Permanently deletes a saved note by id. Unlike\narchive_workspace_items this cannot be undone, so consider\narchiving instead unless the note was created by mistake or is\nno longer needed for any reason.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "note_id": {
+                  "description": "The id of the note to delete. This action is permanent\nand cannot be undone.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "note_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "update_note_details",
+            "description": "Updates the metadata on an existing note without touching\nits content, such as renaming it, moving it into a different\nfolder, or sharing it with another agent. To change the note's\nactual text, use change_TJXB19DD or add_document_paragraph on the\nnote's id instead. Fields left out of the call keep their\ncurrent value.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "note_id": {
+                  "description": "The id of the note to update. Fields left out of the call\nkeep their current value.",
+                  "type": "string"
+                },
+                "title": {
+                  "default": null,
+                  "description": "New title for the note, if it is changing.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "folder_id": {
+                  "default": null,
+                  "description": "Move the note into this folder; pass null to remove it\nfrom any folder.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reminder_date": {
+                  "default": null,
+                  "description": "A date to resurface this note.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "is_shared": {
+                  "default": null,
+                  "description": "Whether other agents can view this note.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "shared_with": {
+                  "default": null,
+                  "description": "Specific agent ids to share the note with, if is_shared.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "archive": {
+                  "default": null,
+                  "description": "Whether to archive the note.",
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "note_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_page",
+            "description": "Creates a new blank page in the workspace with the given\ntitle and returns its id. A page is a longer-form document made\nup of named sections, meant for things like a full listing\npackage, a buyer presentation, or a closing checklist, rather\nthan the quick single-body notes made by create_workspace_note.\nAfter creating a page, use edit_page_section to add its first\nsection, since a brand-new page starts out with no sections at\nall and cannot be shared with a client until at least one\nsection has content. There is no limit on how many sections a\npage can hold, but very long pages take noticeably longer to\nload in the mobile app, so splitting a large closing package\ninto a few pages tends to work better than one page with dozens\nof sections.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "title": {
+                  "description": "The title for the new page. This is shown in every list\nview and cannot be left blank, though it can be changed later\nwith update_note_details.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "save_quick_highlight",
+            "description": "Saves a short quoted snippet with a label attached, for\nquickly capturing something a client said on a call without\nwriting a full note. For example, saving the text \"wants to be\nin before the school year starts\" with the label \"timeline\" so\nit surfaces later when reviewing that client's file. These show\nup alongside a contact's notes but stay separate from full note\ncontent so they are quick to scan later, and a client's saved\nhighlights are shown together the next time their file is\nopened, in the order they were originally captured.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "description": "The exact text to save, usually a short quote taken\nfrom a call or a message rather than a paraphrase of\nwhat the client actually said, so the wording matches\nexactly what comes up later when reviewing the file.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "A short label to group this highlight with others like\nit, such as \"timeline\", \"budget\", or \"must_have\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "label"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_conversation_thread",
+            "description": "Fetches every message in a saved conversation thread by\nid, in order, along with who sent each one. Threads are used to\nkeep a record of a back-and-forth with a client or another agent\noutside of this chat, for example a text exchange forwarded in\nfor safekeeping. This does not include messages from this\nassistant's own conversation with the agent, only threads that\nwere explicitly saved into the workspace.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "thread_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "thread_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_followup_task",
+            "description": "Creates a follow-up task tied to a document, such as a\nreminder to call a lead back or to chase a signed disclosure.\ndocument_id anchors the task to whatever it is about, most often\na contact note or a listing page. due_date_ts is a Unix\ntimestamp in seconds for when the task is due, priority is a\nsmall integer where a lower number means more urgent, and\nassigned_agent is the id of whoever should see it on their task\nlist, which does not have to be the caller. status defaults to\nactive and can otherwise only be set to completed; there is no\nway to mark a task as skipped or cancelled other than deleting\nit outright. metadata accepts arbitrary extra fields for\nintegrations that read tasks back out, and recurrence_rule\nfollows the same short recurrence syntax used elsewhere in the\napp, such as \"weekly\" or \"monthly\".",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "type": "string"
+                },
+                "due_date_ts": {
+                  "type": "integer"
+                },
+                "priority": {
+                  "type": "integer"
+                },
+                "assigned_agent": {
+                  "type": "string"
+                },
+                "status": {
+                  "default": "active",
+                  "enum": [
+                    "active",
+                    "completed"
+                  ],
+                  "type": "string"
+                },
+                "metadata": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "recurrence_rule": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "document_id",
+                "due_date_ts",
+                "priority",
+                "assigned_agent"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "reschedule_followup_task",
+            "description": "Moves an existing follow-up task to a new due time rather\nthan creating a new one. task_id identifies which task to move,\nhour is the new due hour in the agent's local timezone on the\nsame day the task was already due, and label lets the reason for\nthe move be recorded alongside the change, such as \"client asked\nto push to the afternoon\". Set is_recurring to true if this move\nshould also apply to every future occurrence of a recurring\ntask rather than just the next one; the default only moves the\nsingle upcoming occurrence and leaves the rest of the recurrence\nuntouched.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "task_id": {
+                  "type": "string"
+                },
+                "hour": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "is_recurring": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "task_id",
+                "hour",
+                "label"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "add_checklist_item",
+            "description": "Adds a new item to an existing checklist, such as a moving\nchecklist shared with a buyer or an open-house prep list. list_id\nidentifies which checklist to add to and label is the text of\nthe new item; both are required. Set is_recurring to true for an\nitem that should reappear automatically on every future use of\nthe same checklist template rather than only this one instance,\nwhich is useful for a standing prep step like \"turn on all the\nlights\" that applies to every open house rather than just the\nnext one.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "list_id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "is_recurring": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "list_id",
+                "label"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "search_by_map_bounds",
+            "description": "Searches active listings and comparable sales within a\nrectangular map area defined by four coordinates, for drawing a\nresult set from a map view rather than a text query. All four\ncorners are required together; passing only some of them returns\nan error rather than falling back to a default area. This is\nmeant to back a map-based search UI and behaves like a narrower,\ncoordinate-based version of search_comparables rather than a\nreplacement for it.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "min_lat": {
+                  "type": "number"
+                },
+                "max_lat": {
+                  "type": "number"
+                },
+                "min_lng": {
+                  "type": "number"
+                },
+                "max_lng": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min_lat",
+                "max_lat",
+                "min_lng",
+                "max_lng"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "log_showing_details",
+            "description": "Logs feedback and details from a showing or open house\nafter the fact, attached to the calendar event_id it belongs to.\nnote is a free-text summary of how it went, response captures\nthe buyer or agent's reaction if one was given, venue records\nwhere it actually took place if that differed from the calendar\nlisting, cost logs any expense tied to the event such as staging\nor printed flyers, parking notes anything worth flagging for the\nnext visitor such as a blocked driveway, and agenda records what\nwas planned to be covered, which is useful when comparing what\nwas meant to happen against what response says actually\nhappened. Only event_id is required; every other field can be\nfilled in over several calls as details come in rather than all\nat once.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "note": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "response": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "venue": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cost": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "parking": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "detail": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "event_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "list_open_houses",
+            "description": "Lists every open house on the calendar from today onward,\nwith its address, start and end time, and how many people have\nresponded to the associated poll if one was created with\ncreate_showing_poll. Past open houses are not included; use\nget_document_change_log or search_comparables for historical\nsale data instead. Takes no arguments and always covers every\nupcoming open house regardless of listing.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_showing_poll",
+            "description": "Creates a poll to send to a client for picking a showing\ntime, with a topic and a list of time-slot options for them to\nchoose from. Once created, the poll can be shared with the\nclient outside of this chat, and get_poll_results reads back\nwhichever options they picked. topic is a short label such as\n\"12 Birch Street second showing\" rather than a full question,\nand options should be phrased as plain time slots like \"Saturday\n10am\" or \"Sunday 2pm\" so they read cleanly wherever the poll is\nsent. There is no limit on the number of options, but polls with\nmore than about six tend to get lower response rates in\npractice, so it is usually worth narrowing to the times that\nactually work before creating the poll.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "topic": {
+                  "type": "string"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "topic",
+                "options"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "end_poll",
+            "description": "Closes an open showing-time poll so no further responses\ncan be submitted. The poll's results remain available through\nget_poll_results after it is closed, and closing it does not\nnotify anyone who has not yet responded, so it is worth checking\nget_poll_results first if some invitees have gone quiet.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "poll_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "poll_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "get_poll_results",
+            "description": "Returns every response submitted so far to a showing-time\npoll, including which option each respondent picked. Works on\nboth open and closed polls.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "poll_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "poll_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "delete_poll_response",
+            "description": "Deletes a single response from a showing-time poll, for\nexample after a client changes their mind on the phone instead\nof updating the poll themselves. This removes only that one\nresponse; the poll itself stays open and other respondents'\nanswers are untouched.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "response_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "response_id"
+              ],
+              "type": "object"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 10227,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "f9fdf03978bd7cd9",
+        "$ai_session_id": "6cd95e64-8e22-7057-d840-78cd8c9dffdf",
+        "$ai_span_id": "d463f848e63f727b",
+        "$ai_trace_id": "4811a694417dd00c73bd22c1901bd2e3",
+        "$geoip_disable": true,
+        "environment": "stage",
+        "tier": "individual_broker",
+        "internal_request_uid": "d68bf532-c688-7440-1891-5fac4561765f",
+        "gen_ai.agent.name": "chat_title_agent",
+        "gen_ai.conversation.id": "d2445e1a-c2e5-7088-fe25-a0e25fe34b72",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "msg_l801D5VsbvcbIzS9lNKvBJod",
+        "session.id": "c9c7285be9cf6e56cbd42633893ae5d2",
+        "service": "rosewood-core",
+        "service.name": "rosewood-core",
+        "cloud.region": "use1",
+        "$ai_input_tokens": 4494,
+        "$ai_output_tokens": 31,
+        "$ai_model": "claude-sonnet-5",
+        "$ai_provider": "anthropic",
+        "$ai_base_url": "api.anthropic.com",
+        "$ai_span_name": "chat claude-sonnet-5",
+        "$ai_latency": 1.252601,
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_input": [
+          {
+            "role": "system",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 10227,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_session_id": "6cd95e64-8e22-7057-d840-78cd8c9dffdf",
+        "$ai_span_id": "f9fdf03978bd7cd9",
+        "$ai_trace_id": "4811a694417dd00c73bd22c1901bd2e3",
+        "$geoip_disable": true,
+        "environment": "stage",
+        "tier": "individual_broker",
+        "internal_request_uid": "d68bf532-c688-7440-1891-5fac4561765f",
+        "gen_ai.conversation.id": "d2445e1a-c2e5-7088-fe25-a0e25fe34b72",
+        "session.id": "c9c7285be9cf6e56cbd42633893ae5d2",
+        "service": "rosewood-core",
+        "service.name": "rosewood-core",
+        "cloud.region": "use1",
+        "$ai_input_tokens": 4494,
+        "$ai_output_tokens": 31,
+        "$ai_span_name": "chat_title_agent",
+        "$ai_latency": 1.256022,
+        "$ai_model": "claude-sonnet-5",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_input_state": {
+          "role": "user",
+          "parts": [
+            {
+              "type": "text"
+            }
+          ]
+        },
+        "$ai_output_state": {
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "text"
+            }
+          ],
+          "finish_reason": "stop"
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

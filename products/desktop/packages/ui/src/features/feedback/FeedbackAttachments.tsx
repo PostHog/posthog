@@ -8,20 +8,15 @@ import {
   Text,
   Textarea,
 } from "@posthog/quill";
-import { toast } from "@posthog/ui/primitives/toast";
 import {
-  type ChangeEvent,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
+  useEffect,
   useRef,
   useState,
 } from "react";
-import {
-  type FeedbackImage,
-  MAX_FEEDBACK_IMAGE_COUNT,
-  readFeedbackImage,
-} from "./feedbackImages";
+import { type FeedbackImage, MAX_FEEDBACK_IMAGE_COUNT } from "./feedbackImages";
 
 export interface FeedbackAttachmentsValue {
   includeScreenshot: boolean;
@@ -37,6 +32,7 @@ interface FeedbackAttachmentsProps {
   value: FeedbackAttachmentsValue;
   onChange: Dispatch<SetStateAction<FeedbackAttachmentsValue>>;
   contextClient: IFeedbackContext;
+  onImageFiles: (files: File[]) => Promise<void>;
 }
 
 function AttachmentRow({ children }: { children: ReactNode }) {
@@ -78,6 +74,7 @@ export function FeedbackAttachments({
   value,
   onChange,
   contextClient,
+  onImageFiles,
 }: FeedbackAttachmentsProps) {
   const [visibleAttachment, setVisibleAttachment] = useState<
     "screenshot" | "logs" | "images" | null
@@ -85,6 +82,10 @@ export function FeedbackAttachments({
   const [logsUnavailable, setLogsUnavailable] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const logsRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (value.images.length > 0) setVisibleAttachment("images");
+  }, [value.images.length]);
 
   const loadLogs = async (
     includeWhenLoaded: boolean,
@@ -142,46 +143,6 @@ export function FeedbackAttachments({
 
     if (!value.logs && !(await loadLogs(false))) return;
     setVisibleAttachment("logs");
-  };
-
-  const handleImageSelect = async (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = "";
-    const availableSlots = MAX_FEEDBACK_IMAGE_COUNT - value.images.length;
-    if (selectedFiles.length > availableSlots) {
-      toast.warning(`You can attach up to ${MAX_FEEDBACK_IMAGE_COUNT} images.`);
-    }
-
-    onChange((current) => ({ ...current, imagesLoading: true }));
-    try {
-      const nextImages = await Promise.all(
-        selectedFiles.slice(0, availableSlots).map(async (file) => {
-          try {
-            return await readFeedbackImage(file);
-          } catch (error) {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : "Could not attach this image.",
-            );
-            return null;
-          }
-        }),
-      );
-      onChange((current) => ({
-        ...current,
-        images: [
-          ...current.images,
-          ...nextImages.filter(
-            (image): image is FeedbackImage =>
-              image !== null &&
-              !current.images.some((existing) => existing.id === image.id),
-          ),
-        ].slice(0, MAX_FEEDBACK_IMAGE_COUNT),
-      }));
-    } finally {
-      onChange((current) => ({ ...current, imagesLoading: false }));
-    }
   };
 
   return (
@@ -284,7 +245,11 @@ export function FeedbackAttachments({
         multiple
         aria-label="Choose feedback images"
         className="hidden"
-        onChange={(event) => void handleImageSelect(event)}
+        onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
+          void onImageFiles(files);
+        }}
       />
       <div className="mt-2">
         <AttachmentRow>

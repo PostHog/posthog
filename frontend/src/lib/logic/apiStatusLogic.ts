@@ -1,9 +1,12 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ACCESS_BLOCKED_ERROR_CODE } from 'lib/api-error'
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -19,10 +22,12 @@ export interface apiStatusLogicValues {
 export interface apiStatusLogicActions {
     onApiResponse: (
         response?: Response,
-        error?: any
+        error?: any,
+        startedByUserAction?: boolean
     ) => {
         error: any
         response: Response | undefined
+        startedByUserAction: boolean
     }
     resolveSensitiveAction: (outcome: 'failure' | 'success') => {
         outcome: 'failure' | 'success'
@@ -43,10 +48,50 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+// True from the start of a click, an Enter key press, or a form submit until the browser finishes
+// that task, so it covers the handlers, the kea listeners they dispatch, and their microtasks.
+// A request that starts in this span counts as one the user asked for. A request that starts
+// after an `await`, such as a debounced save, does not.
+let userActionInProgress = false
+let userActionPathname: string | null = null
+
+export function isUserActionInProgress(): boolean {
+    // A click that navigates mounts a new scene, and the writes that scene sends are not what
+    // the user clicked. The router stores the new location before any `locationChanged`
+    // listener runs, so compare paths.
+    return userActionInProgress && router.values.location.pathname === userActionPathname
+}
+
+type SensitiveActionCallbacks = [onSuccess: () => void, onFailure: () => void]
+
+function callEach(callbacks: (() => void)[]): void {
+    for (const callback of callbacks) {
+        try {
+            callback()
+        } catch (e) {
+            posthog.captureException(e)
+        }
+    }
+}
+
+function joinSensitiveActionCallbacks(
+    pending: SensitiveActionCallbacks,
+    next: boolean | SensitiveActionCallbacks
+): SensitiveActionCallbacks {
+    if (!Array.isArray(next)) {
+        return pending
+    }
+    return [() => callEach([pending[0], next[0]]), () => callEach([pending[1], next[1]])]
+}
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
-        onApiResponse: (response?: Response, error?: any) => ({ response, error }),
+        onApiResponse: (response?: Response, error?: any, startedByUserAction?: boolean) => ({
+            response,
+            error,
+            startedByUserAction: !!startedByUserAction,
+        }),
         resolveSensitiveAction: (outcome: 'success' | 'failure') => ({ outcome }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
         setTimeSensitiveAuthenticationRequired: (
@@ -72,7 +117,12 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             // or reject: the pending checkReauthentication listener awaits them fire-and-forget.
             false as boolean | [onSuccess: () => void, onFailure: () => void],
             {
-                setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
+                // Several requests can wait on one re-authentication. A new waiter joins the pending
+                // callbacks instead of replacing them, or the replaced waiter never settles.
+                setTimeSensitiveAuthenticationRequired: (state, { required }) =>
+                    Array.isArray(state) && required !== false
+                        ? joinSensitiveActionCallbacks(state, required)
+                        : required,
             },
         ],
 
@@ -107,7 +157,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 posthog.captureException(e)
             }
         },
-        onApiResponse: async ({ response, error }, breakpoint) => {
+        onApiResponse: async ({ response, error, startedByUserAction }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
@@ -123,9 +173,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    if (responseData.code === 'sensitive_action_required_reauth') {
-                        actions.setTimeSensitiveAuthenticationRequired(true)
-                    } else if (
+                    if (
                         responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
                         !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
@@ -169,7 +217,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                 autoClose: false,
                             }
                         )
-                    } else if (responseData.code === 'impersonation_read_only') {
+                    } else if (responseData.code === 'impersonation_read_only' && startedByUserAction) {
                         lemonToast.error(
                             typeof responseData.detail === 'string' && responseData.detail
                                 ? responseData.detail
@@ -202,13 +250,69 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (now - 10000 > (cache.lastUnauthorizedCheck ?? 0)) {
                     cache.lastUnauthorizedCheck = Date.now()
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
-                            userLogic.findMounted()?.actions.logout(true)
+                            // An access rule refusal is not an expired session, so the person is told why.
+                            const reason =
+                                error.code === ACCESS_BLOCKED_ERROR_CODE ? ACCESS_BLOCKED_ERROR_CODE : undefined
+                            userLogic.findMounted()?.actions.logout(true, undefined, reason)
                         }
                     })
                 }
             }
         },
     })),
+    afterMount(({ cache }) => {
+        cache.disposables.add(() => {
+            // `click` also fires for keyboard activation of buttons. Enter counts on its own because
+            // some forms, such as LemonFormDialog, submit from a keydown handler. Other keys do not
+            // submit. An Enter that confirms an IME composition still counts: the flag lasts only for
+            // that Enter's own task, so it can only toast for a write that this Enter started.
+            const onUserAction = (event: Event): void => {
+                if (event.type === 'keydown' && (event as KeyboardEvent).key !== 'Enter') {
+                    return
+                }
+                // Activating a link is navigation, not a write. A button inside a link is still a button.
+                const control = (event.target as Element | null)?.closest?.('button, a[href]')
+                if (control?.matches('a[href]')) {
+                    return
+                }
+                // Re-adding the key runs the previous cleanup, so set the flag after it.
+                cache.disposables.add(
+                    () => {
+                        const timeout = window.setTimeout(() => {
+                            userActionInProgress = false
+                        }, 0)
+                        return () => {
+                            window.clearTimeout(timeout)
+                            userActionInProgress = false
+                        }
+                    },
+                    'endUserAction',
+                    { pauseOnPageHidden: false }
+                )
+                userActionInProgress = true
+                userActionPathname = router.values.location.pathname
+            }
+            window.addEventListener('click', onUserAction, { capture: true })
+            window.addEventListener('submit', onUserAction, { capture: true })
+            window.addEventListener('keydown', onUserAction, { capture: true })
+            return () => {
+                window.removeEventListener('click', onUserAction, { capture: true })
+                window.removeEventListener('submit', onUserAction, { capture: true })
+                window.removeEventListener('keydown', onUserAction, { capture: true })
+            }
+        })
+    }),
 ])
+
+export function awaitReauthentication(): Promise<boolean> {
+    const logic = apiStatusLogic.findMounted()
+    if (!logic || !timeSensitiveAuthenticationLogic.findMounted()) {
+        return Promise.resolve(false)
+    }
+    return new Promise((resolve) =>
+        logic.actions.setTimeSensitiveAuthenticationRequired([() => resolve(true), () => resolve(false)])
+    )
+}

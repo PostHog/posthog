@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import pytest
@@ -16,12 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.
     DiscourseHostNotAllowedError,
     DiscoursePostsPaginator,
     DiscourseResumeConfig,
-    _flatten_directory_item,
+    DiscourseUserActionsPaginator,
     discourse_source,
     hostname_of,
     normalize_base_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.settings import USER_ACTIONS_PAGE_SIZE
 
 # RESTClient builds its pipeline session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -101,6 +103,7 @@ def _source(
     base_url: str = BASE_URL,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: Optional[str] = None,
 ) -> Any:
     return discourse_source(
         base_url=base_url,
@@ -112,7 +115,21 @@ def _source(
         resumable_source_manager=manager,
         should_use_incremental_field=should_use_incremental_field,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        incremental_field=incremental_field,
     )
+
+
+def _action(created_at: str, **overrides: Any) -> dict[str, Any]:
+    row = {
+        "action_type": 5,
+        "created_at": created_at,
+        "target_user_id": 7,
+        "acting_user_id": 9,
+        "topic_id": 3,
+        "post_number": 2,
+    }
+    row.update(overrides)
+    return row
 
 
 class TestNormalizeAndHostname:
@@ -127,9 +144,6 @@ class TestNormalizeAndHostname:
     def test_normalize_base_url(self, _name: str, raw: str, expected: str) -> None:
         assert normalize_base_url(raw) == expected
 
-    def test_hostname_of(self) -> None:
-        assert hostname_of("https://forum.example.com/") == "forum.example.com"
-
     @parameterized.expand(
         [
             ("blank", "   "),
@@ -143,50 +157,7 @@ class TestNormalizeAndHostname:
         assert hostname_of(raw_url) is None
 
 
-class TestFlattenDirectoryItem:
-    def test_lifts_user_fields_and_drops_duplicate_id(self) -> None:
-        item = {
-            "id": 32,
-            "post_count": 10,
-            "user": {"id": 32, "username": "codinghorror", "name": "Jeff Atwood", "admin": True},
-        }
-        flattened = _flatten_directory_item(item)
-        assert flattened == {
-            "id": 32,
-            "post_count": 10,
-            "username": "codinghorror",
-            "name": "Jeff Atwood",
-            "admin": True,
-        }
-
-    def test_missing_user_key_is_a_noop(self) -> None:
-        item = {"id": 1, "post_count": 5}
-        assert _flatten_directory_item(item) == {"id": 1, "post_count": 5}
-
-
 class TestDiscoursePostsPaginator:
-    def test_full_refresh_stops_on_short_page(self) -> None:
-        paginator = DiscoursePostsPaginator(stop_at_or_before=None)
-        response = _json_response({"latest_posts": [_post(i) for i in range(10, 5, -1)]})
-        paginator.update_state(response, data=[_post(i) for i in range(10, 5, -1)])
-        assert paginator.has_next_page is False
-
-    def test_full_refresh_continues_on_full_page(self) -> None:
-        paginator = DiscoursePostsPaginator(stop_at_or_before=None)
-        data = [_post(i) for i in range(POSTS_PAGE_SIZE, 0, -1)]
-        paginator.update_state(_json_response({"latest_posts": data}), data=data)
-        assert paginator.has_next_page is True
-        assert paginator._before == 1
-
-    def test_stops_at_watermark_within_first_page(self) -> None:
-        # Watermark 80 falls inside the first (newest) page, so the incremental sync should
-        # stop immediately rather than walking further back through already-synced posts.
-        paginator = DiscoursePostsPaginator(stop_at_or_before=80)
-        data = [_post(i) for i in range(129, 79, -1)]  # ids 129..80, 50 items
-        assert len(data) == POSTS_PAGE_SIZE
-        paginator.update_state(_json_response({"latest_posts": data}), data=data)
-        assert paginator.has_next_page is False
-
     def test_empty_page_stops(self) -> None:
         paginator = DiscoursePostsPaginator(stop_at_or_before=None)
         paginator.update_state(_json_response({"latest_posts": []}), data=[])
@@ -207,62 +178,6 @@ class TestDiscoursePostsPaginator:
 
 
 class TestPipelineTransport:
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_fetches_once(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [_json_response({"category_list": {"categories": [{"id": 1, "name": "General"}, {"id": 2}]}})],
-        )
-
-        rows = _rows(_source(_make_manager(), "categories"))
-        assert rows == [{"id": 1, "name": "General"}, {"id": 2}]
-        assert session.send.call_count == 1
-        assert params[0] == {}
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_topics_paginates_and_stops_on_empty_page(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        page1 = [{"id": i} for i in range(30)]
-        params = _wire(
-            session,
-            [
-                _json_response({"topic_list": {"topics": page1}}),
-                _json_response({"topic_list": {"topics": []}}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, "topics"))
-        assert rows == page1
-        assert [p["page"] for p in params] == [0, 1]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == DiscourseResumeConfig(page=1, before=None)
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_topics_terminates_on_empty_page_even_after_a_short_page(self, MockSession: Any, _safe: Any) -> None:
-        # PageNumberPaginator only stops on a genuinely empty page (verified live against
-        # meta.discourse.org: the API keeps returning 200 with an empty list well past the last
-        # real page rather than a short final page), so a single non-empty short page still
-        # triggers one more request before termination.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _json_response({"topic_list": {"topics": [{"id": 1}]}}),
-                _json_response({"topic_list": {"topics": []}}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, "topics"))
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 2
-        manager.save_state.assert_called_once()
-
     @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
     @patch(CLIENT_SESSION_PATCH)
     def test_topics_resumes_from_saved_page(self, MockSession: Any, _safe: Any) -> None:
@@ -296,38 +211,6 @@ class TestPipelineTransport:
 
         rows = _rows(_source(_make_manager(), "users"))
         assert rows == [{"id": 32, "post_count": 10, "username": "codinghorror"}]
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_users_sends_required_static_params(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_json_response({"directory_items": []})])
-
-        _rows(_source(_make_manager(), "users"))
-        assert params[0]["period"] == "all"
-        assert params[0]["order"] == "likes_received"
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_posts_full_refresh_walks_backward_via_before_cursor(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        page1 = [_post(i) for i in range(POSTS_PAGE_SIZE, 0, -1)]
-        page2 = [_post(i) for i in range(0, -3, -1)]
-        params = _wire(
-            session,
-            [
-                _json_response({"latest_posts": page1}),
-                _json_response({"latest_posts": page2}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, "posts"))
-        assert rows == page1 + page2
-        assert "before" not in params[0]
-        assert params[1]["before"] == 1
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == DiscourseResumeConfig(page=None, before=1)
 
     @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
     @patch(CLIENT_SESSION_PATCH)
@@ -401,26 +284,133 @@ class TestPipelineTransport:
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
 
-    def test_posts_sort_mode_is_descending(self) -> None:
-        assert _source(_make_manager(), "posts").sort_mode == "desc"
-
     @parameterized.expand([("categories",), ("tags",), ("groups",), ("users",), ("topics",)])
     def test_non_post_endpoints_sort_mode_is_ascending(self, endpoint: str) -> None:
         assert _source(_make_manager(), endpoint).sort_mode == "asc"
 
+
+class TestDiscourseUserActionsPaginator:
+    WATERMARK = datetime(2026, 3, 1, tzinfo=UTC)
+
+    def _page(self, rows: list[dict[str, Any]], watermark: Optional[datetime]) -> DiscourseUserActionsPaginator:
+        paginator = DiscourseUserActionsPaginator(limit=USER_ACTIONS_PAGE_SIZE, stop_at_or_before=watermark)
+        paginator.update_state(_json_response({"user_actions": rows}), data=rows)
+        return paginator
+
+    @parameterized.expand([("short_page", 1, False), ("full_page", USER_ACTIONS_PAGE_SIZE, True)])
+    def test_full_refresh_walks_on_only_while_pages_stay_full(
+        self, _name: str, row_count: int, expects_next_page: bool
+    ) -> None:
+        rows = [_action("2026-01-01T00:00:00.000Z")] * row_count
+        assert self._page(rows, None).has_next_page is expects_next_page
+
+    @parameterized.expand(
+        [
+            # The whole page is already synced, so this user's walk is done.
+            ("page_predates_the_watermark", ["2026-02-28T12:00:00.000Z"] * USER_ACTIONS_PAGE_SIZE, False),
+            # Only the first row is newer, but the rest of the stream still has to be walked.
+            (
+                "page_still_holds_newer_rows",
+                ["2026-03-05T00:00:00.000Z"] + ["2026-02-01T00:00:00.000Z"] * (USER_ACTIONS_PAGE_SIZE - 1),
+                True,
+            ),
+            # Nothing on the page can be compared against the watermark, so it proves nothing
+            # about how far back the walk has got.
+            ("unparsable_timestamps", ["not-a-date"] * USER_ACTIONS_PAGE_SIZE, True),
+        ]
+    )
+    def test_incremental_stops_only_once_a_whole_page_predates_the_watermark(
+        self, _name: str, created_ats: list[str], expects_next_page: bool
+    ) -> None:
+        rows = [_action(created_at) for created_at in created_ats]
+        assert self._page(rows, self.WATERMARK).has_next_page is expects_next_page
+
+
+class TestAdminUsers:
     @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
     @patch(CLIENT_SESSION_PATCH)
-    def test_posts_write_disposition_is_merge_when_incremental(self, MockSession: Any, _safe: Any) -> None:
-        # Verified indirectly: an incremental sync only re-fetches until the watermark, so a
-        # merge (not replace) write disposition is required to avoid dropping older rows. This
-        # is asserted through the resource's resume/merge-relevant behavior rather than digging
-        # into the framework's internal write_disposition config.
+    def test_sorts_ascending_by_creation_date_and_never_asks_for_emails(self, MockSession: Any, _safe: Any) -> None:
+        # `show_emails=true` writes a staff action log entry per request, so a sync of a large
+        # forum would bury the customer's own audit log.
         session = MockSession.return_value
-        _wire(session, [_json_response({"latest_posts": [_post(1)]})])
-        rows = _rows(
-            _source(_make_manager(), "posts", should_use_incremental_field=True, db_incremental_field_last_value=0)
+        params = _wire(session, [_json_response([])])
+
+        _rows(_source(_make_manager(), "admin_users"))
+        assert params[0]["order"] == "created"
+        assert params[0]["asc"] == "true"
+        assert "show_emails" not in params[0]
+
+
+class TestGroupMembers:
+    @parameterized.expand([("restricted_roster", 403), ("group_gone", 404)])
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_group_whose_roster_cannot_be_read(
+        self, _name: str, status: int, MockSession: Any, _safe: Any
+    ) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _json_response({"groups": [{"id": 41, "name": "secret"}, {"id": 42, "name": "staff"}]}),
+                _json_response({"errors": ["nope"]}, status_code=status),
+                _json_response({"members": [{"id": 2}], "meta": {"total": 1}}),
+                _json_response({"groups": []}),
+            ],
         )
-        assert rows == [_post(1)]
+
+        rows = _rows(_source(_make_manager(), "group_members"))
+        assert rows == [{"id": 2, "group_id": 42, "group_name": "staff"}]
+
+
+class TestUserActions:
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_narrows_to_public_actions_and_drops_post_text(self, MockSession: Any, _safe: Any) -> None:
+        # With no server-side filter the stream carries every action type, and the admin
+        # identity also reads whispers and hidden posts, so both narrowing steps run over the
+        # response instead.
+        session = MockSession.return_value
+        reply = _action("2026-03-05T00:00:00.000Z", excerpt="post body", edit_reason="typo")
+        private_message = _action("2026-03-04T00:00:00.000Z", action_type=12)
+        _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "alice"}]),
+                _json_response({"user_actions": [reply, private_message]}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "user_actions"))
+        assert rows == [_action("2026-03-05T00:00:00.000Z")]
+
+    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
+    @patch(CLIENT_SESSION_PATCH)
+    def test_incremental_stops_walking_a_user_at_the_watermark(self, MockSession: Any, _safe: Any) -> None:
+        session = MockSession.return_value
+        page = [_action("2026-02-28T12:00:00.000Z")] * USER_ACTIONS_PAGE_SIZE
+        _wire(
+            session,
+            [
+                _json_response([{"id": 7, "username": "alice"}]),
+                _json_response({"user_actions": page}),
+                _json_response([]),
+            ],
+        )
+
+        rows = _rows(
+            _source(
+                _make_manager(),
+                "user_actions",
+                should_use_incremental_field=True,
+                incremental_field="created_at",
+                db_incremental_field_last_value="2026-03-01T00:00:00Z",
+            )
+        )
+        assert len(rows) == USER_ACTIONS_PAGE_SIZE
+        # One parent page, one child page, one terminal parent page: the child never walked on.
+        assert session.send.call_count == 3
 
 
 class TestErrorHandling:

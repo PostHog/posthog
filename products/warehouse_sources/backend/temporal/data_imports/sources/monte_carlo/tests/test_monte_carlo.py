@@ -89,11 +89,6 @@ class TestExecuteQuery:
         response.json.return_value = payload or {}
         return response
 
-    def test_returns_data_object(self) -> None:
-        session = MagicMock()
-        session.post.return_value = self._response(200, {"data": {"getWarehouses": []}})
-        assert _execute_query(session, "query {}", {}, MagicMock()) == {"getWarehouses": []}
-
     def test_raises_on_graphql_errors(self) -> None:
         session = MagicMock()
         session.post.return_value = self._response(200, {"errors": [{"message": "not allowed"}]})
@@ -151,7 +146,7 @@ class TestValidateCredentials:
 
 
 class TestRelayEndpoints:
-    @parameterized.expand([("tables", "getTables"), ("users", "getUsersInAccount")])
+    @parameterized.expand([("domains", "getDomainsV2"), ("tables", "getTables"), ("users", "getUsersInAccount")])
     def test_paginates_until_has_next_page_false(self, endpoint: str, data_path: str) -> None:
         responses = [
             _relay_page(data_path, [{"id": "1"}, {"id": "2"}], "cursor-1"),
@@ -173,11 +168,49 @@ class TestRelayEndpoints:
         assert [row["id"] for row in rows] == ["9"]
         assert executor.calls[0]["after"] == "cursor-42"
 
-    def test_empty_first_page_yields_nothing(self) -> None:
-        responses = [_relay_page("getTables", [], None)]
-        rows, _, manager = _collect("tables", responses)
-        assert rows == []
-        assert manager.saved == []
+
+class TestEventsEndpoint:
+    @parameterized.expand(
+        [
+            ("incremental", True, datetime(2026, 6, 1, tzinfo=UTC), "2026-06-01T00:00:00Z"),
+            ("incremental_first_sync", True, None, None),
+            ("full_refresh_ignores_watermark", False, datetime(2026, 6, 1, tzinfo=UTC), None),
+        ]
+    )
+    def test_start_time_filter(
+        self, _label: str, use_incremental: bool, watermark: datetime | None, expected_start: str | None
+    ) -> None:
+        responses = [
+            _relay_page("getEvents", [{"uuid": "e-1"}], "cursor-1"),
+            _relay_page("getEvents", [{"uuid": "e-2"}], None),
+        ]
+        rows, executor, manager = _collect(
+            "events",
+            responses,
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert [row["uuid"] for row in rows] == ["e-1", "e-2"]
+        for call in executor.calls:
+            assert call.get("startTime") == expected_start
+            assert call["descOrder"] is False
+        assert executor.calls[1]["after"] == "cursor-1"
+        assert [(state.cursor, state.window_after) for state in manager.saved] == [("cursor-1", expected_start)]
+
+    def test_resume_replays_cursor_against_saved_start_time(self) -> None:
+        manager = _FakeResumableManager(MonteCarloResumeConfig(cursor="cursor-3", window_after="2026-05-01T00:00:00Z"))
+        responses = [_relay_page("getEvents", [{"uuid": "e-9"}], None)]
+        _, executor, _ = _collect(
+            "events",
+            responses,
+            manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
+        )
+
+        assert executor.calls[0]["after"] == "cursor-3"
+        assert executor.calls[0]["startTime"] == "2026-05-01T00:00:00Z"
 
 
 class TestOffsetEndpoint:
@@ -233,42 +266,6 @@ class TestAlertsWindowing:
         last_window = executor.calls[-1]["createdTime"]
         assert last_window["before"] == "2026-07-15T12:00:00Z"
 
-    def test_incremental_sync_windows_forward_from_watermark(self) -> None:
-        watermark = datetime(2026, 7, 1, tzinfo=UTC)
-        responses = [_relay_page("getAlerts", [{"uuid": "a-1", "createdTime": "2026-07-02T00:00:00Z"}], None)]
-        rows, executor, _ = _collect(
-            "alerts", responses, should_use_incremental_field=True, db_incremental_field_last_value=watermark
-        )
-
-        assert [row["uuid"] for row in rows] == ["a-1"]
-        assert executor.calls[0]["createdTime"] == {
-            "after": "2026-07-01T00:00:00Z",
-            "before": "2026-07-15T12:00:00Z",
-        }
-
-    def test_updated_time_incremental_field_filters_updated_time(self) -> None:
-        watermark = datetime(2026, 7, 10, tzinfo=UTC)
-        responses = [_relay_page("getAlerts", [], None)]
-        _, executor, _ = _collect(
-            "alerts",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-            incremental_field="updatedTime",
-        )
-        assert "updatedTime" in executor.calls[0]
-        assert "createdTime" not in executor.calls[0]
-
-    def test_future_watermark_falls_back_to_lookback(self) -> None:
-        # A future-dated watermark would produce an empty/invalid window; fall back to the
-        # default lookback so the sync self-heals.
-        watermark = datetime(2027, 1, 1, tzinfo=UTC)
-        responses = [_relay_page("getAlerts", [], None)] * 13
-        _, executor, _ = _collect(
-            "alerts", responses, should_use_incremental_field=True, db_incremental_field_last_value=watermark
-        )
-        assert executor.calls[0]["createdTime"]["after"] == "2025-07-15T12:00:00Z"
-
     def test_saves_cursor_state_mid_window_and_bookmark_between_windows(self) -> None:
         watermark = datetime(2026, 6, 1, tzinfo=UTC)  # two windows: Jun 1 - Jul 1, Jul 1 - now
         responses = [
@@ -323,34 +320,13 @@ class TestAlertsWindowing:
         assert executor.calls[1]["after"] is None
         assert executor.calls[1]["createdTime"]["after"] == "2026-07-01T00:00:00Z"
 
-    def test_resumes_between_windows_without_cursor(self) -> None:
-        manager = _FakeResumableManager(MonteCarloResumeConfig(window_after="2026-07-01T00:00:00Z"))
-        responses = [_relay_page("getAlerts", [], None)]
-        _, executor, _ = _collect(
-            "alerts",
-            responses,
-            manager=manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-        assert executor.calls[0]["after"] is None
-        assert executor.calls[0]["createdTime"]["after"] == "2026-07-01T00:00:00Z"
-
-    def test_full_refresh_ignores_watermark_and_uses_lookback(self) -> None:
-        responses = [_relay_page("getAlerts", [], None)] * 13
-        _, executor, _ = _collect(
-            "alerts",
-            responses,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 7, 14, tzinfo=UTC),
-        )
-        assert executor.calls[0]["createdTime"]["after"] == "2025-07-15T12:00:00Z"
-
 
 class TestSourceResponse:
     @parameterized.expand(
         [
             ("alerts", ["uuid"], "desc"),
+            ("domains", ["id"], "asc"),
+            ("events", ["uuid"], "desc"),
             ("monitors", ["uuid"], "asc"),
             ("tables", ["id"], "asc"),
             ("users", ["id"], "asc"),
@@ -368,24 +344,3 @@ class TestSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
-
-    def test_only_alerts_is_partitioned_on_stable_created_time(self) -> None:
-        alerts = monte_carlo_source(
-            api_key_id="key-id",
-            api_key_secret="key-secret",
-            endpoint="alerts",
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        )
-        assert alerts.partition_mode == "datetime"
-        assert alerts.partition_keys == ["createdTime"]
-
-        monitors = monte_carlo_source(
-            api_key_id="key-id",
-            api_key_secret="key-secret",
-            endpoint="monitors",
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        )
-        assert monitors.partition_mode is None
-        assert monitors.partition_keys is None

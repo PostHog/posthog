@@ -7,8 +7,8 @@ from products.notebooks.backend.facade.widgets import (
     DEFAULT_WIDGET_MODEL,
     MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
     MAX_WIDGET_PROMPT_LENGTH,
-    WIDGET_LIFECYCLE_STATUS_CHOICES,
     WIDGET_MODEL_CHOICES,
+    LifecycleStatus,
 )
 
 
@@ -132,7 +132,7 @@ class WidgetInputContractItemSerializer(serializers.Serializer):
 
 class WidgetStatusSerializer(serializers.Serializer):
     lifecycle_status = serializers.ChoiceField(
-        choices=WIDGET_LIFECYCLE_STATUS_CHOICES,
+        choices=LifecycleStatus.choices,
         help_text="Current widget and preview state.",
     )
     error_detail = serializers.CharField(required=False, allow_null=True, help_text="Actionable failure detail.")
@@ -186,6 +186,13 @@ class WidgetStatusSerializer(serializers.Serializer):
 
 
 class WidgetVersionSerializer(serializers.Serializer):
+    generation_cost_usd = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=6,
+        allow_null=True,
+        required=False,
+        help_text="Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.",
+    )
     id = serializers.UUIDField(help_text="Immutable widget version identifier.")
     parent_version_id = serializers.UUIDField(allow_null=True, help_text="Version this one was based on.")
     version = serializers.IntegerField(min_value=1, help_text="One-based version number.")

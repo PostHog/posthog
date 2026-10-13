@@ -1,6 +1,4 @@
-// Which pull requests a delivery surface covers: one author's, one GitHub team's, or one pull request.
-// Mirrors the backend's DeliveryScope, so a page picks its scope once and every delivery logic and
-// request below it agrees on it.
+// Mirrors the backend's DeliveryScope; keep the kinds and query params in sync.
 
 export type DeliveryScope =
     | { kind: 'author'; author: string }
@@ -14,7 +12,6 @@ export interface DeliveryScopeParams {
     repo?: string
 }
 
-/** The query params the delivery endpoints read the scope from. */
 export function deliveryScopeParams(scope: DeliveryScope): DeliveryScopeParams {
     switch (scope.kind) {
         case 'author':
@@ -26,7 +23,6 @@ export function deliveryScopeParams(scope: DeliveryScope): DeliveryScopeParams {
     }
 }
 
-/** A stable key for logics keyed by scope. */
 export function deliveryScopeKey(scope: DeliveryScope): string {
     switch (scope.kind) {
         case 'author':

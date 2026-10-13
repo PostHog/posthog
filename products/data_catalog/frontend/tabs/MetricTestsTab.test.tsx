@@ -20,13 +20,9 @@ describe('MetricTestsTab', () => {
                     name: 'signups',
                     definition_kind: kind,
                 },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/': { results: [] },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/health/': {
-                    health: 'unknown',
-                    checks_total: 0,
-                    checks_failing: 0,
-                },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/check_suite_runs/': { results: [] },
+                '/api/projects/:team_id/data_quality_checks/': { results: [] },
+                '/api/projects/:team_id/data_quality_checks/health/': [],
+                '/api/projects/:team_id/data_quality_runs/': { results: [] },
             },
         })
         initKeaTests()
@@ -57,7 +53,7 @@ describe('MetricTestsTab', () => {
                     name: 'signups',
                     definition_kind: 'MarkdownDefinition',
                 },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/': {
+                '/api/projects/:team_id/data_quality_checks/': {
                     results: [
                         {
                             id: 'check-1',
@@ -71,12 +67,16 @@ describe('MetricTestsTab', () => {
                         },
                     ],
                 },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/health/': {
-                    health: 'failing',
-                    checks_total: 1,
-                    checks_failing: 1,
-                },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/schedule/': {
+                '/api/projects/:team_id/data_quality_checks/health/': [
+                    {
+                        subject_type: 'metric',
+                        subject_uuid: 'metric-1',
+                        health: 'failing',
+                        checks_total: 1,
+                        checks_failing: 1,
+                    },
+                ],
+                '/api/projects/:team_id/data_quality_checks/schedule/': {
                     id: 'schedule-1',
                     enabled: true,
                     interval: '24hour',
@@ -84,7 +84,7 @@ describe('MetricTestsTab', () => {
                     last_run_at: null,
                     last_suite_run: null,
                 },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/check_suite_runs/': { results: [] },
+                '/api/projects/:team_id/data_quality_runs/': { results: [] },
             },
         })
         initKeaTests()

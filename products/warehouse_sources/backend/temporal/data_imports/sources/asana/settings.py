@@ -70,10 +70,13 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         path="/workspaces",
         opt_fields=["name", "email_domains", "is_organization", "resource_type"],
     ),
+    # Asana rejects an unscoped /users when the token's user belongs to more than one workspace, so
+    # the walk is scoped per workspace. A user in several workspaces comes back once per workspace;
+    # the `gid` primary key collapses those repeats into one row.
     "users": AsanaEndpointConfig(
         name="users",
-        fan_out="none",
-        path="/users",
+        fan_out="workspace",
+        path="/users?workspace={workspace_gid}",
         opt_fields=["name", "email", "photo", "workspaces", "resource_type"],
     ),
     "projects": AsanaEndpointConfig(
@@ -295,12 +298,12 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         path="/teams/{team_gid}/team_memberships",
         opt_fields=["user", "team", "is_admin", "is_guest", "is_limited_access", "resource_type"],
     ),
-    # A personal access token only sees portfolios the token's own user owns; a service account sees
-    # every portfolio in the workspace. Nothing in the response marks which case applied.
+    # Asana rejects this endpoint with a 400 for a non-service-account token unless `owner` is set;
+    # "me" is the only owner this personal-access-token integration can ever request on behalf of.
     "portfolios": AsanaEndpointConfig(
         name="portfolios",
         fan_out="workspace",
-        path="/portfolios?workspace={workspace_gid}",
+        path="/portfolios?workspace={workspace_gid}&owner=me",
         opt_fields=[
             "name",
             "created_at",

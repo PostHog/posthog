@@ -83,23 +83,26 @@ describe("buildBulkActionEvents", () => {
     expect(events.every((e) => e.dismissal_reason === undefined)).toBe(true);
   });
 
-  it("attaches only the dismissal category for dismiss", () => {
+  it("attaches dismissal feedback only to dismiss actions", () => {
     const [dismissed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "dismiss",
       surface: "toolbar",
       dismissalReason: "not_relevant",
+      dismissalNote: "Wrong project",
     });
     expect(dismissed.dismissal_reason).toBe("not_relevant");
-    expect(dismissed).not.toHaveProperty("dismissal_note");
+    expect(dismissed.dismissal_note).toBe("Wrong project");
 
     const [snoozed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "snooze",
       surface: "toolbar",
       dismissalReason: "not_relevant",
+      dismissalNote: "Wrong project",
     });
     expect(snoozed.dismissal_reason).toBeUndefined();
+    expect(snoozed.dismissal_note).toBeUndefined();
   });
 });
 

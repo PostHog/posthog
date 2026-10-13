@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
@@ -13,6 +15,13 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
 
     const recordingsAreHidden = hideViewedRecordings !== false
     const hasFilters = totalFiltersCount > 0
+
+    useEffect(() => {
+        posthog.capture('recording list empty state shown', {
+            hidden_recordings_count: hiddenRecordingsCount,
+            total_filters_count: totalFiltersCount,
+        })
+    }, [])
     // Clearing would drop the caller's scoping, leaving a list that no longer matches the surface.
     const canClearFilters = hasFilters && !isScopedByCaller
 

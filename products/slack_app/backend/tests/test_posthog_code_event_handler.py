@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -197,7 +198,8 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        self.enterContext(patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False))
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -219,7 +221,13 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # without calling the Slack API. New tests that exercise the unauthorised
         # paths override this row (or delete it) deliberately.
         self._seed_slack_user_cache("U123", "dev@example.com")
-        self.event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
+        self.event = {
+            "type": "app_mention",
+            "channel": "C001",
+            "user": "U123",
+            "ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
+        }
 
     def _seed_slack_user_cache(self, slack_user_id: str, email: str | None) -> SlackUserProfileCache:
         from django.utils import timezone
@@ -505,6 +513,80 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         for key, value in expected_extra_properties.items():
             assert capture_kwargs["properties"][key] == value
 
+    @parameterized.expand(
+        [
+            ("bare_top_level_mention", {"text": "<@U0BOT>"}, False),
+            ("bare_mention_inside_a_thread", {"text": "<@U0BOT>", "thread_ts": "1000.0000"}, True),
+            ("mention_with_a_request", {"text": "<@U0BOT> how many signups last week"}, True),
+        ]
+    )
+    @patch("products.slack_app.backend.api.posthoganalytics.capture")
+    @patch("products.slack_app.backend.api._post_slack_user_feedback", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_bare_mention_is_answered_without_a_run(
+        self,
+        _name,
+        overrides,
+        expect_workflow,
+        mock_sync_connect,
+        mock_asyncio_run,
+        mock_post_feedback,
+        mock_capture,
+    ):
+        from products.slack_app.backend.api import (
+            SLACK_MENTION_DROPPED_EVENT,
+            route_posthog_code_event_to_relevant_region,
+        )
+        from products.slack_app.backend.services.bare_mention import BARE_MENTION_REPLY, awaited_request_from
+
+        message_ts = f"{time.time() - 5:.6f}"
+        event = {**self.event, "ts": message_ts, **overrides}
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert mock_sync_connect.called is expect_workflow
+        awaited_from = awaited_request_from("T12345", "C001", message_ts, now=time.time())
+        if expect_workflow:
+            mock_post_feedback.assert_not_called()
+            assert awaited_from is None
+        else:
+            assert mock_post_feedback.call_args.args[4] == BARE_MENTION_REPLY
+            assert awaited_from == "U123"
+            captured = {call.kwargs["event"]: call.kwargs["properties"] for call in mock_capture.call_args_list}
+            assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "bare_mention"
+            assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
+
+    @patch("products.slack_app.backend.api._post_slack_user_feedback", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_edit_that_adds_the_request_to_a_bare_mention_starts_a_run(
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback
+    ):
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.services.bare_mention import awaited_request_from
+
+        now = time.time()
+        message_ts = f"{now - 20:.6f}"
+        bare = {**self.event, "ts": message_ts, "text": "<@U0BOT>"}
+        edited = {
+            **bare,
+            "text": "<@U0BOT> how many signups last week",
+            "edited": {"user": "U123", "ts": f"{now:.6f}"},
+        }
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        route_posthog_code_event_to_relevant_region(request, bare, "T12345")
+        mock_sync_connect.assert_not_called()
+        assert awaited_request_from("T12345", "C001", message_ts, now=now) == "U123"
+        route_posthog_code_event_to_relevant_region(request, edited, "T12345")
+
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        assert awaited_request_from("T12345", "C001", message_ts, now=now) is None
+
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -520,6 +602,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        self.posthog_code_integration.config = {**self.posthog_code_integration.config, "app_id": "A123"}
+        self.posthog_code_integration.save()
         mock_post_feedback.return_value = True
 
         from products.slack_app.backend.api import (
@@ -540,6 +624,10 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_post_feedback.assert_called_once()
         feedback_text = mock_post_feedback.call_args.args[4]
         assert "stranger@example.com" in feedback_text
+        # The install holds the identity scopes, so the reply points to linking an existing
+        # account. An invite to the Slack email can't be accepted from a different email.
+        assert "Settings > Personal integrations" in feedback_text
+        assert "<slack://app?team=T12345&id=A123&tab=home|my Home tab>" in feedback_text
         assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message") is True
 
         # The mention is still reported to analytics with ``posthog_user_identified=False``
@@ -549,6 +637,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert captured["posthog code slack mention received"]["posthog_user_identified"] is False
         assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "user_unresolved:user_not_found"
         assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["slack_email_available"] is True
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["posthog_account_exists"] is False
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_ephemeral")
@@ -689,106 +779,58 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.user_id == self.user.id
 
+    @parameterized.expand(
+        [
+            ("project_set", "<@UBOT123> project 2", "/posthog project <id>"),
+            ("project_show", "<@UBOT123> project", "/posthog project`"),
+            ("project_set_workspace", "<@UBOT123> project workspace 2", "/posthog project workspace <id>"),
+            ("rules_list", "<@UBOT123> rules list", "/posthog rules list"),
+            ("rules_add_no_repo", '<@UBOT123> rules add "investigate flaky tests"', "/posthog rules add"),
+            ("help", "<@UBOT123> help", "/posthog help"),
+            # Retired on both surfaces, so it points at the listing rather than its slash twin.
+            ("deprecated_default_repo", "<@UBOT123> default repo set org/repo", "/posthog help"),
+        ]
+    )
+    @patch("products.slack_app.backend.api._post_slack_user_ephemeral")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_command_workflow_receives_resolved_user_id(self, mock_sync_connect, mock_asyncio_run):
-        # Command path mirrors the mention path: routing resolves the user once
-        # and the command workflow gets ``user_id`` so it skips its legacy
-        # resolve-user activity on replay-safe code paths.
+    def test_mention_that_reads_as_a_command_is_redirected_and_starts_nothing(
+        self, _name, text, expected_pointer, mock_sync_connect, mock_asyncio_run, mock_ephemeral
+    ):
+        # Unrecognised, ``@PostHog project 2`` becomes a coding task about its own syntax.
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        result = route_posthog_code_event_to_relevant_region(request, {**self.event, "text": text}, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+        assert expected_pointer in mock_ephemeral.call_args.args[4]
+
+    @parameterized.expand(
+        [
+            ("top_level", {}, None),
+            ("thread_opener", {"thread_ts": "1234.5678"}, None),
+            ("thread_reply", {"thread_ts": "1111.2222"}, "1111.2222"),
+        ]
+    )
+    @patch("products.slack_app.backend.api._post_slack_user_ephemeral")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_mention_command_redirect_anchors_to_the_surface_the_user_is_viewing(
+        self, _name, extra_event_fields, expected_anchor, mock_ephemeral
+    ):
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        event = {**self.event, "text": "<@UBOT123> project 2"}
 
-        route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
-        assert workflow_inputs.user_id == self.user.id
-
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_command_text_routes_to_command_workflow(self, mock_sync_connect, mock_asyncio_run):
-        # Command text in a mention must dispatch the command workflow, never the agent
-        # mention workflow — even when a single coding-agent integration exists.
-        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
-            PostHogCodeSlackMentionCommandWorkflow,
+        route_posthog_code_event_to_relevant_region(
+            request, {**self.event, "text": "<@UBOT123> help", **extra_event_fields}, "T12345"
         )
 
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        event = {**self.event, "text": "<@UBOT123> project 2"}
-
-        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        kicked_off = mock_sync_connect.return_value.start_workflow.call_args.args[0]
-        assert kicked_off == PostHogCodeSlackMentionCommandWorkflow.run
-        mock_asyncio_run.assert_called_once()
-
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_command_workflow_receives_all_workspace_candidates(self, mock_sync_connect, mock_asyncio_run):
-        # When multiple coding-agent integrations exist for the same workspace, all of
-        # their IDs must be forwarded to the command workflow so it can handle project
-        # commands without the caller having to pre-resolve a single target.
-        from posthog.models.team.team import Team
-
-        other_team = Team.objects.create(organization=self.organization, name="Other")
-        other_integration = Integration.objects.create(
-            team=other_team,
-            kind="slack",
-            integration_id="T12345",
-            config=self.posthog_code_integration.config,
-            sensitive_config={"access_token": "xoxb-other"},
-        )
-
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        event = {**self.event, "text": "<@UBOT123> project 2"}
-
-        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
-        assert set(workflow_inputs.integration_ids) == {
-            self.posthog_code_integration.id,
-            other_integration.id,
-        }
-
-    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_rules_add_without_repo_routes_to_command_workflow_for_picker(
-        self, mock_sync_connect, mock_asyncio_run, _mock_us_claim
-    ):
-        # ``rules add "description"`` with no inline repo is still a command, so
-        # the webhook hands it to the command workflow. The command workflow
-        # itself drives the interactive repo picker (its own signal handlers and
-        # wait_condition); the agent mention workflow is never involved.
-        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
-            PostHogCodeSlackMentionCommandWorkflow,
-        )
-
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
-        event = {**self.event, "text": '<@UBOT123> rules add "investigate flaky tests"'}
-
-        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        kicked_off = mock_sync_connect.return_value.start_workflow.call_args.args[0]
-        assert kicked_off == PostHogCodeSlackMentionCommandWorkflow.run
+        assert mock_ephemeral.call_args.args[3] == expected_anchor
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -1043,6 +1085,39 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_asyncio_run.assert_not_called()
         mock_proxy.assert_not_called()
 
+    @parameterized.expand(
+        [("local", "eu.posthog.com", True, "handled_locally"), ("remote", "us.posthog.com", False, "proxied")]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    @patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=True)
+    def test_report_reply_routes_to_owning_region(self, _name, host, local, expected, probe, proxy, start):
+        from products.signals.backend.models import SignalReport, SignalReportSlackThread
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        if local:
+            report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary")
+            SignalReportSlackThread.objects.for_team(self.team.id).create(
+                team=self.team,
+                report=report,
+                integration=self.posthog_code_integration,
+                slack_workspace_id="T12345",
+                channel="C001",
+                thread_ts="1234.1",
+            )
+        event = {**self.event, "thread_ts": "1234.1"}
+        result = route_posthog_code_event_to_relevant_region(
+            self.factory.post("/slack/event-callback/", HTTP_HOST=host), event, "T12345"
+        )
+        assert result == expected
+        assert start.call_count == int(local)
+        assert proxy.call_count == int(not local)
+        if local:
+            probe.assert_not_called()
+        else:
+            assert probe.call_args.kwargs["thread_ts"] == "1234.1"
+
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -1240,6 +1315,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             "user": "U123",
             "ts": "1234.5678",
             "thread_ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
         }
 
         result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
@@ -1286,6 +1362,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             "user": "U123",
             "ts": "1234.5678",
             "thread_ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
         }
 
         result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
@@ -1311,7 +1388,7 @@ class TestChannelApprovalGate(TestCase):
     def setUp(self):
         from django.utils import timezone
 
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1345,6 +1422,7 @@ class TestChannelApprovalGate(TestCase):
             "channel": "C_EXT",
             "user": "U123",
             "ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
         }
 
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
@@ -1466,7 +1544,7 @@ class TestChannelApprovalGate(TestCase):
 
 class TestAssistantEvents(TestCase):
     def setUp(self):
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1583,56 +1661,12 @@ class TestAssistantEvents(TestCase):
             mock_start.assert_not_called()
 
 
-class TestAssistantInstallWelcome(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Install Org")
-        self.team = Team.objects.create(organization=self.organization, name="Install Team")
-        self.integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_INSTALL",
-            config={"authed_user": {"id": "U_INSTALLER"}},
-            sensitive_config={"access_token": "xoxb-test"},
-        )
-
-    def _run(self, *, enabled: bool):
-        from products.slack_app.backend.api import _ASSISTANT_INSTALL_WELCOME, send_assistant_install_welcome
-
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
-        slack = patch("products.slack_app.backend.api.SlackIntegration")
-        with enabled_p, slack as slack_cls:
-            send_assistant_install_welcome(self.integration)
-        return slack_cls, _ASSISTANT_INSTALL_WELCOME
-
-    def test_dms_installer_when_enabled(self):
-        slack_cls, welcome = self._run(enabled=True)
-        slack_cls.return_value.client.chat_postMessage.assert_called_once_with(channel="U_INSTALLER", text=welcome)
-
-    def test_silent_when_flag_off(self):
-        slack_cls, _ = self._run(enabled=False)
-        slack_cls.return_value.client.chat_postMessage.assert_not_called()
-
-    def test_no_post_without_authed_user(self):
-        self.integration.config = {}
-        self.integration.save()
-        slack_cls, _ = self._run(enabled=True)
-        slack_cls.return_value.client.chat_postMessage.assert_not_called()
-
-    def test_slack_error_is_swallowed(self):
-        from products.slack_app.backend.api import send_assistant_install_welcome
-
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
-        slack = patch("products.slack_app.backend.api.SlackIntegration")
-        with enabled_p, slack as slack_cls:
-            slack_cls.return_value.client.chat_postMessage.side_effect = Exception("slack down")
-            send_assistant_install_welcome(self.integration)  # must not raise
-
-
 class TestQueueWorkflowDispatch(TestCase):
     def setUp(self):
+        self.enterContext(patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False))
         from django.utils import timezone
 
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1680,7 +1714,13 @@ class TestQueueWorkflowDispatch(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
         mock_slack.return_value.missing_scopes.return_value = set()
-        event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
+        event = {
+            "type": "app_mention",
+            "channel": "C001",
+            "user": "U123",
+            "ts": "1234.5678",
+            "text": "<@U0BOT> how many signups last week",
+        }
         if thread_ts:
             event["thread_ts"] = thread_ts
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
@@ -1701,13 +1741,45 @@ class TestQueueWorkflowDispatch(TestCase):
         mock_slack.return_value.client.reactions_add.assert_not_called()
 
 
+class TestUntaggedFollowupPrompt(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("linked", {"app_id": "A123"}, "<slack://app?team=T12345&id=A123&tab=home|PostHog app Home tab>"),
+            ("no_app_id", {}, "PostHog app Home tab"),
+        ]
+    )
+    def test_prompt_shows_where_to_change_the_setting(self, _name, config, expected_label):
+        from products.slack_app.backend.api import _post_untagged_followup_prompt
+
+        slack = MagicMock()
+        integration = MagicMock(id=1, integration_id="T12345", config=config)
+        event = {"channel": "C001", "user": "U123", "thread_ts": "1234.5678"}
+
+        assert _post_untagged_followup_prompt(slack, integration, event, is_ext_shared_channel=False)
+
+        blocks = slack.client.chat_postEphemeral.call_args.kwargs["blocks"]
+        assert blocks[-1] == {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {expected_label} you can set what happens in threads you start."}
+            ],
+        }
+
+
 class TestPostSlackUserEphemeral(SimpleTestCase):
-    def test_request_timeout_applies_to_the_client_that_makes_the_call(self):
+    @parameterized.expand(
+        [
+            ("ephemeral", lambda slack, api: api._post_slack_user_ephemeral(slack, "C001", "U123", None, "nope")),
+            ("feedback", lambda slack, api: api._post_slack_user_feedback(slack, "C001", "U123", "1.0", "nope")),
+        ]
+    )
+    def test_request_timeout_applies_to_the_client_that_makes_the_call(self, _name, post):
         # ``SlackIntegration.client`` builds a fresh WebClient on every access, so setting
         # the timeout on one access and calling on another leaves the request on the SDK
         # default. Nothing about the app's behavior changes when that happens, so only an
         # assertion on the client instance catches it.
-        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+        from products.slack_app.backend import api
+        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS
 
         built_clients: list[MagicMock] = []
 
@@ -1717,7 +1789,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
                 built_clients.append(MagicMock())
                 return built_clients[-1]
 
-        posted = _post_slack_user_ephemeral(cast(SlackIntegration, _NewClientPerAccess()), "C001", "U123", None, "nope")
+        posted = post(cast(SlackIntegration, _NewClientPerAccess()), api)
 
         assert posted is True
         assert len(built_clients) == 1

@@ -1,7 +1,7 @@
 import dataclasses
 from enum import StrEnum
 
-from products.web_analytics.backend.temporal.digest_common import DigestBatchTotals
+from posthog.temporal.common.digest import DigestBatchTotals
 
 
 class NotificationDigestOutcome(StrEnum):

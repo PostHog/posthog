@@ -2,6 +2,7 @@ import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type { AuthService } from "@posthog/core/auth/auth";
 import type { AgentSessionNotifier } from "@posthog/core/notification/agentSessionNotifications";
 import type { TaskService } from "@posthog/core/task-detail/taskService";
+import type { RootLogger } from "@posthog/di/logger";
 import type {
   AgentConversationEvent,
   McpToolPermissionRequest,
@@ -15,6 +16,27 @@ import {
   type PiSessionProvider,
 } from "./piSessionController";
 
+function createLogger(): {
+  logger: RootLogger;
+  scoped: {
+    debug: ReturnType<typeof vi.fn>;
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
+} {
+  const scoped = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+  return {
+    logger: { ...scoped, scope: vi.fn(() => scoped) },
+    scoped,
+  };
+}
+
 function createController(
   session = createSession(),
   taskService = {
@@ -22,11 +44,18 @@ function createController(
   } as unknown as TaskService,
   authService?: AuthService,
   notifier?: AgentSessionNotifier,
+  logger = createLogger().logger,
 ): PiSessionController {
   const provider: PiSessionProvider = {
     get: vi.fn(async () => session),
   };
-  return new PiSessionController(provider, taskService, authService, notifier);
+  return new PiSessionController(
+    provider,
+    taskService,
+    logger,
+    authService,
+    notifier,
+  );
 }
 
 function createSession(): PiSession {
@@ -564,6 +593,45 @@ describe("PiSessionController", () => {
     );
   });
 
+  it("logs expected transport interruptions without changing session state", async () => {
+    let onError: (error: unknown) => void = () => {};
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockImplementation(
+      (_onEvent, handler) => {
+        onError = handler;
+        return () => {};
+      },
+    );
+    const logger = createLogger();
+    const controller = createController(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      logger.logger,
+    );
+
+    await controller.connect("task-1");
+    const interruptionError = new DOMException(
+      "This operation was aborted",
+      "AbortError",
+    );
+    onError(interruptionError);
+
+    expect(controller.store.getState().sessions["task-1"]).toMatchObject({
+      connectionState: "connected",
+      error: undefined,
+    });
+    expect(logger.scoped.info).toHaveBeenCalledWith(
+      "Pi session interrupted",
+      expect.objectContaining({
+        taskId: "task-1",
+        scope: "connection",
+        errorName: "AbortError",
+      }),
+    );
+  });
+
   it("keeps fatal runtime errors in a retryable disconnected state", async () => {
     let onEvent: (event: AgentConversationEvent) => void = () => {};
     const session = createSession();
@@ -950,9 +1018,11 @@ describe("PiSessionController", () => {
         })),
       } as unknown as TaskService;
       const notifier = { notify: vi.fn() };
+      const logger = createLogger();
       const controller = new PiSessionController(
         provider,
         taskService,
+        logger.logger,
         undefined,
         notifier,
       );
@@ -960,11 +1030,24 @@ describe("PiSessionController", () => {
 
       await controller.connect("task-1");
       await controller.submit("task-1", "continue", false, "steer");
-      vi.mocked(session.client.abort).mockRejectedValueOnce(
-        new Error("Unable to stop"),
-      );
+      const abortError = new Error("Unable to stop");
+      vi.mocked(session.client.abort).mockRejectedValueOnce(abortError);
       await expect(controller.abort("task-1")).rejects.toThrow(
         PiOperationError,
+      );
+      expect(
+        controller.store.getState().sessions["task-1"].error,
+      ).toBeUndefined();
+      expect(logger.scoped.error).toHaveBeenCalledWith(
+        "Pi operation failed",
+        expect.objectContaining({
+          taskId: "task-1",
+          operation: "cancel",
+          scope: "operation",
+          kind: "unknown",
+          retryable: false,
+          errorName: "Error",
+        }),
       );
       expect(
         controller.store.getState().sessions["task-1"].status?.isStreaming,
@@ -1574,6 +1657,7 @@ describe("PiSessionController", () => {
     const controller = new PiSessionController(
       provider,
       taskService,
+      createLogger().logger,
       undefined,
       notifier,
     );
@@ -1613,9 +1697,11 @@ describe("PiSessionController", () => {
         .mockResolvedValue(resumedSession),
     } as PiSessionProvider;
     const resumeCloudPiRun = vi.fn(async () => ({ id: "run-1" }));
-    const controller = new PiSessionController(provider, {
-      resumeCloudPiRun,
-    } as unknown as TaskService);
+    const controller = new PiSessionController(
+      provider,
+      { resumeCloudPiRun } as unknown as TaskService,
+      createLogger().logger,
+    );
 
     await controller.connect("task-1");
     await controller.submit("task-1", "continue", false, "steer", {
@@ -1703,6 +1789,7 @@ describe("PiSessionController", () => {
       const controller = new PiSessionController(
         provider,
         taskService,
+        createLogger().logger,
         undefined,
         notifier,
       );
@@ -1820,7 +1907,11 @@ describe("PiSessionController", () => {
       const provider: PiSessionProvider = {
         get: vi.fn(async () => session),
       };
-      const controller = new PiSessionController(provider, {} as TaskService);
+      const controller = new PiSessionController(
+        provider,
+        {} as TaskService,
+        createLogger().logger,
+      );
 
       await controller.ensureConnected("task-1");
       await controller.setThinkingLevel("task-1", "high");

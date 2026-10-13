@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils/arrays'
 
 /** Source types that support `access_method: 'direct'` (live querying without syncing to the warehouse). */
@@ -11,8 +13,21 @@ export const DIRECT_QUERY_SOURCE_TYPES = [
     'Trino',
 ] as const
 
+const FLAG_GATED_DIRECT_QUERY_SOURCE_TYPES: Record<string, FeatureFlagKey> = {
+    BigQuery: FEATURE_FLAGS.BIGQUERY_DIRECT_QUERY,
+}
+
 export function supportsDirectQuery(sourceType: string | null | undefined): boolean {
-    return !!sourceType && DIRECT_QUERY_SOURCE_TYPES.includes(sourceType as (typeof DIRECT_QUERY_SOURCE_TYPES)[number])
+    if (!sourceType) {
+        return false
+    }
+    const gatingFlag = FLAG_GATED_DIRECT_QUERY_SOURCE_TYPES[sourceType]
+    if (gatingFlag) {
+        // Read the mounted logic directly: this helper is called from logics and plain
+        // functions, not only from rendering components.
+        return !!featureFlagLogic.findMounted()?.values.featureFlags[gatingFlag]
+    }
+    return DIRECT_QUERY_SOURCE_TYPES.includes(sourceType as (typeof DIRECT_QUERY_SOURCE_TYPES)[number])
 }
 
 export function splitQualifiedTableName(

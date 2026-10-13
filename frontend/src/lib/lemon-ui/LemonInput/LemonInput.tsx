@@ -34,6 +34,9 @@ interface LemonInputPropsBase extends Pick<
     | 'pattern'
 > {
     inputRef?: React.Ref<HTMLInputElement>
+    inputComponent?: React.JSXElementConstructor<
+        React.InputHTMLAttributes<HTMLInputElement> & React.RefAttributes<HTMLInputElement>
+    >
     id?: string
     placeholder?: string
     /** Use the danger status for invalid input. */
@@ -113,6 +116,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         size = 'medium',
         stopPropagation = false,
         inputRef,
+        inputComponent,
         disabled,
         disabledReason,
         disabledReasonInteractive,
@@ -206,7 +210,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         )
     }
 
-    const InputComponent = autoWidth ? RawInputAutosize : 'input'
+    const InputComponent = autoWidth ? RawInputAutosize : (inputComponent ?? 'input')
     // A cleared controlled number input holds NaN; show '' so it stays controlled instead of feeding
     // NaN to the DOM. While the field is focused and the user has emptied it, their empty text also
     // wins over the fallback a consumer echoes back. Both branches require a controlled input —

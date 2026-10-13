@@ -16,7 +16,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: csp_violations
-  credits: pauldambra (PR #58596 — push-based CSP signal emission, encoded here as pull)
+scout-precheck-query: |
+  SELECT event, count() AS events, max(timestamp) AS last_seen
+  FROM events
+  WHERE event = '$csp_violation'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  GROUP BY event
 ---
 
 # Signals scout: CSP violations
@@ -27,7 +32,15 @@ CSP violations are unusual on the noise/signal spectrum: a single user with a mi
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for an aggregated cluster (a fresh blocked domain, a standing enforced block, a deploy-correlated directive burst) you'd stand behind as a standalone inbox item a human will act on. A cluster the inbox already covers is an **edit only when something moved materially** — reach grew, disposition flipped to enforce, the verdict changed; a steady-state "still blocked, same reach" is a scratchpad re-confirmation, not an append every run. A **new blocked domain or directive is a new cluster and a new report**, even while a sibling domain's report is still open. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the CSP-specific framing — do not restate the generic mechanics. (Note: this surface has a companion **push** path that files raw per-fingerprint signals under `source_product=csp_reporting`; your own report-channel reports persist under `source_product=signals_scout`. Both live in the same inbox — see Decide for how they interact.)
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Quick close-out: is CSP reporting even active?
+
+A scheduled run can start with a `<precheck_result>` block. Its row counts the `$csp_violation` events of the last 7 days, so CSP reporting is in use. When the block is present, skip the `not-in-use` close-out. The baseline close-out and the standing enforced / first-party block check still apply.
 
 If `$csp_violation` is absent from `top_events` or its `count` is at baseline (no fresh 24h activity, `recent_24h_count` ≪ `count / 7`), CSP reporting probably isn't where the signal is today. Cheap scratchpad entry + close out:
 

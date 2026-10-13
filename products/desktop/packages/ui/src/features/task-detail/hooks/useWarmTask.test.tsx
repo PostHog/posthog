@@ -34,6 +34,7 @@ const NULL_RUNTIME = {
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
+  initial_permission_mode: null,
 };
 
 describe("useWarmTask", () => {
@@ -296,13 +297,14 @@ describe("useWarmTask", () => {
     expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
   });
 
-  it("forwards the selected runtime and re-warms when it changes", async () => {
+  it("forwards the selected runtime and permission mode and re-warms when either changes", async () => {
     const { rerender } = renderHook((props: Props) => useWarmTask(props), {
       initialProps: {
         ...cloudTyping,
         runtimeAdapter: "claude",
         model: "claude-opus-4-8",
         reasoningEffort: "high",
+        permissionMode: "plan",
       },
     });
     await flushDebounce();
@@ -313,13 +315,34 @@ describe("useWarmTask", () => {
       runtime_adapter: "claude",
       model: "claude-opus-4-8",
       reasoning_effort: "high",
+      initial_permission_mode: "plan",
     });
+
+    rerender({
+      ...cloudTyping,
+      runtimeAdapter: "claude",
+      model: "claude-opus-4-8",
+      reasoningEffort: "high",
+      permissionMode: "bypassPermissions",
+    });
+    await flushDebounce();
+    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
+      repository: "acme/repo",
+      github_integration: 42,
+      branch: "main",
+      runtime_adapter: "claude",
+      model: "claude-opus-4-8",
+      reasoning_effort: "high",
+      initial_permission_mode: "bypassPermissions",
+    });
+    expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
 
     rerender({
       ...cloudTyping,
       runtimeAdapter: "codex",
       model: "gpt-5.5",
       reasoningEffort: "high",
+      permissionMode: "auto",
     });
     await flushDebounce();
     expect(mockClient.warmTask).toHaveBeenLastCalledWith({
@@ -329,8 +352,9 @@ describe("useWarmTask", () => {
       runtime_adapter: "codex",
       model: "gpt-5.5",
       reasoning_effort: "high",
+      initial_permission_mode: "auto",
     });
-    expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
+    expect(mockClient.warmTask).toHaveBeenCalledTimes(3);
   });
 
   it("keeps the warm lease when only reasoning effort changes", async () => {
@@ -340,6 +364,7 @@ describe("useWarmTask", () => {
         runtimeAdapter: "codex",
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
+        permissionMode: "auto",
       },
     });
     await flushDebounce();
@@ -349,6 +374,7 @@ describe("useWarmTask", () => {
       runtimeAdapter: "codex",
       model: "gpt-5.6-sol",
       reasoningEffort: "xhigh",
+      permissionMode: "auto",
     });
     await flushDebounce();
 
@@ -360,6 +386,7 @@ describe("useWarmTask", () => {
         runtimeAdapter: "codex",
         model: "gpt-5.6-sol",
         reasoningEffort: "xhigh",
+        permissionMode: "auto",
       }),
     ).toEqual({ taskId: "task-1", runId: "run-1" });
   });

@@ -170,7 +170,8 @@ def _run_export_job(
             raise ValueError(f"Clari export job creation returned no jobId: {created}")
         # Persist immediately — exports are quota-limited, so a retried
         # activity must re-poll this job rather than create another.
-        resumable_source_manager.save_state(ClariResumeConfig(job_id=job_id))
+        with resumable_source_manager.committing():
+            resumable_source_manager.save_state(ClariResumeConfig(job_id=job_id))
 
     status = None
     for _attempt in range(EXPORT_POLL_MAX_ATTEMPTS):
@@ -182,7 +183,8 @@ def _run_export_job(
             break
         if status in ("FAILED", "CANCELLED", "ABORTED"):
             # Don't re-poll a dead job on retry.
-            resumable_source_manager.save_state(ClariResumeConfig(job_id=None))
+            with resumable_source_manager.committing():
+                resumable_source_manager.save_state(ClariResumeConfig(job_id=None))
             raise ValueError(f"Clari export job {job_id} ended with status {status}")
 
         time.sleep(EXPORT_POLL_INTERVAL_SECONDS)

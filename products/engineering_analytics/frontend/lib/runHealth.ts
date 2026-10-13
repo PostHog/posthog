@@ -245,8 +245,6 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     }
 }
 
-/** The fields the workflow-list order reads. Structural, so a table row and a test fixture both satisfy
- *  it without importing the full health row. */
 export interface OrderableWorkflowRow {
     workflowName: string
     runCount: number
@@ -259,8 +257,7 @@ export function isGatingWorkflow(row: OrderableWorkflowRow): boolean {
     return row.mergeQueueRunCount > 0
 }
 
-/** The workflow list's default order: gating workflows first, then the busiest, then by name. The name
- *  tiebreak keeps equal run counts in a fixed order, so the table does not reshuffle between renders. */
+/** The name tiebreak keeps equal run counts in a fixed order, so the table does not reshuffle between renders. */
 export function orderWorkflowHealthRows<T extends OrderableWorkflowRow>(rows: T[]): T[] {
     return [...rows].sort(
         (a, b) =>

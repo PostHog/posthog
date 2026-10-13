@@ -142,6 +142,7 @@ def _fp_row(
         "some-branch",
         workflow_name,
         last_master_hit_age,
+        None,
     )
 
 
@@ -155,7 +156,7 @@ def _run_query(*, fingerprint_rows, hourly_rows, master_rows, jobs_synced=True, 
             return SimpleNamespace(results=fingerprint_rows)
         if "hourly" in query_type:
             return SimpleNamespace(results=hourly_rows)
-        return SimpleNamespace(results=master_rows)
+        return SimpleNamespace(results=[(*row, "github_actions") for row in master_rows])
 
     curated.run.side_effect = run_side_effect
     return query_broken_tests(

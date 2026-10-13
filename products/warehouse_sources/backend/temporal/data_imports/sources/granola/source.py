@@ -49,7 +49,7 @@ class GranolaSource(ResumableSource[GranolaSourceConfig, GranolaResumeConfig]):
             name=ExternalDataSourceType.GRANOLA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Granola",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Granola API key to pull your meeting notes into the PostHog Data warehouse.
 
 API access requires a **Business** plan or higher. Create a key (prefixed `grn_`) in the Granola desktop app under **Settings → Connectors → API keys**.

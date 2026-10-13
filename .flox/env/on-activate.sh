@@ -219,6 +219,9 @@ export GOTOOLCHAIN=local
 export GOPATH="$FLOX_ENV_CACHE/go"
 export GOCACHE="$FLOX_ENV_CACHE/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
+# Go creates the module cache read-only by default, and `rm -rf` on a worktree
+# cannot delete a read-only directory tree.
+export GOFLAGS=-modcacherw
 
 # uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
@@ -375,7 +378,7 @@ _BG_PHROCS_START=$(date +%s)
 # checkout, and the venv symlink in Step 2b resolves each worktree's own pin.
 # A failed install must not break activation: the CLI is only needed at PR-open
 # time, and the reviewing-with-coderabbit skill opens the PR without it.
-_CODERABBIT_VERSION="0.7.6"
+_CODERABBIT_VERSION="0.8.0"
 _CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
 _CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
 
@@ -387,16 +390,16 @@ if command -v unzip >/dev/null 2>&1; then
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64)
       _CODERABBIT_PLATFORM="darwin-arm64"
-      _CODERABBIT_SHA256="f970e608e383114e1edf214eea71a99d6604ea1dd09c01e754ee6b8d4b852cb1" ;;
+      _CODERABBIT_SHA256="748271195b85cc245613f2affabacd4189c721f3839fb14d3efceccffdb382f5" ;;
     Darwin-x86_64)
       _CODERABBIT_PLATFORM="darwin-x64"
-      _CODERABBIT_SHA256="1c6242dec8a0983ff70842bc1d0e8c888d1a92b1ad80afb969c00c94c482a704" ;;
+      _CODERABBIT_SHA256="ccebc6335fd7fe0bbe2ad595aa57f684890551ff03114c8cc2403952d9c7ac52" ;;
     Linux-aarch64 | Linux-arm64)
       _CODERABBIT_PLATFORM="linux-arm64"
-      _CODERABBIT_SHA256="2270641a6314bef0da32e5903ddc6de6265354962f7cf651fc581a4a91f22447" ;;
+      _CODERABBIT_SHA256="570fd0569239371de6b7cb1004c760052c507d1fbb3189b692988d7f3804ee6d" ;;
     Linux-x86_64 | Linux-amd64)
       _CODERABBIT_PLATFORM="linux-x64"
-      _CODERABBIT_SHA256="853a1727609ab0ff1f56863fa6de7acf3de593a6dc1bd7f91a32f11c5724ffc9" ;;
+      _CODERABBIT_SHA256="e60aa408266c3e2350aae890b239ab8d1c12b3f607f4475e1c2ddd4529af1d71" ;;
   esac
 fi
 
@@ -543,27 +546,30 @@ elif [[ -n "$_flox_rustc_ver" ]]; then
 fi
 
 # ── macOS SDK check for lld (aarch64-darwin only) ──────────────────
-# rust/.cargo/config.toml links Rust via lld here. Newer macOS SDKs drop the
-# arm64-macos slice from their libSystem/libc/libm .tbd stubs and add an
-# arm64e.x1 slice that lld cannot parse, which fails every Rust link with
-# undefined libc symbols. Pin SDKROOT to the newest SDK lld can still read.
+# rust/.cargo/config.toml links Rust via lld here. Newer macOS SDKs add an
+# arm64e.x1 slice to their libSystem/libc/libm .tbd stubs. lld cannot parse
+# that slice, so it discards the whole stub and every Rust link fails with
+# undefined libc symbols. An SDK can lack an arm64-macos slice and still link,
+# because lld links arm64 output against an arm64e-macos slice.
+# Pin SDKROOT to the newest SDK lld can still read.
 if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && command -v lld >/dev/null 2>&1; then
-  _sdk_links_arm64() {
-    local tbd="$1/usr/lib/libSystem.tbd"
+  _sdk_lld_can_link() {
+    local tbd="$1/usr/lib/libSystem.tbd" targets
     [[ -r "$tbd" ]] || return 1
-    awk '/^targets:/{f=1} f{print} f&&/]/{exit}' "$tbd" |
-      grep -qE '(^|[][ ,])arm64-macos([],]|$)'
+    targets=$(awk '/^targets:/{f=1} f{print} f&&/]/{exit}' "$tbd")
+    grep -qE '(^|[][[:space:],])arm64e?-macos([][:space:],]|$)' <<<"$targets" &&
+      ! grep -qF 'arm64e.x1' <<<"$targets"
   }
 
   _active_sdk=$(xcrun --show-sdk-path 2>/dev/null)
-  if [[ -n "$_active_sdk" ]] && ! _sdk_links_arm64 "$_active_sdk"; then
+  if [[ -n "$_active_sdk" ]] && ! _sdk_lld_can_link "$_active_sdk"; then
     _sdk_dirs=(/Library/Developer/CommandLineTools/SDKs)
     _xcode_dev_dir=$(xcode-select -p 2>/dev/null)
     [[ -n "$_xcode_dev_dir" ]] && _sdk_dirs+=("$_xcode_dev_dir/Platforms/MacOSX.platform/Developer/SDKs")
 
     _lld_sdk=""
     while IFS=$'\t' read -r _ _candidate; do
-      if _sdk_links_arm64 "$_candidate"; then
+      if _sdk_lld_can_link "$_candidate"; then
         _lld_sdk="$_candidate"
         break
       fi
@@ -582,11 +588,11 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
       done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk") — newest one lld can link against)${C_RESET}"
     else
       warn_step "No macOS SDK found that lld can link against. Rust builds will fail."
-      echo -e "    ${C_DIM}$(basename "$_active_sdk") has no arm64-macos slice in its .tbd stubs.${C_RESET}"
+      echo -e "    ${C_DIM}$(basename "$_active_sdk") has an arm64e.x1 slice that lld cannot parse, or no arm64 slice.${C_RESET}"
       echo -e "    ${C_DIM}Fix: install an older SDK, or drop -fuse-ld=lld from rust/.cargo/config.toml.${C_RESET}"
     fi
   fi
-  unset -f _sdk_links_arm64
+  unset -f _sdk_lld_can_link
 fi
 
 # Share a single Cargo target dir so worktrees skip redundant linking

@@ -21,14 +21,18 @@ rules:
       severity: ERROR
       patterns:
           - pattern-either:
-                - pattern: User.objects.filter(..., email__iexact=$VALUE, ...)
-                - pattern: User.objects.get(..., email__iexact=$VALUE, ...)
-                - pattern: User.objects.filter(..., email=$VALUE, ...)
-                - pattern: User.objects.get(..., email=$VALUE, ...)
+                # `email__iexact` is flagged on any receiver. A bare `email=` is flagged only on
+                # `User`, because other models carry an `email` column of their own.
                 - pattern: $QS.filter(..., email__iexact=$VALUE, ...)
                 - pattern: $QS.exclude(..., email__iexact=$VALUE, ...)
+                - pattern: $QS.get(..., email__iexact=$VALUE, ...)
+                - pattern: User.objects.filter(..., email=$VALUE, ...)
+                - pattern: User.objects.get(..., email=$VALUE, ...)
+                - pattern: get_user_model().objects.filter(..., email=$VALUE, ...)
+                - pattern: get_user_model().objects.get(..., email=$VALUE, ...)
       paths:
-          # The paths where an address decides which account a request reaches.
+          # The paths that resolve a `User` by address, where a disagreeing fold sends a
+          # request to the wrong account and an unindexed fold scans the whole table.
           include:
               - /ee/api/agentic_provisioning/**/*.py
               - /ee/api/authentication.py

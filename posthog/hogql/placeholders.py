@@ -8,6 +8,7 @@ from posthog.hogql.utils import deserialize_hx_ast, is_simple_value
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from common.hogvm.python.stl import BLOCKING_FUNCTIONS
+from common.hogvm.python.utils import MAX_MEMORY
 
 # Placeholder expressions run through the Hog VM on the request thread. Bound the work per query,
 # not per expression: one deadline shared across all placeholders, and a cap on how many a single
@@ -61,6 +62,12 @@ class FindPlaceholders(TraversingVisitor):
             # Dotted call forms like {filters.interval('week')} and {filters.breakdown(...)} are
             # resolved by replace_filters too.
             self.has_filters = True
+            if node.expr.expr.chain in (
+                ["filters", "previous"],
+                ["filters", "native"],
+                ["filters", "previous", "native"],
+            ):
+                self.has_date_filters = True
         else:
             self.placeholder_expressions.append(node.expr)
 
@@ -77,6 +84,7 @@ class ReplacePlaceholders(CloningVisitor):
         self.placeholders = placeholders
         self._expansions = 0
         self._deadline: Optional[float] = None
+        self._remaining_memory = MAX_MEMORY
 
     def visit_placeholder(self, node):
         # avoid circular imports
@@ -113,10 +121,16 @@ class ReplacePlaceholders(CloningVisitor):
             self.placeholders,
             timeout=timedelta(seconds=remaining),
             disallowed_functions=BLOCKING_FUNCTIONS,
+            memory_limit=self._remaining_memory,
         )
+        # Charge temporary values too, even when the placeholder returns only a scalar.
+        self._remaining_memory -= response.max_memory_used
 
         if isinstance(response.result, dict) and ("__hx_ast" in response.result or "__hx_tag" in response.result):
             response.result = deserialize_hx_ast(response.result)
+
+        if time.monotonic() >= self._deadline:
+            raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.")
 
         if (
             isinstance(response.result, ast.Expr)

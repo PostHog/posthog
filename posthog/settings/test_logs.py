@@ -47,6 +47,7 @@ def test_logging_config_can_be_applied() -> None:
     config = dict(logs.LOGGING)
     config["disable_existing_loggers"] = False
     logging.config.dictConfig(config)
+    assert logging.getLogger("posthog.github_diagnostics").isEnabledFor(logging.INFO)
 
 
 def test_default_console_logging_handler_keeps_default_stream() -> None:

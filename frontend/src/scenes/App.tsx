@@ -6,7 +6,6 @@ import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
 
-import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
@@ -27,6 +26,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
+import { mountSupportRouter } from './mountSupportRouter'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
@@ -80,9 +80,6 @@ export function App(): JSX.Element | null {
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
 
-    // Resolves product setup statuses on idle, so gated scenes open without a spinner.
-    useMountedLogic(productSetupPreloadLogic)
-
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
@@ -90,13 +87,7 @@ export function App(): JSX.Element | null {
     // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
     // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
     // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
-    useEffect(() => {
-        let unmount: (() => void) | undefined
-        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
-            unmount = supportRouterLogic.mount()
-        })
-        return () => unmount?.()
-    }, [])
+    useEffect(() => mountSupportRouter().unmount, [])
 
     useThemedHtml()
 

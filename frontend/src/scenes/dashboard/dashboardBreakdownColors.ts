@@ -3,7 +3,7 @@ import { getFunnelDatasetKey, getTrendDatasetKey, isNullBreakdown, isOtherBreakd
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter, isFunnelsQuery, isInsightVizNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, FunnelVizType } from '~/types'
 
 export type BreakdownColorSource = 'auto' | 'manual'
 
@@ -201,7 +201,7 @@ function makeBreakdownValue(
         : { breakdownValue, breakdownType, breakdownProperty: breakdownPropertyKey }
 }
 
-function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>): BreakdownValueAndType[] {
+function extractTileBreakdownValues(tile: DashboardTile): BreakdownValueAndType[] {
     if (!isInsightVizNode(tile.insight?.query)) {
         return []
     }
@@ -269,9 +269,7 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
 /** Breakdown values per tile, deduplicated within each tile; tiles without values are dropped.
  * Tile identity matters for assignment: which values co-occur on one chart decides which
  * colors may collide, and how many tiles share a value decides whether it gets one at all. */
-export function extractBreakdownValuesByTile(
-    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
-): BreakdownValueAndType[][] {
+export function extractBreakdownValuesByTile(insightTiles: DashboardTile[] | null): BreakdownValueAndType[][] {
     if (insightTiles == null) {
         return []
     }
@@ -282,7 +280,7 @@ export function extractBreakdownValuesByTile(
  * unavailable (a refresh errored or was aborted before the insight ever got results). Such a
  * tile's breakdown values are unknown rather than absent, so tile counts under-report sharing:
  * pruning or persisting auto colors in this state would drop entries that are still valid. */
-export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): boolean {
+export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile[] | null): boolean {
     return (insightTiles ?? []).some((tile) => {
         if (tile.insight?.result != null || !isInsightVizNode(tile.insight?.query)) {
             return false
@@ -304,9 +302,7 @@ export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile<QueryBas
 /** Deduplicated breakdown values across all tiles, clustered by breakdown property in the
  * order properties first appear on the dashboard, then ordered within each property the way
  * auto-assignment ranks them, so the colors modal lists values the way colors are handed out. */
-export function extractBreakdownValues(
-    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
-): BreakdownValueAndType[] {
+export function extractBreakdownValues(insightTiles: DashboardTile[] | null): BreakdownValueAndType[] {
     const tileBreakdownValues = extractBreakdownValuesByTile(insightTiles)
     const stats = collectValueTileStats(tileBreakdownValues)
     const compareAssignmentRank = buildAssignmentRankComparator(stats)

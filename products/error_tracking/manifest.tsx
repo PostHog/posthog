@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -31,10 +32,15 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     },
     redirects: {
@@ -93,7 +99,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             intents: [ProductKey.ERROR_TRACKING],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             type: 'error_tracking',
             iconType: 'error_tracking' as FileSystemIconType,
             iconColor: [
@@ -101,6 +107,15 @@ export const manifest: ProductManifest = {
                 'var(--color-product-error-tracking-dark)',
             ] as FileSystemIconColor,
             href: urls.errorTracking(),
+            searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
+            searchTabs: [
+                { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
+                {
+                    name: 'Recommendations',
+                    href: urls.errorTracking({ activeTab: 'recommendations' }),
+                    flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
+                },
+            ],
             sceneKey: 'ErrorTracking',
         },
     ],

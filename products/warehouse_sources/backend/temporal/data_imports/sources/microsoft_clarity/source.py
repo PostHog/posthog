@@ -63,6 +63,14 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
             "429 Client Error": "The Microsoft Clarity daily quota (10 requests per project) has been used up. Try again after the quota resets.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` calls `make_tracked_session` directly rather than through the shared REST
+        # engine, so `DEFAULT_RETRY` already retries a dropped connection or read timeout before
+        # re-raising once that budget is exhausted. urllib3 wraps that as "... Max retries exceeded
+        # with url: ..." regardless of the underlying cause. Temporal then retries the whole
+        # activity, so the failure is transient and self-recovering, not a bug to report.
+        return {"Max retries exceeded with url"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

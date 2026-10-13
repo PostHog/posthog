@@ -84,6 +84,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
+    /** Extra grouped header levels above the column titles, for hierarchical tables. */
+    headerRows?: { title: React.ReactNode; colSpan: number }[][]
     /** Whether header titles should be uppercased. The default value is `true`. */
     uppercaseHeader?: boolean
     /**
@@ -127,6 +129,15 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
      * Whether the table content is allowed to scroll inside its container.
      */
     allowContentScroll?: boolean
+    /**
+     * Whether the header row stays visible while the page scrolls. The header pins to the scene's scroll
+     * container from the `@2xl/main-content` breakpoint up, the same as `SceneStickyBar`. Set the
+     * `--lemon-table-sticky-header-top` CSS variable on an ancestor to pin it below other sticky content.
+     * The header only pins while the table fits its container: a table that must scroll horizontally
+     * keeps its scroll container, which stops the header from pinning to the page.
+     * Has no effect together with `allowContentScroll`.
+     */
+    stickyHeader?: boolean
     /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -160,6 +171,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     scrollToTopOnPageChange = true,
     expandable,
     showHeader = true,
+    headerRows,
     uppercaseHeader = true,
     tableLayout = 'auto',
     noSortingCancellation: disableSortingCancellation = false,
@@ -180,6 +192,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     maxHeaderWidth,
     hideScrollbar,
     allowContentScroll = false,
+    stickyHeader = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
     bulkSelection,
@@ -372,6 +385,8 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }, [baseColumnGroups, selectionColumn])
 
     const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
+    const canStickHeader = stickyHeader && !allowContentScroll
+    const tableFitsContainer = useTableFitsContainer(canStickHeader, scrollRef, tableRef)
     const previousPageRef = useRef<number | null>(null)
 
     useEffect(() => {
@@ -448,6 +463,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     stealth && 'LemonTable--stealth',
                     !uppercaseHeader && 'LemonTable--lowercase-header',
                     allowContentScroll && 'h-full min-h-0 overflow-hidden',
+                    canStickHeader && tableFitsContainer && 'LemonTable--sticky-header',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -485,6 +501,21 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                             </colgroup>
                             {showHeader && (
                                 <thead>
+                                    {headerRows?.map((row, rowIndex) => (
+                                        <tr key={rowIndex} className="LemonTable__row--grouping">
+                                            {isRowExpansionToggleShown && <th className="LemonTable__toggle" />}
+                                            {row.map((cell, cellIndex) => (
+                                                <th
+                                                    key={cellIndex}
+                                                    colSpan={cell.colSpan}
+                                                    scope="colgroup"
+                                                    className="LemonTable__boundary"
+                                                >
+                                                    {cell.title}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    ))}
                                     {columnGroups.some((group) => group.title) && (
                                         <tr className="LemonTable__row--grouping">
                                             {
@@ -829,4 +860,35 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             {enableCellCopy && copyMenu}
         </>
     )
+}
+
+/**
+ * Whether the table is no wider than its scroll viewport, so the viewport can stop scrolling horizontally.
+ * Only measures when `enabled` is true.
+ */
+function useTableFitsContainer(
+    enabled: boolean,
+    viewportRef: React.RefObject<HTMLDivElement>,
+    tableRef: React.RefObject<HTMLTableElement>
+): boolean {
+    const [fits, setFits] = useState(false)
+
+    useEffect(() => {
+        const viewport = viewportRef.current
+        const table = tableRef.current
+        if (!enabled || !viewport || !table || typeof ResizeObserver === 'undefined') {
+            setFits(false)
+            return
+        }
+        // Compare the table's own width with the viewport. This stays correct while the viewport clips
+        // instead of scrolls, so the result cannot flap between the two modes.
+        const update = (): void => setFits(table.offsetWidth <= viewport.clientWidth)
+        const observer = new ResizeObserver(update)
+        observer.observe(viewport)
+        observer.observe(table)
+        update()
+        return () => observer.disconnect()
+    }, [enabled, viewportRef, tableRef])
+
+    return fits
 }

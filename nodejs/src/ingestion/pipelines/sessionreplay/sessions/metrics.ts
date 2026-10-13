@@ -41,6 +41,27 @@ export class SessionBatchMetrics {
         this.messagesDroppedSessionKeyMismatch.inc(count)
     }
 
+    private static readonly blockCompressionLatency = new Histogram({
+        name: 'recording_blob_ingestion_v2_block_compression_seconds',
+        help: 'Time taken to compress one session block, by codec. A flush waits on these, so this is flush latency',
+        labelNames: ['codec'],
+        buckets: [0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+    })
+
+    private static readonly blockCompressionRatio = new Histogram({
+        name: 'recording_blob_ingestion_v2_block_compression_ratio',
+        help: 'Raw bytes divided by packed bytes for one session block, by codec. Higher stores less',
+        labelNames: ['codec'],
+        buckets: [1, 2, 4, 6, 8, 10, 15, 20, 30, 50],
+    })
+
+    public static observeBlockCompression(codec: string, rawBytes: number, packedBytes: number, seconds: number): void {
+        this.blockCompressionLatency.observe({ codec }, seconds)
+        if (packedBytes > 0) {
+            this.blockCompressionRatio.observe({ codec }, rawBytes / packedBytes)
+        }
+    }
+
     private static readonly sessionsFlushed = new Counter({
         name: 'recording_blob_ingestion_v2_sessions_flushed_total',
         help: 'Number of individual sessions that have been flushed',

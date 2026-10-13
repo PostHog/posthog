@@ -1,8 +1,13 @@
+import re
 import shutil
 from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.conf import settings
+
+from modal.exception import TimeoutError as ModalTimeoutError
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -13,6 +18,7 @@ from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
+    LOCAL_MODAL_DOCKERFILES,
     LOCAL_MODAL_HOGLI_SHIM_SCRIPT,
     LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
     LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
@@ -220,6 +226,7 @@ class TestModalSandboxDirectorySnapshotMount:
         snapshot_image = MagicMock()
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         fake_sandbox = patched_modal.return_value
+        # The post-mount probe runs a command in the mounted sandbox; let it pass.
         fake_sandbox.exec.return_value.poll.return_value = 0
 
         sandbox = ModalSandbox.create(
@@ -245,7 +252,7 @@ class TestModalSandboxDirectorySnapshotMount:
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         wedged = MagicMock()
         wedged.object_id = "sb-wedged"
-        wedged.exec.return_value.poll.return_value = 137
+        wedged.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
         fresh = MagicMock()
         fresh.object_id = "sb-fresh"
         patched_modal.side_effect = [wedged, fresh]
@@ -398,6 +405,15 @@ class TestLocalModalBuildContext:
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()
+
+    @pytest.mark.parametrize("dockerfile", sorted(LOCAL_MODAL_DOCKERFILES.values()), ids=lambda path: path.name)
+    def test_dockerfile_has_no_empty_unquoted_arg_default(self, dockerfile: Path):
+        lines = (Path(settings.BASE_DIR) / dockerfile).read_text().splitlines()
+        bare = [line for line in lines if re.fullmatch(r"ARG\s+\w+=\s*", line)]
+        assert bare == [], (
+            f"{dockerfile} declares an ARG with an empty unquoted default. Modal's Dockerfile parser rejects it "
+            'in DEBUG builds, although BuildKit accepts it. Write ARG NAME="" instead.'
+        )
 
     def test_notebook_context_carries_the_baked_kernel_package(self):
         # DEBUG builds the notebook image from this trimmed context, not the repo root, so a

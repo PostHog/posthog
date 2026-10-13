@@ -9,5 +9,6 @@ class DataForSEOSourceConfig(config.Config):
     api_login: str
     api_password: str
     targets: str
+    keywords: str | None = None
     location_name: str | None = None
     language_name: str | None = None

@@ -46,17 +46,18 @@ export function parseImageRef(s: string): {
     pseudoTeam?: string
     hash: string
     source: 'bytes' | 'url'
-    version?: 2
+    version?: 2 | 3
     sessionMonth?: string
 } | null {
-    const scoped = /^(image|imageurl):v2:([1-9][0-9]{0,15}):([0-9]{4}-(?:0[1-9]|1[0-2])):([A-Za-z0-9_-]{22})$/.exec(s)
-    if (scoped && isRawTeamId(scoped[2])) {
+    const scoped =
+        /^(image|imageurl):v([23]):([1-9][0-9]{0,15}):([0-9]{4}-(?:0[1-9]|1[0-2])):([A-Za-z0-9_-]{22})$/.exec(s)
+    if (scoped && isRawTeamId(scoped[3])) {
         return {
-            teamId: scoped[2],
-            sessionMonth: scoped[3],
-            hash: scoped[4],
+            teamId: scoped[3],
+            sessionMonth: scoped[4],
+            hash: scoped[5],
             source: scoped[1] === 'image' ? 'bytes' : 'url',
-            version: 2,
+            version: scoped[2] === '3' ? 3 : 2,
         }
     }
     const content = CONTENT_REF_RE.exec(s)

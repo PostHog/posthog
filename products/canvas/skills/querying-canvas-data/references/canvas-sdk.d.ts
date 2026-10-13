@@ -195,6 +195,35 @@ export interface CanvasSdk {
     navigate?: CanvasNavigate
 }
 
+export type CanvasParamType =
+    | 'text'
+    | 'longtext'
+    | 'number'
+    | 'boolean'
+    | 'select'
+    | 'event'
+    | 'events'
+    | 'property'
+    | 'insight'
+    | 'color'
+
+export interface CanvasParam {
+    type: CanvasParamType
+    label?: string
+    description?: string
+    default?: string | number | boolean | string[]
+    options?: Array<string | { value: string; label: string }>
+    min?: number
+    max?: number
+    step?: number
+}
+
+export declare function editable(
+    name: string,
+    props: Record<string, unknown>,
+    params: Record<string, CanvasParam>
+): Record<string, string>
+
 /**
  * The canvas's PostHog bridge, the same object as the `window.ph` global. Both
  * are installed on the document, so a `?worker` bundle cannot reach them.

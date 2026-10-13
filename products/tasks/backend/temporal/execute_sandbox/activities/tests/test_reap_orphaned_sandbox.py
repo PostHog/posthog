@@ -5,6 +5,7 @@ from unittest.mock import ANY, Mock, patch
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
     reap_orphaned_sandbox,
@@ -60,12 +61,23 @@ class TestReapOrphanedSandbox:
         assert result.reaped_sandbox_id is None
         sandbox_cls.return_value.get_by_id.assert_not_called()
 
-    def test_destroys_and_clears_when_persisted_id_present(self, activity_environment, test_task_run):
-        test_task_run.state = {SANDBOX_ID_STATE_KEY: "sb-orphan", "mode": "background"}
+    @pytest.mark.parametrize("replacement", [False, True])
+    def test_destroys_and_clears_when_persisted_id_present(self, activity_environment, test_task_run, replacement):
+        connection = {
+            SANDBOX_ID_STATE_KEY: "sb-orphan",
+            "sandbox_url": "https://sandbox.example.com/rpc",
+            "sandbox_connect_token": "fake-token",
+            "sandbox_jwt_kid": "fake-kid",
+            "sandbox_backend": "modal",
+        }
+        test_task_run.state = {**connection, "mode": "background"}
         test_task_run.save(update_fields=["state"])
 
         with patch(SANDBOX_IMPORT_PATH) as sandbox_cls:
             destroy_mock = Mock()
+            if replacement:
+                connection[SANDBOX_ID_STATE_KEY] = "sb-replacement"
+                destroy_mock.side_effect = lambda: TaskRun.update_state_atomic(test_task_run.id, updates=connection)
             sandbox_cls.return_value.get_by_id.return_value = Mock(destroy=destroy_mock)
 
             result = async_to_sync(activity_environment.run)(
@@ -80,8 +92,7 @@ class TestReapOrphanedSandbox:
 
         test_task_run.refresh_from_db()
         # State key is cleared; other keys preserved.
-        assert SANDBOX_ID_STATE_KEY not in test_task_run.state
-        assert test_task_run.state == {"mode": "background"}
+        assert test_task_run.state == ({**connection, "mode": "background"} if replacement else {"mode": "background"})
 
     def test_records_cpu_usage_before_destroy(self, activity_environment, test_task_run):
         test_task_run.state = {SANDBOX_ID_STATE_KEY: "sb-orphan"}

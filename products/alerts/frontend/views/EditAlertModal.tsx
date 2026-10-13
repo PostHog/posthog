@@ -15,8 +15,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertErrorBanner, AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
@@ -31,13 +31,18 @@ import { AlertPreviewCard } from 'products/alerts/frontend/components/AlertPrevi
 import { buildAlertSummary } from 'products/alerts/frontend/components/alertSummary'
 import { AlertWizard } from 'products/alerts/frontend/components/AlertWizard'
 import { ThresholdConditionRow } from 'products/alerts/frontend/components/ThresholdConditionRow'
-import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { evaluationDelayPreview, isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
 import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
-import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
+import {
+    alertFormLogic,
+    canCheckOngoingInterval,
+    evaluationDelayField,
+    insightAlertKindForQuery,
+} from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
@@ -71,7 +76,7 @@ type AlertModalProps = AlertModalCommonProps &
         | {
               alert?: never
               alertId?: AlertType['id']
-              insightId: QueryBasedInsightModel['id']
+              insightId: InsightModel['id']
               insightShortId: InsightShortId
               insightLogicProps: InsightLogicProps
           }
@@ -80,7 +85,7 @@ type AlertModalProps = AlertModalCommonProps &
 interface ResolvedAlertModalProps extends AlertModalCommonProps {
     initialAlert?: AlertType
     alertId?: AlertType['id']
-    insightId: QueryBasedInsightModel['id']
+    insightId: InsightModel['id']
     insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
 }
@@ -144,6 +149,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     )
     const insightAlertKind = insightAlertKindForQuery(query)
     const anomalyAlertGuidanceEnabled = useFeatureFlag('ANOMALY_ALERT_GUIDANCE_EXPERIMENT', 'anomaly_guidance')
+    const editorCanUseLlmDetector = useFeatureFlag('ALERTS_LLM_DETECTOR')
+    // Scheduled checks run as the alert's creator, so an existing alert is gated on the creator's
+    // access, which only the detail response reports: a list payload carries null there, so the
+    // loaded alert wins over the one passed in. The editor's own flag decides for a new alert.
+    const llmDetectorEnabled =
+        loadedAlert?.llm_detector_available ?? initialAlert?.llm_detector_available ?? editorCanUseLlmDetector
 
     const formLogicProps = {
         alert,
@@ -251,8 +262,14 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         ]
     )
 
+    const delayField = evaluationDelayField(
+        insightAlertKind,
+        isNonTimeSeriesDisplay,
+        alert?.evaluation_delay_intervals ?? 0
+    )
+
     const enabledAdvancedOptionsCount = useMemo(() => {
-        let n = 0
+        let n = (alertForm.evaluation_delay_intervals ?? 0) > 0 ? 1 : 0
         if (
             supportsOngoingInterval(alertForm.config) &&
             alertForm.config.check_ongoing_interval &&
@@ -268,7 +285,13 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             n += 1
         }
         return n
-    }, [alertForm.calculation_interval, alertForm.config, alertForm.skip_weekend, can_check_ongoing_interval])
+    }, [
+        alertForm.calculation_interval,
+        alertForm.config,
+        alertForm.skip_weekend,
+        alertForm.evaluation_delay_intervals,
+        can_check_ongoing_interval,
+    ])
 
     const subscribedCount = alertForm.subscribed_users?.length ?? 0
     const destinationCount = existingHogFunctions.length + pendingNotifications.length
@@ -277,16 +300,36 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         [alertForm, destinationCount, subscribedCount]
     )
 
+    const delayedPreviewResults = useMemo(() => {
+        const delay = alertForm.evaluation_delay_intervals ?? 0
+        if (!delay) {
+            return indexedResults
+        }
+        const source = query && isInsightVizNode(query) ? query.source : query
+        const excludesIncomplete = source && isTrendsQuery(source) && source.dateRange?.excludeIncompletePeriods
+        const skipped = delay + (excludesIncomplete ? 0 : 1)
+        return indexedResults?.map((series) => ({
+            ...series,
+            data: series.data.slice(0, -skipped),
+            labels: series.labels?.slice(0, -skipped),
+        }))
+    }, [alertForm.evaluation_delay_intervals, indexedResults, query])
+    const previewHistoryTooShort =
+        !useAlertCheckPreview &&
+        (alertForm.evaluation_delay_intervals ?? 0) > 0 &&
+        !!indexedResults?.some((series) => series.data.length > 0) &&
+        !!delayedPreviewResults?.every((series) => series.data.length === 0)
+
     // The monitored trends series' values, for the live preview sparkline. Picked by the alert's
     // series_index so the preview matches what the alert actually evaluates.
     const trendsPreviewValues = useMemo(() => {
         if (!isTrendsFunnel && alertForm.config?.type === 'TrendsAlertConfig') {
             const idx = alertForm.config.series_index ?? 0
-            const series = indexedResults?.[idx]
+            const series = delayedPreviewResults?.[idx]
             return series?.data ?? null
         }
         return null
-    }, [alertForm.config, indexedResults, isTrendsFunnel])
+    }, [alertForm.config, delayedPreviewResults, isTrendsFunnel])
 
     const checkPreview = useMemo(() => {
         if (!useAlertCheckPreview || !alert) {
@@ -343,6 +386,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
+            llmDetectorEnabled={llmDetectorEnabled}
             twoColumnLayout
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
@@ -391,6 +435,14 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             canCheckOngoingInterval={can_check_ongoing_interval}
             projectTimezone={projectTimezone}
             enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
+            evaluationDelayInterval={delayField.show ? (trendInterval ?? 'day') : undefined}
+            evaluationDelayUnsupportedReason={delayField.unsupportedReason}
+            evaluationDelayPreview={evaluationDelayPreview(
+                trendInterval ?? 'day',
+                alertForm.evaluation_delay_intervals ?? 0,
+                projectTimezone,
+                currentTeam?.week_start_day ?? 0
+            )}
             defaultOpen
             onSetAlertFormValue={setAlertFormValue}
         />
@@ -401,14 +453,14 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alertForm={alertForm}
             trendsValues={trendsPreviewValues}
             trendsLabels={
-                indexedResults?.[
+                delayedPreviewResults?.[
                     alertForm.config?.type === 'TrendsAlertConfig' ? (alertForm.config.series_index ?? 0) : 0
                 ]?.labels ?? null
             }
             isBreakdown={isBreakdownValid && !isTrendsFunnel}
             trendsBreakdownSeries={
                 isBreakdownValid && !isTrendsFunnel
-                    ? indexedResults?.map((series) => ({
+                    ? delayedPreviewResults?.map((series) => ({
                           key: String(series.seriesIndex),
                           label: String(series.breakdown_value ?? series.label),
                           data: series.data,
@@ -418,6 +470,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
             checkPreview={checkPreview}
+            previewHistoryTooShort={previewHistoryTooShort}
             loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
         />
     )

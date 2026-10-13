@@ -1,15 +1,23 @@
 import { S3Client } from '@aws-sdk/client-s3'
+import { Message } from 'node-rdkafka'
 
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
+import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dead-letter-sink'
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import {
+    CaptureWatermark,
+    CapturedData,
+    capturedRecords,
+    releasingOffsetStore,
+} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
@@ -20,6 +28,27 @@ import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 // A scrub + S3-write batch blocks the poll loop (which only heartbeats once per batch) for up to minutes, so
 // we refresh the heartbeat this often during it. Must stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
 const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
+
+// librdkafka's max.poll.interval.ms as consumer-v1 sets it; a batch that outlives it gets the pod evicted mid-batch.
+const KAFKA_MAX_POLL_INTERVAL_MS = 300_000
+// The share of the poll interval that scrub timeouts may use. The rest covers the key read at the
+// start of a batch, the window drain at its end and a wait for the write lane to have room.
+const SCRUB_TIMEOUT_BUDGET_MS = 0.8 * KAFKA_MAX_POLL_INTERVAL_MS
+
+/**
+ * The most messages a poll may hold so that every image can time out once at the sidecar and the
+ * batch still returns inside max.poll.interval.ms. The window scrubs scrubConcurrency images at a
+ * time, so a batch is ceil(size / concurrency) waves of at most one scrub timeout each. The configured
+ * size is what a healthy sidecar gets; this cap is what a degraded one is held to.
+ */
+export function boundedImageScrubBatchSize(config: IngestionSessionReplayMlMirrorServerConfig): number {
+    const timeoutWavesInBudget = Math.floor(
+        SCRUB_TIMEOUT_BUDGET_MS / config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS
+    )
+    const imagesThatCanEachTimeOutOnce =
+        timeoutWavesInBudget * config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY
+    return Math.max(1, Math.min(config.SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE, imagesThatCanEachTimeOutOnce))
+}
 
 export function requireS3Client(client: S3Client | null): S3Client {
     if (!client) {
@@ -42,8 +71,14 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
         // partition lands on a pod whose sidecar is just as busy and redoes the same images, so
         // offered load rises while throughput falls. Set here rather than as a deployment value so
         // the bound cannot drift away from the design that needs it.
-        fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE,
+        fetchBatchSize: boundedImageScrubBatchSize(config),
     }
+}
+
+/** URL images reach the scrub topic in fetch order, not capture order, so they keep a watermark apart from inline images. */
+export function scrubbedImageData(message: Pick<Message, 'key'>): CapturedData | undefined {
+    const source = parseImageRef(message.key?.toString('utf8') ?? '')?.source
+    return source === undefined ? undefined : source === 'url' ? 'url_images' : 'inline_images'
 }
 
 export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerServer {
@@ -62,9 +97,14 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             await this.keyManager.start()
         }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
+        if (!this.config.AI_RESEARCH_REPLAY_S3_BUCKET) {
+            throw new Error(
+                'AI_RESEARCH_REPLAY_S3_BUCKET must be set: images of months after the v3 cutoff write there'
+            )
+        }
         const store = new ImageShardStore(
             s3Client,
-            this.config.SESSION_RECORDING_V2_S3_BUCKET,
+            { v2: this.config.SESSION_RECORDING_V2_S3_BUCKET, v3: this.config.AI_RESEARCH_REPLAY_S3_BUCKET },
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX,
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS
         )
@@ -97,9 +137,10 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             'fetch.message.max.bytes': maximumRecordBytes,
             'max.partition.fetch.bytes': maximumRecordBytes,
         })
+        const watermark = new CaptureWatermark('image_scrub')
         const batcher = new ImageBatcher(
             store,
-            consumer,
+            releasingOffsetStore(consumer, watermark),
             scrubClient,
             {
                 flushIntervalMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS,
@@ -108,26 +149,31 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
                 scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
             },
-            Date.now(),
             deadLetters,
             this.keyManager
         )
         await scrubClient.waitUntilReachable()
-        await consumer.connect((messages) => {
-            const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
-            return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
-        })
+        await consumer.connect(
+            (messages) => {
+                watermark.hold(capturedRecords(messages, scrubbedImageData))
+                const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
+                return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
+            },
+            (partitions) => {
+                watermark.forget(partitions)
+                return Promise.resolve()
+            }
+        )
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-scrub',
             // batcher.stop() first: disconnect() waits on the running batch, and a batch waiting on an
             // unresponsive sidecar never returns, so without the interrupt a graceful stop runs to the
-            // termination grace period and ends in a SIGKILL. Then disconnect() stops the poll loop and
-            // commits stored offsets. The un-flushed buffer's offsets were never stored, so those
-            // messages just replay on restart — a final flush here would only race the still-running
-            // loop over the shared buffer.
+            // termination grace period and ends in a SIGKILL. stop() also waits for the write lane, so
+            // the offsets of every written image are stored before disconnect() stops the poll loop
+            // and commits them. Whatever was still scrubbing was never stored and replays on restart.
             onShutdown: async () => {
-                batcher.stop()
+                await batcher.stop()
                 await consumer.disconnect()
             },
             healthcheck: () => consumer.isHealthy(),

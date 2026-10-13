@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountNotebooksLogic } from './accountNotebooksLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
 const PREVIEW_MAX_CHARS = 200
@@ -25,14 +26,17 @@ function getPreview(notebook: AccountNotebookApi): string {
     return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}…` : collapsed
 }
 
+interface AccountNotesExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
+
 export function AccountNotesExpansion({
     accountId,
     embedded = true,
-}: {
-    accountId: string
-    embedded?: boolean
-}): JSX.Element {
-    const logic = accountNotebooksLogic({ accountId })
+    ...tileProps
+}: AccountNotesExpansionProps): JSX.Element {
+    const logic = accountNotebooksLogic({ accountId, ...tileProps })
     const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
         useValues(logic)
     const { setSearchTerm, setSorting, createNote } = useActions(logic)

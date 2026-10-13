@@ -5,6 +5,7 @@ import {
     alignResolvedDateRangeToInterval,
     formatDateTimeRange,
     formatLocalizedDate,
+    formatLocalizedTime,
     getConstrainedWeekRange,
     getFormattedLastWeekDate,
     parseDateInTimezone,
@@ -377,6 +378,45 @@ describe('datetime utils', () => {
             Object.defineProperty(window.navigator, 'language', { value: undefined, configurable: true })
             document.documentElement.lang = 'en-GB'
             expect(formatLocalizedDate()).toBe('DD MMM')
+        })
+    })
+
+    describe('formatLocalizedTime', () => {
+        const originalLanguage = Object.getOwnPropertyDescriptor(window.navigator, 'language')
+        const originalLang = document.documentElement.lang
+
+        const setLanguage = (value: string | undefined): void => {
+            Object.defineProperty(window.navigator, 'language', { value, configurable: true })
+        }
+
+        afterEach(() => {
+            if (originalLanguage) {
+                Object.defineProperty(window.navigator, 'language', originalLanguage)
+            }
+            document.documentElement.lang = originalLang
+        })
+
+        it.each([
+            ['en-US', 'h:mm:ss A'],
+            ['en-AU', 'h:mm:ss A'],
+            ['en-GB', 'HH:mm:ss'],
+            ['de-DE', 'HH:mm:ss'],
+            ['fr-FR', 'HH:mm:ss'],
+        ])('returns the hour cycle of the %s locale', (language, expected) => {
+            setLanguage(language)
+            expect(formatLocalizedTime()).toBe(expected)
+        })
+
+        it('falls back to document.documentElement.lang when navigator.language is undefined', () => {
+            setLanguage(undefined)
+            // a 24-hour locale, so the assertion still fails if the fallback resolves to the en-US default
+            document.documentElement.lang = 'de-CH'
+            expect(formatLocalizedTime()).toBe('HH:mm:ss')
+        })
+
+        it('falls back to 24-hour rather than throwing on a malformed language tag', () => {
+            setLanguage('not a language tag')
+            expect(formatLocalizedTime()).toBe('HH:mm:ss')
         })
     })
 

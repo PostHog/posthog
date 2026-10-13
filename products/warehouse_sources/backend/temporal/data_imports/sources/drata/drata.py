@@ -14,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     find_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -152,7 +155,7 @@ def _client_config(api_key: str, region: str) -> ClientConfig:
 def _base_params(config: DrataEndpointConfig) -> dict[str, Any]:
     # An explicit stable creation-order sort keeps cursor pages consistent while rows are inserted
     # mid-sync.
-    return {"sort": config.sort, "sortDir": "ASC", PAGE_SIZE_PARAM: config.page_size}
+    return {"sort": config.sort, "sortDir": "ASC", PAGE_SIZE_PARAM: config.page_size, **config.extra_params}
 
 
 def _top_level_resource(
@@ -211,54 +214,77 @@ def _top_level_resource(
     )
 
 
+def _parent_chain(config: DrataEndpointConfig) -> list[DrataEndpointConfig]:
+    """Ancestor-first chain, from the top-level endpoint down to ``config``."""
+    chain: list[DrataEndpointConfig] = []
+    node: Optional[DrataEndpointConfig] = config
+    while node is not None:
+        chain.append(node)
+        node = DRATA_ENDPOINTS[node.fan_out_parent] if node.fan_out_parent else None
+    chain.reverse()
+    return chain
+
+
+def _top_level_endpoint_resource(config: DrataEndpointConfig) -> EndpointResource:
+    return {
+        "name": config.name,
+        "endpoint": {
+            "path": config.path,
+            "params": _base_params(config),
+            "data_selector": "data",
+        },
+    }
+
+
+def _fan_out_child_endpoint_resource(config: DrataEndpointConfig) -> EndpointResource:
+    parent = config.fan_out_parent
+    assert parent is not None and config.fan_out_parent_id_column is not None
+    # Parent row field -> column it lands under on each child row. Child rows don't carry their
+    # ancestor ids natively, and child ids aren't documented as unique beyond their parent, so
+    # these columns are what the composite primary keys are built from.
+    parent_columns = {"id": config.fan_out_parent_id_column, **config.fan_out_extra_parent_columns}
+
+    def inject_parent_columns(row: dict[str, Any]) -> dict[str, Any]:
+        for parent_field, column in parent_columns.items():
+            key = f"_{parent}_{parent_field}"
+            if key in row:
+                row[column] = row.pop(key)
+        return row
+
+    params: dict[str, Any] = {
+        placeholder: {"type": "resolve", "resource": parent, "field": parent_field}
+        for placeholder, parent_field in config.fan_out_path_params.items()
+    }
+    params.update(_base_params(config))
+
+    return {
+        "name": config.name,
+        "endpoint": {
+            "path": config.path,
+            "params": params,
+            "data_selector": "data",
+            # A parent deleted between enumeration and this fetch 404s; skip it and continue
+            # rather than failing the whole sync — its children are genuinely gone.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "include_from_parent": list(parent_columns),
+        "data_map": inject_parent_columns,
+    }
+
+
 def _fan_out_resource(
     api_key: str,
     region: str,
     config: DrataEndpointConfig,
     resumable_source_manager: ResumableSourceManager[DrataResumeConfig],
 ) -> Any:
-    assert config.fan_out_parent is not None and config.fan_out_parent_id_column is not None
-    parent_config = DRATA_ENDPOINTS[config.fan_out_parent]
-    parent_key = f"_{config.fan_out_parent}_id"
-    parent_id_column = config.fan_out_parent_id_column
-
-    def inject_parent_id(row: dict[str, Any]) -> dict[str, Any]:
-        # Child rows don't carry their parent id natively; rename the framework's include_from_parent
-        # column to the camelCase column the composite ["<parent>Id", "id"] primary key expects.
-        if parent_key in row:
-            row[parent_id_column] = row.pop(parent_key)
-        return row
-
-    child_params: dict[str, Any] = {
-        "parent_id": {"type": "resolve", "resource": config.fan_out_parent, "field": "id"},
-        **_base_params(config),
-    }
-
+    chain = _parent_chain(config)
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key, region),
         "resource_defaults": {},
         "resources": [
-            {
-                "name": config.fan_out_parent,
-                "endpoint": {
-                    "path": parent_config.path,
-                    "params": _base_params(parent_config),
-                    "data_selector": "data",
-                },
-            },
-            {
-                "name": config.name,
-                "endpoint": {
-                    "path": config.path,
-                    "params": child_params,
-                    "data_selector": "data",
-                    # A parent deleted between enumeration and this fetch 404s; skip it and continue
-                    # rather than failing the whole sync — its children are genuinely gone.
-                    "response_actions": [{"status_code": 404, "action": "ignore"}],
-                },
-                "include_from_parent": ["id"],
-                "data_map": inject_parent_id,
-            },
+            _top_level_endpoint_resource(chain[0]),
+            *(_fan_out_child_endpoint_resource(node) for node in chain[1:]),
         ],
     }
 
@@ -271,6 +297,8 @@ def _fan_out_resource(
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         resumable_source_manager.save_state(DrataResumeConfig(fanout_state=state))
 
+    # A chain with more than one fan-out level gets no resume: the framework refuses to feed one
+    # hook to several levels, so those endpoints restart and the merge dedupes.
     resources = rest_api_resources(
         rest_config,
         0,

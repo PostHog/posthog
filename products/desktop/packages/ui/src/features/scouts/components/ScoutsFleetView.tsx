@@ -378,7 +378,9 @@ export function ScoutsFleetView({
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1">
+      {/* A floor on the height, so many suggestion cards cannot squash the
+          table into a row or two. The page scrolls when the floor does not fit. */}
+      <div className="min-h-80 flex-1">
         <ScoutTable
           configs={visibleConfigs}
           rollups={rollups}

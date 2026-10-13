@@ -164,8 +164,13 @@
             text-decoration: none;
             transition: all 0.15s ease;
             cursor: pointer;
+            font-family: inherit;
             font-size: 0.875rem;
             min-width: 200px;
+        }
+
+        .btn[hidden] {
+            display: none;
         }
 
         .btn-primary {
@@ -266,8 +271,22 @@
                 {% if settings_url %}
                     <a href="{{ settings_url }}" class="btn btn-primary">Go to project settings</a>
                 {% endif %}
-                <a href="javascript:history.back()" class="btn btn-secondary">Go back</a>
+                <button type="button" id="go-back" class="btn btn-secondary" hidden>Go back</button>
             </div>
         </div>
+        <script nonce="{{ request.csp_nonce }}">
+            (function () {
+                // The app launches the toolbar in a new tab with noopener, and that tab has no
+                // previous page. history.back() does nothing there, so the button stays hidden.
+                if (window.history.length < 2) {
+                    return;
+                }
+                var button = document.getElementById("go-back");
+                button.hidden = false;
+                button.addEventListener("click", function () {
+                    window.history.back();
+                });
+            })();
+        </script>
     </body>
 </html>

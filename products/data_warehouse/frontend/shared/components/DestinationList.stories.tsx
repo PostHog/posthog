@@ -46,7 +46,6 @@ BothSelected.args = {
     onEdit: () => {},
 }
 
-// The last one on cannot be turned off, so a source can never end up syncing nowhere.
 export const OnlyOneLeft = Template.bind({})
 OnlyOneLeft.args = {
     ...BothSelected.args,

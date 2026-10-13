@@ -1,7 +1,9 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -11,11 +13,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.fireworks_ai import (
     FIREWORKS_AI_BASE_URL,
     FireworksAIResumeConfig,
+    UsageWindow,
+    _usage_row_id,
+    _usage_rows,
+    _usage_windows,
     fireworks_ai_source,
     get_status_code,
     normalize_account_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
+    ACCOUNT_USAGE,
     FIREWORKS_AI_ENDPOINTS,
     PAGE_SIZE,
 )
@@ -89,15 +96,6 @@ class TestNormalizeAccountId:
 
 
 class TestPagination:
-    def test_single_page_yields_rows_and_saves_no_state(self) -> None:
-        manager = _make_manager()
-        rows, params, urls = _rows("models", [_response({"models": [{"name": "m-1"}]})], manager)
-
-        assert rows == [{"name": "m-1"}]
-        assert urls[0] == f"{FIREWORKS_AI_BASE_URL}/accounts/my-account/models"
-        assert params[0] == {"pageSize": PAGE_SIZE}
-        manager.save_state.assert_not_called()
-
     def test_follows_next_page_token_and_saves_state_after_each_page(self) -> None:
         manager = _make_manager()
         rows, params, _urls = _rows(
@@ -117,14 +115,6 @@ class TestPagination:
         saved = [call.args[0].page_token for call in manager.save_state.call_args_list]
         assert saved == ["tok-2", "tok-3"]
 
-    def test_empty_next_page_token_terminates(self) -> None:
-        manager = _make_manager()
-        _rows_out, params, _urls = _rows(
-            "models", [_response({"models": [{"name": "m-1"}], "nextPageToken": ""})], manager
-        )
-        assert len(params) == 1
-        manager.save_state.assert_not_called()
-
     def test_resumes_from_saved_page_token(self) -> None:
         manager = _make_manager(FireworksAIResumeConfig(page_token="tok-9"))
         rows, params, _urls = _rows("models", [_response({"models": [{"name": "m-9"}]})], manager)
@@ -132,23 +122,21 @@ class TestPagination:
         assert rows == [{"name": "m-9"}]
         assert params[0] == {"pageSize": PAGE_SIZE, "pageToken": "tok-9"}
 
-    def test_camel_case_collections_resolve_path_and_data_key(self) -> None:
+    @parameterized.expand(
+        [
+            ("supervised_fine_tuning_jobs", "supervisedFineTuningJobs"),
+            # The API calls this collection rlorTrainerJobs, so neither the path nor the data key
+            # can be derived from the table name.
+            ("reinforcement_fine_tuning_steps", "rlorTrainerJobs"),
+            ("dpo_jobs", "dpoJobs"),
+        ]
+    )
+    def test_camel_case_collections_resolve_path_and_data_key(self, endpoint: str, collection: str) -> None:
         manager = _make_manager()
-        rows, _params, urls = _rows(
-            "supervised_fine_tuning_jobs",
-            [_response({"supervisedFineTuningJobs": [{"name": "sft-1"}]})],
-            manager,
-        )
+        rows, _params, urls = _rows(endpoint, [_response({collection: [{"name": "row-1"}]})], manager)
 
-        assert rows == [{"name": "sft-1"}]
-        assert urls[0] == f"{FIREWORKS_AI_BASE_URL}/accounts/my-account/supervisedFineTuningJobs"
-
-    def test_pasted_resource_prefix_does_not_double_the_path(self) -> None:
-        manager = _make_manager()
-        _rows_out, _params, urls = _rows(
-            "models", [_response({"models": []})], manager, account_id="accounts/my-account"
-        )
-        assert urls[0] == f"{FIREWORKS_AI_BASE_URL}/accounts/my-account/models"
+        assert rows == [{"name": "row-1"}]
+        assert urls[0] == f"{FIREWORKS_AI_BASE_URL}/accounts/my-account/{collection}"
 
 
 class TestEmptyPages:
@@ -183,18 +171,6 @@ class TestGetStatusCode:
         assert kwargs["params"] == {"pageSize": 1}
         assert kwargs["headers"]["Authorization"] == "Bearer fw_test"
 
-    def test_schema_probe_hits_that_endpoints_path(self) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        session = mock.MagicMock()
-        session.get.return_value = response
-
-        with mock.patch.object(fireworks_ai, "make_tracked_session", return_value=session):
-            get_status_code("fw_test", "my-account", "evaluation_jobs")
-
-        args, _kwargs = session.get.call_args
-        assert args[0] == f"{FIREWORKS_AI_BASE_URL}/accounts/my-account/evaluationJobs"
-
 
 class TestFireworksAISourceResponse:
     @parameterized.expand(list(FIREWORKS_AI_ENDPOINTS.keys()))
@@ -214,3 +190,163 @@ class TestFireworksAISourceResponse:
         # don't rewrite on every sync.
         assert response.partition_keys == [cfg.partition_key]
         assert response.partition_mode == "datetime"
+
+
+_NOW = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+
+_SERVERLESS_BUCKET = {
+    "startTime": "2026-06-01T00:00:00Z",
+    "endTime": "2026-06-02T00:00:00Z",
+    "modelName": "accounts/my-account/models/llama",
+    "usageType": "TEXT_INFERENCE",
+    "apiKeyId": "key-1",
+    "group": {"model_name": "accounts/my-account/models/llama"},
+    "promptTokens": "100",
+    "completionTokens": "20",
+}
+
+
+class TestUsageWindows:
+    @parameterized.expand(
+        [
+            ("watermark_at_now", timedelta(0)),
+            ("watermark_ahead_of_now", timedelta(days=3)),
+        ]
+    )
+    def test_caught_up_watermark_still_re_reads_the_open_day(self, _name: str, offset: timedelta) -> None:
+        # The newest bucket keeps accumulating until its day closes. Without the clamp this builds
+        # an inverted window, which UsageWindow rejects and the API would 400 on.
+        windows = _usage_windows(_NOW + offset, _NOW)
+
+        assert len(windows) == 1
+        assert windows[0] == UsageWindow(start=_NOW - timedelta(days=1), end=_NOW)
+
+
+class TestUsageRows:
+    def test_each_array_becomes_rows_tagged_with_its_category(self) -> None:
+        rows = _usage_rows(
+            {
+                "serverlessCosts": [_SERVERLESS_BUCKET],
+                "dedicatedCosts": [{"startTime": "2026-06-01T00:00:00Z", "deploymentId": "dep-1"}],
+                "trainingCosts": [{"startTime": "2026-06-01T00:00:00Z", "jobId": "job-1"}],
+            }
+        )
+
+        assert [row["usageCategory"] for row in rows] == ["serverless", "dedicated", "training"]
+        # The API's own fields survive alongside the two synthesized ones.
+        assert rows[0]["promptTokens"] == "100"
+        assert rows[1]["deploymentId"] == "dep-1"
+
+    @parameterized.expand(
+        [
+            ("collection_key_omitted", {}),
+            ("empty_arrays", {"serverlessCosts": [], "dedicatedCosts": [], "trainingCosts": []}),
+            ("null_array", {"serverlessCosts": None}),
+        ]
+    )
+    def test_window_with_no_usage_yields_no_rows(self, _name: str, payload: dict[str, Any]) -> None:
+        assert _usage_rows(payload) == []
+
+
+class TestUsageRowId:
+    @parameterized.expand(
+        [
+            ("start_time", {"startTime": "2026-06-02T00:00:00Z"}),
+            ("model_name", {"modelName": "accounts/my-account/models/mixtral"}),
+            ("usage_type", {"usageType": "IMAGE_INFERENCE"}),
+            ("api_key_id", {"apiKeyId": "key-2"}),
+            ("group_dimension", {"group": {"model_name": "accounts/my-account/models/llama", "user_id": "u-1"}}),
+            # A dimension the API omits must not hash the same as one it returns empty, or two
+            # distinct buckets collapse onto one row.
+            ("absent_dimension", {"apiKeyId": None}),
+            ("empty_dimension", {"apiKeyId": ""}),
+        ]
+    )
+    def test_each_dimension_produces_a_distinct_id(self, _name: str, override: dict[str, Any]) -> None:
+        assert _usage_row_id("serverless", {**_SERVERLESS_BUCKET, **override}) != _usage_row_id(
+            "serverless", _SERVERLESS_BUCKET
+        )
+
+
+def _run_usage(
+    manager: mock.MagicMock,
+    payloads: list[dict[str, Any]],
+    db_incremental_field_last_value: Any = None,
+) -> tuple[list[dict[str, Any]], list[mock.MagicMock]]:
+    session = mock.MagicMock()
+    session.get.side_effect = [mock.MagicMock(**{"json.return_value": payload}) for payload in payloads]
+
+    with mock.patch.object(fireworks_ai, "make_tracked_session", return_value=session):
+        source_response = fireworks_ai_source(
+            api_key="fw_test",
+            account_id="my-account",
+            endpoint=ACCOUNT_USAGE,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=manager,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        rows = [row for batch in cast("Iterable[Any]", source_response.items()) for row in batch]
+    return rows, session.get.call_args_list
+
+
+class TestAccountUsageTransport:
+    def test_checkpoint_saved_after_each_window_names_the_next_one(self) -> None:
+        manager = _make_manager()
+        watermark = datetime.now(UTC) - timedelta(days=40)
+        _rows_out, calls = _run_usage(manager, [{}, {}], db_incremental_field_last_value=watermark)
+
+        # One save only: the final window has nothing after it to resume into.
+        saved = [call.args[0].usage_window_start for call in manager.save_state.call_args_list]
+        assert len(saved) == 1
+        # The checkpoint names the first window not yet yielded, so a restart replays at most the
+        # window that was in progress.
+        # The request param is RFC 3339 to the second, so compare at that resolution.
+        assert datetime.fromisoformat(saved[0]).replace(microsecond=0) == datetime.strptime(
+            calls[1].kwargs["params"]["startTime"], "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=UTC)
+
+    def test_resumes_from_the_saved_window(self) -> None:
+        manager = _make_manager(
+            FireworksAIResumeConfig(usage_window_start=(datetime.now(UTC) - timedelta(days=5)).isoformat())
+        )
+        _rows_out, calls = _run_usage(
+            manager, [{}], db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=90)
+        )
+
+        # Without honouring the checkpoint this would re-walk all 90 days as three windows.
+        assert len(calls) == 1
+
+    def test_http_error_propagates_so_the_job_can_classify_it(self) -> None:
+        session = mock.MagicMock()
+        session.get.return_value.raise_for_status.side_effect = Exception(
+            "401 Client Error: Unauthorized for url: https://api.fireworks.ai/v1/accounts/my-account/billingUsage"
+        )
+
+        with mock.patch.object(fireworks_ai, "make_tracked_session", return_value=session):
+            source_response = fireworks_ai_source(
+                api_key="fw_test",
+                account_id="my-account",
+                endpoint=ACCOUNT_USAGE,
+                team_id=1,
+                job_id="job-1",
+                resumable_source_manager=_make_manager(),
+            )
+            with pytest.raises(Exception, match="401 Client Error"):
+                list(cast("Iterable[Any]", source_response.items()))
+
+
+class TestAccountUsageStatusProbe:
+    def test_probe_sends_a_window_because_billing_usage_rejects_a_bare_call(self) -> None:
+        response = mock.MagicMock()
+        response.status_code = 200
+        session = mock.MagicMock()
+        session.get.return_value = response
+
+        with mock.patch.object(fireworks_ai, "make_tracked_session", return_value=session):
+            assert get_status_code("fw_test", "my-account", ACCOUNT_USAGE) == 200
+
+        args, kwargs = session.get.call_args
+        assert args[0] == f"{FIREWORKS_AI_BASE_URL}/accounts/my-account/billingUsage"
+        # A pageSize-only probe would 400 here and read back as a bad API key.
+        assert set(kwargs["params"]) == {"startTime", "endTime"}

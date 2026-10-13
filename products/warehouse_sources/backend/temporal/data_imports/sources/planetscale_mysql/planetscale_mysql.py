@@ -9,8 +9,10 @@ import pymysql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _MYSQL_SAFE_CONVERSIONS,
+    METADATA_READ_TIMEOUT_SECONDS,
     MySQLImplementation,
     _connect_with_transient_retry,
+    connection_timeouts,
 )
 
 # Vitess' default OLTP workload caps a SELECT at 100,000 rows and aborts it after 20 seconds,
@@ -31,7 +33,8 @@ class PlanetScaleMySQLImplementation(MySQLImplementation):
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = None,
+        read_timeout: int = METADATA_READ_TIMEOUT_SECONDS,
+        autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
         ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
@@ -47,7 +50,7 @@ class PlanetScaleMySQLImplementation(MySQLImplementation):
                 "database": config.database,
                 "user": config.user,
                 "password": config.password,
-                "connect_timeout": 10,
+                **connection_timeouts(read_timeout),
                 "ssl_ca": ssl_ca,
                 # PlanetScale serves a publicly trusted certificate for the connect host, so both
                 # chain and hostname verification can be required. Without `ssl_verify_identity`
@@ -56,10 +59,13 @@ class PlanetScaleMySQLImplementation(MySQLImplementation):
                 "ssl_verify_cert": True,
                 "ssl_verify_identity": True,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
+                # PlanetScale inherits the MySQL keyset read path, which pages with one
+                # independent bounded query per page and relies on autocommit so no read view
+                # (or metadata lock) is held across the whole load. Threaded through rather than
+                # hardcoded so the streaming path keeps pymysql's default of autocommit off.
+                "autocommit": autocommit,
                 "init_command": _VITESS_OLAP_INIT_COMMAND,
             }
-            if read_timeout is not None:
-                kwargs["read_timeout"] = read_timeout
             # `ssl_verify_identity` checks the certificate against `host`, which the pinned socket
             # leaves as the hostname.
             with _connect_with_transient_retry(kwargs, team_id) as conn:

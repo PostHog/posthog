@@ -42,7 +42,9 @@ import { piSessionRouter } from "./routers/pi-session.router";
 import { processTrackingRouter } from "./routers/process-tracking.router";
 import { provisioningRouter } from "./routers/provisioning.router";
 import { releaseFeedRouter } from "./routers/release-feed.router";
+import { screenCaptureRouter } from "./routers/screen-capture.router";
 import { secureStoreRouter } from "./routers/secure-store.router";
+import { settingsBackupRouter } from "./routers/settings-backup.router";
 import { shellRouter } from "./routers/shell.router";
 import { skillsRouter } from "./routers/skills.router";
 import { slackIntegrationRouter } from "./routers/slack-integration.router";
@@ -76,6 +78,7 @@ export const hostRouter = router({
   environment: environmentRouter,
   externalApps: externalAppsRouter,
   feedbackContext: feedbackContextRouter,
+  screenCapture: screenCaptureRouter,
   fileWatcher: fileWatcherRouter,
   focus: focusRouter,
   folders: foldersRouter,
@@ -94,6 +97,7 @@ export const hostRouter = router({
   notification: notificationRouter,
   oauth: oauthRouter,
   os: osRouter,
+  settingsBackup: settingsBackupRouter,
   piSession: piSessionRouter,
   processTracking: processTrackingRouter,
   provisioning: provisioningRouter,

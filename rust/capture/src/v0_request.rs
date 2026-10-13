@@ -182,36 +182,18 @@ pub enum DataType {
     ExceptionErrorTracking,
     SnapshotMain,
     /// Dedicated AI lane, mirroring v1's `Destination::AiEvents`. The
-    /// kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, so every
+    /// kafka sink maps it to `CAPTURE_OUTPUT_AI_MAIN_TOPIC`, so every
     /// deployment that accepts AI traffic must configure that topic. Like
     /// heatmaps and exceptions, AI events never reroute historical.
     AiEvents,
 }
 
-/// Event names diverted to the dedicated AI lane. Must stay in sync with the
-/// AI lane's allowlist (`AI_EVENT_TYPES` in
-/// `nodejs/src/ingestion/common/ai-event-types.ts`), which DLQs
-/// anything it receives that isn't on the list. Matching on the `$ai_` prefix
-/// instead would divert prefixed-but-unlisted names (e.g. `$ai_call`) into the
-/// AI topic only for the ingestion pipeline to DLQ them.
-pub const AI_EVENT_NAMES: &[&str] = &[
-    "$ai_generation",
-    "$ai_embedding",
-    "$ai_evaluation",
-    "$ai_span",
-    "$ai_trace",
-    "$ai_metric",
-    "$ai_feedback",
-    "$ai_tag",
-    "$ai_generation_summary",
-    "$ai_trace_summary",
-    "$ai_evaluation_report",
-];
+pub const AI_LANE_NAME_PREFIX: &str = "$ai_";
 
-/// Whether an event name is diverted to the dedicated AI lane. See
-/// [`AI_EVENT_NAMES`].
+/// The single AI-lane membership rule; the ingestion AI pipeline admits by the
+/// same prefix (`isAiEventName` in `nodejs/src/ingestion/common/ai-event-types.ts`).
 pub fn is_ai_event(name: &str) -> bool {
-    AI_EVENT_NAMES.contains(&name)
+    name.starts_with(AI_LANE_NAME_PREFIX)
 }
 
 /// Whether an AI-lane event's body exceeds the deployment's per-event ceiling.
@@ -237,9 +219,9 @@ impl DataType {
     /// `apply_restrictions` so the analytics → exception → heatmap →
     /// ingestion-warning split stays in one place.
     ///
-    /// AI events (per [`is_ai_event`]) divert to `AiEvents` on every
-    /// deployment, winning over historical (in v1 the historical reroute only
-    /// applies to the analytics-main destination). Mirrors v1's
+    /// AI events (per [`is_ai_event`]) divert to `AiEvents`
+    /// on every deployment, winning over historical (in v1 the historical
+    /// reroute only applies to the analytics-main destination). Mirrors v1's
     /// `destination_for_event_name`.
     ///
     /// `SnapshotMain` is not produced here — replay events arrive on a
@@ -372,7 +354,7 @@ mod tests {
     use super::{CaptureError, Compression, DataType, RawRequest};
 
     /// Mirrors v1's `destination_for_event_name` mapping tests: the
-    /// dedicated-name lanes always win, an allowlisted AI name diverts on every deployment
+    /// dedicated-name lanes always win, an AI name diverts on every deployment
     /// (beating historical), and everything else falls through to
     /// main/historical per the batch flag.
     #[rstest::rstest]
@@ -387,18 +369,21 @@ mod tests {
     #[case("$pageview", false, DataType::AnalyticsMain)]
     #[case("custom_event", false, DataType::AnalyticsMain)]
     #[case("$pageview", true, DataType::AnalyticsHistorical)]
-    // Allowlisted AI events divert, and win over historical.
+    // Names that only look like the prefix never divert.
+    #[case("ai_generation", false, DataType::AnalyticsMain)]
+    #[case("$AI_generation", false, DataType::AnalyticsMain)]
+    #[case("$ai", false, DataType::AnalyticsMain)]
+    // Every `$ai_` name diverts, and wins over historical.
     #[case("$ai_generation", false, DataType::AiEvents)]
     #[case("$ai_span", false, DataType::AiEvents)]
     #[case("$ai_trace", false, DataType::AiEvents)]
     #[case("$ai_generation_summary", false, DataType::AiEvents)]
     #[case("$ai_generation", true, DataType::AiEvents)]
-    // Names matching the $ai_ prefix but absent from the allowlist do NOT divert:
-    // the ingestion AI pipeline would DLQ them, so they stay on the main lane.
-    #[case("$ai_call", false, DataType::AnalyticsMain)]
-    #[case("$ai_generation_enriched", false, DataType::AnalyticsMain)]
-    #[case("$ai_model_failover", false, DataType::AnalyticsMain)]
-    #[case("$ai_model_failover", true, DataType::AnalyticsHistorical)]
+    #[case("$ai_call", false, DataType::AiEvents)]
+    #[case("$ai_generation_enriched", false, DataType::AiEvents)]
+    #[case("$ai_model_failover", false, DataType::AiEvents)]
+    #[case("$ai_model_failover", true, DataType::AiEvents)]
+    #[case("$ai_", false, DataType::AiEvents)]
     fn from_event_name_mapping(
         #[case] event_name: &str,
         #[case] historical_migration: bool,

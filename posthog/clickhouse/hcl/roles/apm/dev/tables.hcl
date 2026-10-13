@@ -356,29 +356,11 @@ database "posthog" {
     }
   }
 
-  patch_table "kafka_metrics_avro" {
+  patch_table "kafka_metrics_avro4" {
     engine "kafka" {
       collection           = "warpstream_metrics"
       topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro-new"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-  }
-
-  patch_table "kafka_trace_spans_avro" {
-    engine "kafka" {
-      collection           = "warpstream_traces"
-      topic_list           = "clickhouse_traces"
-      group_name           = "clickhouse-traces-avro"
+      group_name           = "clickhouse-metrics-avro4"
       format               = "Avro"
       num_consumers        = 4
       skip_broken_messages = 100
@@ -409,10 +391,6 @@ database "posthog" {
     modify_column "_bytes_compressed" {
       type = "Nullable(Float64)"
     }
-  }
-
-  patch_materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
-    to_table = "posthog.writable_metrics_kafka_metrics"
   }
 
   patch_materialized_view "kafka_trace_spans_avro_mv" {

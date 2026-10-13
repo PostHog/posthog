@@ -126,6 +126,8 @@ if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
     echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_KEY" >> .env
     echo "Added missing ENCRYPTION_SALT_KEYS to .env file"
     source .env
+    # The earlier `set -a` is off by now, so the new key needs an explicit export to reach the Compose renderer.
+    export ENCRYPTION_SALT_KEYS
 else
     # Read the existing key
     EXISTING_KEY=$(grep "ENCRYPTION_SALT_KEYS" .env | cut -d '=' -f2)
@@ -138,6 +140,16 @@ else
         exit 1
     fi
 fi
+
+# Service-to-service secrets that each get their own random value, so a leak from one container
+# cannot yield POSTHOG_SECRET (Django's SECRET_KEY). Installs from before a secret existed have
+# none, so add it. Keep this list in step with dedicatedSecretKeys in bin/hobby-installer.
+for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET; do
+    if ! grep -qE "^$key=.+" .env; then
+        echo "$key=$(openssl rand -hex 32)" >> .env
+        echo "Added missing $key to .env file"
+    fi
+done
 
 # PostHog's AI features (the Max assistant, SQL/regex assist) run on your own LLM provider key.
 # If none is configured yet, offer to add one. Existing keys are never touched — we only append
@@ -355,7 +367,7 @@ rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 cp posthog/.env.services .env.services
-envsubst < docker-compose.yml.tmpl > docker-compose.yml
+bash posthog/bin/helpers/render-hobby-compose.sh < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
 
 docker-compose pull

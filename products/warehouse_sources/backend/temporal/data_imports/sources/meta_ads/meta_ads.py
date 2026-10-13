@@ -323,18 +323,14 @@ def _is_timeout_error(response: Response) -> bool:
     shrink ladders instead of spending retries on a request Meta has already
     told us is too big.
     """
-    try:
-        error = response.json().get("error", {})
+    error = _meta_error_body(response)
+    if _meta_error_subcode(response) in META_TIMEOUT_ERROR_SUBCODES:
+        return True
 
-        if error.get("error_subcode") in META_TIMEOUT_ERROR_SUBCODES:
-            return True
-
-        # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
-        # {"error":{"code":1,"message":"Please reduce the amount of data you're asking for, then retry your request"}}
-        message = str(error.get("message") or "").lower()
-        return error.get("code") == 1 and "reduce the amount of data" in message
-    except (ValueError, KeyError, AttributeError):
-        return False
+    # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
+    # {"error":{"code":1,"message":"Please reduce the amount of data you're asking for, then retry your request"}}
+    message = str(error.get("message") or "").lower()
+    return error.get("code") == 1 and "reduce the amount of data" in message
 
 
 def _should_shrink_request(response: Response) -> bool:
@@ -347,7 +343,7 @@ def _should_shrink_request(response: Response) -> bool:
     """
     if _is_timeout_error(response):
         return True
-    return _meta_error_body(response).get("error_subcode") in META_HEAVY_QUERY_ERROR_SUBCODES
+    return _meta_error_subcode(response) in META_HEAVY_QUERY_ERROR_SUBCODES
 
 
 # Meta's error-code reference documents code 1 ("API Unknown" — an unexplained backend hiccup
@@ -369,12 +365,14 @@ def _is_transient_error(response: Response) -> bool:
     Distinct from the too-much-data timeout (``_is_timeout_error``), which has its own
     limit-shrinking recovery; a transient error is retried with the request unchanged.
     """
-    try:
-        error = response.json().get("error", {})
-    except (ValueError, AttributeError):
+    payload = _parse_json_leniently(response)
+    if payload is None:
         # A 5xx with no parseable body (occasionally a completely empty response) carries no
         # error code to classify by, but a bare server-side failure is itself the signature of
         # a momentary blip — unlike a 4xx, which more likely reflects a bad request of ours.
+        return response.status_code >= 500
+    error = payload.get("error", {})
+    if not isinstance(error, dict):
         return response.status_code >= 500
     return error.get("is_transient") is True or error.get("code") in META_TRANSIENT_ERROR_CODES
 
@@ -450,6 +448,14 @@ META_UNSUPPORTED_GET_REQUEST_MESSAGE = "unsupported get request"
 # https://developers.facebook.com/docs/graph-api/overview/rate-limiting
 META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 
+# Meta error code 2642: the `paging.next` cursor used to follow a page was rejected as invalid.
+# Terminal for this job — `_iter_time_range_pagination`/`_iter_simple_pagination` save that same
+# cursor to resumable state before fetching it, so a Temporal retry of this job would resume with
+# the identical cursor and fail the same way every time. A later sync run gets a fresh job id (and
+# so a fresh resumable-state key, see `ResumableSourceManager`), which starts pagination from
+# scratch with a new cursor.
+META_INVALID_CURSOR_ERROR_CODE = 2642
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
@@ -458,17 +464,49 @@ META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
 )
 
+META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync became invalid. Please run the sync again."
+
 # Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync
 # with the key there.
 SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the smallest request size"
 
+# Entity endpoints (campaigns, ads, ad creatives, ...) have no date range to narrow, so the page
+# limit is the only lever. When Meta still refuses the smallest page, the cause is load on Meta's
+# side, and the same request later succeeds. So the entity path retries the smallest page with
+# backoff, then raises this retryable marker. Temporal then resumes from the saved cursor, and the
+# schema stays enabled for the next scheduled sync.
+ENTITY_PAGE_REFUSED_ERROR_MESSAGE = "Meta could not return this page even at the smallest page size (retryable)"
+SMALLEST_PAGE_LIMIT_MAX_RETRIES = 3
+
+
+def _parse_json_leniently(response: Response) -> dict | None:
+    """Parse a Meta API response body as JSON, tolerating trailing garbage after it.
+
+    Meta's backend occasionally appends a second, unrelated error object right after the
+    real one in the same body — the same kind of serialization glitch already handled for
+    truncated 200 bodies elsewhere in this module (see ``MALFORMED_JSON_MAX_ATTEMPTS``).
+    ``response.json()`` rejects the extra data outright ("Extra data" ``JSONDecodeError``),
+    which would otherwise make every classifier below treat an error that is actually
+    classifiable as completely unparseable. Recovering just the leading JSON value keeps
+    classification working for that case. Returns ``None``, same as a genuinely unparseable
+    body, when even the leading value can't be recovered.
+    """
+    try:
+        payload = response.json()
+    except (ValueError, AttributeError):
+        payload = None
+    if payload is None:
+        try:
+            payload, _ = json.JSONDecoder().raw_decode(response.text.lstrip())
+        except (ValueError, TypeError, AttributeError):
+            return None
+    return payload if isinstance(payload, dict) else None
+
 
 def _meta_error_body(response: Response) -> dict:
     """The ``error`` object of a Meta error response, or an empty dict if it carries none."""
-    try:
-        error = response.json().get("error", {})
-    except (ValueError, AttributeError):
-        return {}
+    payload = _parse_json_leniently(response)
+    error = payload.get("error", {}) if isinstance(payload, dict) else {}
     return error if isinstance(error, dict) else {}
 
 
@@ -476,6 +514,17 @@ def _meta_error_code(response: Response) -> int | None:
     """The numeric ``error.code`` of a Meta error body, or None if it carries no parseable one."""
     code = _meta_error_body(response).get("code")
     return code if isinstance(code, int) else None
+
+
+def _meta_error_subcode(response: Response) -> int | None:
+    """The numeric ``error.error_subcode`` of a Meta error body, or None if it carries no parseable one.
+
+    Guards against a non-numeric value (Meta's error bodies are not contractually typed) before
+    the callers below test it for set membership, which raises ``TypeError`` on an unhashable
+    value like a list.
+    """
+    subcode = _meta_error_body(response).get("error_subcode")
+    return subcode if isinstance(subcode, int) else None
 
 
 def _is_permanent_auth_error(response: Response) -> bool:
@@ -495,6 +544,12 @@ def _is_permanent_auth_error(response: Response) -> bool:
 def _is_rate_limit_error(response: Response) -> bool:
     """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
+
+
+def _is_invalid_cursor_error(response: Response) -> bool:
+    """Return True for Meta's "Invalid cursors values" error (code 2642), which retrying this
+    job can't recover from — see `META_INVALID_CURSOR_ERROR_CODE`."""
+    return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
 
 
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
@@ -517,6 +572,10 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
         raise Exception(
             f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
         )
+    if _is_invalid_cursor_error(response):
+        raise Exception(
+            f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
+        )
     if _is_transient_error(response) and not _should_shrink_request(response):
         raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
@@ -532,6 +591,20 @@ def _raise_shrink_exhausted_error(response: Response) -> typing.NoReturn:
     rather than retrying against the schedule forever.
     """
     raise Exception(f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+
+
+def _raise_entity_page_refused_error(response: Response) -> typing.NoReturn:
+    """Raise once the entity path has retried its smallest page and Meta still refuses it.
+
+    The message leaves out ``response.text`` on purpose. Meta's body carries "Please reduce the
+    amount of data you're asking for", which ``MetaAdsSource.get_non_retryable_errors`` matches
+    before the retryable patterns, so including it would disable the schema again.
+    """
+    error = _meta_error_body(response)
+    raise Exception(
+        f"{ENTITY_PAGE_REFUSED_ERROR_MESSAGE} (Meta API response: {response.status_code}, "
+        f"code {error.get('code')}, subcode {error.get('error_subcode')}, fbtrace_id {error.get('fbtrace_id')})"
+    )
 
 
 class MetaAdsAuthError(Exception):
@@ -626,6 +699,8 @@ def _iter_simple_pagination(
     fails on those accounts. Retrying the same URL at a smaller limit never
     re-emits already-yielded rows — the initial request has yielded nothing
     yet, and a cursor points at the start of the next (not-yet-yielded) page.
+    If the smallest limit still fails, the page is retried with backoff and
+    then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
@@ -653,6 +728,7 @@ def _iter_simple_pagination(
 
     response = _issue()
     malformed_json_attempts = 0
+    smallest_limit_retries = 0
 
     while True:
         if response.status_code != 200:
@@ -665,7 +741,12 @@ def _iter_simple_pagination(
                     current_limit = smaller
                     response = _issue()
                     continue
-                _raise_shrink_exhausted_error(response)
+                if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:
+                    smallest_limit_retries += 1
+                    _backoff_sleep(smallest_limit_retries)
+                    response = _issue()
+                    continue
+                _raise_entity_page_refused_error(response)
             _raise_meta_api_error(response)
 
         try:
@@ -683,6 +764,7 @@ def _iter_simple_pagination(
             response = _issue()
             continue
         malformed_json_attempts = 0
+        smallest_limit_retries = 0
 
         yield response_payload.get("data", [])
 

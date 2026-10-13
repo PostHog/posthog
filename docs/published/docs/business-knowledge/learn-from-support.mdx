@@ -72,38 +72,18 @@ Private notes, customer messages, deleted replies, and AI replies are not used.
 Each reply is checked for reusable information, personal data, secrets, and overlap with existing Business knowledge.
 Accepted answers are added as their own learned sources, named after the topic.
 You can open, edit, or delete a learned source.
-PostHog does not overwrite a source that already exists, even if it analyzes the same ticket again.
+PostHog does not change a source that already exists when it analyzes the same ticket again.
 
-A project can have up to 200 learned sources.
+If a later reply contradicts an earlier learned source, PostHog keeps the newer answer and disables the older learned source so it stops being used in replies.
+The older source and its content are kept, and the change is recorded in the activity log.
+PostHog only replaces a learned source that holds one document, so a crawled site with many pages stays as it is.
+A source you wrote is never disabled this way. PostHog keeps it and skips the newer answer instead.
+
+A project can have up to 10,000 learned sources.
 After that, new answers are not added until you delete some.
 
-## Run learning manually
-
-Use the management command to analyze one resolved ticket:
-
-```bash
-python manage.py run_business_knowledge_learning --team-id 123 --ticket-id <ticket-uuid>
-```
-
-Use `--lookback-days` for a bounded backfill of up to 90 days:
-
-```bash
-python manage.py run_business_knowledge_learning --team-id 123 --lookback-days 30
-```
-
-The project must have **Learn from support** on.
-The organization must allow AI data processing, the Business knowledge feature must be enabled, and Support must be on for the ticket's environment.
-
-## Pause or roll back learning
+## Turn learning off
 
 Turn off **Learn from support** to stop new analysis.
-Pause the `business-knowledge-learning-coordinator-schedule` Temporal schedule to stop scheduled collection.
-
-Remove previously learned documents from search without deleting them:
-
-```bash
-python manage.py run_business_knowledge_learning --team-id 123 --disable-generated-source
-```
-
-If code must be rolled back, complete those steps before reverting the learning coordinator.
-Reverting code does not remove the Temporal schedule or generated documents.
+Sources already learned stay in Business knowledge until you delete them.
+Open a learned source and delete it to remove that answer.

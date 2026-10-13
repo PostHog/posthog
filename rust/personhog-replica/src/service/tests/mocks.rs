@@ -28,6 +28,12 @@ impl FailingStorage {
             error: storage::StorageError::Query("syntax error at position 42".to_string()),
         }
     }
+
+    pub fn with_failed_precondition() -> Self {
+        Self {
+            error: storage::StorageError::FailedPrecondition("rows changed; retry".to_string()),
+        }
+    }
 }
 
 #[async_trait]
@@ -91,16 +97,45 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
         Err(self.error.clone())
     }
 
     async fn delete_tombstoned_persons(
         &self,
         _team_id: i64,
-        _uuids: &[Uuid],
+        _targets: &[storage::TombstoneTarget],
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
+        Err(self.error.clone())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Err(self.error.clone())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
         Err(self.error.clone())
     }
 
@@ -136,6 +171,14 @@ impl storage::PersonLookup for FailingStorage {
         _person_id: i64,
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
+        Err(self.error.clone())
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Err(self.error.clone())
     }
 }
@@ -475,17 +518,46 @@ impl storage::PersonLookup for SuccessStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
     }
 
     async fn delete_tombstoned_persons(
         &self,
         _team_id: i64,
-        _uuids: &[Uuid],
+        _targets: &[storage::TombstoneTarget],
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
+        Ok(Vec::new())
     }
 
     async fn delete_persons_batch_for_team(
@@ -521,6 +593,14 @@ impl storage::PersonLookup for SuccessStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
     }
 }
 
@@ -918,17 +998,46 @@ impl storage::PersonLookup for PopulatedStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
     }
 
     async fn delete_tombstoned_persons(
         &self,
         _team_id: i64,
-        _uuids: &[Uuid],
+        _targets: &[storage::TombstoneTarget],
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
+        Ok(Vec::new())
     }
 
     async fn delete_persons_batch_for_team(
@@ -964,6 +1073,14 @@ impl storage::PersonLookup for PopulatedStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
     }
 }
 
@@ -1337,17 +1454,46 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
     }
 
     async fn delete_tombstoned_persons(
         &self,
         _team_id: i64,
-        _uuids: &[Uuid],
+        _targets: &[storage::TombstoneTarget],
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
+        Ok(Vec::new())
     }
 
     async fn delete_persons_batch_for_team(
@@ -1383,6 +1529,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
     }
 }
 

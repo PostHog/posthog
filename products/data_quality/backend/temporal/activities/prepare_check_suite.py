@@ -11,9 +11,10 @@ from posthog.temporal.common.logger import get_logger
 from products.data_modeling.backend.facade import api as data_modeling_facade
 
 from ...facade.enums import SubjectType, SuiteRunTrigger
+from ...logic import posthog_tables
 from ...logic.checks import live_subject_checks
 from ...logic.flags import get_data_quality_checks_flag_for_team_id
-from ...logic.metric_schedules import MetricScheduleKey, MetricSchedules
+from ...logic.subject_schedules import SubjectScheduleKey, SubjectSchedules, selected_subject_ids
 from ...models import DataQualityCheck, DataQualitySuiteRun
 from ..contracts import PreparedSuite, RunCheckSuiteInputs
 
@@ -28,10 +29,10 @@ async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedS
     if inputs.trigger == SuiteRunTrigger.SCHEDULED:
         if not inputs.schedule_id:
             raise ValueError("Scheduled suites require a schedule identifier")
-        key = MetricScheduleKey.parse(inputs.schedule_id)
-        if key.team_id != inputs.team_id or inputs.metric_ids != [str(key.metric_id)]:
+        key = SubjectScheduleKey.parse(inputs.schedule_id)
+        if key.team_id != inputs.team_id or selected_subject_ids(inputs, key.subject_type) != [str(key.subject_uuid)]:
             raise ValueError("Schedule subject does not match suite inputs")
-        schedule = await MetricSchedules(await async_connect()).describe(key)
+        schedule = await SubjectSchedules(await async_connect()).describe(key)
         schedule_enabled = schedule is not None and not schedule.schedule.state.paused
     return await sync_to_async(_prepare)(inputs, schedule_enabled=schedule_enabled)
 
@@ -103,6 +104,7 @@ def _single_subject_fields(inputs: RunCheckSuiteInputs) -> dict[str, str]:
             (SubjectType.VIEW, inputs.saved_query_ids),
             (SubjectType.TABLE, inputs.table_ids),
             (SubjectType.METRIC, inputs.metric_ids),
+            (SubjectType.POSTHOG_TABLE, inputs.posthog_table_ids),
         )
         for subject_uuid in identifiers
     ]
@@ -122,13 +124,16 @@ def _select_checks(inputs: RunCheckSuiteInputs) -> list[str]:
         saved_query_ids = list(inputs.saved_query_ids)
         if inputs.node_ids:
             saved_query_ids += data_modeling_facade.get_saved_query_ids_for_nodes(inputs.team_id, inputs.node_ids)
-        if not saved_query_ids and not inputs.table_ids and not inputs.metric_ids:
+        if not saved_query_ids and not inputs.table_ids and not inputs.metric_ids and not inputs.posthog_table_ids:
             return []
         subject_filter = models.Q(saved_query_id__in=saved_query_ids)
         if inputs.table_ids:
             subject_filter |= models.Q(table_id__in=inputs.table_ids)
         if inputs.metric_ids:
             subject_filter |= models.Q(metric_id__in=inputs.metric_ids)
+        if inputs.posthog_table_ids:
+            names = [entry.name for entry in map(posthog_tables.by_id, inputs.posthog_table_ids) if entry]
+            subject_filter |= models.Q(posthog_table__in=names)
         runnable = runnable.filter(subject_filter)
 
     return [str(check_id) for check_id in runnable.values_list("id", flat=True)]

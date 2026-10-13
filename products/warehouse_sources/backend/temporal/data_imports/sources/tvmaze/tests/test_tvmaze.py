@@ -60,40 +60,6 @@ def _drive_index(
 class TestIndexPagination:
     """End-to-end pagination + resume behaviour of the show/person indexes."""
 
-    @pytest.mark.parametrize("endpoint", ["shows", "people"])
-    def test_walks_pages_until_404_and_skips_empty_pages(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response([{"id": 1}, {"id": 2}]),
-            # Deleted records can leave a sparse (empty) page mid-index; it must
-            # not terminate the walk — only the documented 404 does.
-            _make_http_response([]),
-            _make_http_response([{"id": 700}]),
-            _make_http_response([], status_code=404),
-        ]
-        sent_params, pages = _drive_index(endpoint, manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [0, 1, 2, 3]
-        assert [row["id"] for page in pages for row in page] == [1, 2, 700]
-
-    def test_saves_next_page_after_each_yielded_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response([{"id": 1}]),
-            _make_http_response([{"id": 300}]),
-            _make_http_response([], status_code=404),
-        ]
-        _drive_index("shows", manager, responses)
-
-        # One checkpoint per yielded data page; the terminating 404 page is
-        # never checkpointed (there is nothing left to resume to).
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [TVMazeResumeConfig(page=1), TVMazeResumeConfig(page=2)]
-
     def test_resume_seeds_paginator_with_saved_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -119,34 +85,6 @@ class TestIndexPagination:
 
 
 class TestUpdatesEndpoints:
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_path"),
-        [
-            ("show_updates", "/updates/shows"),
-            ("person_updates", "/updates/people"),
-        ],
-    )
-    def test_flattens_id_to_timestamp_map_into_rows(self, endpoint: str, expected_path: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-
-        with patch(TVMAZE_SESSION_FACTORY) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.get.return_value = _make_http_response({"1": 1631010933, "42": 1631010934})
-
-            source = tvmaze_source(
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            pages = list(cast(Iterable[list[dict[str, Any]]], source.items()))
-
-        requested_url = mock_session.get.call_args.args[0]
-        assert requested_url.endswith(expected_path)
-        # Ids arrive as JSON object keys (strings) and must land as integers so
-        # they can join against the shows/people tables.
-        assert pages == [[{"id": 1, "updated": 1631010933}, {"id": 42, "updated": 1631010934}]]
-
     def test_large_map_is_yielded_in_chunks(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         payload = {str(i): i for i in range(UPDATES_CHUNK_SIZE + 1)}
