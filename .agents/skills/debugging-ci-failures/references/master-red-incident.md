@@ -107,7 +107,8 @@ Choose the first verdict that the evidence supports:
 - **Flaky test:** the same test failed and passed on the same SHA, and nothing that merged before the onset changes what the test exercises.
 
 Name a commit or a PR as the cause only when it merged before the failures started and its diff changes what the error names.
-That is usually the code under test, such as a module or a logic that the error mentions, and rarely the test's own file.
+Take the start of the failures from the test's own history, which is Trunk's `status` time or the earliest run whose log shows the error, and not from the first red run.
+What the error names is usually the code under test, such as a module or a logic, and rarely the test's own file.
 A wrong attribution sends a person to the wrong PR while master is broken.
 When the evidence that you can reach does not settle the cause, say that you could not determine it, and give what you did establish: the failing job, the failing tests, their error, and when the failures started.
 
