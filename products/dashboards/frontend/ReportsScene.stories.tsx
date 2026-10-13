@@ -19,7 +19,19 @@ const meta: Meta<typeof ReportsScene> = {
     },
     render: (_, { parameters }) => {
         let files: FileSystemEntry[] = [
-            { id: 'sales', path: 'Sales', type: 'folder', user_access_level: 'editor' },
+            {
+                id: 'sales',
+                path: 'Sales',
+                type: 'folder',
+                user_access_level: 'editor',
+                meta: {
+                    custom_dashboards: {
+                        team_folder: true,
+                        description: 'Pipeline, revenue, and our weekly sales review.',
+                        pinned_dashboard_id: 1,
+                    },
+                },
+            },
             { id: 'product', path: 'Product', type: 'folder', user_access_level: 'editor' },
             { id: 'growth', path: 'Sales/Growth', type: 'folder', user_access_level: 'editor' },
             {
@@ -50,8 +62,18 @@ const meta: Meta<typeof ReportsScene> = {
         if (parameters.empty) {
             files = []
         }
+        const dashboardResponse = {
+            count: 2,
+            next: null,
+            results: [
+                { id: 1, name: 'Weekly overview', description: 'The team’s weekly review.', pinned: false },
+                { id: 2, name: 'Activation overview', description: 'New user activation.', pinned: false },
+            ],
+        }
         useStorybookMocks({
             get: {
+                '/api/environments/:team_id/dashboards/': [200, dashboardResponse],
+                '/api/projects/:team_id/dashboards/': [200, dashboardResponse],
                 '/api/:projectScope/:projectId/file_system/unfiled/': [200, { count: 0, results: [] }],
                 '/api/:projectScope/:projectId/file_system/': ({ request }) => {
                     if (parameters.failFolders) {
@@ -105,11 +127,39 @@ export default meta
 export const Folders: StoryObj<typeof ReportsScene> = {}
 export const EmptyFolder: StoryObj<typeof ReportsScene> = { parameters: { empty: true } }
 export const FolderError: StoryObj<typeof ReportsScene> = { parameters: { failFolders: true } }
+export const TeamFolder: StoryObj<typeof ReportsScene> = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('link', { name: 'Sales' }))
+        await canvas.findByRole('link', { name: 'Open dashboard' })
+    },
+}
+export const TeamFolderSetup: StoryObj<typeof ReportsScene> = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'New team folder' }))
+        const dialog = within(await within(document.body).findByRole('dialog'))
+        await userEvent.type(dialog.getByRole('textbox', { name: 'Team name' }), 'Growth')
+        await userEvent.type(
+            dialog.getByRole('textbox', { name: /What is this folder for/ }),
+            'Activation, retention, and our weekly review.'
+        )
+        await userEvent.click(document.querySelector('[data-attr="reports-folder-dashboard"]') as HTMLElement)
+        await userEvent.click(await within(document.body).findByText('Activation overview'))
+        await userEvent.click(dialog.getByRole('button', { name: 'Create folder' }))
+        await waitFor(() => {
+            if (router.values.searchParams.folder !== 'Growth') {
+                throw new Error('The team folder did not open')
+            }
+        })
+        await canvas.findByRole('link', { name: 'Open dashboard' })
+    },
+}
 export const NestedFolder: StoryObj<typeof ReportsScene> = {
     parameters: { narrow: true },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const folder = await canvas.findByRole('treeitem', { name: 'tree item: Sales' })
+        const folder = await canvas.findByRole('link', { name: 'Sales' })
         folder.focus()
         await userEvent.keyboard('{Enter}')
         await waitFor(() => {
