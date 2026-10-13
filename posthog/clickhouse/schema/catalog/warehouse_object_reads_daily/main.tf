@@ -53,7 +53,7 @@ locals {
     { name = "read_alone", type = "Bool" },
     { name = "requests", type = "AggregateFunction(uniq, String)" },
     { name = "users", type = "AggregateFunction(uniq, Int64)" },
-    { name = "read_count", type = "SimpleAggregateFunction(sum, UInt64)" },
+    { name = "read_count", type = "SimpleAggregateFunction(sum, UInt64)", comment = "Total read operations" },
     { name = "duration_ms_sum", type = "SimpleAggregateFunction(sum, UInt64)" },
     { name = "read_bytes_sum", type = "SimpleAggregateFunction(sum, UInt64)" },
     { name = "duration_ms_quantiles", type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)" },
