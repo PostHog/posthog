@@ -1,12 +1,14 @@
 import './HomeTabChartCard.scss'
 
 import { useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { SampleDataState } from 'scenes/insights/EmptyStates/SampleDataState'
+import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -14,6 +16,7 @@ import { Query } from '~/queries/Query/Query'
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { getHomeTabExploreUrl, type HomeTabChartOption } from './homeTabDefaultTiles'
 import { homeTabChartInsightId, homeTabDataCollectionId } from './homeTabQueryKeys'
+import { getHomeTabSampleData } from './homeTabSampleData'
 
 interface HomeTabChartCardProps {
     option: HomeTabChartOption
@@ -24,6 +27,30 @@ interface HomeTabChartCardProps {
 
 export function HomeTabChartCard({ option, size, control, source }: HomeTabChartCardProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+    const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    const sampleData = useMemo(
+        () => (shouldShowSampleData ? getHomeTabSampleData(option) : undefined),
+        [shouldShowSampleData, option]
+    )
+    const chartKey = sampleData ? `${option.key}.sample` : option.key
+    const chart = (
+        <Query
+            key={`${currentTeamId}.${chartKey}`}
+            query={option.query}
+            readOnly
+            inSharedMode={!!sampleData}
+            cachedResults={sampleData}
+            uniqueKey={`HomeTab.${currentTeamId}.${chartKey}`}
+            context={{
+                insightProps: {
+                    dashboardItemId: homeTabChartInsightId(currentTeamId, chartKey),
+                    dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
+                    query: option.query,
+                },
+            }}
+            attachTo={homeTabDefaultLogic}
+        />
+    )
     return (
         <LemonCard hoverEffect={false} className="HomeTabChartCard flex min-w-0 flex-col overflow-hidden p-0">
             <div className="HomeTabChartCard__header border-b border-primary px-4 py-2.5">
@@ -55,20 +82,7 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
             <div
                 className={`HomeTabDefaultChart HomeTabChartCard__visualization HomeTabChartCard__visualization--${size}`}
             >
-                <Query
-                    key={currentTeamId}
-                    query={option.query}
-                    readOnly
-                    uniqueKey={`HomeTab.${currentTeamId}.${option.key}`}
-                    context={{
-                        insightProps: {
-                            dashboardItemId: homeTabChartInsightId(currentTeamId, option.key),
-                            dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
-                            query: option.query,
-                        },
-                    }}
-                    attachTo={homeTabDefaultLogic}
-                />
+                {sampleData ? <SampleDataState>{chart}</SampleDataState> : chart}
             </div>
         </LemonCard>
     )

@@ -340,8 +340,11 @@ lens part past the first, up to 10). No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the
 finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. One exception: a dedup survivor takes a more severe duplicate's level when both fold into the same stored priority (a P0 merged into a P1); the `dropped_finding` record keeps the duplicate's own level. Findings publish
 inline. An
-optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
-(`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
+optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one sentence that says the review ran in larger parts
+(`ReviewMeta.lens_chunks_capped`, `large_pr_note`). A Standard review adds it to its summary line, and a clean
+Standard turn posts a short review with it next to the 👍. That review has its own hidden `reviewhog:large-pr-note`
+marker, so a head gets at most one, and it does not set the published watermark, so a later turn on the head still
+publishes its findings.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
@@ -520,6 +523,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     and the Flash limits (finding cap, posted priorities, lens part size and count, prompt diff budget) instead.
     A change to any hashed input (a prompt, a skill, a model pin, or a Flash limit) changes it without a version bump.
     The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
+    and records the turn's design. The review list, the review drawer, and the status comment read a turn's design
+    from its marker, because a later turn on the same head writes a newer snapshot with its own design.
     goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final
     status comment as a hidden `<!-- reviewhog-version: <version id> <fingerprint> -->` line (no visible text).
     Best-effort like the events.
