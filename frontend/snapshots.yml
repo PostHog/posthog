@@ -7703,9 +7703,9 @@ snapshots:
     products-posthog-ai-virtualizedthread--remembered-position--light:
         hash: v1.k794b7964.fcd3d3ae2a58e891ec3fb4b224d8674f1591e349a990e0211aee29c9bf6f8d01.ThH9PVDZc4Ziy5_MNxrvijx6pRk5muGoa3ul6PgEEZw
     products-posthog-ai-virtualizedthread--streaming--dark:
-        hash: v1.k794b7964.b82eb1f4dc8701cf771e98d9214e6b72878727e5f68feac99a7a2a97d120c8a7.yrNrQvDVMHhEcXBq_FC0zykgDZ33RIRP6hHC95RFdEc
+        hash: v1.k794b7964.f9cc08ddbb3329fbf77e6b772b80154652c7e7f8213a3d1e294f03157d65a247.H1DCML5PjOATF21LJKDpGu8nM5x6ONrPcBnDSHc8Ttc
     products-posthog-ai-virtualizedthread--streaming--light:
-        hash: v1.k794b7964.abd616bcda408ecf3fd0dfcaa1595491e88913000ad61893414d3536612ee3b5.94VJLVoiR9MVKJHF7FbnLu64DXBRbUpQLLoXu1Z74As
+        hash: v1.k794b7964.ea4454f7d7d4dc076ff61362f178cfa010fda1c721696790f03057e864699826.hnmbIF4uWE6aOZa6Mh0YIKu3s9LZvaKO-uHtdqrz14k
     products-signals-self-driving-intro-modal--default--dark:
         hash: v1.k794b7964.e72031a3a874ed6a1825089edff6147a3ea0d74c20c74951f8b5d38d92f54464.WQmsYZby7Raw1OaQn_oKtu1eASs_te6AgRALWXM6xLE
     products-signals-self-driving-intro-modal--default--light:
