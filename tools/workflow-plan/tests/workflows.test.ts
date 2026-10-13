@@ -650,6 +650,22 @@ describe('.github/workflows run plans', () => {
         }
     )
 
+    it.each([
+        ['frontend PR', pullRequest(), false, true, 'false', 'skipped'],
+        ['frontend merge queue', mergeQueue(), false, true, 'true', 'success'],
+        ['hobby PR', pullRequest(), true, false, 'true', 'success'],
+        ['unrelated merge queue', mergeQueue(), false, false, 'false', 'skipped'],
+    ] as const)('Docker image build on %s', (name, github, hobby, buildInputs, shouldBuild, result) => {
+        const plan = planWorkflow(workflow('container-images-ci.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ hobby, build_inputs: buildInputs }) } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.outputs.should_build).toBe(shouldBuild)
+        expect(plan.jobs.posthog_build?.result).toBe(result)
+    })
+
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)
             .filter(([id, job]) => job.if !== undefined && !namedJobs(file).has(id))
