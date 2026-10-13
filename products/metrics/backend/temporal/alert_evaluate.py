@@ -8,6 +8,8 @@ delivery child per notification.
 
 import asyncio
 import datetime as dt
+from collections.abc import Callable
+from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -112,5 +114,5 @@ class MetricsAlertEvaluateWorkflow(PostHogWorkflow):
         return started
 
 
-SOURCE_EVALUATION_WORKFLOWS = [MetricsAlertEvaluateWorkflow]
-SOURCE_EVALUATION_ACTIVITIES = [evaluate_metrics_alerts_activity]
+SOURCE_EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [MetricsAlertEvaluateWorkflow]
+SOURCE_EVALUATION_ACTIVITIES: list[Callable[..., Any]] = [evaluate_metrics_alerts_activity]
