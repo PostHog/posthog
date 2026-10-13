@@ -14,6 +14,7 @@ from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.health.context import load_health_context
+from products.experiments.backend.health.exposure_gate import load_split_history
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
     evaluate as evaluate_health,
@@ -126,14 +127,16 @@ def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> i
 
 
 def get_experiment_health_findings(*, team_id: int, experiment_id: int) -> list[ExperimentHealthFinding]:
-    """The findings of the health checks that read only the experiment, its flag and its linked metrics."""
+    """The findings of the health checks that read the experiment, its flag, the flag's split changes and its
+    linked metrics."""
     experiment = (
         ExperimentModel.objects.filter(team_id=team_id)
-        .select_related("feature_flag")
+        .select_related("team", "feature_flag")
         .prefetch_related("experimenttosavedmetric_set")
         .get(id=experiment_id)
     )
-    return evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
+    context = load_health_context(experiment, split_history=load_split_history(experiment))
+    return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

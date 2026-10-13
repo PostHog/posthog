@@ -721,6 +721,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 None,
                 [_HEALTH_PAUSED, ("flag_variants_mismatch", "no_control_variant")],
             ),
+            (
+                "split_edited_after_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED, ("split_changed_mid_run", "rebalanced")],
+                timedelta(days=1),
+            ),
+            ("split_edited_before_launch", {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED], -timedelta(days=1)),
         ]
     )
     def test_health_reports_findings(
@@ -729,26 +737,29 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         experiment_fields: dict[str, Any],
         shared_metric_link: dict[str, Any] | None,
         expected: list[tuple[str, str | None]],
+        split_edit_from_launch: timedelta | None = None,
     ) -> None:
+        start_date = timezone.now() - timedelta(days=3)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-findings-{_name}",
+            created_by=self.user,
+            active=False,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
         experiment = Experiment.objects.create(
             team=self.team,
             name="health-findings",
-            feature_flag=FeatureFlag.objects.create(
-                team=self.team,
-                key=f"health-findings-{_name}",
-                created_by=self.user,
-                active=False,
-                filters={
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "test", "rollout_percentage": 50},
-                        ]
-                    },
-                },
-            ),
-            start_date=timezone.now() - timedelta(days=3),
+            feature_flag=flag,
+            start_date=start_date,
             metrics=experiment_fields.get("metrics", []),
             metrics_secondary=experiment_fields.get("metrics_secondary", []),
             stats_config=experiment_fields.get("stats_config", {}),
@@ -770,8 +781,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 format="json",
             )
             self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
+        if split_edit_from_launch is not None:
+            with time_machine.travel(start_date + split_edit_from_launch), self.captureOnCommitCallbacks(execute=True):
+                flag.filters = {
+                    **flag.filters,
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 80},
+                            {"key": "test", "rollout_percentage": 20},
+                        ]
+                    },
+                }
+                flag.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
+        with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         health = response.json()
