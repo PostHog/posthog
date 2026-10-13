@@ -88,6 +88,8 @@ class SessionRecording(UUIDTModel):
     # False when this recording was included in listing results via session_recording_id
     # despite not matching the listing filters
     matches_filters: Optional[bool] = None
+    # Set by list queries, which do not load the full metadata
+    _listed_snapshot_source: Optional[str] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -139,7 +141,9 @@ class SessionRecording(UUIDTModel):
 
     @property
     def snapshot_source(self) -> Optional[str]:
-        return self._metadata.get("snapshot_source", "web") if self._metadata else "web"
+        if self._metadata:
+            return self._metadata.get("snapshot_source", "web")
+        return self._listed_snapshot_source or "web"
 
     @property
     def snapshot_library(self) -> Optional[str]:
@@ -226,6 +230,9 @@ class SessionRecording(UUIDTModel):
             recording.retention_period_days = ch_recording.get("retention_period_days", None)
             recording.expiry_time = ch_recording.get("expiry_time", None)
             recording.recording_ttl = ch_recording.get("recording_ttl", None)
+            recording.total_size = ch_recording.get("total_size", None)
+            recording.event_count = ch_recording.get("event_count", None)
+            recording._listed_snapshot_source = ch_recording.get("listed_snapshot_source", None)
 
             recordings.append(recording)
 
