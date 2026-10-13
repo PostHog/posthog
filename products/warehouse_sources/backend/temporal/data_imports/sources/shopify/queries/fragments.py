@@ -123,7 +123,7 @@ TAX_LINES_FRAGMENT = f"""{{
     title
 }}"""
 
-LINE_ITEM_FRAGMENT = f"""{{
+LINE_ITEM_FIELDS = f"""
     id
     currentQuantity
     customAttributes {KV_FRAGMENT}
@@ -153,7 +153,9 @@ LINE_ITEM_FRAGMENT = f"""{{
         id
     }}
     vendor
-}}"""
+"""
+
+LINE_ITEM_FRAGMENT = f"{{{LINE_ITEM_FIELDS}}}"
 
 CUSTOMER_FRAGMENT = f"""{{
     addresses {MAILING_ADDRESS_FRAGMENT}

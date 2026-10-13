@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.bulk import SHOPIFY_BULK_FILE_SHAPE_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
     CREATED_AT,
     SHOPIFY_API_VERSION_2025_10,
@@ -63,8 +64,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# Rows read through a bulk operation have no `discountApplications` and no `shippingLines`,
-# because a bulk operation cannot export them.
 WAREHOUSE_SHOPIFY_BULK_EXPORT_FLAG = "warehouse-shopify-bulk-export"
 
 
@@ -154,6 +153,8 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # address. Retrying cannot recover; the user must correct the store id, the same fix
             # as the token endpoint's 404 above.
             SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH: SHOPIFY_STORE_NOT_FOUND_ERROR,
+            # The bulk result file does not change between attempts, so a retry fails the same way.
+            SHOPIFY_BULK_FILE_SHAPE_ERROR: None,
         }
 
     def get_retryable_errors(self) -> set[str]:

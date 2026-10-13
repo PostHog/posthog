@@ -6,6 +6,7 @@ from .fragments import (
     ID_NAME_CREATED_UPDATED_FRAGMENT,
     ID_NAME_FRAGMENT,
     KV_FRAGMENT,
+    LINE_ITEM_FIELDS,
     LINE_ITEM_FRAGMENT,
     MAILING_ADDRESS_FRAGMENT,
     METAFIELD_CONNECTIONS_FRAGMENT,
@@ -92,9 +93,7 @@ ORDERS_BULK_CONNECTIONS: dict[str, str] = {"LineItem": "lineItems", "Metafield":
 _BULK_LINE_ITEMS_BLOCK = f"""lineItems {{
                 edges {{
                     node {{
-                        __typename
-                        {LINE_ITEM_FRAGMENT.strip()[1:-1]}
-                    }}
+                        __typename{LINE_ITEM_FIELDS}                    }}
                 }}
             }}"""
 

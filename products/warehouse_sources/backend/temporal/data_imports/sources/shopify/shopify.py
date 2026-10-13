@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import functools
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -24,8 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.bulk import (
     BULK_POLL_INTERVAL_SECONDS,
+    BULK_STATE_REFRESH_SECONDS,
     BULK_STATUS_COMPLETED,
     BULK_STATUSES_IN_PROGRESS,
+    GraphQLPost,
+    ShopifyBulkOperation,
     ShopifyBulkOperationError,
     ShopifyBulkOperationRejectedError,
     get_bulk_operation,
@@ -321,6 +325,45 @@ def _shopify_retry_wait(retry_state: RetryCallState) -> float:
     return backoff
 
 
+@retry(
+    # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
+    # `sess.post` as requests ConnectionError/Timeout — e.g. a 504 from the egress proxy tunnel.
+    # They're retryable like a 5xx, so reissue the request with backoff instead of failing the
+    # whole import. ConnectionError covers ProxyError; Timeout covers connect/read timeouts.
+    retry=retry_if_exception_type(
+        (ShopifyRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    ),
+    stop=stop_after_attempt(5),
+    wait=_shopify_retry_wait,
+    reraise=True,
+)
+def _post_shopify_graphql(url: str, sess: requests.Session, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    # `post` reads the body eagerly (stream=False), so a connection dropped mid-stream
+    # surfaces here as ChunkedEncodingError. It's transient — retry it like a 5xx below.
+    try:
+        response = sess.post(url, json={"query": query, "variables": variables})
+    except ChunkedEncodingError as e:
+        raise ShopifyRetryableError(f"Shopify: connection broken while reading response: {e}") from e
+    if response.status_code >= 500:
+        raise ShopifyRetryableError(f"Shopify: internal error from request {response.status_code} {response.reason}")
+    else:
+        response.raise_for_status()
+    payload = response.json()
+    retryable_error = _get_retryable_error(payload)
+    if retryable_error:
+        raise retryable_error
+
+    if "errors" in payload:
+        error_messages = [e.get("message", "") for e in payload["errors"]]
+        joined = "; ".join(error_messages)
+        raise Exception(f"Shopify GraphQL error: {joined}")
+
+    if "data" not in payload:
+        raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
+
+    return payload
+
+
 def _make_paginated_shopify_request(
     url: str,
     sess: requests.Session,
@@ -333,46 +376,6 @@ def _make_paginated_shopify_request(
 ) -> Iterator[list[Any]]:
     endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
 
-    @retry(
-        # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
-        # `sess.post` as requests ConnectionError/Timeout — e.g. a 504 from the egress proxy tunnel.
-        # They're retryable like a 5xx, so reissue the request with backoff instead of failing the
-        # whole import. ConnectionError covers ProxyError; Timeout covers connect/read timeouts.
-        retry=retry_if_exception_type(
-            (ShopifyRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
-        ),
-        stop=stop_after_attempt(5),
-        wait=_shopify_retry_wait,
-        reraise=True,
-    )
-    def execute(vars: dict[str, Any]):
-        # `post` reads the body eagerly (stream=False), so a connection dropped mid-stream
-        # surfaces here as ChunkedEncodingError. It's transient — retry it like a 5xx below.
-        try:
-            response = sess.post(url, json={"query": graphql_object.query, "variables": vars})
-        except ChunkedEncodingError as e:
-            raise ShopifyRetryableError(f"Shopify: connection broken while reading response: {e}") from e
-        if response.status_code >= 500:
-            raise ShopifyRetryableError(
-                f"Shopify: internal error from request {response.status_code} {response.reason}"
-            )
-        else:
-            response.raise_for_status()
-        payload = response.json()
-        retryable_error = _get_retryable_error(payload)
-        if retryable_error:
-            raise retryable_error
-
-        if "errors" in payload:
-            error_messages = [e.get("message", "") for e in payload["errors"]]
-            joined = "; ".join(error_messages)
-            raise Exception(f"Shopify GraphQL error: {joined}")
-
-        if "data" not in payload:
-            raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
-
-        return payload
-
     pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
     vars: dict[str, Any] = {"pageSize": pageSize}
     logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
@@ -383,7 +386,7 @@ def _make_paginated_shopify_request(
     has_next_page = True
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
-        payload = execute(vars)
+        payload = _post_shopify_graphql(url, sess, graphql_object.query, vars)
         data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
         if endpoint_config is not None:
             if endpoint_config.incremental_field_resolver:
@@ -405,32 +408,27 @@ def _make_paginated_shopify_request(
                 resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (ShopifyRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
-    ),
-    stop=stop_after_attempt(5),
-    wait=_shopify_retry_wait,
-    reraise=True,
-)
-def _post_shopify_graphql(url: str, sess: requests.Session, query: str, variables: dict[str, Any]) -> dict[str, Any]:
-    """Send one GraphQL request outside the paged read, with the same retries as a page."""
-    try:
-        response = sess.post(url, json={"query": query, "variables": variables})
-    except ChunkedEncodingError as e:
-        raise ShopifyRetryableError(f"Shopify: connection broken while reading response: {e}") from e
-    if response.status_code >= 500:
-        raise ShopifyRetryableError(f"Shopify: internal error from request {response.status_code} {response.reason}")
-    response.raise_for_status()
-    payload = response.json()
-    retryable_error = _get_retryable_error(payload)
-    if retryable_error:
-        raise retryable_error
-    if "errors" in payload:
-        raise Exception(f"Shopify GraphQL error: {_format_graphql_errors(payload['errors'])}")
-    if "data" not in payload:
-        raise Exception(f"Unexpected graphql response format in Shopify request. Keys: {list(payload.keys())}")
-    return payload
+def _wait_for_bulk_operation(
+    post: GraphQLPost,
+    checkpoint: ShopifyResumeConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+) -> ShopifyBulkOperation | None:
+    """Poll the operation of `checkpoint` until it ends. Returns the last state Shopify gave, if any."""
+    operation_id = checkpoint.bulk_operation_id or ""
+    refreshed_at = time.monotonic()
+    while True:
+        operation = get_bulk_operation(post, operation_id)
+        if operation is None or operation.status not in BULK_STATUSES_IN_PROGRESS:
+            return operation
+        logger.debug(
+            f"Shopify: bulk operation {operation_id} is {operation.status}, {operation.object_count} objects so far"
+        )
+        if time.monotonic() - refreshed_at >= BULK_STATE_REFRESH_SECONDS:
+            with resumable_source_manager.committing():
+                resumable_source_manager.save_state(checkpoint)
+            refreshed_at = time.monotonic()
+        interruptible_wait(BULK_POLL_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
 
 
 def _bulk_export_rows(
@@ -444,7 +442,8 @@ def _bulk_export_rows(
 ) -> Iterator[list[Any]] | None:
     """Read every row of the object through one bulk operation.
 
-    Returns None when Shopify does not start the operation, so the caller can use the paged read.
+    Returns None when the operation cannot give rows and has given none, so the caller can use the
+    paged read: Shopify did not start it, or it ended without a result before any row was written.
     """
     post = functools.partial(_post_shopify_graphql, url, sess)
 
@@ -466,34 +465,24 @@ def _bulk_export_rows(
         with resumable_source_manager.committing():
             resumable_source_manager.save_state(checkpoint(operation_id, 0))
 
-    def rows() -> Iterator[list[Any]]:
-        while True:
-            operation = get_bulk_operation(post, operation_id)
-            if operation.status == BULK_STATUS_COMPLETED:
-                break
-            if operation.status not in BULK_STATUSES_IN_PROGRESS:
-                # A retry that found this operation again would fail the same way.
-                resumable_source_manager.clear_state()
-                raise ShopifyBulkOperationError(
-                    f"Shopify bulk operation {operation_id} ended with status {operation.status} "
-                    f"(error code {operation.error_code})"
-                )
-            logger.debug(
-                f"Shopify: bulk operation {operation_id} is {operation.status}, {operation.object_count} objects so far"
-            )
-            # The stored state expires. An operation can run for days, so store it again on each poll.
-            with resumable_source_manager.committing():
-                resumable_source_manager.save_state(checkpoint(operation_id, offset))
-            interruptible_wait(BULK_POLL_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+    operation = _wait_for_bulk_operation(post, checkpoint(operation_id, offset), logger, resumable_source_manager)
+    if operation is None or operation.status != BULK_STATUS_COMPLETED:
+        outcome = "is gone" if operation is None else f"ended as {operation.status} (error code {operation.error_code})"
+        # A retry that found this operation again would fail the same way.
+        resumable_source_manager.clear_state()
+        if offset == 0:
+            logger.warning(f"Shopify: bulk operation {operation_id} {outcome}, reading pages instead")
+            return None
+        # Rows of this operation are already written, and pages cannot continue from a file offset.
+        raise ShopifyBulkOperationError(f"Shopify bulk operation {operation_id} {outcome}")
 
-        if operation.url is None:
-            # Shopify gives no file when the query matched no rows.
-            return
-        for batch in iter_bulk_batches(operation.url, offset, graphql_object.bulk_connections):
+    def rows(result_url: str, file_size: int | None) -> Iterator[list[Any]]:
+        for batch in iter_bulk_batches(result_url, offset, graphql_object.bulk_connections, file_size):
             resumable_source_manager.save_state(checkpoint(operation_id, batch.next_offset))
             yield batch.rows
 
-    return rows()
+    # Shopify gives no file when the query matched no rows.
+    return iter(()) if operation.url is None else rows(operation.url, operation.file_size)
 
 
 # A Shopify store subdomain is lowercase alphanumerics and hyphens.
@@ -767,18 +756,30 @@ def shopify_source(
             if resume_config is not None:
                 read_in_bulk = resume_config.phase == PHASE_BULK
             else:
+                # A full refresh schema never gets a paged pass, so the fields a bulk operation
+                # cannot export would stay empty on every row.
                 read_in_bulk = (
                     use_bulk_export is not None
+                    and should_use_incremental_field
                     and graphql_object.bulk_query_builder is not None
                     and api_version in SHOPIFY_BULK_EXPORT_API_VERSIONS
                     and use_bulk_export()
                 )
             if read_in_bulk and graphql_object.bulk_query_builder is not None:
+                # The sync after this one reads the rows above the highest value it stored. The file
+                # has no promised order, so a row that changes while the export runs could be below
+                # that value and never read. The bound keeps every row of the file at or below the
+                # start time, and a row that changes later is above it.
+                bulk_endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+                bulk_query_filter = bulk_endpoint_config.query_filter if bulk_endpoint_config else None
+                bulk_terms = [*filter_terms]
+                if bulk_query_filter:
+                    bulk_terms.append(f"{bulk_query_filter}:<='{datetime.now(UTC).isoformat()}'")
                 bulk_rows = _bulk_export_rows(
                     api_url,
                     sess,
                     graphql_object,
-                    graphql_object.bulk_query_builder(granted_scopes or set(), " AND ".join(filter_terms) or None),
+                    graphql_object.bulk_query_builder(granted_scopes or set(), " AND ".join(bulk_terms) or None),
                     logger,
                     resumable_source_manager,
                     resume_config,
