@@ -18,7 +18,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ActivityCell } from '../components/FlakinessActivityCell'
 import { MarginCell } from '../components/FlakinessMarginCell'
@@ -26,8 +25,8 @@ import { QuarantineCell } from '../components/FlakinessQuarantineCell'
 import { StateCell } from '../components/FlakinessStateCell'
 import { FLAKE_RATE_DAYS, FlakinessStatRow } from '../components/FlakinessStatRow'
 import { QuarantineAction } from '../components/QuarantineAction'
-import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { FlakinessEntryApi } from '../generated/api.schemas'
 import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
@@ -57,7 +56,6 @@ export function VisualReviewFlakinessScene(): JSX.Element {
     const {
         overview,
         overviewLoading,
-        repo,
         repoNotFound,
         repoFullName,
         filteredEntries,
@@ -105,16 +103,13 @@ export function VisualReviewFlakinessScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={repo?.repo_full_name ?? repoFullName}
-                resourceType={{ type: 'visual_review' }}
+            <VisualReviewSceneTitle
+                repoFullName={repoFullName}
+                activeTab="flakiness"
                 actions={
-                    <div className="flex gap-2 items-center">
-                        <RepoSwitcher repoFullName={repoFullName} activeTab="flakiness" />
-                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
-                            Settings
-                        </LemonButton>
-                    </div>
+                    <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                        Settings
+                    </LemonButton>
                 }
             />
             <VisualReviewTabs activeKey="flakiness" repoFullName={repoFullName} />

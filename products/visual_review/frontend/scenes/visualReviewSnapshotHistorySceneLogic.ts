@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -14,8 +13,8 @@ import {
     visualReviewReposSnapshotsList,
 } from '../generated/api'
 import type { QuarantinedIdentifierEntryApi, RepoApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { resolveRepoId } from '../lib/repoIds'
-import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
 export interface VisualReviewSnapshotHistorySceneLogicProps {
@@ -165,7 +164,7 @@ export interface visualReviewSnapshotHistorySceneLogicMeta {
             partnerHistory: SnapshotHistoryEntryApi[],
             primaryTheme: 'dark' | 'light' | null
         ) => ThemePair[]
-        breadcrumbs: (arg: any, arg2: any) => Breadcrumb[]
+        breadcrumbs: (repo: RepoApi | null, arg: any) => Breadcrumb[]
     }
 }
 
@@ -335,17 +334,11 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                 }))
             },
         ],
+        // The identifier names the snapshot in the page's own trail, so the top bar stops at the repository like the tabs do.
         breadcrumbs: [
-            () => [(_, p) => p.identifier, (_, p) => p.repoFullName],
-            (identifier: string, repoFullName: string): Breadcrumb[] => [
-                { key: 'visual_review', name: 'Visual review', path: '/visual_review' },
-                {
-                    key: ['visual_review_snapshots', repoFullName],
-                    name: 'Snapshots',
-                    path: urls.visualReviewSnapshotOverview(...splitRepoFullName(repoFullName)),
-                },
-                { key: ['visual_review_snapshot_history', identifier], name: identifier },
-            ],
+            (s) => [s.repo, (_, p) => p.repoFullName],
+            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] =>
+                repoBreadcrumbs(repo?.repo_full_name ?? repoFullName),
         ],
     }),
     listeners(({ actions, values, props }) => ({

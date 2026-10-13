@@ -40,6 +40,7 @@ import {
     liftRequestsByIdentifier,
 } from '../lib/liftOnMerge'
 import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { runPath } from '../lib/repoPaths'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
@@ -361,7 +362,7 @@ export interface visualReviewRunSceneLogicMeta {
         isRunInProgress: (run: RunApi | null) => boolean
         isRunProcessing: (run: RunApi | null) => boolean
         isReportingOnly: (run: RunApi | null) => boolean
-        breadcrumbs: (run: RunApi | null) => Breadcrumb[]
+        breadcrumbs: (repo: RepoApi | null, repoFullName: string | null) => Breadcrumb[]
     }
 }
 
@@ -844,19 +845,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
         isRunProcessing: [(s) => [s.run], (run: RunApi | null): boolean => run?.status === 'processing'],
         isReportingOnly: [(s) => [s.run], (run: RunApi | null): boolean => isReportingOnlyRun(run)],
+        // The branch names the run in the page's own trail, so the top bar stops at the repository like the tabs do.
         breadcrumbs: [
-            (s) => [s.run],
-            (run: RunApi | null): Breadcrumb[] => [
-                {
-                    key: 'visual_review',
-                    name: 'Visual review',
-                    path: '/visual_review',
-                },
-                {
-                    key: 'visual_review_run',
-                    name: run?.branch || 'Run',
-                },
-            ],
+            (s) => [s.repo, s.repoFullName],
+            (repo: RepoApi | null, repoFullName: string | null): Breadcrumb[] =>
+                repoBreadcrumbs(repo?.repo_full_name ?? repoFullName),
         ],
     }),
     listeners(({ actions, values, props }) => ({

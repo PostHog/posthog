@@ -18,10 +18,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { RepoSwitcher } from '../components/RepoSwitcher'
 import { RunSummaryStats } from '../components/RunSummaryStats'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { RunApi } from '../generated/api.schemas'
 import { repoFullNameFromParams, runPath } from '../lib/repoPaths'
@@ -72,7 +71,7 @@ const TAB_COUNT_TYPES: Record<ReviewState, 'warning' | 'highlight' | 'default' |
 }
 
 export function VisualReviewRunsScene(): JSX.Element {
-    const { runs, runsLoading, activeTab, counts, repo, repoNotFound, repoFullName, page, totalCount, searchQuery } =
+    const { runs, runsLoading, activeTab, counts, repoNotFound, repoFullName, page, totalCount, searchQuery } =
         useValues(visualReviewRunsSceneLogic)
     const { loadRuns, loadCounts, setActiveTab, setPage, setSearchQuery } = useActions(visualReviewRunsSceneLogic)
 
@@ -148,16 +147,13 @@ export function VisualReviewRunsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={repo?.repo_full_name ?? repoFullName}
-                resourceType={{ type: 'visual_review' }}
+            <VisualReviewSceneTitle
+                repoFullName={repoFullName}
+                activeTab="runs"
                 actions={
-                    <div className="flex gap-2 items-center">
-                        <RepoSwitcher repoFullName={repoFullName} activeTab="runs" />
-                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
-                            Settings
-                        </LemonButton>
-                    </div>
+                    <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                        Settings
+                    </LemonButton>
                 }
             />
             <VisualReviewTabs activeKey="runs" repoFullName={repoFullName} />

@@ -8,12 +8,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { RepoSwitcher } from '../components/RepoSwitcher'
 import { RECENT_DRIFT_WINDOW, SnapshotCard } from '../components/SnapshotCard'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
 import { SnapshotStatRow } from '../components/SnapshotStatRow'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import { repoFullNameFromParams } from '../lib/repoPaths'
 import {
@@ -38,7 +37,6 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
     const {
         overview,
         overviewLoading,
-        repo,
         repoNotFound,
         repoFullName,
         filteredEntries,
@@ -68,16 +66,13 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={repo?.repo_full_name ?? repoFullName}
-                resourceType={{ type: 'visual_review' }}
+            <VisualReviewSceneTitle
+                repoFullName={repoFullName}
+                activeTab="snapshots"
                 actions={
-                    <div className="flex gap-2 items-center">
-                        <RepoSwitcher repoFullName={repoFullName} activeTab="snapshots" />
-                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
-                            Settings
-                        </LemonButton>
-                    </div>
+                    <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                        Settings
+                    </LemonButton>
                 }
             />
             <VisualReviewTabs activeKey="snapshots" repoFullName={repoFullName} />

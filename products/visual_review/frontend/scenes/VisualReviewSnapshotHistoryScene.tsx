@@ -9,16 +9,18 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { QuarantineAction } from '../components/QuarantineAction'
 import type { OnQuarantine } from '../components/QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
+import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
-import { repoFullNameFromParams, runPath } from '../lib/repoPaths'
+import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
 import {
     ThemePair,
     VisualReviewSnapshotHistorySceneLogicProps,
@@ -351,8 +353,17 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection name={identifier} resourceType={{ type: 'visual_review' }} />
+            <VisualReviewSceneTitle repoFullName={pathRepoFullName} activeTab="snapshots" />
             <VisualReviewTabs activeKey="snapshots" repoFullName={pathRepoFullName} />
+            <VisualReviewTrail
+                crumbs={[
+                    {
+                        label: 'Snapshots',
+                        to: urls.visualReviewSnapshotOverview(...splitRepoFullName(pathRepoFullName)),
+                    },
+                    { label: identifier },
+                ]}
+            />
 
             <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
                 <div className="border rounded bg-bg-light flex flex-wrap items-center gap-x-10 gap-y-3 px-4 py-3">

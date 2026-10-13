@@ -12,6 +12,7 @@ import type {
     ReviewStateCountsApi,
     VisualReviewReposRunsListReviewState,
 } from '../generated/api.schemas'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { resolveRepoId } from '../lib/repoIds'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
@@ -192,19 +193,10 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
         ],
         runsLoading: [(s) => [s.runsResponseLoading], (loading: boolean): boolean => loading],
         totalCount: [(s) => [s.runsResponse], (runsResponse: PaginatedRunListApi): number => runsResponse.count ?? 0],
-        // Only one scene-level crumb — the project crumb is prepended
-        // automatically. With two scene crumbs the SceneTitleSection back
-        // button kicks in (it shows when total breadcrumbs > 2), and
-        // clicking back lands on /visual_review which immediately redirects
-        // straight here, so the back arrow does nothing useful.
         breadcrumbs: [
             (s) => [s.repo, s.repoFullName],
-            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] => [
-                {
-                    key: ['visual_review_repo', repoFullName],
-                    name: repo?.repo_full_name ?? repoFullName,
-                },
-            ],
+            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] =>
+                repoBreadcrumbs(repo?.repo_full_name ?? repoFullName),
         ],
     }),
 

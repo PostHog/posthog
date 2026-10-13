@@ -17,6 +17,7 @@ import {
 } from '../generated/api'
 import type { FlakinessEntryApi, FlakinessOverviewApi, RepoApi } from '../generated/api.schemas'
 import { parseArea, runTypeLabel } from '../lib/parseIdentifier'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { resolveRepoId } from '../lib/repoIds'
 import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
@@ -489,15 +490,10 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             (projectId: number | string, repo: RepoApi | null): string | null =>
                 projectId && repo ? `/api/projects/${projectId}/visual_review/repos/${repo.id}/thumbnails` : null,
         ],
-        // Single scene crumb, matching the runs and snapshots scenes.
         breadcrumbs: [
             (s) => [s.repo, s.repoFullName],
-            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] => [
-                {
-                    key: ['visual_review_repo', repoFullName],
-                    name: repo?.repo_full_name ?? repoFullName,
-                },
-            ],
+            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] =>
+                repoBreadcrumbs(repo?.repo_full_name ?? repoFullName),
         ],
     }),
     listeners(({ actions, values, props }) => ({

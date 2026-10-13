@@ -13,6 +13,7 @@ import { visualReviewReposBaselinesRetrieve } from '../generated/api'
 import type { BaselineEntryApi, BaselineOverviewApi } from '../generated/api.schemas'
 import type { RepoApi } from '../generated/api.schemas'
 import { parseArea, parseTheme, runTypeLabel } from '../lib/parseIdentifier'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { resolveRepoId } from '../lib/repoIds'
 import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
@@ -506,15 +507,10 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             (projectId: number | string, repo: RepoApi | null): string | null =>
                 projectId && repo ? `/api/projects/${projectId}/visual_review/repos/${repo.id}/thumbnails` : null,
         ],
-        // Single scene crumb — see runs scene for why we collapse to one.
         breadcrumbs: [
             (s) => [s.repo, s.repoFullName],
-            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] => [
-                {
-                    key: ['visual_review_repo', repoFullName],
-                    name: repo?.repo_full_name ?? repoFullName,
-                },
-            ],
+            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] =>
+                repoBreadcrumbs(repo?.repo_full_name ?? repoFullName),
         ],
     }),
     actionToUrl(({ values, props }) => {

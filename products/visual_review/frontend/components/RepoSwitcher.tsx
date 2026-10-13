@@ -13,8 +13,8 @@ import type { VisualReviewTabKey } from './VisualReviewTabs'
 
 interface RepoSwitcherProps {
     repoFullName: string
-    // Where to land on the other repo — preserves the user's current tab so
-    // switching from Snapshots on repo A goes to Snapshots on repo B.
+    // Where to land on the other repo. It preserves the user's current tab, so
+    // switching from Snapshots on repo A goes to Snapshots on repo B. A detail page passes the tab that owns it.
     activeTab: VisualReviewTabKey
 }
 
@@ -25,7 +25,7 @@ const TAB_TO_PATH: Record<VisualReviewTabKey, (repoFullName: string) => string> 
 }
 
 export function RepoSwitcher({ repoFullName, activeTab }: RepoSwitcherProps): JSX.Element | null {
-    const { repo, otherRepos } = useValues(visualReviewRepoLogic({ repoFullName }))
+    const { otherRepos } = useValues(visualReviewRepoLogic({ repoFullName }))
 
     if (otherRepos.length === 0) {
         return null
@@ -38,8 +38,13 @@ export function RepoSwitcher({ repoFullName, activeTab }: RepoSwitcherProps): JS
 
     return (
         <LemonMenu items={items}>
-            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                {repo?.repo_full_name ?? repoFullName}
+            <LemonButton
+                type="secondary"
+                size="small"
+                sideIcon={<IconChevronDown />}
+                data-attr="visual-review-repo-switcher"
+            >
+                Switch repository
             </LemonButton>
         </LemonMenu>
     )
