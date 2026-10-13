@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 from posthog.egress.limiter.policies import Priority
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 

@@ -9,6 +9,7 @@ import re
 import json
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -80,6 +81,8 @@ GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
 # GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
 MAX_PR_ASSIGNEES = 10
+# GitHub's request-reviewers endpoint caps a single call at 15 users.
+MAX_PR_REVIEWERS = 15
 
 # GitHub label names cap at 50 characters, and a self-driving pull request only ever carries the one
 # label its team configured, so a longer list is a caller mistake rather than a use we support.
@@ -1222,6 +1225,11 @@ class GitHubIntegrationBase:
                 for entry in (pr.get("assignees") or [])
                 if isinstance(entry, dict) and entry.get("login")
             ],
+            "requested_reviewers": [
+                entry["login"]
+                for entry in (pr.get("requested_reviewers") or [])
+                if isinstance(entry, dict) and entry.get("login")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
@@ -1379,6 +1387,99 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def request_pull_request_reviews(self, repository: str, pr_number: int, reviewers: Iterable[str]) -> dict[str, Any]:
+        """Request reviews from GitHub users on a pull request."""
+        wanted = list(dict.fromkeys(login for login in reviewers if login))
+        if not wanted:
+            return {"success": True, "requested_reviewers": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        requested_reviewers: list[str] = []
+        batches = deque(
+            wanted[offset : offset + MAX_PR_REVIEWERS] for offset in range(0, len(wanted), MAX_PR_REVIEWERS)
+        )
+        rejected = 0
+        while batches:
+            batch = batches.popleft()
+            response = self._installation_authenticated_post(
+                f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/requested_reviewers",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": batch},
+            )
+            if response is None:
+                return {"success": False, "error": "Network error requesting pull request reviews"}
+            try:
+                details = response.json() if response.status_code == 422 else {}
+            except Exception:
+                details = {}
+            errors = details.get("errors") if isinstance(details, dict) else None
+            reviewer_validation_failed = any(
+                isinstance(error, dict) and error.get("field") == "reviewers"
+                for error in (errors if isinstance(errors, list) else [])
+            )
+            if response.status_code == 422 and reviewer_validation_failed:
+                if len(batch) == 1:
+                    rejected += 1
+                else:
+                    midpoint = len(batch) // 2
+                    batches.appendleft(batch[midpoint:])
+                    batches.appendleft(batch[:midpoint])
+                continue
+            if response.status_code != 201:
+                return {
+                    "success": False,
+                    "error": f"Failed to request pull request reviews: {response.text}",
+                    "status_code": response.status_code,
+                }
+            try:
+                pull_request = response.json()
+            except Exception:
+                pull_request = {}
+            requested_reviewers.extend(
+                entry["login"]
+                for entry in (pull_request.get("requested_reviewers") or [])
+                if isinstance(entry, dict) and entry.get("login")
+            )
+        if rejected:
+            logger.warning(
+                "GitHubIntegration: review requests rejected",
+                repository=repo_path,
+                pr_number=pr_number,
+                rejected=rejected,
+            )
+        return {"success": True, "requested_reviewers": list(dict.fromkeys(requested_reviewers))}
+
+    def list_submitted_pull_request_reviewers(self, repository: str, pr_number: int) -> dict[str, Any]:
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/reviews",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            params={"per_page": 100},
+        )
+        if not complete:
+            return {"success": False, "error": "Failed to list pull request reviews"}
+
+        reviewed_by: list[str] = []
+        for response in responses:
+            try:
+                reviews = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse pull request reviews JSON"}
+            if not isinstance(reviews, list):
+                return {"success": False, "error": "Pull request reviews JSON is not a list"}
+            for review in reviews:
+                if not isinstance(review, dict) or review.get("state") not in {
+                    "APPROVED",
+                    "CHANGES_REQUESTED",
+                    "COMMENTED",
+                    "DISMISSED",
+                }:
+                    continue
+                user = review.get("user")
+                if isinstance(user, dict) and isinstance(user.get("login"), str):
+                    reviewed_by.append(user["login"])
+        return {"success": True, "reviewed_by": reviewed_by}
 
     def add_pull_request_labels(self, repository: str, pr_number: int, labels: Iterable[str]) -> dict[str, Any]:
         """Add labels to a pull request. ``repository`` is ``owner/repo`` or a bare repo.

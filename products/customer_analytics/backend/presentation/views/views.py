@@ -39,7 +39,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.auth import SessionAuthentication, is_mcp_request
-from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -66,6 +65,7 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG,
