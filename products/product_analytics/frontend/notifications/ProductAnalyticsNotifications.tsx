@@ -205,7 +205,7 @@ export function ProductAnalyticsNotifications(): JSX.Element {
 
     // One dialog logic per use case, called in a fixed order so the hook calls stay stable.
     const { openDialog: openRageclickDialog } = useActions(
-        newNotificationDialogLogic({ subTemplateId: 'pa-rageclick', onCreated })
+        newNotificationDialogLogic({ triggers: [{ subTemplateId: 'pa-rageclick', label: 'Rage click' }], onCreated })
     )
     const openDialogFor: Record<PANotificationSubTemplateId, () => void> = {
         'pa-rageclick': openRageclickDialog,
@@ -277,7 +277,7 @@ export function ProductAnalyticsNotifications(): JSX.Element {
             {USE_CASES.map((config) => (
                 <NewNotificationDialog
                     key={config.subTemplateId}
-                    subTemplateId={config.subTemplateId}
+                    triggers={[{ subTemplateId: config.subTemplateId, label: config.dialogTitle }]}
                     onCreated={onCreated}
                     title={config.dialogTitle}
                 />

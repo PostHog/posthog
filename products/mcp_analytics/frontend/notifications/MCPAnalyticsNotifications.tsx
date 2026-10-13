@@ -48,7 +48,7 @@ export function MCPAnalyticsNotifications(): JSX.Element {
             {INSTANT_ALERT_USE_CASES.map((config) => (
                 <NewNotificationDialog
                     key={config.subTemplateId}
-                    subTemplateId={config.subTemplateId}
+                    triggers={[{ subTemplateId: config.subTemplateId, label: config.dialogTitle }]}
                     onCreated={alerts.reload}
                     title={config.dialogTitle}
                 />

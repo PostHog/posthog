@@ -58,6 +58,10 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
         label: 'Health alerts',
         url: urls.healthAlerts(),
     },
+    'feature-flag-alerts': {
+        label: 'Feature flags',
+        url: urls.featureFlags('notifications'),
+    },
     'batch-export-alerts': { label: 'Batch export alerts' },
     'billing-alerts': { label: 'Billing alerts' },
     'data-warehouse-alerts': { label: 'Data warehouse alerts', url: urls.sources() },

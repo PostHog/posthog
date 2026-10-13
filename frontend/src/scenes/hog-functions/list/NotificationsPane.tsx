@@ -6,17 +6,21 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
-import { AvailableFeature, CyclotronJobFiltersType, HogFunctionSubTemplateIdType } from '~/types'
+import { AvailableFeature, CyclotronJobFiltersType } from '~/types'
 
 import { HogFunctionList } from './HogFunctionsList'
 import { hogFunctionsListLogic } from './hogFunctionsListLogic'
 import { getFiltersFromSubTemplateId } from './LinkedHogFunctions'
 import { NewNotificationDialog } from './NewNotificationDialog'
-import { newNotificationDialogLogic } from './newNotificationDialogLogic'
+import { NotificationTriggerOption, newNotificationDialogLogic } from './newNotificationDialogLogic'
+
+export interface NotificationsPaneTrigger extends NotificationTriggerOption {
+    /** A listed notification must contain one of these. Defaults to the trigger's filters. */
+    listFilterGroups?: CyclotronJobFiltersType[]
+}
 
 export interface NotificationsPaneProps {
-    /** The sub-template ID that defines the filters, names, and message templates */
-    subTemplateId: HogFunctionSubTemplateIdType
+    triggers: NotificationsPaneTrigger[]
     /** Description shown above the notification list */
     description: string
     /** Title for the new notification dialog */
@@ -25,23 +29,34 @@ export interface NotificationsPaneProps {
     requiredFeature?: AvailableFeature
     /** Where the back arrow on a notification's configuration page should return to */
     returnTo?: string
+    /** Appended to new notifications' names, e.g. the flag key */
+    scopeLabel?: string
+    emptyText?: string
+}
+
+function listFilterGroupsFor(trigger: NotificationsPaneTrigger): CyclotronJobFiltersType[] {
+    if (trigger.listFilterGroups) {
+        return trigger.listFilterGroups
+    }
+    const filters = trigger.filters ?? getFiltersFromSubTemplateId(trigger.subTemplateId)
+    return filters ? [filters] : []
 }
 
 export function NotificationsPane({
-    subTemplateId,
+    triggers,
     description,
     dialogTitle,
     requiredFeature = AvailableFeature.AUDIT_LOGS,
     returnTo,
+    scopeLabel,
+    emptyText = 'No notifications set up yet.',
 }: NotificationsPaneProps): JSX.Element {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
-    const hogFunctionFilterList = [getFiltersFromSubTemplateId(subTemplateId)].filter(
-        (f): f is CyclotronJobFiltersType => !!f
-    )
+    const hogFunctionFilterList = triggers.flatMap(listFilterGroupsFor)
 
     const listLogicProps = { forceFilterGroups: hogFunctionFilterList, type: 'internal_destination' as const }
     const { loadHogFunctions } = useActions(hogFunctionsListLogic(listLogicProps))
@@ -49,8 +64,7 @@ export function NotificationsPane({
         loadHogFunctions()
     }
 
-    const logicProps = { subTemplateId, onCreated }
-    const { openDialog } = useActions(newNotificationDialogLogic(logicProps))
+    const { openDialog } = useActions(newNotificationDialogLogic({ triggers, onCreated, scopeLabel }))
 
     return (
         <PayGateMini feature={requiredFeature} featureDetail="hog-function-notifications">
@@ -60,6 +74,7 @@ export function NotificationsPane({
                     forceFilterGroups={hogFunctionFilterList}
                     type="internal_destination"
                     returnTo={returnTo}
+                    emptyText={emptyText}
                     extraControls={
                         <LemonButton
                             type="primary"
@@ -71,7 +86,12 @@ export function NotificationsPane({
                         </LemonButton>
                     }
                 />
-                <NewNotificationDialog subTemplateId={subTemplateId} onCreated={onCreated} title={dialogTitle} />
+                <NewNotificationDialog
+                    triggers={triggers}
+                    onCreated={onCreated}
+                    title={dialogTitle}
+                    scopeLabel={scopeLabel}
+                />
             </div>
         </PayGateMini>
     )
