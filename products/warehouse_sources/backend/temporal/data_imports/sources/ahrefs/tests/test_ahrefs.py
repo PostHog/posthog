@@ -9,15 +9,18 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs import (
-    ahrefs_source,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs import validate_credentials
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahrefs import AhrefsSourceConfig
 
@@ -105,15 +108,16 @@ def test_snapshot_request_and_terminal_page(
 
 
 @pytest.mark.parametrize("count", [99, 100, 101])
-def test_page_sample_cap(send: MagicMock, count: int) -> None:
+def test_page_sample_cap(count: int) -> None:
     rows = [{"url": f"https://example.com/{i}"} for i in range(count)]
-    send.return_value = response({"pages": rows})
     with patch(f"{SOURCE_MODULE}.logger") as logger:
-        result = ahrefs_source("test-key", "123", "site_audit_pages", 1, "test-job")
-        actual = [row for page in cast(Iterable[Any], result.items()) for row in page]
-    assert actual == [{**row, "project_id": "123"} for row in rows[:100]]
+        result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+            "site_audit_pages", [ScriptedResponse(json={"pages": rows})]
+        )
+    assert result.raised is None
+    assert result.rows == [{**row, "project_id": "123"} for row in rows[:100]]
     assert logger.info.call_count == int(count >= 100)
-    send.assert_called_once()
+    assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize(
@@ -127,19 +131,22 @@ def test_page_sample_cap(send: MagicMock, count: int) -> None:
         (402, {"error": "Payment required"}, "API units are exhausted"),
     ],
 )
-def test_credential_and_sync_error_mapping(send: MagicMock, status: int, body: object, message: str) -> None:
-    send.return_value = response(body, status)
-    valid, error = validate_credentials("test-key")
+def test_credential_and_sync_error_mapping(status: int, body: object, message: str) -> None:
+    answer = ScriptedResponse(status=status, json=body)
+    with scripted_network([answer]) as network:
+        valid, error = validate_credentials("test-key")
     assert valid is False
     assert error is not None and message in error
-    send.assert_called_once()
-    send.reset_mock()
+    assert len(network.requests_log) == 1
 
-    with pytest.raises(ValueError) as raised:
-        list(cast(Iterable[Any], ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items()))
-    mapped = AhrefsSource().get_non_retryable_errors()[str(raised.value)]
+    source = AhrefsSource()
+    result = SourceDriver(source, AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+        "site_audit_issues", [answer]
+    )
+    assert isinstance(result.raised, ValueError)
+    mapped = source.get_non_retryable_errors()[str(result.raised)]
     assert mapped is not None and message in mapped
-    send.assert_called_once()
+    assert len(result.requests) == 1
 
 
 def test_free_credential_probe(send: MagicMock) -> None:
@@ -153,30 +160,39 @@ def test_free_credential_probe(send: MagicMock) -> None:
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_probe_failure_is_not_invalid_credentials(send: MagicMock, status: int) -> None:
-    send.return_value = response({"error": "Try later"}, status)
-    with pytest.raises(RESTClientRetryableError):
-        validate_credentials("test-key")
-    send.assert_called_once()
+def test_transient_probe_failure_is_not_invalid_credentials(status: int) -> None:
+    with scripted_network(always(ScriptedResponse(status=status, json={"error": "Try later"}))) as network:
+        with pytest.raises(RESTClientRetryableError):
+            validate_credentials("test-key")
+    assert network.requests_log
+    assert all(request.path == "/v3/subscription-info/limits-and-usage" for request in network.requests_log)
 
 
-def test_unrecognized_probe_error_propagates(send: MagicMock) -> None:
-    send.return_value = response({"error": "Invalid request"}, 400)
-    with pytest.raises(HTTPError):
-        validate_credentials("test-key")
+def test_unrecognized_probe_error_propagates() -> None:
+    with scripted_network([ScriptedResponse(status=400, json={"error": "Invalid request"})]) as network:
+        with pytest.raises(HTTPError):
+            validate_credentials("test-key")
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize("probe", [False, True])
-def test_missing_response_envelope_fails(send: MagicMock, probe: bool) -> None:
-    send.return_value = response({"unexpected": []})
-    with pytest.raises(ValueError, match="matched nothing"):
-        if probe:
-            validate_credentials("test-key")
-        else:
-            list(cast(Iterable[Any], ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items()))
+def test_missing_response_envelope_fails(probe: bool) -> None:
+    answer = ScriptedResponse(json={"unexpected": []})
+    if probe:
+        with scripted_network([answer]) as network:
+            with pytest.raises(ValueError, match="matched nothing"):
+                validate_credentials("test-key")
+        assert len(network.requests_log) == 1
+    else:
+        result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+            "site_audit_issues", [answer]
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "matched nothing" in str(result.raised)
+        assert len(result.requests) == 1
 
 
-def test_unknown_table_fails_before_request(send: MagicMock) -> None:
-    with pytest.raises(UnknownResourceError):
-        ahrefs_source("test-key", "123", "unknown", 1, "test-job")
-    send.assert_not_called()
+def test_unknown_table_fails_before_request() -> None:
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run("unknown", [])
+    assert isinstance(result.raised, UnknownResourceError)
+    assert result.requests == []

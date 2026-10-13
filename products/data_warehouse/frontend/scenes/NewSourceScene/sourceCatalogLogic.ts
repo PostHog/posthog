@@ -159,6 +159,7 @@ export interface sourceCatalogLogicValues {
     catalogFuse: Fuse
     catalogItems: CatalogItem[]
     categoriesWithCounts: CatalogCategory[]
+    customSourceItem: CatalogItem | null
     filteredItems: CatalogItem[]
     hasCrossCategoryMatches: boolean
     registeredInterestSources: string[]
@@ -226,6 +227,7 @@ export interface sourceCatalogLogicMeta {
             selectedCategory: SourceCategoryFilter
         ) => CatalogItem[]
         hasCrossCategoryMatches: (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter) => boolean
+        customSourceItem: (catalogItems: CatalogItem[]) => CatalogItem | null
     }
 }
 
@@ -550,6 +552,16 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     (item) => item.status !== 'coming_soon' && !matchesCategory(item, selectedCategory)
                 )
             },
+        ],
+
+        // A search that finds nothing is usually for a tool we have no connector for. Any tool with
+        // a REST API can still connect through the Custom REST source, so the empty state offers it.
+        customSourceItem: [
+            (s) => [s.catalogItems],
+            (catalogItems: CatalogItem[]): CatalogItem | null =>
+                catalogItems.find(
+                    (item) => item.name === ExternalDataSourceTypeEnumApi.Custom && item.status !== 'coming_soon'
+                ) ?? null,
         ],
     }),
     listeners(({ values, actions }) => ({

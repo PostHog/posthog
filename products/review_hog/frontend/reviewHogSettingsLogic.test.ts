@@ -542,6 +542,12 @@ describe('reviewHogSettingsLogic', () => {
             await expectLogic(logic, () => {
                 jest.advanceTimersByTime(60_000)
             }).toNotHaveDispatchedActions(['loadReviews'])
+
+            // A triggered review polls even when the reload after the trigger fails and no success arrives.
+            logic.actions.startTriggeredReviewWatch()
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(10_000)
+            }).toDispatchActions(['loadReviews'])
         } finally {
             jest.useRealTimers()
         }

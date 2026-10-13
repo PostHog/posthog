@@ -112,3 +112,65 @@ class MetricRangeFunction(LabeledStrEnum):
 
     RATE = "rate", "rate"
     INCREASE = "increase", "increase"
+
+
+class DashboardImportSource(LabeledStrEnum):
+    """What a dashboard import reads: a Grafana dashboard JSON model, or a screenshot of a dashboard."""
+
+    GRAFANA = "grafana"
+    SCREENSHOT = "screenshot"
+
+
+class DashboardImportState(LabeledStrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class PanelImportOutcome(LabeledStrEnum):
+    """What happened to one panel. APPROXIMATED means the panel imported, but what it shows changed."""
+
+    IMPORTED = "imported"
+    APPROXIMATED = "approximated"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class DashboardImportPhase(LabeledStrEnum):
+    """The step of an import that runs: the agent starts, the agent matches panels, PostHog builds the dashboard,
+    and for a screenshot the agent compares pictures of the dashboard with the screenshot."""
+
+    STARTING = "starting"
+    MATCHING = "matching"
+    BUILDING = "building"
+    CHECKING_LAYOUT = "checking_layout"
+
+
+class PanelProgressState(LabeledStrEnum):
+    """Where one panel is while an import runs. WORKING means that a check of the panel's query failed so far."""
+
+    WAITING = "waiting"
+    WORKING = "working"
+    DONE = "done"
+    SKIPPED = "skipped"
+
+
+class PanelBuilderAggregation(LabeledStrEnum):
+    """The aggregations of a builder clause that the dashboard import checks. They match the metrics query API."""
+
+    SUM = "sum"
+    AVG = "avg"
+    COUNT = "count"
+    MIN = "min"
+    MAX = "max"
+    P95 = "p95"
+    RATE = "rate"
+    INCREASE = "increase"
+    HISTOGRAM_QUANTILE = "histogram_quantile"
+
+
+class PanelQueryLanguage(LabeledStrEnum):
+    PROMQL = "promql"
+    BUILDER = "builder"
+    HISTOGRAM = "histogram"
+    HOGQL = "hogql"

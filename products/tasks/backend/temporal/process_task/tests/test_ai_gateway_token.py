@@ -85,6 +85,7 @@ class TestResolveSandboxAiProduct:
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
+            ("metrics_import", None, "posthog_ai"),
         ],
     )
     def test_mapping(self, origin_product, ai_stage, expected):
@@ -198,7 +199,7 @@ class TestMintScopedToken:
         expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
         assert post.call_args[0][0] == f"{expected_url}/tokens"
         assert kwargs["json"] == {
-            "cap_usd": "3",
+            "cap_usd": "30",
             "ttl_seconds": 600 if private else 14400,
             "product": "signals_scout",
             "obo": "123",
@@ -420,7 +421,7 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
-            "AI_GATEWAY_TOKEN_CAP_USD": "3",
+            "AI_GATEWAY_TOKEN_CAP_USD": "30",
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
@@ -726,7 +727,7 @@ class TestProvisioningBoundaries:
                 "AI_GATEWAY_URL": mint_settings.SANDBOX_AI_GATEWAY_URL,
                 "AI_GATEWAY_PRODUCTS": "signals_scout",
                 "AI_GATEWAY_TOKEN": "phe_private",
-                "AI_GATEWAY_TOKEN_CAP_USD": "3",
+                "AI_GATEWAY_TOKEN_CAP_USD": "30",
                 "AI_GATEWAY_PRODUCT": "signals_scout",
                 "AI_GATEWAY_AI_STAGE": "scout:logs",
             }
@@ -933,8 +934,8 @@ class TestUserPinAndCapOverride:
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
-            mint_scoped_token(ai_product="signals_scout", team_id=123)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=123)
         assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "10"
         assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "3"
 
@@ -944,7 +945,7 @@ class TestUserPinAndCapOverride:
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_implementation", team_id=2)
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
         assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "15"
         assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "10"
 
@@ -952,18 +953,19 @@ class TestUserPinAndCapOverride:
     def test_invalid_product_cap_keeps_the_product_default(self, mint_settings, invalid_product_cap):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = json.dumps(
-            {"signals_implementation": invalid_product_cap, "signals_scout": invalid_product_cap}
+            {"signals_implementation": invalid_product_cap, "signals_scout_suggestions": invalid_product_cap}
         )
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_implementation", team_id=2)
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
         # The code default for a product that has one, else the team override.
         assert [c.kwargs["json"]["cap_usd"] for c in post.call_args_list] == ["20", "10"]
 
     @pytest.mark.parametrize(
         "ai_product,expected_cap",
         [
+            ("signals_scout", "30"),
             ("signals_implementation", "20"),
             ("signals_inbox", "75"),
             ("signals_chat", "30"),
@@ -991,7 +993,7 @@ class TestUserPinAndCapOverride:
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = "not json"
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
         assert post.call_args.kwargs["json"]["cap_usd"] == "3"
 
 

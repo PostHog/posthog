@@ -674,6 +674,12 @@ class BIDateBucket(StrEnum):
     YEAR = "year"
 
 
+class DatePart(StrEnum):
+    MONTH = "month"
+    QUARTER = "quarter"
+    DAY_OF_WEEK = "day_of_week"
+
+
 class BIFilterOperator(StrEnum):
     EQUALS = "equals"
     NOT_EQUALS = "not_equals"
@@ -720,6 +726,11 @@ class BITableCalculationType(StrEnum):
     PERCENT_CHANGE = "percent_change"
     MOVING_AVERAGE = "moving_average"
     RANK = "rank"
+
+
+class Shelf(StrEnum):
+    ROWS = "rows"
+    COLUMNS = "columns"
 
 
 class BaseMathType(StrEnum):
@@ -1653,9 +1664,22 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
+class Calculation(StrEnum):
+    FIXED = "fixed"
+    MEAN = "mean"
+    MEDIAN = "median"
+    MIN = "min"
+    MAX = "max"
+
+
 class Position(StrEnum):
     START = "start"
     END = "end"
+
+
+class Scope(StrEnum):
+    ALL = "all"
+    SERIES = "series"
 
 
 class GoogleAdsDefaultSources(StrEnum):

@@ -17,7 +17,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.organization import OrganizationMembership
@@ -26,6 +25,11 @@ from posthog.models.user import User
 from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.cdp.backend.internal_events import (
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
@@ -98,7 +102,8 @@ class InlineScanSpec:
 @frozen
 class RequestSession:
     session_id: str
-    scan_outcome: str
+    # None until the session's scan has started.
+    scan_outcome: str | None
     state: RequestSessionState
     observation: ReplayObservation | None
 
@@ -346,7 +351,7 @@ def _progress(
         state = RequestSessionState.PENDING if age < grace else RequestSessionState.FAILED
         return RequestProgress(
             sessions=[
-                RequestSession(session_id=sid, scan_outcome="failed", state=state, observation=None)
+                RequestSession(session_id=sid, scan_outcome=None, state=state, observation=None)
                 for sid in request.session_ids
             ]
         )

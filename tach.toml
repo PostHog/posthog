@@ -244,6 +244,8 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.notifications",
+    # Batch export runs emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -429,6 +431,8 @@ depends_on = [
     "posthog",
     "ee",
     "products.feature_flags", "products.access_control",
+    # Enrollment changes emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -626,6 +630,9 @@ path = "products.mcp_store"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    # Presentation-only: the server icon endpoint serves through
+    # products.cdp.backend.presentation.icons.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -639,12 +646,23 @@ depends_on = [
     # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
     # products.workflows.backend.facade.enums.
     "products.workflows",
+    # Presentation-only: the template design action wraps HTML through
+    # products.cdp.backend.presentation.hog_functions.
+    "products.cdp",
 ]
 layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = ["posthog", "products.access_control", "products.error_tracking"]
+depends_on = [
+    "ee",
+    "posthog",
+    "products.access_control",
+    "products.dashboards",
+    "products.error_tracking",
+    "products.exports",
+    "products.tasks",
+]
 layer = "modules"
 
 [[interfaces]]
@@ -805,6 +823,8 @@ depends_on = [
     "products.alerts",
     "products.cdp",
     "products.cohorts",
+    # Facade-only: scanner dashboards are created and looked up through the dashboards facade.
+    "products.dashboards",
     "products.event_definitions",
     "products.experiments",
     "products.exports",
@@ -909,6 +929,8 @@ depends_on = [
     "products.product_analytics",
     "products.signals",
     "products.tasks", "products.access_control",
+    # Slack triggers emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -1061,7 +1083,10 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.cdp",
+    "products.early_access_features",
+    "products.error_tracking",
     "products.feature_flags",
+    "products.surveys",
     "products.messaging",
     "products.notifications",
     # Facade-only: the Run scout action's endpoint starts a scout run through
@@ -1070,6 +1095,9 @@ depends_on = [
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks", "products.access_control",
+    # Facade-only: the Classify with AI action's endpoint asks the model through
+    # products.ml_inference.backend.facade.api.
+    "products.ml_inference",
 ]
 layer = "modules"
 
@@ -1682,4 +1710,19 @@ expose = [
 ]
 from = [
     "products.warehouse_suggestions",
+]
+
+[[modules]]
+path = "products.github_commands"
+# Facade-only (enforced by each product's [[interfaces]] block): pull request comment commands
+# dispatch into these products.
+depends_on = ["posthog", "products.review_hog", "products.security", "products.stamphog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.github_commands",
 ]

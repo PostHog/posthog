@@ -1,7 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
 from django.apps import apps
@@ -11,8 +18,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.scoping import team_scope
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.customer_analytics.backend.facade.testing import create_account
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
     PRECHECK_MAX_ROWS,
@@ -21,6 +30,7 @@ from products.signals.backend.scout_harness.precheck import (
     resolve_effective_precheck,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 NOW = datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC)
 SKILL = "signals-scout-errors"
@@ -28,6 +38,7 @@ NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp 
 # An access-scoped system table: a query with no user is denied it.
 DASHBOARDS_QUERY = "SELECT count() FROM system.dashboards"
 SURVEYS_SKILL = "signals-scout-surveys"
+REVENUE_SKILL = "signals-scout-revenue-analytics"
 ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
 
@@ -247,6 +258,154 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
 
         assert result is None
         capture.assert_not_called()
+
+
+# Non-atomic: ClickHouse reads `system.*` tables over its own Postgres connection, so rows must be committed.
+@time_machine.travel(NOW, tick=False)
+class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _seed_task_run(self, origin_product: str) -> None:
+        Channel = apps.get_model("tasks", "Channel")
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name=f"space_{origin_product}")
+        task = Task.objects.create(
+            team=self.team, channel=channel, title="t", description="", origin_product=origin_product
+        )
+        TaskRun.objects.create(task=task, team=self.team)
+
+    def _seed_experiment(self, *, started: bool, days_since_update: int) -> None:
+        FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
+        Experiment = apps.get_model("experiments", "Experiment")
+        flag = FeatureFlag.objects.create(team=self.team, key=f"exp_flag_{started}_{days_since_update}")
+        experiment = Experiment.objects.create(
+            team=self.team, name="e", feature_flag=flag, start_date=NOW - timedelta(days=60) if started else None
+        )
+        Experiment.objects.filter(pk=experiment.pk).update(updated_at=NOW - timedelta(days=days_since_update))
+
+    def _seed_report(self, status: str, *, days_since_update: int) -> None:
+        report = SignalReport.objects.create(team=self.team, status=status, title="r")
+        SignalReport.objects.filter(pk=report.pk).update(updated_at=NOW - timedelta(days=days_since_update))
+
+    @parameterized.expand(
+        [
+            ("customer_analytics_no_accounts", "signals-scout-customer-analytics", None, "skip"),
+            ("customer_analytics_accounts", "signals-scout-customer-analytics", "account", "run"),
+            ("feature_flags_absent", "signals-scout-feature-flags", None, "skip"),
+            ("feature_flags_roster", "signals-scout-feature-flags", "flag", "run"),
+            ("feature_flags_calls_only", "signals-scout-feature-flags", "flag_call", "run"),
+            ("experiments_absent", "signals-scout-experiments", None, "skip"),
+            ("experiments_old_draft", "signals-scout-experiments", "old_draft", "skip"),
+            ("experiments_recent_draft", "signals-scout-experiments", "recent_draft", "run"),
+            ("experiments_running", "signals-scout-experiments", "running", "run"),
+            ("tasks_absent", "signals-scout-tasks", None, "skip"),
+            ("tasks_scout_runs_only", "signals-scout-tasks", "scout_run", "skip"),
+            ("tasks_user_runs", "signals-scout-tasks", "user_run", "run"),
+            ("inbox_validation_absent", "signals-scout-inbox-validation", None, "skip"),
+            ("inbox_validation_old_resolution", "signals-scout-inbox-validation", "resolved_15d", "skip"),
+            ("inbox_validation_recent_unresolved", "signals-scout-inbox-validation", "ready_1d", "skip"),
+            ("inbox_validation_recent_resolution", "signals-scout-inbox-validation", "resolved_13d", "run"),
+        ]
+    )
+    def test_system_table_defaults_skip_only_on_absence(self, _name, skill, seed, outcome) -> None:
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+        if seed == "account":
+            create_account(team_id=self.team.pk, name="a", external_id="a")
+        elif seed == "flag":
+            apps.get_model("feature_flags", "FeatureFlag").objects.create(team=self.team, key="f")
+        elif seed == "flag_call":
+            _create_event(
+                team=self.team, event="$feature_flag_called", distinct_id="d1", timestamp=NOW - timedelta(days=6)
+            )
+            flush_persons_and_events()
+        elif seed == "old_draft":
+            self._seed_experiment(started=False, days_since_update=31)
+        elif seed == "recent_draft":
+            self._seed_experiment(started=False, days_since_update=29)
+        elif seed == "running":
+            self._seed_experiment(started=True, days_since_update=90)
+        elif seed == "scout_run":
+            self._seed_task_run("signals_scout")
+        elif seed == "user_run":
+            self._seed_task_run("user_created")
+        elif seed == "resolved_15d":
+            self._seed_report(SignalReport.Status.RESOLVED, days_since_update=15)
+        elif seed == "ready_1d":
+            self._seed_report(SignalReport.Status.READY, days_since_update=1)
+        elif seed == "resolved_13d":
+            self._seed_report(SignalReport.Status.RESOLVED, days_since_update=13)
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture") as capture,
+        ):
+            result = evaluate_scout_precheck(self.team.pk, skill)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+        assert capture.call_args.kwargs["properties"].get("error_type") is None
+
+
+@time_machine.travel(NOW, tick=False)
+class TestRevenueDefaultPrecheck(NonAtomicBaseTest):
+    # The system tables read Postgres through ClickHouse, which sees only committed rows.
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team, name=REVENUE_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=REVENUE_SKILL)
+
+    @parameterized.expand(
+        [
+            ("nothing_configured", None, False, None, "skip", "no_rows", 0),
+            ("config_without_events", None, False, [], "skip", "no_rows", 0),
+            (
+                "revenue_events_only",
+                None,
+                False,
+                [{"eventName": "purchase", "revenueProperty": "amount"}],
+                "run",
+                "rows",
+                1,
+            ),
+            ("stripe_source_only", "Stripe", False, None, "run", "rows", 1),
+            ("deleted_stripe_source", "Stripe", True, None, "skip", "no_rows", 0),
+            ("non_payment_source", "Postgres", False, None, "skip", "no_rows", 0),
+        ]
+    )
+    def test_revenue_default_gates_the_run(
+        self, _name, source_type, deleted, events, outcome, reason, row_count
+    ) -> None:
+        if source_type is not None:
+            ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="s1",
+                connection_id="c1",
+                status="Running",
+                source_type=source_type,
+                deleted=deleted,
+            )
+        if events is not None:
+            config = self.team.revenue_analytics_config
+            config.events = events
+            config.save()
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, REVENUE_SKILL)
+
+        assert result is not None
+        assert (result.outcome, result.reason, result.row_count) == (outcome, reason, row_count)
 
 
 class TestResolveEffectivePrecheck(SimpleTestCase):
