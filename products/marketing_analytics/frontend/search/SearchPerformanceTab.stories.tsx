@@ -775,6 +775,35 @@ export const NarrowPositionMetrics: Story = {
 
 export const PostHogConversions: Story = {
     ...Comparison,
+    parameters: {
+        ...Comparison.parameters,
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async (
+                        info: MockResolverInfo
+                    ) => {
+                        const resolver = MOCKS.post!['/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/']
+                        const result = typeof resolver === 'function' ? await resolver(info) : resolver
+                        const [status, response] = result as [number, { results: MarketingAnalyticsSearchRow[] }]
+                        return [
+                            status,
+                            {
+                                ...response,
+                                results: response.results.map((row) => ({
+                                    ...row,
+                                    page: row.page
+                                        ? `${row.page}/guides/understanding-search-performance-and-conversion-attribution?campaign=organic-search`
+                                        : row.page,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
     render: function Render(): JSX.Element {
         const { includeConversionGoals } = useValues(marketingAnalyticsLogic)
         const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
@@ -930,46 +959,10 @@ export const PostHogConversionsError: Story = {
     },
 }
 
-export const LongLandingPages: Story = {
-    ...PostHogConversions,
-    parameters: {
-        ...PostHogConversions.parameters,
-        msw: {
-            mocks: {
-                ...MOCKS,
-                post: {
-                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async (
-                        info: MockResolverInfo
-                    ) => {
-                        const resolver = MOCKS.post!['/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/']
-                        const result = typeof resolver === 'function' ? await resolver(info) : resolver
-                        const [status, response] = result as [number, { results: MarketingAnalyticsSearchRow[] }]
-                        return [
-                            status,
-                            {
-                                ...response,
-                                results: response.results.map((row) => ({
-                                    ...row,
-                                    page: `${row.page}/guides/understanding-search-performance-and-conversion-attribution?campaign=organic-search`,
-                                })),
-                            },
-                        ]
-                    },
-                },
-            },
-        },
-    },
-}
-
-export const LongLandingPagesNarrow: Story = {
-    ...LongLandingPages,
-    decorators: PostHogConversionsNarrow.decorators,
-}
-
 export const WrappedLandingPages: Story = {
-    ...LongLandingPages,
+    ...PostHogConversions,
     play: async (context) => {
-        await LongLandingPages.play?.(context)
+        await PostHogConversions.play?.(context)
         const canvas = within(context.canvasElement)
         await userEvent.click(canvas.getByRole('button', { name: 'Table options' }))
         await userEvent.click(within(document.body).getByRole('switch', { name: 'Wrap text' }))
