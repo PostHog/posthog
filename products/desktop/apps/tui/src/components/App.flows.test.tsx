@@ -107,6 +107,7 @@ const liveView = (): RunView => ({
 // Renders the app signed in, with a 30-row frame as Root gives it, and a cloud task open in the main view.
 function cloudApp({
   task = cloudTask(),
+  tasks = [task],
   view = liveView(),
   control = {},
   chats = {},
@@ -114,6 +115,8 @@ function cloudApp({
   codexCloud,
 }: {
   task?: Task;
+  // The work list, when the sidebar needs more than the open task.
+  tasks?: Task[];
   view?: RunView;
   control?: Partial<PiControl>;
   chats?: Partial<PiChats>;
@@ -122,6 +125,8 @@ function cloudApp({
 } = {}) {
   saveLayout(layout, layoutPath(ACCOUNT));
   const mouse: MouseEvents = new EventEmitter();
+  // The chats the panes opened, in order.
+  const watched: string[] = [];
   const controlFor = vi.fn(
     () =>
       ({
@@ -135,15 +140,16 @@ function cloudApp({
   const session: Session = {
     account: ACCOUNT,
     work: {
-      listRecent: async () => ({ tasks: [task], hasMore: false }),
-      get: async () => task,
+      listRecent: async () => ({ tasks, hasMore: false }),
+      get: async (id: string) => tasks.find((t) => t.id === id) ?? task,
     } as unknown as WorkList,
     runs: {
       watch: (
-        _taskId: string,
+        taskId: string,
         _runId: string,
         onView: (view: RunView) => void,
       ) => {
+        watched.push(taskId);
         onView(view);
         return { stop: () => {}, loadOlder: async () => {} };
       },
@@ -169,6 +175,7 @@ function cloudApp({
     output,
     mouse,
     controlFor,
+    watched,
     // The terminal's bytes reach both Ink and the raw key stream.
     press: (bytes: string): void => {
       mouse.emit("keys", bytes);
@@ -348,6 +355,45 @@ describe("App flows", () => {
         expect(setModel).toHaveBeenCalledWith(luna);
       });
       expect(setModel).toHaveBeenCalledTimes(1);
+    } finally {
+      app.close();
+    }
+  });
+
+  it("keeps the arrows on an open sheet, not the sidebar, in a chat opened from the sidebar", async () => {
+    const sol = { provider: "posthog", id: "gpt-6.1-sol", name: "Sol 6.1" };
+    const luna = { provider: "posthog", id: "gpt-6.1-luna", name: "Luna 6.1" };
+    const app = cloudApp({
+      tasks: [cloudTask(), cloudTask({ id: "c2", title: "Other chat" })],
+      control: {
+        models: async () => ({
+          available: [sol, luna],
+          current: sol,
+          effort: null,
+        }),
+        efforts: async () => ({ available: [], current: null }),
+        commands: async () => [],
+        setModel: async () => {},
+      },
+    });
+    try {
+      await vi.waitFor(() => expect(app.plain()).toContain("Other chat"));
+      // Tab to the sidebar, down past the first chat to the other: each opens, and the arrows keep stepping through chats.
+      // Each step waits for its render: the next one reads the cursor the last one left.
+      for (const key of ["\t", "\x1b[B", "\x1b[B"]) {
+        app.press(key);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(app.watched.at(-1)).toBe("c2");
+      app.press("/model");
+      app.press("\r");
+      await vi.waitFor(() => expect(app.plain()).toContain("Luna 6.1"));
+      const opened = app.watched.length;
+
+      app.press("\x1b[A");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(app.watched.length).toBe(opened);
     } finally {
       app.close();
     }
