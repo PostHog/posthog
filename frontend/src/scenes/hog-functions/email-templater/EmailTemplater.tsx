@@ -538,6 +538,7 @@ function NativeEmailTemplaterForm({
     const {
         unlayerEditorProjectId,
         emailMediaLibraryEnabled,
+        unlayerEditorUser,
         logicProps,
         templates,
         mergeTags,
@@ -744,6 +745,7 @@ function NativeEmailTemplaterForm({
                                                 : {}),
                                         },
                                         projectId: unlayerEditorProjectId,
+                                        user: unlayerEditorUser,
                                         customJS: sceneIntegrationEnabled
                                             ? [
                                                   unsubscribeLinkToolCustomJs,

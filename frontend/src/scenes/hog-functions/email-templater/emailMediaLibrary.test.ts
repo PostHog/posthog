@@ -48,7 +48,7 @@ describe('registerEmailMediaLibrary', () => {
         })
         const done = jest.fn()
 
-        await registerOnFakeEditor()['provider:userUploads']({ page: 3, perPage: 20, searchText: ' logo ' }, done)
+        await registerOnFakeEditor()['provider:userUploads']({ page: 3, searchText: ' logo ' }, done)
 
         expect(Object.fromEntries(requestedParams[0])).toEqual({
             purpose: 'email',

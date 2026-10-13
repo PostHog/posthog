@@ -262,6 +262,7 @@ export interface emailTemplaterLogicValues {
     templatesLoading: boolean
     templatingEngine: 'hog' | 'liquid'
     unlayerEditorProjectId: 275430 | undefined
+    unlayerEditorUser: { id: string } | undefined
     visibleFields: EmailMetaField[]
 }
 
@@ -391,6 +392,10 @@ export interface emailTemplaterLogicMeta {
             unlayerEditorProjectId: 275430 | undefined,
             featureFlags: FeatureFlagsSet
         ) => boolean
+        unlayerEditorUser: (
+            emailMediaLibraryEnabled: boolean,
+            currentProjectId: number | string
+        ) => { id: string } | undefined
         visibleFields: (arg: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]) => EmailMetaField[]
         hiddenAdvancedFields: (arg: EmailTemplaterType, visibleFields: EmailMetaField[]) => EmailMetaField[]
     }
@@ -562,6 +567,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 type !== 'email' &&
                 !!unlayerEditorProjectId &&
                 !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_MEDIA_LIBRARY],
+        ],
+        unlayerEditorUser: [
+            (s) => [s.emailMediaLibraryEnabled, s.currentProjectId],
+            (emailMediaLibraryEnabled: boolean, currentProjectId: number | string): { id: string } | undefined =>
+                // Unlayer hides the Uploads tab until it can identify the end user. The library is
+                // shared by the whole project, so the project is the user it sees.
+                emailMediaLibraryEnabled ? { id: `project-${currentProjectId}` } : undefined,
         ],
         visibleFields: [
             (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.revealedAdvancedFields],

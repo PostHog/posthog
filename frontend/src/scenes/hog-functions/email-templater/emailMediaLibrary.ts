@@ -9,6 +9,8 @@ import { UploadedMediaListPurpose } from '~/generated/core/api.schemas'
 import type { UploadedMediaApi } from '~/generated/core/api.schemas'
 
 const UPLOAD_FAILED_MESSAGE = "Couldn't upload this image. Try again."
+// Unlayer passes `page` but no page size, so the provider decides how many images a page holds.
+const UPLOADS_PAGE_SIZE = 20
 
 /** The image shape Unlayer's Uploads tab renders. */
 export interface UnlayerUploadsImage {
@@ -23,7 +25,7 @@ export interface UnlayerUploadsImage {
 
 export interface UnlayerUploadsPage {
     page: number
-    perPage: number
+    perPage?: number
     searchText?: string
 }
 
@@ -72,7 +74,7 @@ export function registerEmailMediaLibrary(editor: Editor, projectId: string): vo
     editor.registerProvider(
         'userUploads',
         async (
-            { page, perPage, searchText }: UnlayerUploadsPage,
+            { page, perPage = UPLOADS_PAGE_SIZE, searchText }: UnlayerUploadsPage,
             done: (images: UnlayerUploadsImage[], meta: UnlayerUploadsPageMeta) => void
         ) => {
             const search = searchText?.trim() || undefined
