@@ -439,6 +439,9 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
+        exception_lifted = bool(POLICY.deny_exceptions) and (
+            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+        )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
@@ -475,8 +478,9 @@ class Pipeline:
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
+            and not exception_lifted
         )
-        is_test = test_only(categories) and not owner_exempted
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 

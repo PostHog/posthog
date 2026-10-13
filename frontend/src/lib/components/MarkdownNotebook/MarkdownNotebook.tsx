@@ -3270,7 +3270,7 @@ function MarkdownNotebookEditor({
             return
         }
 
-        const handleDocumentSelectionChange = (): void => {
+        const updateSelectionToolbar = (): void => {
             if (isTextSelectionPointerActiveRef.current) {
                 setFloatingToolbar(null)
             } else {
@@ -3278,6 +3278,10 @@ function MarkdownNotebookEditor({
                     Math.max(0, floatingToolbarRevealAfterRef.current - Date.now())
                 )
             }
+        }
+
+        const handleDocumentSelectionChange = (): void => {
+            updateSelectionToolbar()
             updateSelectedComponentBlocksFromSelection()
             // Non-text blocks (queries, dividers, comments…) never produce a text caret, so
             // fall back to the focused block — collaborators still see who is on it.
@@ -3290,6 +3294,18 @@ function MarkdownNotebookEditor({
                         blockRefs.current
                     )
             )
+        }
+
+        let viewportUpdateFrame: number | null = null
+        const handleViewportChange = (): void => {
+            // Scrolling moves the toolbar, not the selection or a collaborator's caret.
+            if (viewportUpdateFrame !== null || window.getSelection()?.isCollapsed !== false) {
+                return
+            }
+            viewportUpdateFrame = window.requestAnimationFrame(() => {
+                viewportUpdateFrame = null
+                updateSelectionToolbar()
+            })
         }
 
         const handleDocumentPointerStart = (event: MouseEvent | PointerEvent | TouchEvent): void => {
@@ -3307,8 +3323,8 @@ function MarkdownNotebookEditor({
         window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
         window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
         window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
-        window.addEventListener('resize', handleDocumentSelectionChange)
-        window.addEventListener('scroll', handleDocumentSelectionChange, true)
+        window.addEventListener('resize', handleViewportChange)
+        window.addEventListener('scroll', handleViewportChange, { capture: true, passive: true })
 
         return () => {
             window.document.removeEventListener('selectionchange', handleDocumentSelectionChange)
@@ -3316,8 +3332,11 @@ function MarkdownNotebookEditor({
             window.document.removeEventListener('mousedown', handleDocumentPointerStart, true)
             window.document.removeEventListener('pointerdown', handleDocumentPointerStart, true)
             window.document.removeEventListener('touchstart', handleDocumentPointerStart, true)
-            window.removeEventListener('resize', handleDocumentSelectionChange)
-            window.removeEventListener('scroll', handleDocumentSelectionChange, true)
+            window.removeEventListener('resize', handleViewportChange)
+            window.removeEventListener('scroll', handleViewportChange, true)
+            if (viewportUpdateFrame !== null) {
+                window.cancelAnimationFrame(viewportUpdateFrame)
+            }
         }
     }, [
         mode,
