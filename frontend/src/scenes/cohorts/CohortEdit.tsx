@@ -57,7 +57,10 @@ import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -240,7 +243,8 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
-    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
+    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -314,6 +318,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             }}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
+                                ...(accessDisabledReason ? { [accessDisabledReason]: true } : {}),
                             }}
                             data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
                             tooltip="Open a workflow for this cohort to add delays, branches, or more steps"

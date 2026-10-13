@@ -7,6 +7,7 @@ import {
     MessageAudience,
     MessageAudienceDestination,
     captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
     messageAudienceUrl,
 } from './messageAudience'
 
@@ -37,7 +38,13 @@ export function MessageAudienceButton({
         captureMessageAudienceClicked(audience.source, destination)
         router.actions.push(messageAudienceUrl(audience, destination))
     }
-    const buttonProps = { type, size, disabledReason, fullWidth, icon: <IconSend /> }
+    const buttonProps = {
+        type,
+        size,
+        disabledReason: disabledReason ?? messageAudienceAccessDisabledReason(),
+        fullWidth,
+        icon: <IconSend />,
+    }
 
     if (destinations.length === 1) {
         return (
