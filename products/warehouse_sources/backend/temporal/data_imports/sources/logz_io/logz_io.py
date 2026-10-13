@@ -1,9 +1,11 @@
 import json
+import hashlib
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+import orjson
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -22,8 +24,10 @@ REQUEST_TIMEOUT_SECONDS = 60
 # Elasticsearch scroll page size. Logz.io caps a single search response and the scroll cursor walks
 # the rest; 1000 balances round-trips against per-response memory.
 SCROLL_PAGE_SIZE = 1000
-# Body-paginated list endpoints (triggered alerts, drop filters).
+# Body-paginated list endpoints (triggered alerts, drop filters, security rules and events).
 PAGE_SIZE = 100
+# The audit trail caps `size` at 500.
+AUDIT_TRAIL_PAGE_SIZE = 500
 # Hard cap on body-paginated pages per sync so a mis-terminating cursor can't scan unbounded.
 MAX_PAGES = 10_000
 # First incremental sync of logs backfills this many days. Logz.io retention is account-bounded, so
@@ -137,6 +141,45 @@ def _select(data: dict[str, Any] | list[dict[str, Any]], selector: str) -> list[
     return value if isinstance(value, list) else []
 
 
+def _to_epoch_seconds(value: Any) -> int:
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return int(dt.timestamp())
+    if isinstance(value, date):
+        return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
+    number = int(value)
+    # The audit trail documents Unix milliseconds but its example shows seconds, so a stored
+    # watermark can be either. No real event predates 1973, which is 1e11 milliseconds.
+    return number // 1000 if number >= 100_000_000_000 else number
+
+
+def _time_range_body(
+    config: LogzIOEndpointConfig, should_use_incremental_field: bool, db_incremental_field_last_value: Any
+) -> dict[str, Any]:
+    """Bound the request to events at or after the watermark, up to now, so page offsets stay stable."""
+    if not (config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value):
+        return {}
+
+    from_seconds = _to_epoch_seconds(db_incremental_field_last_value)
+    to_seconds = int(datetime.now(UTC).timestamp())
+    if config.transport == "offset":
+        return {"fromDate": from_seconds * 1000, "toDate": to_seconds * 1000}
+    return {
+        "filter": {
+            **config.request_body.get("filter", {}),
+            "timeRange": {"fromDate": from_seconds, "toDate": to_seconds},
+        }
+    }
+
+
+def _with_hashed_id(rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    for row in rows:
+        row[key] = hashlib.md5(
+            orjson.dumps(row, option=orjson.OPT_SORT_KEYS, default=str), usedforsecurity=False
+        ).hexdigest()
+    return rows
+
+
 def _parse_scroll_hits(response: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract and flatten the log documents from a scroll response.
 
@@ -236,11 +279,12 @@ def _iter_paged_rows(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: LogzIOEndpointConfig,
+    time_range: dict[str, Any],
 ) -> Iterator[list[dict[str, Any]]]:
     url = f"{base_url}{config.path}"
     page_number = 1
     while page_number <= MAX_PAGES:
-        body = {"pagination": {"pageNumber": page_number, "pageSize": PAGE_SIZE}}
+        body = {**config.request_body, **time_range, "pagination": {"pageNumber": page_number, "pageSize": PAGE_SIZE}}
         data = _fetch(session, config.method, url, headers, logger, json_body=body)
         rows = _select(data, config.data_selector)
         if not rows:
@@ -251,6 +295,35 @@ def _iter_paged_rows(
         if len(rows) < PAGE_SIZE:
             break
         page_number += 1
+    else:
+        logger.warning(f"Logz.io: hit page cap ({MAX_PAGES}) for {config.name}; stopping pagination")
+
+
+def _iter_offset_rows(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: LogzIOEndpointConfig,
+    time_range: dict[str, Any],
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{base_url}{config.path}"
+    for page in range(MAX_PAGES):
+        body = {
+            **config.request_body,
+            **time_range,
+            "from": page * AUDIT_TRAIL_PAGE_SIZE,
+            "size": AUDIT_TRAIL_PAGE_SIZE,
+        }
+        data = _fetch(session, config.method, url, headers, logger, json_body=body)
+        rows = _select(data, config.data_selector)
+        if not rows:
+            break
+
+        yield rows
+
+        if len(rows) < AUDIT_TRAIL_PAGE_SIZE:
+            break
     else:
         logger.warning(f"Logz.io: hit page cap ({MAX_PAGES}) for {config.name}; stopping pagination")
 
@@ -290,10 +363,18 @@ def get_rows(
     if config.transport == "scroll":
         query_body = _build_log_query(should_use_incremental_field, db_incremental_field_last_value, incremental_field)
         yield from _iter_scroll_rows(session, base_url, headers, logger, resumable_source_manager, query_body)
-    elif config.transport == "page":
-        yield from _iter_paged_rows(session, base_url, headers, logger, config)
+        return
+
+    time_range = _time_range_body(config, should_use_incremental_field, db_incremental_field_last_value)
+    if config.transport == "page":
+        batches = _iter_paged_rows(session, base_url, headers, logger, config, time_range)
+    elif config.transport == "offset":
+        batches = _iter_offset_rows(session, base_url, headers, logger, config, time_range)
     else:
-        yield from _iter_list_rows(session, base_url, headers, logger, config)
+        batches = _iter_list_rows(session, base_url, headers, logger, config)
+
+    for rows in batches:
+        yield _with_hashed_id(rows, config.primary_keys[0]) if config.hash_primary_key else rows
 
 
 def logz_io_source(
@@ -321,8 +402,8 @@ def logz_io_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Logs are searched ascending on `@timestamp`; the definition/config endpoints aren't
-        # incremental, so asc is a safe default there too.
+        # Logs, security events and the audit trail are requested ascending on their event time;
+        # the definition/config endpoints aren't incremental, so asc is a safe default there too.
         sort_mode="asc",
         partition_count=1,
         partition_size=1,

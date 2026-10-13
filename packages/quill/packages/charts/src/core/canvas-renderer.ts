@@ -1229,8 +1229,8 @@ export function clipToRoundedRects(ctx: CanvasRenderingContext2D, rects: BarRect
     ctx.clip()
 }
 
-/** Paints each track rect as a single solid colour — the neutral "remainder of the whole"
- *  backdrop for funnel-style stacked bars (one track per band behind the stack), as opposed
+/** Paints each track rect as a single solid colour: the neutral "remainder of the whole"
+ *  backdrop for `bars.track: 'solid'` (one track per band behind every bar in it), as opposed
  *  to {@link drawBarTracks}'s per-series tinted+hatched treatment for grouped layouts. */
 export function drawSolidBarTracks(
     ctx: CanvasRenderingContext2D,

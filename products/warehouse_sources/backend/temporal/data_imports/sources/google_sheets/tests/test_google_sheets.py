@@ -749,6 +749,18 @@ def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hi
         assert "try again in a moment" not in (error_message or "").lower()
 
 
+def test_validate_credentials_handles_malformed_service_account_key():
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client",
+        side_effect=ValueError("No key could be detected."),
+    ):
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    assert "isn't configured correctly on this PostHog instance" in (error_message or "")
+
+
 @pytest.mark.parametrize(
     "pinned_version,expected_version",
     [

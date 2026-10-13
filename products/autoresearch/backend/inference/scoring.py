@@ -67,6 +67,12 @@ from products.autoresearch.backend.dataset.labeling import (
     build_training_features_sql,
     rolling_selection,
 )
+from products.autoresearch.backend.evaluation.history import latest_validation_runs
+from products.autoresearch.backend.evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    champion_training_base_rate,
+    segment_thresholds,
+)
 from products.autoresearch.backend.inference.failures import classify_failure
 from products.autoresearch.backend.inference.sandbox import (
     _FOLD_COL,
@@ -334,6 +340,8 @@ def run_inference_for_pipeline(
                 "rows_eligible": scored.rows_eligible,
             }
         )
+        if not window.is_backfill:
+            run.metrics.update(_likely_segment(team_id=team.pk, pipeline=pipeline, scored=scored))
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "negative_sample_rate", "metrics", "completed_at"])
 
@@ -382,6 +390,23 @@ def run_inference_for_pipeline(
                 run.metrics["shadow_models"] = outcome.as_metrics()
                 run.save(update_fields=["metrics"])
     return run
+
+
+def _likely_segment(*, team_id: int, pipeline: AutoresearchPipeline, scored: ScoredPopulation) -> dict[str, Any]:
+    """
+    The people a live champion run scored at or above the current Likely cut point, and that cut point.
+
+    The run keeps the count because its score distribution stores only quantiles, and the model
+    list must not query the prediction events for every pipeline.
+    """
+    threshold = segment_thresholds(
+        latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES),
+        training_rate=champion_training_base_rate(team_id, pipeline),
+    ).likely
+    return {
+        "likely_count": sum(1 for row in scored.rows if row["p_y"] >= threshold),
+        "likely_threshold": threshold,
+    }
 
 
 def _record_coverage(

@@ -28,6 +28,7 @@ from products.signals.dags.inbox_ranking.training.classification import (
 )
 from products.signals.dags.inbox_ranking.training.examples import holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
+from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, WithinTeamAuc, within_team_auc
 
 XGB_PARAMS: dict[str, object] = {
     "n_estimators": 200,
@@ -81,6 +82,9 @@ class HeadMetrics:
     # The positive rate of every row the refit that ships was fit on. The unseen grades of this
     # model read it as their threshold, so it is saved here rather than derived from the unseen rows.
     refit_classification_threshold: float | None = None
+    # The holdout AUC over pairs inside one team only. The promotion gate keeps reading the pooled
+    # `holdout_auc`.
+    holdout_within_team: WithinTeamAuc = NO_TEAMS
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +94,7 @@ class HeadMetrics:
             "holdout_rows": self.holdout_rows,
             "holdout_positives": self.holdout_positives,
             "holdout_auc": self.holdout_auc,
+            **self.holdout_within_team.as_dict(prefix="holdout_"),
             "null_auc": self.null_auc,
             "null_auc_std": self.null_auc_std,
             "null_permutations": NULL_PERMUTATIONS,
@@ -132,6 +137,14 @@ def _auc(y: np.ndarray, scores: np.ndarray) -> float | None:
     if y.sum() == 0 or y.sum() == len(y):
         return None
     return float(roc_auc_score(y, scores))
+
+
+def _team_ids(rows: pd.DataFrame) -> np.ndarray:
+    """Each row's team, None where unknown. An examples object written before the column existed
+    has no team, so its within-team fields stay empty."""
+    if "team_id" not in rows:
+        return np.full(len(rows), None, dtype=object)
+    return rows["team_id"].to_numpy(dtype=object)
 
 
 def _head_readable(
@@ -203,6 +216,7 @@ def train_head(
         holdout_expected_calibration_error=expected_calibration_error(calibration),
         holdout_classification=classification_metrics(y_test, holdout_scores, float(y_train.mean())),
         refit_classification_threshold=float(y.mean()),
+        holdout_within_team=within_team_auc(y_test, holdout_scores, _team_ids(rows)[test]),
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.
     final = _fit(x, y, seed)

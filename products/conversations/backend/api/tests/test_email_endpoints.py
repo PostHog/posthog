@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
+from django.test import Client, SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1632,7 +1632,7 @@ class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):
         mock_forward.assert_not_called()
 
 
-class TestBuildProxyKwargs(BaseTest):
+class TestBuildProxyKwargs(SimpleTestCase):
     """Unit tests for _build_proxy_kwargs multipart fallback."""
 
     def test_raw_body_available(self):

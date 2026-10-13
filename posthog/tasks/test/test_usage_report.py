@@ -2337,7 +2337,7 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
         )
 
 
-class TestTrimOversizeUsageReportPayload(TestCase):
+class TestTrimOversizeUsageReportPayload(SimpleTestCase):
     @parameterized.expand(
         [
             ("under_limit", 2, False),

@@ -87,25 +87,45 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
     def _placement_fields(self, source: MarketingAnalyticsSearchSource) -> dict[str, ast.Expr]:
         table = self.hogql_database.get_table(source.statsTable.split("."))
         fields = (
-            (
-                ("top_rate", "metrics_top_impression_percentage"),
-                ("absolute_top_rate", "metrics_absolute_top_impression_percentage"),
-            )
-            if source.sourceType == "GoogleAds"
-            else (
-                ("top_rate", "top_impression_rate_percent"),
-                ("absolute_top_rate", "absolute_top_impression_rate_percent"),
-            )
+            ("top_rate", "top_impression_rate_percent"),
+            ("absolute_top_rate", "absolute_top_impression_rate_percent"),
         )
         result: dict[str, ast.Expr] = {}
         for name, field in fields:
             value: ast.Expr = ast.Field(chain=["s", field]) if table.has_field(field) else ast.Constant(value=None)
             result[name] = (
                 parse_expr("toFloatOrNull(replaceAll(toString({value}), '%', '')) / 100", placeholders={"value": value})
-                if source.sourceType == "BingAds" and table.has_field(field)
+                if table.has_field(field)
                 else value
             )
         return result
+
+    @cached_property
+    def unavailable_placement_tables(self) -> set[str]:
+        if self.query.breakdown == "page":
+            return set()
+        return {
+            source.placementTable
+            for source in self.query.sources
+            if source.sourceType == "GoogleAds"
+            and source.placementTable
+            and (
+                self.hogql_database.is_table_access_denied(source.placementTable)
+                or not self.hogql_database.has_table(source.placementTable)
+            )
+        }
+
+    def _google_keywords(self, keyword_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
+                any(ad_group_criterion_keyword_text) AS keyword,
+                any(ad_group_criterion_keyword_match_type) AS match_type
+            FROM {keywords}
+            GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
+            """,
+            placeholders={"keywords": ast.Field(chain=[*keyword_table.split(".")])},
+        )
 
     @property
     def include_posthog_conversions(self) -> bool:
@@ -134,7 +154,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             "date_from": ast.Constant(value=date_range.date_from()),
             "date_to": ast.Constant(value=date_range.date_to()),
         }
-        if source.sourceType in ("GoogleAds", "BingAds"):
+        if source.sourceType == "BingAds":
             placeholders.update(self._placement_fields(source))
         if source.sourceType == "GoogleSearchConsole":
             if (self.query.keyword is not None or self.query.page is not None) and not source.queryPageTable:
@@ -215,10 +235,8 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     sum(toFloat(metrics_impressions)) AS impression_count,
                     sum(toFloat(metrics_cost_micros)) / 1000000 AS total_cost,
                     sum(toFloat(metrics_conversions)) AS conversion_count, 0 AS position_total,
-                    sumIf(toFloat({top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS top_impressions,
-                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {top_rate} IS NOT NULL) AS top_eligible_impressions,
-                    sumIf(toFloat({absolute_top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS absolute_top_impressions,
-                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
+                    NULL AS top_impressions, 0 AS top_eligible_impressions,
+                    NULL AS absolute_top_impressions, 0 AS absolute_top_eligible_impressions
                 FROM {stats} AS s
                 WHERE toDate(segments_date) >= toDate({date_from})
                     AND toDate(segments_date) <= toDate({date_to})
@@ -230,7 +248,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         if source.sourceType == "GoogleAds":
             if not source.keywordTable:
                 raise ValueError("Google Ads requires a synced keyword table")
-            placeholders["keywords"] = ast.Field(chain=[*source.keywordTable.split(".")])
+            placeholders["keywords"] = self._google_keywords(source.keywordTable)
             return parse_select(
                 """
                 SELECT {period} AS period, nullIf(lower(trim(k.keyword)), '') AS keyword, NULL AS page, 'GoogleAds' AS platform,
@@ -240,18 +258,10 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     sum(toFloat(s.metrics_impressions)) AS impression_count,
                     sum(toFloat(s.metrics_cost_micros)) / 1000000 AS total_cost,
                     sum(toFloat(s.metrics_conversions)) AS conversion_count, 0 AS position_total,
-                    sumIf(toFloat({top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS top_impressions,
-                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {top_rate} IS NOT NULL) AS top_eligible_impressions,
-                    sumIf(toFloat({absolute_top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS absolute_top_impressions,
-                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
+                    NULL AS top_impressions, 0 AS top_eligible_impressions,
+                    NULL AS absolute_top_impressions, 0 AS absolute_top_eligible_impressions
                 FROM {stats} AS s
-                LEFT JOIN (
-                    SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
-                        any(ad_group_criterion_keyword_text) AS keyword,
-                        any(ad_group_criterion_keyword_match_type) AS match_type
-                    FROM {keywords}
-                    GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
-                ) AS k ON s.customer_id = k.customer_id AND s.campaign_id = k.campaign_id
+                LEFT JOIN {keywords} AS k ON s.customer_id = k.customer_id AND s.campaign_id = k.campaign_id
                     AND s.ad_group_id = k.ad_group_id
                     AND s.ad_group_criterion_criterion_id = k.ad_group_criterion_criterion_id
                 WHERE toDate(s.segments_date) >= toDate({date_from})
@@ -278,12 +288,59 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             placeholders=placeholders,
         )
 
+    def _google_placement_query(
+        self, source: MarketingAnalyticsSearchSource, date_range: QueryDateRange, period: int
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        if not source.placementTable or not source.keywordTable:
+            raise ValueError("Google Ads placement requires synced keyword and keyword placement tables")
+        # Name keywords from the keyword table, as traffic does, so a criterion it lacks does not split into two rows.
+        return parse_select(
+            """
+            SELECT {period} AS period,
+                nullIf(lower(trim(k.keyword)), '') AS keyword,
+                NULL AS page, 'GoogleAds' AS platform,
+                nullIf(lower(k.match_type), '') AS matchType,
+                nullIf(upper(p.customer_currency_code), '') AS currency,
+                0 AS click_count, 0 AS impression_count, 0 AS total_cost,
+                0 AS conversion_count, 0 AS position_total,
+                sum(toFloat(p.metrics_top_impression_percentage) * toFloat(p.metrics_impressions)) AS top_impressions,
+                sumIf(toFloat(p.metrics_impressions), p.metrics_top_impression_percentage IS NOT NULL) AS top_eligible_impressions,
+                sum(toFloat(p.metrics_absolute_top_impression_percentage) * toFloat(p.metrics_impressions)) AS absolute_top_impressions,
+                sumIf(toFloat(p.metrics_impressions), p.metrics_absolute_top_impression_percentage IS NOT NULL) AS absolute_top_eligible_impressions
+            FROM {placement} AS p
+            LEFT JOIN {keywords} AS k ON p.customer_id = k.customer_id AND p.campaign_id = k.campaign_id
+                AND p.ad_group_id = k.ad_group_id
+                AND p.ad_group_criterion_criterion_id = k.ad_group_criterion_criterion_id
+            WHERE toDate(p.segments_date) >= toDate({date_from})
+                AND toDate(p.segments_date) <= toDate({date_to})
+                AND p.segments_ad_network_type = 'SEARCH'
+            GROUP BY keyword, matchType, currency
+            """,
+            placeholders={
+                "period": ast.Constant(value=period),
+                "placement": ast.Field(chain=[*source.placementTable.split(".")]),
+                "keywords": self._google_keywords(source.keywordTable),
+                "date_from": ast.Constant(value=date_range.date_from()),
+                "date_to": ast.Constant(value=date_range.date_to()),
+            },
+        )
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         source_queries = [self._source_query(source, self.query_date_range, 0) for source in self.query.sources]
         if self.comparison_date_range:
             source_queries.extend(
                 self._source_query(source, self.comparison_date_range, 1) for source in self.query.sources
             )
+        if self.query.breakdown != "page":
+            for source in self.query.sources:
+                if (
+                    source.sourceType == "GoogleAds"
+                    and source.placementTable
+                    and source.placementTable not in self.unavailable_placement_tables
+                ):
+                    source_queries.append(self._google_placement_query(source, self.query_date_range, 0))
+                    if self.comparison_date_range:
+                        source_queries.append(self._google_placement_query(source, self.comparison_date_range, 1))
         sources = ast.SelectSetQuery.create_from_queries(source_queries, "UNION ALL")
         return parse_select(
             """
@@ -457,7 +514,9 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     previous=MarketingAnalyticsSearchMetrics(**previous) if self.comparison_date_range else None,
                 )
             )
-        response = MarketingAnalyticsSearchQueryResponse(results=rows)
+        response = MarketingAnalyticsSearchQueryResponse(
+            results=rows, placementUnavailable=bool(self.unavailable_placement_tables)
+        )
         if self.include_posthog_conversions:
             self._add_posthog_conversions(response, ambiguous_keys)
         return response

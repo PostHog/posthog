@@ -277,6 +277,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 right=ast.Constant(value=date_range.date_to()),
             ),
             self._day_of_week_filter_expr(ast.Field(chain=["timestamp"])),
+            self._aggregation_target_filter() if self.context.query.aggregation_group_type_index is not None else None,
         ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 

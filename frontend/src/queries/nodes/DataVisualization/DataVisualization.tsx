@@ -121,6 +121,7 @@ export function DataTableVisualization({
         dashboardId: insightProps.dashboardId,
         dataNodeCollectionId,
         loadPriority: insightProps.loadPriority,
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         editMode,
         setQuery: (setter) => {
             applyDataVisualizationQueryUpdate(queryRef, setter, setQuery)
@@ -133,6 +134,7 @@ export function DataTableVisualization({
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: getBIVisualizationSource(query),
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         key: vizKey,
         cachedResults,
         loadPriority: insightProps.loadPriority,

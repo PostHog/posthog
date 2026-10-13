@@ -2,16 +2,13 @@ import json
 from typing import Any, cast
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny import (
     PAGE_SIZE,
     CannyBodyAuth,
     CannyResumeConfig,
-    canny_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import (
@@ -19,93 +16,33 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canny.sett
     CANNY_API_VERSION_V2,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.canny.source import CannySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the canny module.
-CANNY_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canny import CannySourceConfig
 
 
-def _response(body: Any, status: int = 200, reason: str = "") -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.reason = reason
-    resp.url = "https://canny.io/api/v1/posts/list"
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver(api_key: str = "k") -> SourceDriver:
+    return SourceDriver(CannySource(), CannySourceConfig(api_key=api_key))
 
 
-def _page(key: str, ids: list[str], has_more: bool) -> Response:
-    return _response({key: [{"id": i} for i in ids], "hasMore": has_more})
+def _page(key: str, ids: list[str], has_more: bool) -> ScriptedResponse:
+    return ScriptedResponse(json={key: [{"id": i} for i in ids], "hasMore": has_more})
 
 
-def _full_page(key: str, start: int, has_more: bool = True) -> Response:
+def _full_page(key: str, start: int, has_more: bool = True) -> ScriptedResponse:
     return _page(key, [str(i) for i in range(start, start + PAGE_SIZE)], has_more)
 
 
-def _make_manager(resume_state: CannyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request's JSON body AT SEND TIME.
-
-    ``request.json`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    body_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        body_snapshots.append(dict(request.json or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return body_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, api_key: str = "k", api_version: str = CANNY_API_VERSION_V1):
-    return canny_source(
-        api_key=api_key,
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        api_version=api_version,
-    )
-
-
-def _cursor_page(key: str, ids: list[str], cursor: str | None, has_next: bool) -> Response:
-    return _response({key: [{"id": i} for i in ids], "cursor": cursor, "hasNextPage": has_next})
-
-
-def _capture(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
-    """Like ``_wire`` but also snapshots each request's URL, so v2 path dispatch can be asserted."""
-    session.headers = {}
-    urls: list[str] = []
-    bodies: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        urls.append(request.url)
-        bodies.append(dict(request.json or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return urls, bodies
+def _cursor_page(key: str, ids: list[str], cursor: str | None, has_next: bool) -> ScriptedResponse:
+    return ScriptedResponse(json={key: [{"id": i} for i in ids], "cursor": cursor, "hasNextPage": has_next})
 
 
 class TestCannyBodyAuth:
@@ -132,198 +69,159 @@ class TestCannyBodyAuth:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_has_more_false_and_saves_after_each_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(
-            session,
-            [_full_page("posts", 0), _full_page("posts", PAGE_SIZE), _page("posts", ["final"], has_more=False)],
+    def test_paginates_until_has_more_false_and_saves_after_each_page(self) -> None:
+        result = _driver().run(
+            "posts",
+            [_full_page("posts", 0), _full_page("posts", PAGE_SIZE), _page("posts", ["final"], False)],
+            api_version=CANNY_API_VERSION_V1,
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("posts", manager))
-
-        assert [r["id"] for r in rows] == [*(str(i) for i in range(2 * PAGE_SIZE)), "final"]
-        assert [b.get("skip") for b in bodies] == [0, PAGE_SIZE, PAGE_SIZE * 2]
-        assert all(b.get("limit") == PAGE_SIZE for b in bodies)
+        assert [row["id"] for row in result.rows] == [*(str(i) for i in range(2 * PAGE_SIZE)), "final"]
+        assert [request.json().get("skip") for request in result.requests] == [0, PAGE_SIZE, PAGE_SIZE * 2]
+        assert all(request.json().get("limit") == PAGE_SIZE for request in result.requests)
         # State is saved after each non-terminal page so a crash re-yields rather than skips.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CannyResumeConfig(skip=PAGE_SIZE), CannyResumeConfig(skip=PAGE_SIZE * 2)]
+        assert result.saved_states == [CannyResumeConfig(skip=PAGE_SIZE), CannyResumeConfig(skip=PAGE_SIZE * 2)]
+        assert result.raised is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_with_has_more_false_stops_without_extra_request(self, MockSession) -> None:
+    def test_full_page_with_has_more_false_stops_without_extra_request(self) -> None:
         # Termination is driven by Canny's hasMore flag, not page size — a full last page must
         # not trigger a wasted empty-page probe.
-        session = MockSession.return_value
-        _wire(session, [_full_page("posts", 0, has_more=False)])
+        result = _driver().run("posts", [_full_page("posts", 0, has_more=False)], api_version=CANNY_API_VERSION_V1)
 
-        rows = _rows(_source("posts", _make_manager()))
+        assert len(result.rows) == PAGE_SIZE
+        assert len(result.requests) == 1
+        assert result.raised is None
 
-        assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
+    def test_resume_seeds_skip_from_saved_state(self) -> None:
+        result = _driver().run(
+            "posts",
+            [_page("posts", ["x"], False)],
+            resume_state=CannyResumeConfig(skip=PAGE_SIZE * 2),
+            api_version=CANNY_API_VERSION_V1,
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_seeds_skip_from_saved_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_page("posts", ["x"], has_more=False)])
+        assert result.requests[0].json().get("skip") == PAGE_SIZE * 2
+        assert [row["id"] for row in result.rows] == ["x"]
+        assert result.raised is None
 
-        manager = _make_manager(CannyResumeConfig(skip=PAGE_SIZE * 2))
-        rows = _rows(_source("posts", manager))
+    def test_terminal_single_page_does_not_save_state(self) -> None:
+        result = _driver().run("posts", [_page("posts", ["only"], False)], api_version=CANNY_API_VERSION_V1)
 
-        assert bodies[0].get("skip") == PAGE_SIZE * 2
-        manager.load_state.assert_called_once()
-        assert [r["id"] for r in rows] == ["x"]
+        assert [row["id"] for row in result.rows] == ["only"]
+        assert result.saved_states == []
+        assert result.raised is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminal_single_page_does_not_save_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("posts", ["only"], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source("posts", manager))
-
-        assert [r["id"] for r in rows] == ["only"]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_fetches_once_without_pagination_params(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_unpaginated_endpoint_fetches_once_without_pagination_params(self) -> None:
         # boards/list has no hasMore flag; a single fetch must terminate the loop.
-        bodies = _wire(session, [_response({"boards": [{"id": "b1"}]})])
+        result = _driver().run("boards", [ScriptedResponse(json={"boards": [{"id": "b1"}]})])
 
-        manager = _make_manager()
-        rows = _rows(_source("boards", manager))
+        assert len(result.requests) == 1
+        assert "skip" not in result.requests[0].json()
+        assert "limit" not in result.requests[0].json()
+        assert result.rows == [{"id": "b1"}]
+        assert result.saved_states == []
+        assert result.raised is None
 
-        assert session.send.call_count == 1
-        assert "skip" not in bodies[0]
-        assert "limit" not in bodies[0]
-        assert rows == [{"id": "b1"}]
-        manager.save_state.assert_not_called()
+    def test_empty_page_yields_nothing(self) -> None:
+        result = _driver().run("posts", [_page("posts", [], False)], api_version=CANNY_API_VERSION_V1)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("posts", [], has_more=False)])
-
-        manager = _make_manager()
-        assert _rows(_source("posts", manager)) == []
-        manager.save_state.assert_not_called()
+        assert result.rows == []
+        assert result.saved_states == []
+        assert result.raised is None
 
     @pytest.mark.parametrize(
         "body",
         [{}, {"posts": None}, {"posts": {"id": "1"}}, {"other": [{"id": "1"}]}],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_or_non_list_data_key_yields_nothing(self, MockSession, body: dict[str, Any]) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
+    def test_missing_or_non_list_data_key_yields_nothing(self, body: dict[str, Any]) -> None:
+        result = _driver().run("posts", [ScriptedResponse(json=body)], api_version=CANNY_API_VERSION_V1)
 
-        assert _rows(_source("posts", _make_manager())) == []
+        assert result.rows == []
+        assert result.raised is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_error_body_on_200_raises_http_error(self, MockSession) -> None:
+    def test_error_body_on_200_raises_http_error(self) -> None:
         # Canny can return 200 with an {"error": ...} body for a bad API key; the message must
         # carry the error text so the friendly non-retryable mapping can match it.
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "invalid API key"})])
+        result = _driver().run("posts", [ScriptedResponse(json={"error": "invalid API key"})])
 
-        with pytest.raises(requests.HTTPError, match="invalid API key"):
-            _rows(_source("posts", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "invalid API key" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_error_body_on_unpaginated_endpoint_raises(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "invalid API key"})])
+    def test_error_body_on_unpaginated_endpoint_raises(self) -> None:
+        result = _driver().run("boards", [ScriptedResponse(json={"error": "invalid API key"})])
 
-        with pytest.raises(requests.HTTPError, match="invalid API key"):
-            _rows(_source("boards", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "invalid API key" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_registers_api_key_for_redaction(self, MockSession) -> None:
+    def test_registers_api_key_for_redaction(self) -> None:
         # The secret rides in the POST body through the tracked transport; it must be redacted so
         # it never lands in HTTP logs/samples.
-        session = MockSession.return_value
-        _wire(session, [_page("posts", [], has_more=False)])
+        result = _driver("secret").run("posts", [_page("posts", [], False)], api_version=CANNY_API_VERSION_V1)
 
-        _rows(_source("posts", _make_manager(), api_key="secret"))
-
-        MockSession.assert_called_once_with(redact_values=("secret",))
+        assert result.session_options == [{"redact_values": ("secret",)}]
+        assert result.raised is None
 
 
 class TestRetries:
     @pytest.mark.parametrize("status", [429, 500, 503])
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, MockSession, _sleep, status: int) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=status), _page("posts", ["a"], has_more=False)])
+    def test_retryable_status_is_retried_then_succeeds(self, status: int) -> None:
+        result = _driver().run("posts", [ScriptedResponse(status=status, json={}), _page("posts", ["a"], False)])
 
-        rows = _rows(_source("posts", _make_manager()))
+        assert [row["id"] for row in result.rows] == ["a"]
+        assert len(result.requests) == 2
+        assert result.raised is None
 
-        assert [r["id"] for r in rows] == ["a"]
-        assert session.send.call_count == 2
+    def test_retries_exhaust_then_raise(self) -> None:
+        result = _driver().run("posts", always(ScriptedResponse(status=500, json={})))
 
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_exhaust_then_raise(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=500)] * 5)
-
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("posts", _make_manager()))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
 
     @pytest.mark.parametrize(
         ("status", "reason"),
         [(400, "Bad Request"), (401, "Unauthorized"), (403, "Forbidden")],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_http_error_without_retry(self, MockSession, status: int, reason: str) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=status, reason=reason)])
+    def test_client_errors_raise_http_error_without_retry(self, status: int, reason: str) -> None:
+        result = _driver().run("posts", [ScriptedResponse(status=status, json={})])
 
-        with pytest.raises(requests.HTTPError, match=f"{status} Client Error"):
-            _rows(_source("posts", _make_manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert f"{status} Client Error" in str(result.raised)
+        assert reason in str(result.raised)
+        assert len(result.requests) == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unauthorized_message_matches_non_retryable_mapping(self, MockSession) -> None:
+    def test_unauthorized_message_matches_non_retryable_mapping(self) -> None:
         # source.py maps this exact substring to the friendly invalid-key message.
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=401, reason="Unauthorized")])
+        result = _driver().run("posts", [ScriptedResponse(status=401, json={})])
 
-        with pytest.raises(requests.HTTPError, match="401 Client Error: Unauthorized for url: https://canny.io"):
-            _rows(_source("posts", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401 Client Error: Unauthorized for url: https://canny.io" in str(result.raised)
 
 
 class TestValidateCredentials:
-    def _validate(self, response: Any = None, raises: Exception | None = None) -> bool:
-        with mock.patch(CANNY_SESSION_PATCH) as MockSession:
-            post = MockSession.return_value.post
-            if raises is not None:
-                post.side_effect = raises
-            else:
-                post.return_value = response
-            return validate_credentials("k")
-
     def test_valid_key(self) -> None:
-        assert self._validate(_response({"boards": []})) is True
+        with scripted_network([ScriptedResponse(json={"boards": []})]) as network:
+            assert validate_credentials("k") is True
+
+        assert network.requests_log[0].path == "/api/v1/boards/list"
+        assert network.requests_log[0].body == b"apiKey=k"
 
     def test_error_body_is_invalid(self) -> None:
-        assert self._validate(_response({"error": "invalid API key"})) is False
+        with scripted_network([ScriptedResponse(json={"error": "invalid API key"})]):
+            assert validate_credentials("k") is False
 
     def test_non_ok_is_invalid(self) -> None:
-        assert self._validate(_response({}, status=401)) is False
+        with scripted_network([ScriptedResponse(status=401, json={})]):
+            assert validate_credentials("k") is False
 
     def test_network_error_is_invalid(self) -> None:
-        assert self._validate(raises=requests.ConnectionError("boom")) is False
+        with scripted_network([requests.ConnectionError("boom")]):
+            assert validate_credentials("k") is False
 
     def test_registers_api_key_for_redaction(self) -> None:
-        with mock.patch(CANNY_SESSION_PATCH) as MockSession:
-            MockSession.return_value.post.return_value = _response({"boards": []})
+        with scripted_network([ScriptedResponse(json={"boards": []})]) as network:
             validate_credentials("secret")
 
-        MockSession.assert_called_once_with(redact_values=("secret",))
+        assert network.session_options == [{"redact_values": ("secret",)}]
 
 
 class TestCannySource:
@@ -333,9 +231,12 @@ class TestCannySource:
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json={})])
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
+        assert result.raised is None
 
         if endpoint in self.UNPARTITIONED_ENDPOINTS:
             assert response.partition_mode is None
@@ -351,76 +252,65 @@ class TestV2CursorPagination:
     V2_ENDPOINTS = [("companies", "companies"), ("comments", "items"), ("users", "users")]
 
     @pytest.mark.parametrize(("endpoint", "data_key"), V2_ENDPOINTS)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cursor_paginates_reads_v2_key_and_hits_v2_path(self, MockSession, endpoint: str, data_key: str) -> None:
-        session = MockSession.return_value
-        urls, bodies = _capture(
-            session,
+    def test_cursor_paginates_reads_v2_key_and_hits_v2_path(self, endpoint: str, data_key: str) -> None:
+        result = _driver().run(
+            endpoint,
             [
                 _cursor_page(data_key, ["a", "b"], cursor="cur-1", has_next=True),
                 _cursor_page(data_key, ["c"], cursor=None, has_next=False),
             ],
+            api_version=CANNY_API_VERSION_V2,
         )
 
-        manager = _make_manager()
-        rows = _rows(_source(endpoint, manager, api_version=CANNY_API_VERSION_V2))
-
-        assert [r["id"] for r in rows] == ["a", "b", "c"]
-        assert all(url == f"https://canny.io/api/v2/{endpoint}/list" for url in urls)
+        assert [row["id"] for row in result.rows] == ["a", "b", "c"]
+        assert result.urls == [f"https://canny.io/api/v2/{endpoint}/list"] * 2
         # limit rides every request; the cursor is absent on the first and forwarded on the next.
-        assert bodies[0].get("limit") == PAGE_SIZE
-        assert "cursor" not in bodies[0]
-        assert bodies[1].get("cursor") == "cur-1"
+        assert result.requests[0].json().get("limit") == PAGE_SIZE
+        assert "cursor" not in result.requests[0].json()
+        assert result.requests[1].json().get("cursor") == "cur-1"
         # The non-terminal page checkpoints its cursor so a crash resumes rather than restarts.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CannyResumeConfig(cursor="cur-1")]
+        assert result.saved_states == [CannyResumeConfig(cursor="cur-1")]
+        assert result.raised is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_seeds_cursor_from_saved_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, bodies = _capture(session, [_cursor_page("companies", ["x"], cursor=None, has_next=False)])
+    def test_resume_seeds_cursor_from_saved_state(self) -> None:
+        result = _driver().run(
+            "companies",
+            [_cursor_page("companies", ["x"], cursor=None, has_next=False)],
+            resume_state=CannyResumeConfig(cursor="cur-99"),
+            api_version=CANNY_API_VERSION_V2,
+        )
 
-        manager = _make_manager(CannyResumeConfig(cursor="cur-99"))
-        rows = _rows(_source("companies", manager, api_version=CANNY_API_VERSION_V2))
+        assert result.requests[0].json().get("cursor") == "cur-99"
+        assert [row["id"] for row in result.rows] == ["x"]
+        assert result.raised is None
 
-        assert bodies[0].get("cursor") == "cur-99"
-        assert [r["id"] for r in rows] == ["x"]
+    def test_error_body_on_v2_raises_http_error(self) -> None:
+        result = _driver().run("companies", [ScriptedResponse(json={"error": "invalid API key"})])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_error_body_on_v2_raises_http_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _capture(session, [_response({"error": "invalid API key"})])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "invalid API key" in str(result.raised)
 
-        with pytest.raises(requests.HTTPError, match="invalid API key"):
-            _rows(_source("companies", _make_manager(), api_version=CANNY_API_VERSION_V2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_v2_pin_keeps_non_v2_endpoint_on_v1_skip_wire(self, MockSession) -> None:
+    def test_v2_pin_keeps_non_v2_endpoint_on_v1_skip_wire(self) -> None:
         # posts has no v2 implementation, so a v2-pinned source must still request the v1 path with
         # skip/limit pagination — never a guessed /v2/posts/list that would 404.
-        session = MockSession.return_value
-        urls, bodies = _capture(session, [_page("posts", ["p1"], has_more=False)])
+        result = _driver().run("posts", [_page("posts", ["p1"], False)], api_version=CANNY_API_VERSION_V2)
 
-        rows = _rows(_source("posts", _make_manager(), api_version=CANNY_API_VERSION_V2))
+        assert result.urls == ["https://canny.io/api/v1/posts/list"]
+        assert result.requests[0].json().get("skip") == 0
+        assert result.requests[0].json().get("limit") == PAGE_SIZE
+        assert [row["id"] for row in result.rows] == ["p1"]
+        assert result.raised is None
 
-        assert urls == ["https://canny.io/api/v1/posts/list"]
-        assert bodies[0].get("skip") == 0
-        assert bodies[0].get("limit") == PAGE_SIZE
-        assert [r["id"] for r in rows] == ["p1"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_v1_pin_keeps_v2_capable_endpoint_on_v1_wire(self, MockSession) -> None:
+    def test_v1_pin_keeps_v2_capable_endpoint_on_v1_wire(self) -> None:
         # A v1-pinned companies source stays byte-for-byte on the v1 skip/limit path and `companies`
         # key, unaffected by the new default.
-        session = MockSession.return_value
-        urls, bodies = _capture(session, [_page("companies", ["c1"], has_more=False)])
+        result = _driver().run("companies", [_page("companies", ["c1"], False)], api_version=CANNY_API_VERSION_V1)
 
-        rows = _rows(_source("companies", _make_manager(), api_version=CANNY_API_VERSION_V1))
-
-        assert urls == ["https://canny.io/api/v1/companies/list"]
-        assert bodies[0].get("skip") == 0
-        assert "cursor" not in bodies[0]
-        assert [r["id"] for r in rows] == ["c1"]
+        assert result.urls == ["https://canny.io/api/v1/companies/list"]
+        assert result.requests[0].json().get("skip") == 0
+        assert "cursor" not in result.requests[0].json()
+        assert [row["id"] for row in result.rows] == ["c1"]
+        assert result.raised is None
 
 
 class TestIdeasEraEndpoints:
@@ -430,60 +320,53 @@ class TestIdeasEraEndpoints:
 
     @pytest.mark.parametrize("api_version", [CANNY_API_VERSION_V1, CANNY_API_VERSION_V2])
     @pytest.mark.parametrize("endpoint", CURSOR_V1_ENDPOINTS)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cursor_paginates_on_v1_path_under_either_pin(self, MockSession, endpoint: str, api_version: str) -> None:
-        session = MockSession.return_value
-        urls, bodies = _capture(
-            session,
+    def test_cursor_paginates_on_v1_path_under_either_pin(self, endpoint: str, api_version: str) -> None:
+        result = _driver().run(
+            endpoint,
             [
                 _cursor_page("items", ["a", "b"], cursor="cur-1", has_next=True),
                 _cursor_page("items", ["c"], cursor=None, has_next=False),
             ],
+            api_version=api_version,
         )
 
-        manager = _make_manager()
-        rows = _rows(_source(endpoint, manager, api_version=api_version))
-
-        assert [r["id"] for r in rows] == ["a", "b", "c"]
+        assert [row["id"] for row in result.rows] == ["a", "b", "c"]
         # These have no v2 implementation; a guessed /v2/ path would 404, and skip/limit would
         # silently re-read page one forever.
-        assert all(url == f"https://canny.io/api/v1/{endpoint}/list" for url in urls)
-        assert "skip" not in bodies[0]
-        assert bodies[0].get("limit") == PAGE_SIZE
-        assert "cursor" not in bodies[0]
-        assert bodies[1].get("cursor") == "cur-1"
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CannyResumeConfig(cursor="cur-1")]
+        assert result.urls == [f"https://canny.io/api/v1/{endpoint}/list"] * 2
+        assert "skip" not in result.requests[0].json()
+        assert result.requests[0].json().get("limit") == PAGE_SIZE
+        assert "cursor" not in result.requests[0].json()
+        assert result.requests[1].json().get("cursor") == "cur-1"
+        assert result.saved_states == [CannyResumeConfig(cursor="cur-1")]
+        assert result.raised is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_seeds_cursor_under_v1_pin(self, MockSession) -> None:
+    def test_resume_seeds_cursor_under_v1_pin(self) -> None:
         # A v1 pin used to imply offset resume; these endpoints must read the saved cursor instead.
-        session = MockSession.return_value
-        _, bodies = _capture(session, [_cursor_page("items", ["x"], cursor=None, has_next=False)])
-
-        manager = _make_manager(CannyResumeConfig(cursor="cur-77"))
-        rows = _rows(_source("ideas", manager, api_version=CANNY_API_VERSION_V1))
-
-        assert bodies[0].get("cursor") == "cur-77"
-        assert "skip" not in bodies[0]
-        assert [r["id"] for r in rows] == ["x"]
-
-    @pytest.mark.parametrize("api_version", [CANNY_API_VERSION_V1, CANNY_API_VERSION_V2])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_opportunities_stay_on_the_skip_wire(self, MockSession, api_version: str) -> None:
-        # Opportunities is the one Ideas-era endpoint Canny left on skip/limit with `hasMore`.
-        session = MockSession.return_value
-        urls, bodies = _capture(
-            session,
-            [_full_page("opportunities", 0), _page("opportunities", ["final"], has_more=False)],
+        result = _driver().run(
+            "ideas",
+            [_cursor_page("items", ["x"], cursor=None, has_next=False)],
+            resume_state=CannyResumeConfig(cursor="cur-77"),
+            api_version=CANNY_API_VERSION_V1,
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("opportunities", manager, api_version=api_version))
+        assert result.requests[0].json().get("cursor") == "cur-77"
+        assert "skip" not in result.requests[0].json()
+        assert [row["id"] for row in result.rows] == ["x"]
+        assert result.raised is None
 
-        assert [r["id"] for r in rows] == [*(str(i) for i in range(PAGE_SIZE)), "final"]
-        assert urls == ["https://canny.io/api/v1/opportunities/list"] * 2
-        assert [b.get("skip") for b in bodies] == [0, PAGE_SIZE]
-        assert "cursor" not in bodies[0]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CannyResumeConfig(skip=PAGE_SIZE)]
+    @pytest.mark.parametrize("api_version", [CANNY_API_VERSION_V1, CANNY_API_VERSION_V2])
+    def test_opportunities_stay_on_the_skip_wire(self, api_version: str) -> None:
+        # Opportunities is the one Ideas-era endpoint Canny left on skip/limit with `hasMore`.
+        result = _driver().run(
+            "opportunities",
+            [_full_page("opportunities", 0), _page("opportunities", ["final"], False)],
+            api_version=api_version,
+        )
+
+        assert [row["id"] for row in result.rows] == [*(str(i) for i in range(PAGE_SIZE)), "final"]
+        assert result.urls == ["https://canny.io/api/v1/opportunities/list"] * 2
+        assert [request.json().get("skip") for request in result.requests] == [0, PAGE_SIZE]
+        assert "cursor" not in result.requests[0].json()
+        assert result.saved_states == [CannyResumeConfig(skip=PAGE_SIZE)]
+        assert result.raised is None

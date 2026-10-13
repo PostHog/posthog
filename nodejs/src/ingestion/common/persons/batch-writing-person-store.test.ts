@@ -43,6 +43,7 @@ jest.mock('~/common/persons/metrics', () => ({
     personProfileUpdateOutcomeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personProfileBatchUpdateOutcomeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personPropertyKeyUpdateCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personResolveKeysPerCallHistogram: { observe: jest.fn() },
     personRetryAttemptsHistogram: { observe: jest.fn() },
     personWriteMethodAttemptCounter: { inc: jest.fn() },
     personWriteMethodLatencyHistogram: { observe: jest.fn() },

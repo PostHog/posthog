@@ -1,6 +1,6 @@
 """Signal emitter for raygun `error_groups` (record kind: issue).
 
-`createdAt` is an ISO string; the record id column is `identifier`.
+`created_at` is an ISO string; the record id column is `identifier`.
 """
 
 from products.signals.backend.emission._common import make_flat_emitter
@@ -8,7 +8,7 @@ from products.signals.backend.emission._prompts import ERROR_ACTIONABILITY_PROMP
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
-RAYGUN_FIELDS = ("identifier", "message", "status", "applicationUrl", "lastOccurredAt", "createdAt")
+RAYGUN_FIELDS = ("identifier", "message", "status", "application_url", "last_occurred_at", "created_at")
 
 RAYGUN_CONFIG = SignalSourceTableConfig(
     source_product="raygun",
@@ -18,10 +18,10 @@ RAYGUN_CONFIG = SignalSourceTableConfig(
         source_type="issue",
         id_field="identifier",
         title_field="message",
-        extra_fields=("status", "applicationUrl", "lastOccurredAt", "createdAt"),
+        extra_fields=("status", "application_url", "last_occurred_at", "created_at"),
     ),
     record_fetcher=data_warehouse_record_fetcher,
-    partition_field="createdAt",
+    partition_field="created_at",
     partition_field_is_datetime_string=True,
     fields=RAYGUN_FIELDS,
     where_clause="status = 'active'",

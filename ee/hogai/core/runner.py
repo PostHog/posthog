@@ -21,6 +21,7 @@ from opentelemetry import trace
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler, GenerationMetadata
 
 from posthog.schema import (
+    ApprovalDecisionStatus,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantMessage,
@@ -47,7 +48,7 @@ from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.llm import POSTHOG_AI_PRODUCT, is_ai_gateway_served
-from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
+from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest, pending_approval_proposal_id
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
@@ -528,9 +529,9 @@ class BaseAgentRunner(ABC):
                                 original_tool_call_id=interrupt.value.original_tool_call_id,
                                 message_id=message_id,
                             )
-                            yield AssistantEventType.APPROVAL, approval_payload
                             # Store approval card metadata for persistence (page reload)
                             await self._store_approval_card_data(approval_payload)
+                            yield AssistantEventType.APPROVAL, approval_payload
                         else:
                             interrupt_message = interrupt.value
                             interrupt_messages.append(interrupt_message)
@@ -589,6 +590,17 @@ class BaseAgentRunner(ABC):
                 if message.id is not None:
                     self._stream_processor.mark_id_as_streamed(message.id)
 
+            await self._conversation.arefresh_from_db(fields=["approval_decisions"])
+            await self._expire_pending_approvals(
+                keep={
+                    proposal_id
+                    for task in snapshot.tasks
+                    if task.result is None
+                    for pending in task.interrupts
+                    if (proposal_id := pending_approval_proposal_id(pending.value))
+                }
+            )
+
             resume_value = self._resume_payload
             if self._resume_payload and self._resume_payload.get("action") in ("approve", "reject"):
                 proposal_id = self._resume_payload.get("proposal_id")
@@ -598,14 +610,18 @@ class BaseAgentRunner(ABC):
                         for task in snapshot.tasks
                         if task.result is None
                         for pending in task.interrupts
-                        if isinstance(pending.value, ApprovalRequest) and pending.value.proposal_id == proposal_id
+                        if isinstance(proposal_id, str) and pending_approval_proposal_id(pending.value) == proposal_id
                     ),
                     None,
                 )
                 if approval_interrupt is None:
-                    raise ValueError("Approval does not match a pending operation")
-                # A scalar resume targets the next interrupt, which may belong to a different approval card.
-                resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
+                    if not self._latest_message:
+                        raise ValueError("Approval does not match a pending operation")
+                    self._resume_payload = None
+                    resume_value = None
+                else:
+                    # A scalar resume targets the next interrupt, which may belong to a different approval card.
+                    resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
 
             # If there are pending nodes (snapshot.next is non-empty), we need to resume.
             # This happens when:
@@ -643,6 +659,8 @@ class BaseAgentRunner(ABC):
                     # This means an approval interrupt is waiting for user input.
                     # Return None to resume from checkpoint
                     return None
+
+            await self._expire_pending_approvals(keep=set())
 
         # Add the latest message id to streamed messages, so we don't send it multiple times.
         if self._latest_message and self._latest_message.id is not None:
@@ -764,6 +782,7 @@ class BaseAgentRunner(ABC):
         checkpoint's interrupt value (single source of truth). The serializer fetches it from there.
         """
         # Only store if not already in approval_decisions (don't overwrite resolved status)
+        await self._conversation.arefresh_from_db(fields=["approval_decisions"])
         if approval.proposal_id in self._conversation.approval_decisions:
             return
 
@@ -797,3 +816,19 @@ class BaseAgentRunner(ABC):
 
         self._conversation.approval_decisions[proposal_id]["decision_status"] = status
         await self._conversation.asave(update_fields=["approval_decisions"])
+
+    def _pending_proposal_ids(self, keep: set[str]) -> list[str]:
+        return [
+            proposal_id
+            for proposal_id, decision in self._conversation.approval_decisions.items()
+            if proposal_id not in keep
+            and isinstance(decision, dict)
+            and decision.get("decision_status") == ApprovalDecisionStatus.PENDING
+        ]
+
+    async def _expire_pending_approvals(self, keep: set[str]) -> None:
+        expired_ids = self._pending_proposal_ids(keep)
+        for proposal_id in expired_ids:
+            self._conversation.approval_decisions[proposal_id]["decision_status"] = ApprovalDecisionStatus.AUTO_REJECTED
+        if expired_ids:
+            await self._conversation.asave(update_fields=["approval_decisions"])

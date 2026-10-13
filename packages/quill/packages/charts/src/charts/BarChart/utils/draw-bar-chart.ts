@@ -17,6 +17,7 @@ import {
     drawBars,
     drawBarTracks,
     drawGrid,
+    drawSolidBarTracks,
     resolveAxisLineColor,
     type DrawContext,
 } from '../../../core/canvas-renderer'
@@ -27,7 +28,7 @@ import { computeVisibleXLabels } from '../../../overlays/AxisLabels'
 import { resolveBarShadow } from './bar-config'
 import { type BarLayout } from './bars-under-cursor'
 import type { ResolvedBarHover } from './resolve-bar-hover'
-import { stackPillRects } from './stack-pills'
+import { ALL_CORNERS, stackPillRects } from './stack-pills'
 
 /** Category-axis grid ticks aligned to the visible labels rather than every band: all band
  *  centers for horizontal charts, the de-duplicated visible x-labels for vertical ones so a
@@ -77,6 +78,8 @@ function withBarShadow(
     ctx.restore()
 }
 
+const SOLID_TRACK_FALLBACK_COLOR = 'rgba(0, 0, 0, 0.06)'
+
 export interface DrawBarChartStaticArgs {
     barLayout: BarLayout
     isHorizontal: boolean
@@ -88,6 +91,7 @@ export interface DrawBarChartStaticArgs {
     roundStackEnds: boolean
     barCornerRadius: number
     barTrack: boolean
+    solidTrack: boolean
     barShadow: BarsConfig['shadow']
     barFillStyle: BarFillStyle
     minBarSizeScope?: BarsConfig['minBarSizeScope']
@@ -109,6 +113,7 @@ export function drawBarChartStatic(
         roundStackEnds,
         barCornerRadius,
         barTrack,
+        solidTrack,
         barShadow,
         barFillStyle,
         minBarSizeScope,
@@ -175,6 +180,20 @@ export function drawBarChartStatic(
               isHorizontal
           )
         : []
+
+    if (solidTrack) {
+        const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
+        const bandwidth = d3Scales.band.bandwidth()
+        const tracks = drawLabels.flatMap((label, dataIndex) => {
+            const start = d3Scales.band(label)
+            if (start == null) {
+                return []
+            }
+            const band = { x: start, y: start, width: bandwidth, height: bandwidth, corners: ALL_CORNERS, dataIndex }
+            return [computeBarTrackRect(band, axisStart, axisEnd, isHorizontal)]
+        })
+        drawSolidBarTracks(ctx, tracks, theme.gridColor ?? SOLID_TRACK_FALLBACK_COLOR, barCornerRadius)
+    }
 
     // Tracks are a separate pass so a later series' full-height track can't paint
     // over an earlier series' bar. Track is "share of a whole" semantics — only
