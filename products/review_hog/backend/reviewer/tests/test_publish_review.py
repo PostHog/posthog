@@ -313,9 +313,10 @@ class TestPublishReviewGate:
             self.remove_reactions = remove_reactions
             yield
 
-    def _wire_report(self, mock_report_cls: MagicMock) -> None:
+    def _wire_report(self, mock_report_cls: MagicMock, published_head_sha: str | None = None) -> None:
         mock_report = MagicMock()
         mock_report.report_markdown = "# PostHog Review"
+        mock_report.published_head_sha = published_head_sha
         mock_report_cls.objects.for_team.return_value.get.return_value = mock_report
 
     @parameterized.expand(
@@ -436,13 +437,16 @@ class TestPublishReviewGate:
 
     @parameterized.expand(
         [
-            ("deep", "full", None, [], None),
-            ("deep_large", "full", 3, [], None),
-            ("standard_reacts", "flash", None, [("o/r", 1, "+1")], None),
+            ("deep", "full", None, None, [], None),
+            ("deep_large", "full", 3, None, [], None),
+            ("standard_reacts", "flash", None, None, [("o/r", 1, "+1")], None),
+            # An earlier turn published findings, so a clean turn must not bring the 👍 back.
+            ("standard_after_published_findings_does_not_react", "flash", None, "old", [], None),
             (
                 "standard_large_reacts_and_posts_the_note",
                 "flash",
                 3,
+                None,
                 [("o/r", 1, "+1")],
                 "**PostHog Review · Standard · reviewed `sha`**: no findings. This pull request is large, so the"
                 " review ran in 3 parts with less depth than usual.",
@@ -457,6 +461,7 @@ class TestPublishReviewGate:
         _name: str,
         review_mode: str,
         capped_lens_parts: int | None,
+        published_head_sha: str | None,
         expected_reactions: list[tuple[str, int, str]],
         expected_note: str | None,
         mock_report_cls: MagicMock,
@@ -467,7 +472,7 @@ class TestPublishReviewGate:
         # nothing publishable, so it posts no findings (guards the off-diff fix against over-surfacing).
         # A clean Standard turn has no status comment, so its 👍 and its large pull request note
         # are the only signs that it ran.
-        self._wire_report(mock_report_cls)
+        self._wire_report(mock_report_cls, published_head_sha)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
 
         outcome = publish_review(
@@ -492,10 +497,10 @@ class TestPublishReviewGate:
             return
         mock_post.assert_called_once()
         body, comments = mock_post.call_args.args[3:5]
-        note_marker = mock_post.call_args.kwargs["marker"]
-        assert body == f"{expected_note}\n\n{note_marker}"
+        assert body == f"{expected_note}\n\n<!-- reviewhog:large-pr-note:rep:sha -->"
         assert comments == []
-        assert note_marker.startswith("<!-- reviewhog:large-pr-note:rep:sha")
+        # The skip check matches a note from any earlier head, so re-reviews do not repeat it.
+        assert mock_post.call_args.kwargs["marker"] == "<!-- reviewhog:large-pr-note:rep:"
 
     @parameterized.expand(
         [
