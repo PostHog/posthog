@@ -39,6 +39,12 @@ TwoDestinations.args = {
     destinationsById: BY_ID,
 }
 
+export const FailedDestination = Template.bind({})
+FailedDestination.args = {
+    ...TwoDestinations.args,
+    failedDestinationId: POSTGRES.id,
+}
+
 export const WarehouseOnly = Template.bind({})
 WarehouseOnly.args = {
     destinationIds: [WAREHOUSE.id],

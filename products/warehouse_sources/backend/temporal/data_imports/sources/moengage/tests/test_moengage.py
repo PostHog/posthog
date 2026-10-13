@@ -9,6 +9,15 @@ from unittest import mock
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moengage import (
+    MoEngageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.moengage import (
     START_DATE_TOO_OLD_ERROR,
     MoEngageResumeConfig,
@@ -25,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.s
     SEARCH_PAGE_SIZE,
     STATS_PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.source import MoEngageSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module; the daily
 # report shares one session built in the moengage module instead.
@@ -136,6 +146,12 @@ def _drive(
     return sent_bodies, sent_headers, rows, manager
 
 
+def _driver(start_date: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        MoEngageSource(), MoEngageSourceConfig(workspace_id="ws-1", api_key="test-key", start_date=start_date)
+    )
+
+
 class TestMoEngageBaseUrl:
     @pytest.mark.parametrize("data_center", ["01.evil.com", "evil.com/", "07", ""])
     def test_rejects_values_outside_the_allowlist(self, data_center: str) -> None:
@@ -211,36 +227,49 @@ class TestStartDateError:
 
 class TestMoEngageSourceCampaigns:
     def test_fresh_run_pages_until_a_short_page_and_checkpoints(self) -> None:
-        responses = [_campaigns_page(SEARCH_PAGE_SIZE), _campaigns_page(SEARCH_PAGE_SIZE), _campaigns_page(1)]
-        sent_bodies, sent_headers, rows, manager = _drive("campaigns", responses)
+        result = _driver().run(
+            "campaigns",
+            [ScriptedResponse(json=_campaigns_page(count).json()) for count in (SEARCH_PAGE_SIZE, SEARCH_PAGE_SIZE, 1)],
+        )
 
-        assert [body["page"] for body in sent_bodies] == [1, 2, 3]
-        assert all(body["limit"] == SEARCH_PAGE_SIZE for body in sent_bodies)
-        assert all(body["include_child_campaigns"] is True for body in sent_bodies)
-        keys = [headers["Idempotency-Key"] for headers in sent_headers]
+        assert result.raised is None
+        bodies = [request.json() for request in result.requests]
+        assert [body["page"] for body in bodies] == [1, 2, 3]
+        assert all(body["limit"] == SEARCH_PAGE_SIZE for body in bodies)
+        assert all(body["include_child_campaigns"] is True for body in bodies)
+        keys = [request.headers["idempotency-key"] for request in result.requests]
         assert len(set(keys)) == len(keys)
-        assert len(rows) == SEARCH_PAGE_SIZE * 2 + 1
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert len(result.rows) == SEARCH_PAGE_SIZE * 2 + 1
+        assert result.saved_states == [
             MoEngageResumeConfig(search_state={"page": 2}),
             MoEngageResumeConfig(search_state={"page": 3}),
         ]
+        assert result.committed_states == result.saved_states
+
+    def test_resumes_campaign_search_at_the_saved_page(self) -> None:
+        result = _driver().run(
+            "campaigns",
+            [ScriptedResponse(json=_campaigns_page(1).json())],
+            resume_state=MoEngageResumeConfig(search_state={"page": 5}),
+        )
+
+        assert result.raised is None
+        assert [request.json()["page"] for request in result.requests] == [5]
 
 
 class TestMoEngageSourceDailyReport:
     def test_resume_skips_days_already_yielded(self) -> None:
         today = datetime.now(UTC).date()
-        manager = _make_manager(MoEngageResumeConfig(report_day_state={"start": today.isoformat()}))
-        sent_bodies, _, _, _ = _drive(
+        result = _driver().run(
             "daily_campaign_report",
-            [_stats_page(["c1"])],
-            manager=manager,
-            should_use_incremental_field=True,
+            [ScriptedResponse(json=_stats_page(["c1"]).json())],
+            resume_state=MoEngageResumeConfig(report_day_state={"start": today.isoformat()}),
+            incremental_field="date",
             db_incremental_field_last_value=today - timedelta(days=5),
         )
 
-        assert [body["start_date"] for body in sent_bodies] == [today.isoformat()]
+        assert result.raised is None
+        assert [request.json()["start_date"] for request in result.requests] == [today.isoformat()]
 
     def test_incremental_run_starts_at_the_previous_sync_minus_the_applied_lookback(self) -> None:
         today = datetime.now(UTC).date()
@@ -263,13 +292,15 @@ class TestMoEngageSourceDailyReport:
     def test_full_refresh_starts_at_the_configured_date(self) -> None:
         today = datetime.now(UTC).date()
         start = today - timedelta(days=1)
-        sent_bodies, _, _, _ = _drive(
+        result = _driver(start.isoformat()).run(
             "daily_campaign_report",
-            [_stats_page(["c1"]), _stats_page(["c1"])],
-            configured_start_date=start.isoformat(),
+            [ScriptedResponse(json=_stats_page(["c1"]).json()) for _ in range(2)],
         )
 
-        assert [body["start_date"] for body in sent_bodies] == [start.isoformat(), today.isoformat()]
+        assert result.raised is None
+        assert [request.json()["start_date"] for request in result.requests] == [start.isoformat(), today.isoformat()]
+        assert result.saved_states == [MoEngageResumeConfig(report_day_state={"start": today.isoformat()})]
+        assert result.final_state is None
 
 
 class TestMoEngageSourceCampaignReport:
@@ -279,33 +310,30 @@ class TestMoEngageSourceCampaignReport:
             _stats_page([f"c{i}" for i in range(STATS_PAGE_SIZE)], current_page=1, total_pages=2),
             _stats_page(["c10"], current_page=2, total_pages=2),
         ]
-        sent_bodies, _, rows, manager = _drive("campaign_report", responses)
+        result = _driver().run("campaign_report", [ScriptedResponse(json=response.json()) for response in responses])
 
         window_start = (today - timedelta(days=REPORT_WINDOW_DAYS - 1)).isoformat()
-        assert all(body["start_date"] == window_start for body in sent_bodies)
-        assert all(body["end_date"] == today.isoformat() for body in sent_bodies)
-        assert [body["offset"] for body in sent_bodies] == [0, STATS_PAGE_SIZE]
-        assert len(rows) == STATS_PAGE_SIZE + 1
-        assert rows[0]["start_date"] == window_start
-        assert rows[0]["end_date"] == today.isoformat()
+        assert result.raised is None
+        bodies = [request.json() for request in result.requests]
+        assert all(body["start_date"] == window_start for body in bodies)
+        assert all(body["end_date"] == today.isoformat() for body in bodies)
+        assert [body["offset"] for body in bodies] == [0, STATS_PAGE_SIZE]
+        assert len(result.rows) == STATS_PAGE_SIZE + 1
+        assert result.rows[0]["start_date"] == window_start
+        assert result.rows[0]["end_date"] == today.isoformat()
 
         # The window is anchored to today, so a checkpointed offset from a previous attempt would
         # point into a different result set; this endpoint restarts instead of resuming.
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []
 
 
 class TestMoEngageSourceErrors:
     def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown MoEngage endpoint"):
-            moengage_source(
-                data_center="01",
-                workspace_id="ws-1",
-                api_key="k",
-                endpoint="not_a_table",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-            )
+        result = _driver().run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown MoEngage endpoint" in str(result.raised)
+        assert result.requests == []
 
 
 class TestValidateCredentials:
@@ -319,10 +347,10 @@ class TestValidateCredentials:
         ],
     )
     def test_maps_probe_status_to_user_message(self, status: int, is_valid: bool, message_fragment: str | None) -> None:
-        with mock.patch(MOENGAGE_SESSION_PATCH) as MockSession:
-            MockSession.return_value.post.return_value = _response({}, status=status)
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             ok, message = validate_credentials("01", "ws-1", "key")
 
+        assert {request.path for request in network.requests_log} == {"/v5/campaigns/search"}
         assert ok is is_valid
         if message_fragment is None:
             assert message is None
@@ -330,9 +358,9 @@ class TestValidateCredentials:
             assert message is not None and message_fragment in message.lower()
 
     def test_connection_failure_reports_the_data_center(self) -> None:
-        with mock.patch(MOENGAGE_SESSION_PATCH) as MockSession:
-            MockSession.return_value.post.side_effect = ConnectionError("boom")
+        with scripted_network(always(ConnectionError("boom"))) as network:
             ok, message = validate_credentials("01", "ws-1", "key")
 
+        assert {request.path for request in network.requests_log} == {"/v5/campaigns/search"}
         assert ok is False
         assert message is not None and "data center" in message

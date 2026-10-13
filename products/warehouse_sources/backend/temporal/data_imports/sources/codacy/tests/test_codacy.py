@@ -23,9 +23,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.set
     METRICS_LOOKBACK_DAYS,
     METRICS_PERIOD,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source import CodacySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codacy import CodacySourceConfig
 
 BASE = "https://api.codacy.com/api/v3"
 REPOS_URL = f"{BASE}/organizations/gh/acme/repositories?limit=100"
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(CodacySource(), CodacySourceConfig(api_token="token", provider="gh", organization="acme"))
 
 
 def _response_with_status(status_code: int) -> requests.Response:
@@ -295,16 +307,15 @@ class TestFetchPage:
 class TestValidateCredentials:
     @parameterized.expand([("valid_token", 200, True), ("invalid_token", 401, False), ("forbidden", 403, False)])
     def test_status_code_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with patch.object(codacy, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("token") is expected
+        assert network.requests_log[0].path == "/api/v3/user/organizations"
+        assert network.requests_log[0].param("limit") == "1"
 
     def test_connection_error_returns_false(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(codacy, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             assert validate_credentials("token") is False
+        assert {request.path for request in network.requests_log} == {"/api/v3/user/organizations"}
 
 
 class TestSourceResponse:
@@ -678,18 +689,10 @@ class TestSecurityItems:
     def test_sample_capture_is_off_for_security_findings(self, endpoint: str, expected: bool) -> None:
         # Security rows carry free-text finding bodies and secret-scan detail that the capture
         # pipeline's name-based scrubber cannot recognise, so they must stay out of the samples.
-        with patch.object(codacy, "make_tracked_session") as make_session:
-            with patch.object(codacy, "_fetch_page", return_value={"data": []}):
-                list(
-                    get_rows(
-                        api_token="token",
-                        provider="gh",
-                        organization="acme",
-                        endpoint=endpoint,
-                        logger=MagicMock(),
-                    )
-                )
-        assert make_session.call_args.kwargs["capture"] is expected
+        result = _driver().run(endpoint, [ScriptedResponse(json={"data": []})])
+
+        assert result.raised is None
+        assert result.session_options[0]["capture"] is expected
 
     def test_partitions_on_the_stable_detection_timestamp(self) -> None:
         # dueAt and closedAt both move as an item is triaged, so partitioning on either would

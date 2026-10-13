@@ -3,11 +3,15 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
     ResendAuthMethodConfig,
     ResendSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import ResendIntegrationAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
 
 
@@ -52,25 +56,17 @@ class TestResendSource:
         assert len(schemas) == 1
         assert schemas[0].name == "emails"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
-    )
-    def test_validate_credentials_api_key_success(self, mock_validate):
-        mock_validate.return_value = True
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials_api_key_success(self):
+        with scripted_network([ScriptedResponse(json={"data": []})]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is True
         assert error_message is None
-        mock_validate.assert_called_once_with("re_test_key")
+        assert network.requests_log[0].headers["authorization"] == "Bearer re_test_key"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
-    )
-    def test_validate_credentials_api_key_failure(self, mock_validate):
-        mock_validate.return_value = False
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials_api_key_failure(self):
+        with scripted_network([ScriptedResponse(status=401, json={"message": "unauthorized"})]):
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None and "Generate a new API key" in error_message
@@ -84,20 +80,18 @@ class TestResendSource:
         assert error_message is not None and "Missing Resend API key" in error_message
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
-    )
-    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
     )
     @mock.patch.object(ResendSource, "get_oauth_integration")
-    def test_validate_credentials_oauth_failure(self, mock_get_integration, mock_resolve, mock_validate):
+    def test_validate_credentials_oauth_failure(self, mock_get_integration, mock_resolve):
         mock_resolve.return_value = "oauth_access_token"
-        mock_validate.return_value = False
 
-        is_valid, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
+        with scripted_network([ScriptedResponse(status=401, json={"message": "unauthorized"})]) as network:
+            is_valid, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
 
         assert is_valid is False
         assert error_message is not None and "reconnect" in error_message.lower()
+        assert network.requests_log[0].headers["authorization"] == "Bearer oauth_access_token"
 
     @mock.patch.object(ResendSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 42"))
     def test_validate_credentials_oauth_deleted_integration(self, _mock_get_integration):
@@ -116,6 +110,40 @@ class TestResendSource:
 
         assert is_valid is False
         assert error_message == "Resend integration is not configured. Please reconnect your Resend account."
+
+    def test_source_for_pipeline_api_key_passes_bearer_auth(self):
+        result = SourceDriver(self.source, self.config).run(
+            "audiences",
+            [ScriptedResponse(json={"data": []})],
+            team_id=123,
+            job_id="job-1",
+        )
+
+        assert result.paths == ["/audiences"]
+        assert result.requests[0].headers["authorization"] == "Bearer re_test_key"
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
+    )
+    @mock.patch.object(ResendSource, "get_oauth_integration")
+    def test_source_for_pipeline_oauth_passes_integration_auth(self, mock_get_integration, mock_resolve):
+        mock_resolve.return_value = "oauth_access_token"
+
+        result = SourceDriver(self.source, _oauth_config()).run(
+            "emails",
+            [ScriptedResponse(json={"data": [], "has_more": False})],
+            team_id=123,
+            job_id="job-1",
+        )
+
+        assert result.requests[0].headers["authorization"] == "Bearer oauth_access_token"
+        mock_resolve.assert_called_once_with(42, 123)
+
+
+class TestResendSourceForwarding:
+    def setup_method(self):
+        self.source = ResendSource()
+        self.config = _api_key_config()
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
     def test_source_for_pipeline_api_key_passes_bearer_auth(self, mock_resend_source):
@@ -136,27 +164,3 @@ class TestResendSource:
         assert kwargs["resumable_source_manager"] is manager
         assert isinstance(kwargs["auth"], BearerTokenAuth)
         assert kwargs["auth"].token == "re_test_key"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
-    )
-    @mock.patch.object(ResendSource, "get_oauth_integration")
-    def test_source_for_pipeline_oauth_passes_integration_auth(
-        self, mock_get_integration, mock_resolve, mock_resend_source
-    ):
-        mock_resolve.return_value = "oauth_access_token"
-        mock_resend_source.return_value = mock.MagicMock()
-
-        inputs = mock.MagicMock()
-        inputs.schema_name = "emails"
-        inputs.team_id = 123
-        inputs.job_id = "job-1"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(_oauth_config(), manager, inputs)
-
-        auth = mock_resend_source.call_args.kwargs["auth"]
-        assert isinstance(auth, ResendIntegrationAuth)
-        assert auth.token == "oauth_access_token"
-        mock_resolve.assert_called_once_with(42, 123)

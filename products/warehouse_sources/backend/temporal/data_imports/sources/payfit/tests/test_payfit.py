@@ -1,11 +1,18 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit import payfit
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.payfit import (
     PAGE_SIZE,
@@ -15,11 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.pay
     PayFitRetryableError,
     check_schema_access,
     get_company_id,
-    get_rows,
-    payfit_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS, PAYFIT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource
 
 # Call the undecorated functions so the tenacity retry/backoff wrappers don't slow failure-path tests.
 _fetch_page_unwrapped = payfit._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -29,120 +35,86 @@ _introspect_unwrapped = payfit._introspect.__wrapped__  # type: ignore[attr-defi
 COMPANY_ID = "company-1"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: PayFitResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[PayFitResumeConfig] = []
+def _driver() -> SourceDriver:
+    return SourceDriver(PayFitSource(), PayFitSourceConfig(api_key="payfit-key"))
 
-    def can_resume(self) -> bool:
-        return self._state is not None
 
-    def load_state(self) -> PayFitResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: PayFitResumeConfig) -> None:
-        self.saved.append(data)
+def _introspection_response() -> ScriptedResponse:
+    return ScriptedResponse(json={"active": True, "company_id": COMPANY_ID})
 
 
 class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[str | None, tuple[list[dict], str | None]],
-        endpoint: str = "collaborators",
-    ) -> list[dict]:
-        def fake_fetch(
-            session: Any,
-            path: str,
-            data_key: str,
-            next_page_token: str | None,
-            extra_params: dict,
-            logger: Any,
-        ) -> tuple[list[dict], str | None]:
-            return pages[next_page_token]
+    def test_follows_page_token_until_exhausted(self) -> None:
+        result = _driver().run(
+            "collaborators",
+            [
+                _introspection_response(),
+                ScriptedResponse(json={"collaborators": [{"id": "1"}], "meta": {"nextPageToken": "tok-2"}}),
+                ScriptedResponse(json={"collaborators": [{"id": "2"}], "meta": {"nextPageToken": None}}),
+            ],
+        )
 
-        monkeypatch.setattr(payfit, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(payfit, "get_company_id", lambda api_key: COMPANY_ID)
-        monkeypatch.setattr(payfit, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="payfit-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_follows_page_token_until_exhausted(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[str | None, tuple[list[dict], str | None]] = {
-            None: ([{"id": "1"}], "tok-2"),
-            "tok-2": ([{"id": "2"}], None),
-        }
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": "1"}, {"id": "2"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "1"}, {"id": "2"}]
+        assert result.params("maxResults") == [None, "50", "50"]
+        assert result.params("nextPageToken") == [None, None, "tok-2"]
         # State is saved after the first page is yielded, then we stop on the final page.
-        assert [s.next_page_token for s in manager.saved] == ["tok-2"]
+        assert result.saved_states == [PayFitResumeConfig(next_page_token="tok-2")]
+        assert result.committed_states == [PayFitResumeConfig(next_page_token="tok-2")]
 
-    def test_resumes_from_saved_page_token(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(PayFitResumeConfig(next_page_token="tok-99"))
+    def test_resumes_from_saved_page_token(self) -> None:
         # The initial (token=None) page must never be fetched on resume.
-        rows = self._collect(manager, monkeypatch, {"tok-99": ([{"id": "5"}], None)})
-        assert rows == [{"id": "5"}]
+        result = _driver().run(
+            "collaborators",
+            [
+                _introspection_response(),
+                ScriptedResponse(json={"collaborators": [{"id": "5"}], "meta": {}}),
+            ],
+            resume_state=PayFitResumeConfig(next_page_token="tok-99"),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "5"}]
+        assert result.params("nextPageToken") == [None, "tok-99"]
 
 
 class TestGetPayslipRows:
-    def test_fans_out_over_collaborator_pages_and_stamps_parent_id(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        collaborator_pages: dict[str | None, tuple[list[dict], str | None]] = {
-            None: ([{"id": "collab-1"}, {"id": "collab-2"}], "tok-2"),
-            "tok-2": ([{"id": "collab-3"}], None),
-        }
-        payslips_by_collaborator = {
-            "collab-1": [{"payslipId": "p1", "collaboratorId": "collab-1"}],
-            "collab-2": [],
-            "collab-3": [{"payslipId": "p2", "collaboratorId": "collab-3"}],
-        }
-
-        def fake_fetch(
-            session: Any,
-            path: str,
-            data_key: str,
-            next_page_token: str | None,
-            extra_params: dict,
-            logger: Any,
-        ) -> tuple[list[dict], str | None]:
-            assert path == f"/companies/{COMPANY_ID}/collaborators"
-            return collaborator_pages[next_page_token]
-
-        def fake_payslips(session: Any, company_id: str, collaborator_id: str, logger: Any) -> list[dict]:
-            assert company_id == COMPANY_ID
-            return payslips_by_collaborator[collaborator_id]
-
-        monkeypatch.setattr(payfit, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(payfit, "_fetch_payslips", fake_payslips)
-        monkeypatch.setattr(payfit, "get_company_id", lambda api_key: COMPANY_ID)
-        monkeypatch.setattr(payfit, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        batches = list(
-            get_rows(
-                api_key="payfit-key",
-                endpoint="payslips",
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-            )
+    def test_fans_out_over_collaborator_pages_and_stamps_parent_id(self) -> None:
+        result = _driver().run(
+            "payslips",
+            [
+                _introspection_response(),
+                ScriptedResponse(
+                    json={
+                        "collaborators": [{"id": "collab-1"}, {"id": "collab-2"}],
+                        "meta": {"nextPageToken": "tok-2"},
+                    }
+                ),
+                ScriptedResponse(json={"payslips": [{"payslipId": "p1"}]}),
+                ScriptedResponse(json={"payslips": []}),
+                ScriptedResponse(json={"collaborators": [{"id": "collab-3"}], "meta": {}}),
+                ScriptedResponse(json={"payslips": [{"payslipId": "p2"}]}),
+            ],
         )
 
         # One batch per collaborators page; resume state tracks the collaborators cursor after each
         # yielded batch.
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [{"payslipId": "p1", "collaboratorId": "collab-1"}],
             [{"payslipId": "p2", "collaboratorId": "collab-3"}],
         ]
-        assert [s.next_page_token for s in manager.saved] == ["tok-2"]
+        assert result.paths == [
+            "/introspect",
+            f"/companies/{COMPANY_ID}/collaborators",
+            f"/companies/{COMPANY_ID}/collaborators/collab-1/payslips",
+            f"/companies/{COMPANY_ID}/collaborators/collab-2/payslips",
+            f"/companies/{COMPANY_ID}/collaborators",
+            f"/companies/{COMPANY_ID}/collaborators/collab-3/payslips",
+        ]
+        assert result.params("nextPageToken") == [None, None, None, None, "tok-2", None]
+        assert result.saved_states == [PayFitResumeConfig(next_page_token="tok-2")]
+        assert result.committed_states == [PayFitResumeConfig(next_page_token="tok-2")]
 
 
 class _ResponseSessionMixin:
@@ -233,13 +205,13 @@ class TestGetCompanyId(_ResponseSessionMixin):
             ("forbidden", 403, None),
         ]
     )
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_invalid_tokens_raise_non_retryable_error(
-        self, _name: str, status: int, body: Any, mock_session: MagicMock
-    ) -> None:
-        mock_session.return_value = self._session_returning(status, body)
-        with pytest.raises(PayFitInvalidTokenError):
-            get_company_id("payfit-key")
+    def test_invalid_tokens_raise_non_retryable_error(self, _name: str, status: int, body: Any) -> None:
+        with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
+            with pytest.raises(PayFitInvalidTokenError):
+                get_company_id("payfit-key")
+
+        assert [request.path for request in network.requests_log] == ["/introspect"]
+        assert network.requests_log[0].json() == {"token": "payfit-key"}
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
     def test_transient_statuses_are_retryable(self, _name: str, status: int) -> None:
@@ -248,7 +220,7 @@ class TestGetCompanyId(_ResponseSessionMixin):
             _introspect_unwrapped(session, "payfit-key")
 
 
-class TestValidateCredentials(_ResponseSessionMixin):
+class TestValidateCredentials:
     # Status-code handling (401/403, 429/5xx retries, malformed payloads) lives in `_introspect`
     # and is covered by TestGetCompanyId; validation shares that path, so here we only assert the
     # claims-to-verdict mapping and that introspection failures surface as a message, not a raise.
@@ -259,44 +231,40 @@ class TestValidateCredentials(_ResponseSessionMixin):
             ("no_company_id", {"active": True}, False, "PayFit token introspection returned no company ID"),
         ]
     )
-    @patch(f"{payfit.__name__}._introspect")
     def test_claims_mapping(
         self,
         _name: str,
         claims: dict,
         expected_valid: bool,
         expected_message: str | None,
-        mock_introspect: MagicMock,
     ) -> None:
-        mock_introspect.return_value = claims
-        assert validate_credentials("payfit-key") == (expected_valid, expected_message)
+        with scripted_network([ScriptedResponse(json=claims)]) as network:
+            assert validate_credentials("payfit-key") == (expected_valid, expected_message)
+
+        assert [request.path for request in network.requests_log] == ["/introspect"]
+        assert network.requests_log[0].json() == {"token": "payfit-key"}
+        assert network.session_options[0]["capture"] is False
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.session_options[0]["redact_values"] == ("payfit-key",)
 
     @parameterized.expand(
         [
-            ("exhausted_retries", PayFitRetryableError("PayFit introspection error (retryable): status=500"), "500"),
+            ("exhausted_retries", ScriptedResponse(status=500), "500"),
             ("connection_error", requests.ConnectionError("boom"), "boom"),
         ]
     )
-    @patch(f"{payfit.__name__}._introspect")
     def test_introspection_failure_maps_to_message(
-        self, _name: str, error: Exception, expected_fragment: str, mock_introspect: MagicMock
+        self, _name: str, answer: ScriptedResponse | requests.ConnectionError, expected_fragment: str
     ) -> None:
-        mock_introspect.side_effect = error
-        valid, message = validate_credentials("payfit-key")
+        with scripted_network(always(answer)) as network:
+            valid, message = validate_credentials("payfit-key")
+
         assert valid is False
         assert message is not None and expected_fragment in message
+        assert {request.path for request in network.requests_log} == {"/introspect"}
 
 
-class TestCheckSchemaAccess(_ResponseSessionMixin):
-    @staticmethod
-    def _session_with(introspect_body: dict, endpoint_status: int) -> MagicMock:
-        session = MagicMock()
-        session.post.return_value = _ResponseSessionMixin._response(200, introspect_body)
-        session.get.return_value = _ResponseSessionMixin._response(endpoint_status, {})
-        return session
-
-    _ACTIVE = {"active": True, "company_id": "company-1"}
-
+class TestCheckSchemaAccess:
     @parameterized.expand(
         [
             ("reachable", 200, True),
@@ -304,43 +272,48 @@ class TestCheckSchemaAccess(_ResponseSessionMixin):
             ("bad_key", 401, False),
         ]
     )
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_endpoint_status_mapping(
-        self, _name: str, endpoint_status: int, expected_valid: bool, mock_session: MagicMock
-    ) -> None:
-        mock_session.return_value = self._session_with(self._ACTIVE, endpoint_status)
-        valid, _message = check_schema_access("payfit-key", "contracts")
+    def test_endpoint_status_mapping(self, _name: str, endpoint_status: int, expected_valid: bool) -> None:
+        with scripted_network(
+            [_introspection_response(), ScriptedResponse(status=endpoint_status, json={})]
+        ) as network:
+            valid, _message = check_schema_access("payfit-key", "contracts")
+
         assert valid is expected_valid
+        assert [request.path for request in network.requests_log] == [
+            "/introspect",
+            f"/companies/{COMPANY_ID}/contracts",
+        ]
+        assert network.requests_log[1].param("maxResults") == "1"
 
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_payslips_probe_uses_collaborators_dependency(self, mock_session: MagicMock) -> None:
-        session = self._session_with(self._ACTIVE, 200)
-        mock_session.return_value = session
-        valid, _message = check_schema_access("payfit-key", "payslips")
+    def test_payslips_probe_uses_collaborators_dependency(self) -> None:
+        with scripted_network([_introspection_response(), ScriptedResponse(json={})]) as network:
+            valid, _message = check_schema_access("payfit-key", "payslips")
+
         assert valid is True
-        args, _ = session.get.call_args
         # Payslip paths need a collaborator id, so the scope probe targets the collaborators list.
-        assert args[0] == f"{PAYFIT_BASE_URL}/companies/company-1/collaborators"
+        assert network.requests_log[1].url == f"{PAYFIT_BASE_URL}/companies/{COMPANY_ID}/collaborators?maxResults=1"
 
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_inactive_token_fails_before_probing(self, mock_session: MagicMock) -> None:
-        session = self._session_with({"active": False}, 200)
-        mock_session.return_value = session
-        valid, message = check_schema_access("payfit-key", "contracts")
+    def test_inactive_token_fails_before_probing(self) -> None:
+        with scripted_network([ScriptedResponse(json={"active": False})]) as network:
+            valid, message = check_schema_access("payfit-key", "contracts")
+
         assert valid is False
         assert message == "Invalid PayFit API key"
-        session.get.assert_not_called()
+        assert [request.path for request in network.requests_log] == ["/introspect"]
 
 
 class TestPayFitSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = payfit_source(
-            api_key="payfit-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+        data_key = "collaborators" if endpoint == "payslips" else PAYFIT_ENDPOINTS[endpoint].data_key
+        result = _driver().run(
+            endpoint,
+            [_introspection_response(), ScriptedResponse(json={data_key: [], "meta": {}})],
         )
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == PAYFIT_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp exists across the endpoints, so we don't partition.

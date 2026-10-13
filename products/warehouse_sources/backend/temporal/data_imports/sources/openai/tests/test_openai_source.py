@@ -2,6 +2,11 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.source import OpenAISource
 
 _USAGE_ENDPOINTS = [
@@ -53,15 +58,6 @@ class TestOpenAISchemas:
 
 
 class TestOpenAISourceForPipeline:
-    def _response(self, endpoint: str) -> object:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = None
-        config = MagicMock(api_key="sk-admin-test")
-        return OpenAISource().source_for_pipeline(config, MagicMock(), inputs)
-
     @parameterized.expand(
         [
             ("usage_completions", ["id"], "datetime", "asc"),
@@ -76,8 +72,14 @@ class TestOpenAISourceForPipeline:
     def test_primary_keys_partitioning_and_sort_mode(
         self, endpoint: str, primary_keys: list[str], partition_mode: str | None, sort_mode: str
     ) -> None:
-        response = self._response(endpoint)
-        assert response.name == endpoint  # type: ignore[attr-defined]
-        assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
-        assert response.sort_mode == sort_mode  # type: ignore[attr-defined]
-        assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
+        result = SourceDriver(OpenAISource(), OpenAISourceConfig(api_key="sk-admin-test")).run(
+            endpoint,
+            [ScriptedResponse(json={"data": [], "has_more": False})],
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == primary_keys
+        assert result.response.sort_mode == sort_mode
+        assert result.response.partition_mode == partition_mode
