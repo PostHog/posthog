@@ -260,6 +260,30 @@ describe('dashboard SQL visualization support', () => {
         }
     })
 
+    it.each([
+        ['a null x axis', { xAxis: null }],
+        ['null axes', { xAxis: null, yAxis: null }],
+        ['a null series', { xAxis: { column: 'day' }, yAxis: [null] }],
+    ])('seeds default axes when saved chart settings hold %s', (_label, chartSettings) => {
+        const response = responses['date and numeric']
+        const columns = columnsFromResponse(response)
+        const query = { ...baseQuery, chartSettings } as unknown as DataVisualizationNode
+
+        expect(
+            sqlVisualizationDisabledReason(
+                ChartDisplayType.ActionsBar,
+                query,
+                columns,
+                response.result.length,
+                ChartDisplayType.ActionsLineGraph
+            )
+        ).toBeUndefined()
+
+        const saved = applyVisualizationType(query, ChartDisplayType.ActionsBar, columns, response.result.length)
+        expect(saved.chartSettings!.xAxis!.column).toBe('day')
+        expect(saved.chartSettings!.yAxis!.map((series) => series.column)).toEqual(['total'])
+    })
+
     it('preserves saved axes while response columns are unavailable', () => {
         const query = {
             ...baseQuery,
