@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -70,11 +70,18 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
         convertedUsersUrl,
         conversionStats,
         conversionRate,
+        conversionStatsLoading,
+        conversionStatsFailed,
     } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
+    const { loadConversionStats } = useActions(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
     const { hasEmail, hasPush } = messagingChannels
     const overviewLogic = workflowOverviewLogic({ id, logicKey })
-    const { trendsFailed } = useValues(overviewLogic)
+    const { trendsFailed, retrying } = useValues(overviewLogic)
     const { retry } = useActions(overviewLogic)
+    const retryAll = (): void => {
+        retry()
+        loadConversionStats({})
+    }
     const { featureFlags } = useValues(featureFlagLogic)
     const selfDrivingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
 
@@ -109,7 +116,12 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
             {trendsFailed ? (
                 <LemonBanner
                     type="error"
-                    action={{ children: 'Try again', onClick: retry, 'data-attr': 'workflow-overview-retry' }}
+                    action={{
+                        children: 'Try again',
+                        onClick: retryAll,
+                        loading: retrying,
+                        'data-attr': 'workflow-overview-retry',
+                    }}
                 >
                     Couldn't load this workflow's metrics, so the numbers below may be missing.
                 </LemonBanner>
@@ -189,7 +201,20 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                         color={METRIC_COLORS['Workflows converted']}
                         colorIfZero={getColorVar('muted')}
                         footer={
-                            conversionStats.started > 0 ? (
+                            conversionStatsFailed ? (
+                                <span className="flex flex-wrap items-center justify-center gap-x-2 text-muted">
+                                    <span>Couldn't load conversions.</span>
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        onClick={() => loadConversionStats({})}
+                                        loading={conversionStatsLoading}
+                                        data-attr="workflow-overview-conversion-retry"
+                                    >
+                                        Try again
+                                    </LemonButton>
+                                </span>
+                            ) : conversionStatsLoading ? null : conversionStats.started > 0 ? (
                                 <span className="flex flex-wrap items-center justify-center gap-x-2">
                                     <span className="text-muted" data-attr="workflow-overview-conversion-rate">
                                         {`${percentage(Math.min(conversionRate, 1), 1)} conversion rate`}

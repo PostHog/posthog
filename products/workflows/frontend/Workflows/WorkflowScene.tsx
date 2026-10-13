@@ -66,7 +66,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         tab: props.tab || 'workflow',
     }
     const sceneLogic = workflowSceneLogic(workflowSceneProps)
-    const { currentTab, hasBeenActive } = useValues(sceneLogic)
+    const { currentTab, hasBeenActive, hasBeenActiveUnknown } = useValues(sceneLogic)
     const { markHasBeenActive } = useActions(sceneLogic)
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
@@ -178,7 +178,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         // Batch workflows report per run, so a rolling overview does not fit them.
         overviewTabEnabled &&
         originalWorkflow.trigger?.type !== 'batch' &&
-        (originalWorkflow.status === 'active' || hasBeenActive)
+        (originalWorkflow.status === 'active' || hasBeenActive || hasBeenActiveUnknown)
             ? {
                   label: 'Overview',
                   key: 'overview',

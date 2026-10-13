@@ -37,6 +37,7 @@ export interface workflowSceneLogicValues {
     currentTab: WorkflowTab
     hasBeenActive: boolean
     hasBeenActiveLoading: boolean
+    hasBeenActiveUnknown: boolean
     sidePanelContext: SidePanelSceneContext | null
 }
 
@@ -123,6 +124,14 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
         ],
     })),
     reducers({
+        // A failed history read keeps the Overview tab, which works without it, rather than hiding it.
+        hasBeenActiveUnknown: [
+            false,
+            {
+                loadHasBeenActiveFailure: () => true,
+                loadHasBeenActiveSuccess: () => false,
+            },
+        ],
         currentTab: [
             'workflow' as WorkflowTab,
             {

@@ -447,6 +447,8 @@ const EMAIL_METRICS: EmailMetricName[] = [
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']
+// Every (step, metric) pair of a large workflow; the query's default limit is 100 rows.
+const MESSAGE_TOTALS_LIMIT = 10_000
 
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
@@ -478,6 +480,7 @@ export interface workflowMetricsSummaryLogicValues {
         conversions: number
         started: number
     }
+    conversionStatsFailed: boolean
     conversionStatsLoading: boolean
     convertedUsersUrl: string
     emailActions: ({
@@ -1029,6 +1032,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['instance_id', 'metric_name'],
                         metricName: [...EMAIL_METRICS],
+                        limit: MESSAGE_TOTALS_LIMIT,
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }
@@ -1074,6 +1078,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['instance_id', 'metric_name'],
                         metricName: [...PUSH_METRICS],
+                        limit: MESSAGE_TOTALS_LIMIT,
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }
@@ -1157,6 +1162,13 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 loadPushTotalsFailure: () => true,
                 loadEmailTotals: () => false,
                 loadPushTotals: () => false,
+            },
+        ],
+        conversionStatsFailed: [
+            false,
+            {
+                loadConversionStatsFailure: () => true,
+                loadConversionStats: () => false,
             },
         ],
     }),

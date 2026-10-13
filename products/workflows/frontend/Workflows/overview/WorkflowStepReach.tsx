@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -62,7 +62,10 @@ function ReachRow({
 }
 
 export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const { stepReach, stepTotalsLoading, healthTotals, params } = useValues(workflowOverviewLogic({ id, logicKey }))
+    const logic = workflowOverviewLogic({ id, logicKey })
+    const { stepReach, stepTotalsLoading, healthTotals, params, stepTotalsFailed, healthTotalsFailed, retrying } =
+        useValues(logic)
+    const { retry } = useActions(logic)
     const started = healthTotals?.triggered ?? 0
 
     return (
@@ -77,7 +80,20 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
                     at a step count once they move on.
                 </span>
             </div>
-            {stepTotalsLoading && !stepReach ? (
+            {stepTotalsFailed || healthTotalsFailed ? (
+                <span className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                    Couldn't load step reach.
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={retry}
+                        loading={retrying}
+                        data-attr="workflow-overview-step-reach-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </span>
+            ) : stepTotalsLoading && !stepReach ? (
                 <LemonSkeleton repeat={4} className="h-6" />
             ) : !stepReach || stepReach.length === 0 ? (
                 <span className="text-sm text-muted">This workflow has no steps yet.</span>

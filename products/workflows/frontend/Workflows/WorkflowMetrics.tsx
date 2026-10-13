@@ -60,7 +60,15 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
 function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     const logicKey = `hog-flow-metrics-${props.id}`
     const { searchParams } = useValues(router)
-    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+    const { workflow, originalWorkflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+    // A step a staged draft removes still has live metrics, and the overview links to it.
+    const knownActions = useMemo(
+        () => [
+            ...workflow.actions,
+            ...(originalWorkflow?.actions ?? []).filter((live) => !workflow.actions.some((a) => a.id === live.id)),
+        ],
+        [workflow.actions, originalWorkflow?.actions]
+    )
 
     // Seed the drilled-in step from ?action= so a refreshed or shared metrics link restores it, but
     // only honor a value that points at a real step — a stale/deleted/mistyped id would otherwise
@@ -69,8 +77,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     // overview first. Later changes (clicks, back/forward) are synced by workflowSceneLogic's urlToAction.
     const requestedAction = (searchParams.action as string) || undefined
     const instanceId =
-        requestedAction &&
-        (!workflow.actions.length || workflow.actions.some((action) => action.id === requestedAction))
+        requestedAction && (!knownActions.length || knownActions.some((action) => action.id === requestedAction))
             ? requestedAction
             : undefined
 
@@ -90,7 +97,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params, getDateRangeAbsolute } =
         useValues(logic)
 
-    const selectedAction = workflow.actions.find((action) => action.id === params.instanceId)
+    const selectedAction = knownActions.find((action) => action.id === params.instanceId)
 
     const modifiedAppMetricsTrends = useMemo(
         () =>
@@ -116,7 +123,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             {
                 // A titled section makes it obvious you can drill into a single step's metrics.
                 title: 'Per step',
-                options: workflow.actions
+                options: knownActions
                     .filter((action) => action.id !== 'trigger_node')
                     .map((action) => {
                         const Step = getHogFlowStep(action, hogFunctionTemplatesById)
@@ -128,7 +135,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     }),
             },
         ],
-        [workflow.actions, hogFunctionTemplatesById]
+        [knownActions, hogFunctionTemplatesById]
     )
 
     // Drill an email metric into the invocations behind it over the current window.
@@ -261,12 +268,14 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
         },
     })
 
-    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+    const { workflow, originalWorkflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+    // A step a staged draft removes still has live metrics, and the overview links to it.
+    const knownActions = [...workflow.actions, ...(originalWorkflow?.actions ?? [])]
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
     const { setParams } = useActions(logic)
 
-    const selectedAction = workflow.actions.find((action) => action.id === params.instanceId)
+    const selectedAction = knownActions.find((action) => action.id === params.instanceId)
 
     const modifiedAppMetricsTrends = useMemo(
         () =>

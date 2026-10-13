@@ -77,6 +77,7 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
         params,
         stepTotalsFailed,
         healthTotalsFailed,
+        retrying,
     } = useValues(logic)
     const { retry } = useActions(logic)
     const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
@@ -122,6 +123,7 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
                         size="small"
                         type="secondary"
                         onClick={retry}
+                        loading={retrying}
                         data-attr="workflow-overview-health-retry"
                     >
                         Try again

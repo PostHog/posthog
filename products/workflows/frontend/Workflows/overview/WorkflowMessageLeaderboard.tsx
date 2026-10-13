@@ -138,6 +138,7 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
                             loadEmailTotals({})
                             loadPushTotals({})
                         }}
+                        loading={loading}
                         data-attr="workflow-overview-leaderboard-retry"
                     >
                         Try again
