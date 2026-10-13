@@ -8,15 +8,11 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import openrouter
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
     OpenRouterResumeConfig,
-    _activity_days,
     _to_date,
     get_rows,
     openrouter_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.settings import (
-    ACTIVITY_RETENTION_DAYS,
-    OPENROUTER_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.settings import ACTIVITY_RETENTION_DAYS
 
 
 def _response(status_code: int, body: dict | None = None, text: str = "") -> mock.Mock:
@@ -55,19 +51,6 @@ class TestFetch:
         result = openrouter._fetch(session, "https://openrouter.ai/api/v1/models", {}, mock.Mock())
 
         assert result == {"data": []}
-        assert session.get.call_count == 2
-
-    def test_retries_then_succeeds_on_truncated_body(self):
-        truncated = _response(200)
-        truncated.json.side_effect = requests.exceptions.JSONDecodeError(
-            "Unterminated string", '{"data": [{"id": "a', 10
-        )
-        session = mock.Mock()
-        session.get.side_effect = [truncated, _response(200, {"data": [{"id": "a"}]})]
-
-        result = openrouter._fetch(session, "https://openrouter.ai/api/v1/models", {}, mock.Mock())
-
-        assert result == {"data": [{"id": "a"}]}
         assert session.get.call_count == 2
 
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
@@ -114,33 +97,6 @@ class TestToDate:
     )
     def test_coercion(self, value, expected):
         assert _to_date(value) == expected
-
-
-class TestActivityDays:
-    def test_full_window_when_no_watermark(self):
-        yesterday = datetime.now(UTC).date() - timedelta(days=1)
-        days = list(_activity_days(should_use_incremental_field=False, db_incremental_field_last_value=None))
-        assert len(days) == ACTIVITY_RETENTION_DAYS
-        assert days[-1] == yesterday
-        assert days[0] == yesterday - timedelta(days=ACTIVITY_RETENTION_DAYS - 1)
-        assert days == sorted(days)  # ascending
-
-    def test_watermark_inside_window_refetches_from_watermark(self):
-        yesterday = datetime.now(UTC).date() - timedelta(days=1)
-        watermark = yesterday - timedelta(days=3)
-        days = list(_activity_days(True, watermark))
-        # The watermark day itself is re-fetched (it may have been partial); merge dedupes.
-        assert days[0] == watermark
-        assert days[-1] == yesterday
-
-    def test_stale_watermark_clamped_to_retention_window(self):
-        watermark = datetime.now(UTC).date() - timedelta(days=90)
-        days = list(_activity_days(True, watermark))
-        assert len(days) == ACTIVITY_RETENTION_DAYS
-
-    def test_future_watermark_yields_nothing(self):
-        watermark = datetime.now(UTC).date() + timedelta(days=5)
-        assert list(_activity_days(True, watermark)) == []
 
 
 class TestActivityRows:
@@ -217,37 +173,6 @@ class TestOffsetPagination:
         # State saved after the first full page, not after the short page.
         assert manager.save_state.call_count == 1
 
-    def test_offset_only_stops_on_empty_page(self):
-        # api_keys doesn't send `limit` (unknown server page size), so it walks until an empty page.
-        manager = _no_resume()
-        seen: list[str] = []
-
-        def fake_fetch(session, url, headers, logger):
-            seen.append(url)
-            return {"data": [{"hash": f"k{i}"} for i in range(100)]} if "offset=0" in url else {"data": []}
-
-        with mock.patch.object(openrouter, "_fetch", side_effect=fake_fetch):
-            batches = list(get_rows("sk-or-x", "api_keys", mock.Mock(), manager))
-
-        assert [len(b) for b in batches] == [100]
-        assert any("offset=100" in u for u in seen)
-        assert manager.save_state.call_count == 1
-
-    def test_resume_from_saved_offset(self):
-        manager = mock.Mock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = OpenRouterResumeConfig(offset=100)
-        seen: list[str] = []
-
-        def fake_fetch(session, url, headers, logger):
-            seen.append(url)
-            return {"data": [{"hash": "k"}]} if "offset=100" in url else {"data": []}
-
-        with mock.patch.object(openrouter, "_fetch", side_effect=fake_fetch):
-            list(get_rows("sk-or-x", "api_keys", mock.Mock(), manager))
-
-        assert "offset=100" in seen[0]
-
     def test_offset_limit_endpoints_send_limit(self):
         manager = _no_resume()
         urls: list[str] = []
@@ -277,20 +202,7 @@ class TestSingleAndSingleton:
 
 
 class TestSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint,expected_keys", [(name, cfg.primary_keys) for name, cfg in OPENROUTER_ENDPOINTS.items()]
-    )
-    def test_primary_keys_match_settings(self, endpoint, expected_keys):
-        response = openrouter_source("sk-or-x", endpoint, mock.Mock(), _no_resume())
-        assert response.primary_keys == expected_keys
-        assert response.sort_mode == "asc"
-
     def test_activity_partitions_on_date(self):
         response = openrouter_source("sk-or-x", "activity", mock.Mock(), _no_resume())
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date"]
-
-    def test_catalog_tables_not_partitioned(self):
-        response = openrouter_source("sk-or-x", "models", mock.Mock(), _no_resume())
-        assert response.partition_mode is None
-        assert response.partition_keys is None

@@ -1839,6 +1839,7 @@ export const ChartDisplayTypeApi = {
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsDonut: 'ActionsDonut',
+    ActionsProportionBar: 'ActionsProportionBar',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -1855,6 +1856,16 @@ export interface TrendsFormulaNodeApi {
     formula: string
 }
 
+export type CalculationApi = (typeof CalculationApi)[keyof typeof CalculationApi]
+
+export const CalculationApi = {
+    Fixed: 'fixed',
+    Mean: 'mean',
+    Median: 'median',
+    Min: 'min',
+    Max: 'max',
+} as const
+
 export type PositionApi = (typeof PositionApi)[keyof typeof PositionApi]
 
 export const PositionApi = {
@@ -1862,12 +1873,23 @@ export const PositionApi = {
     End: 'end',
 } as const
 
+export type ScopeApi = (typeof ScopeApi)[keyof typeof ScopeApi]
+
+export const ScopeApi = {
+    All: 'all',
+    Series: 'series',
+} as const
+
 export interface GoalLineApi {
     borderColor?: string | null
+    /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+    calculation?: CalculationApi | null
     displayIfCrossed?: boolean | null
     displayLabel?: boolean | null
     label: string
     position?: PositionApi | null
+    /** SQL chart calculations use the primary axis, across all series or separately per series. */
+    scope?: ScopeApi | null
     value: number
 }
 
@@ -3840,6 +3862,8 @@ export interface HogQLNoticeApi {
     fix?: string | null
     message: string
     start?: number | null
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string | null
 }
 
 export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
@@ -8128,9 +8152,9 @@ export const ValueDisplayApi = {
 } as const
 
 export interface PieChartSettingsApi {
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean | null
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: SliceContentApi | null
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
     valueDisplay?: ValueDisplayApi | null
@@ -8214,7 +8238,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
-    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
     pie?: PieChartSettingsApi | null
@@ -8294,6 +8318,39 @@ export const BIDateBucketApi = {
     Year: 'year',
 } as const
 
+export type DatePartApi = (typeof DatePartApi)[keyof typeof DatePartApi]
+
+export const DatePartApi = {
+    Month: 'month',
+    Quarter: 'quarter',
+    DayOfWeek: 'day_of_week',
+} as const
+
+export interface BILocalFieldDefinition1Api {
+    aggregate: boolean
+    expression: string
+    kind?: 'expression'
+}
+
+export interface BICategoryGroupApi {
+    name: string
+    values: string[]
+}
+
+export interface BILocalFieldDefinition2Api {
+    expression: string
+    groups: BICategoryGroupApi[]
+    kind?: 'groups'
+    other: string
+}
+
+export interface BILocalFieldDefinition3Api {
+    expression: string
+    kind?: 'bins'
+    origin: number
+    width: number
+}
+
 export interface BIDataSourceApi {
     connectionId?: string | null
     table: string
@@ -8323,12 +8380,21 @@ export const DatabaseSerializedFieldTypeApi = {
 
 export interface BIFieldApi {
     dateBucket?: BIDateBucketApi | null
+    datePart?: DatePartApi | null
     expression: string
     id: string
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | BILocalFieldDefinition3Api | null
+    localFieldId?: string | null
     name: string
     source: BIDataSourceApi
     type: DatabaseSerializedFieldTypeApi
 }
+
+export type ComparisonPeriodApi = (typeof ComparisonPeriodApi)[keyof typeof ComparisonPeriodApi]
+
+export const ComparisonPeriodApi = {
+    Previous: 'previous',
+} as const
 
 export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
 
@@ -8357,6 +8423,13 @@ export interface BIFilterApi {
     values?: string[] | null
 }
 
+export interface BIHierarchyApi {
+    id: string
+    /** Ordered from the broadest dimension to the most detailed. */
+    levels: BIFieldApi[]
+    name: string
+}
+
 export type BIQueryLimitApi = (typeof BIQueryLimitApi)[keyof typeof BIQueryLimitApi]
 
 export const BIQueryLimitApi = {
@@ -8364,6 +8437,13 @@ export const BIQueryLimitApi = {
     Number1000: 1000,
     Number10000: 10000,
     Number50000: 50000,
+} as const
+
+export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
+
+export const MissingDatesApi = {
+    Gap: 'gap',
+    Zero: 'zero',
 } as const
 
 export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
@@ -8442,6 +8522,13 @@ export const BIAggregationApi = {
     Custom: 'custom',
 } as const
 
+export type ShelfApi = (typeof ShelfApi)[keyof typeof ShelfApi]
+
+export const ShelfApi = {
+    Rows: 'rows',
+    Columns: 'columns',
+} as const
+
 export type BITableCalculationTypeApi = (typeof BITableCalculationTypeApi)[keyof typeof BITableCalculationTypeApi]
 
 export const BITableCalculationTypeApi = {
@@ -8456,6 +8543,8 @@ export const BITableCalculationTypeApi = {
 export interface BITableCalculationApi {
     /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
     computeUsing?: string | null
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean | null
     type: BITableCalculationTypeApi
     /** Number of points, including the current point, in a trailing moving average. */
     window?: number | null
@@ -8468,18 +8557,29 @@ export interface BIValueApi {
     field: BIFieldApi
     formatting?: ChartSettingsFormattingApi | null
     label?: string | null
+    /** Measures in older worksheets belong to rows. */
+    shelf?: ShelfApi | null
     tableCalculation?: BITableCalculationApi | null
 }
 
 export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
+    colorBy?: string | null
     columns: BIFieldApi[]
     compareFilter?: CompareFilterApi | null
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: ComparisonPeriodApi | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIFieldApi | null
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
+    /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+    hierarchies?: BIHierarchyApi[] | null
     limit: BIQueryLimitApi
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIFieldApi[] | null
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: MissingDatesApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null
@@ -8665,6 +8765,8 @@ export interface MetricsQueryFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -8706,6 +8808,7 @@ export interface DashboardFilterApi {
 
 export interface TileFiltersApi {
     breakdown_filter?: BreakdownFilterApi | null
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null

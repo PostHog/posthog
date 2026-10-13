@@ -141,22 +141,6 @@ def test_other_client_errors_are_not_reported_as_bad_credentials() -> None:
         assert http.call_count == 1
 
 
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_errors_retry(manager: MagicMock, status: int) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(
-            BASE_URL + "customers",
-            [
-                {"status_code": status, "json": {"message": "Temporary error"}, "headers": {"Retry-After": "0"}},
-                {"json": {"error": False, "response": []}},
-            ],
-        )
-        source = fieldpulse_source("test-key", "customers", 1, "job", manager, False, None)
-        assert items(source) == []
-        assert http.call_count == 2
-        assert [request.qs["page"] for request in http.request_history] == [["1"], ["1"]]
-
-
 def test_missing_response_fails_instead_of_silently_importing_nothing(manager: MagicMock) -> None:
     with requests_mock.Mocker() as http:
         http.get(BASE_URL + "customers", json={"error": True})

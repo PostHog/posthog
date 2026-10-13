@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -10,7 +11,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange, ReportedPriority
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
@@ -27,6 +28,8 @@ _PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_a
 _REPORT = "products.review_hog.backend.reviewer.tools.publish_review.ReviewReport"
 _LOAD_FINDINGS = "products.review_hog.backend.reviewer.tools.publish_review.load_valid_findings"
 _POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_review"
+_ADD_REACTION = "products.review_hog.backend.reviewer.tools.publish_review.add_pr_reaction"
+_REMOVE_REACTIONS = "products.review_hog.backend.reviewer.tools.publish_review.remove_own_pr_reactions"
 
 # The should_fix threshold: publishes should_fix and must_fix, drops consider. These tests use it to
 # exercise the publish gate, not the default (consider), which publishes everything.
@@ -36,15 +39,12 @@ _SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 def _wire_readbacks(
     mock_paginated: MagicMock,
     reviews: list[dict[str, Any]] | None = None,
-    issue_comments: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Route the two idempotency readbacks: prior reviews (marker scan) and issue comments (promo scan)."""
+    """Route the idempotency readback of prior reviews (marker scan)."""
 
     def paginated(path: str, **kwargs: Any):
         if path.endswith("/reviews"):
             return iter(reviews or [])
-        if "/issues/" in path:
-            return iter(issue_comments or [])
         raise AssertionError(f"Unexpected paginated path: {path}")
 
     mock_paginated.side_effect = paginated
@@ -57,11 +57,6 @@ def _review_posts(mock_request: MagicMock) -> list[dict[str, Any]]:
     ]
 
 
-def _promo_posts(mock_request: MagicMock) -> list[dict[str, Any]]:
-    """The JSON payloads of every `POST .../issues/{n}/comments` the code issued."""
-    return [c.kwargs["json"] for c in mock_request.call_args_list if c.args[0] == "POST" and "/issues/" in c.args[1]]
-
-
 def _commit_probes(mock_request: MagicMock) -> list[str]:
     """The paths of every `GET .../commits/{sha}` pin probe the code issued."""
     return [c.args[1] for c in mock_request.call_args_list if c.args[0] == "GET" and "/commits/" in c.args[1]]
@@ -69,6 +64,7 @@ def _commit_probes(mock_request: MagicMock) -> list[str]:
 
 @patch(_PAGINATED)
 @patch(_REQUEST)
+@pytest.mark.django_db
 class TestPostGithubReview:
     def test_uses_passed_token_and_pins_review_to_head_sha(
         self, mock_request: MagicMock, mock_paginated: MagicMock
@@ -84,9 +80,7 @@ class TestPostGithubReview:
             comments,
             token="install-token",
             head_sha="deadbeef",
-            post_promo=True,
             marker="m",
-            promo_marker="pm",
         )
 
         # The installation token (not an env PAT) authenticates every call.
@@ -113,9 +107,7 @@ class TestPostGithubReview:
             comments,
             token="install-token",
             head_sha="",
-            post_promo=False,
             marker="m",
-            promo_marker="pm",
         )
 
         (payload,) = _review_posts(mock_request)
@@ -125,9 +117,7 @@ class TestPostGithubReview:
     def test_no_head_sha_posts_without_commit_pin(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
         _wire_readbacks(mock_paginated)
 
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="", post_promo=True, marker="m", promo_marker="pm"
-        )
+        _post_github_review("o", "r", 1, "body", [], token="t", head_sha="", marker="m")
 
         assert _commit_probes(mock_request) == []
         (payload,) = _review_posts(mock_request)
@@ -146,28 +136,10 @@ class TestPostGithubReview:
         mock_request.side_effect = request
 
         # Must not raise — a stale/unreachable reviewed commit should still post the review unpinned.
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="deadbeef", post_promo=False, marker="m", promo_marker="pm"
-        )
+        _post_github_review("o", "r", 1, "body", [], token="t", head_sha="deadbeef", marker="m")
 
         (payload,) = _review_posts(mock_request)
         assert "commit_id" not in payload
-
-    def test_promo_comment_only_posted_when_requested(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
-        _wire_readbacks(mock_paginated)
-
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=False, marker="m", promo_marker="pm"
-        )
-        assert _promo_posts(mock_request) == []
-
-        mock_request.reset_mock()
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="m", promo_marker="pm"
-        )
-        (promo,) = _promo_posts(mock_request)
-        # The idempotency marker rides inside the posted comment body.
-        assert "pm" in promo["body"]
 
     @parameterized.expand(
         [
@@ -191,9 +163,7 @@ class TestPostGithubReview:
         mock_request.side_effect = request
 
         with pytest.raises(type(error)):
-            _post_github_review(
-                "o", "r", 1, "body", comments, token="t", head_sha="", post_promo=False, marker="m", promo_marker="pm"
-            )
+            _post_github_review("o", "r", 1, "body", comments, token="t", head_sha="", marker="m")
 
         (payload,) = _review_posts(mock_request)  # exactly one attempt — no body-only fallback post
         assert payload["comments"] == comments
@@ -228,9 +198,7 @@ class TestPostGithubReview:
             comments,
             token="t",
             head_sha="",
-            post_promo=False,
             marker="m",
-            promo_marker="pm",
             inline_body="m",
         )
 
@@ -261,9 +229,7 @@ class TestPostGithubReview:
             comments,
             token="t",
             head_sha="",
-            post_promo=False,
             marker="m",
-            promo_marker="pm",
             inline_body="m",
         )
         _first, second = _review_posts(mock_request)
@@ -300,16 +266,14 @@ class TestPostGithubReview:
         self, mock_request: MagicMock, mock_paginated: MagicMock
     ) -> None:
         # Post-then-crash idempotency: an app-bot review already carrying this run's marker means we
-        # posted but didn't record the watermark, so the retry must post neither a second review nor
-        # the promo. (Only bot reviews count — a pasted marker in a human review must not match.)
+        # posted but didn't record the watermark, so the retry must not post a second review.
+        # (Only bot reviews count — a pasted marker in a human review must not match.)
         _wire_readbacks(
             mock_paginated,
             reviews=[{"body": "an earlier review\n\nmarker-xyz", "user": {"login": "posthog[bot]", "type": "Bot"}}],
         )
 
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="marker-xyz", promo_marker="pm"
-        )
+        _post_github_review("o", "r", 1, "body", [], token="t", head_sha="s", marker="marker-xyz")
 
         mock_request.assert_not_called()
 
@@ -342,6 +306,13 @@ def _verdict(adjusted_priority: IssuePriority | None = None) -> ValidationVerdic
 
 
 class TestPublishReviewGate:
+    @pytest.fixture(autouse=True)
+    def _reactions(self) -> Iterator[None]:
+        with patch(_ADD_REACTION) as add_reaction, patch(_REMOVE_REACTIONS) as remove_reactions:
+            self.add_reaction = add_reaction
+            self.remove_reactions = remove_reactions
+            yield
+
     def _wire_report(self, mock_report_cls: MagicMock) -> None:
         mock_report = MagicMock()
         mock_report.report_markdown = "# PostHog Review"
@@ -351,9 +322,18 @@ class TestPublishReviewGate:
         [
             # A valid finding on an off-diff line resolves zero inline comments, but the review (its body
             # carries it in the "Other findings" section) must still post, not be silently dropped.
-            ("all_off_diff", [240], 0, False),
-            ("mixed", [1, 240], 1, False),
-            ("all_inline", [1], 1, True),
+            ("all_off_diff", [240], 0, "full", None),
+            ("mixed", [1, 240], 1, "full", None),
+            ("all_inline", [1], 1, "full", ""),
+            # Standard has no status comment, so its review body always says which turn it is.
+            (
+                "standard_all_inline",
+                [1],
+                1,
+                "flash",
+                "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix.\n\n",
+            ),
+            ("standard_mixed", [1, 240], 1, "flash", None),
         ]
     )
     @patch(_POST)
@@ -364,7 +344,8 @@ class TestPublishReviewGate:
         _name: str,
         finding_lines: list[int],
         expected_comments: int,
-        expect_marker_only: bool,
+        review_mode: str,
+        inline_prefix: str | None,
         mock_report_cls: MagicMock,
         mock_load: MagicMock,
         mock_post: MagicMock,
@@ -394,8 +375,8 @@ class TestPublishReviewGate:
             pr_files=pr_files,
             token="t",
             head_sha="sha",
-            post_promo=False,
             published_priorities=_SHOULD_FIX_PUBLISHED,
+            review_mode=review_mode,
         )
 
         assert outcome.posted is True
@@ -403,16 +384,28 @@ class TestPublishReviewGate:
         assert len(mock_post.call_args.args[4]) == expected_comments
         marker = mock_post.call_args.kwargs["marker"]
         assert marker in mock_post.call_args.args[3]
-        assert mock_post.call_args.kwargs["inline_body"] == (marker if expect_marker_only else None)
+        expected_inline_body = None if inline_prefix is None else f"{inline_prefix}{marker}"
+        assert mock_post.call_args.kwargs["inline_body"] == expected_inline_body
+        # A 👍 from an earlier clean turn must not sit next to these findings.
+        assert self.remove_reactions.call_args.args == ("o/r", 1, "+1")
+        self.add_reaction.assert_not_called()
 
+    @parameterized.expand([("deep", "full", []), ("standard_reacts", "flash", [("o/r", 1, "+1")])])
     @patch(_POST)
     @patch(_LOAD_FINDINGS)
     @patch(_REPORT)
     def test_skips_when_only_consider_findings(
-        self, mock_report_cls: MagicMock, mock_load: MagicMock, mock_post: MagicMock
+        self,
+        _name: str,
+        review_mode: str,
+        expected_reactions: list[tuple[str, int, str]],
+        mock_report_cls: MagicMock,
+        mock_load: MagicMock,
+        mock_post: MagicMock,
     ) -> None:
         # Below the should_fix threshold: a run whose only valid finding is `consider` has
         # nothing publishable, so it posts nothing (guards the off-diff fix against over-surfacing).
+        # A clean Standard turn has no status comment, so its 👍 is the only sign that it ran.
         self._wire_report(mock_report_cls)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
 
@@ -426,12 +419,13 @@ class TestPublishReviewGate:
             pr_files=[],
             token="t",
             head_sha="sha",
-            post_promo=False,
             published_priorities=_SHOULD_FIX_PUBLISHED,
+            review_mode=review_mode,
         )
 
         assert outcome.posted is False
         mock_post.assert_not_called()
+        assert [c.args for c in self.add_reaction.call_args_list] == expected_reactions
 
     @parameterized.expand(
         [
@@ -467,7 +461,6 @@ class TestPublishReviewGate:
             pr_files=[],
             token="t",
             head_sha="sha",
-            post_promo=False,
             published_priorities=_SHOULD_FIX_PUBLISHED,
         )
 
@@ -493,30 +486,86 @@ class TestPublishReviewGate:
 
         assert len(comments) == expected_count
         if expected_count:
-            assert "**Should fix**" in comments[0]["body"]  # the emitted comment displays the effective priority
+            assert comments[0]["body"].startswith("**P2 · Off-diff finding**")
+
+    def test_suggestion_code_is_not_posted(self) -> None:
+        finding = _finding().model_copy(
+            update={"lines": [LineRange(start=240, end=242)], "suggestion": "", "suggestion_code": "a = 1\nb = 2"}
+        )
+        comments = _build_inline_comments(
+            [(finding, _verdict())], {"src/auth.py": {240, 241, 242}}, _SHOULD_FIX_PUBLISHED
+        )
+
+        assert len(comments) == 1
+        assert "```" not in comments[0]["body"] and "a = 1" not in comments[0]["body"]
 
 
 class TestFormatIssueComment:
     @parameterized.expand(
         [
-            (IssuePriority.MUST_FIX, "**Must fix**"),
-            (IssuePriority.SHOULD_FIX, "**Should fix**"),
-            (IssuePriority.CONSIDER, "**Consider**"),
+            ("pipeline_must_fix", IssuePriority.MUST_FIX, None, None, "P1"),
+            ("pipeline_should_fix", IssuePriority.SHOULD_FIX, None, None, "P2"),
+            ("pipeline_consider", IssuePriority.CONSIDER, None, None, "P3"),
+            ("single_agent_p0", IssuePriority.MUST_FIX, "P0", None, "P0"),
+            ("single_agent_p1", IssuePriority.MUST_FIX, "P1", None, "P1"),
+            ("single_agent_p2", IssuePriority.SHOULD_FIX, "P2", None, "P2"),
+            ("single_agent_p3", IssuePriority.CONSIDER, "P3", None, "P3"),
+            ("validator_lowers_a_p0", IssuePriority.MUST_FIX, "P0", IssuePriority.SHOULD_FIX, "P2"),
+            ("validator_raises_a_p3", IssuePriority.CONSIDER, "P3", IssuePriority.MUST_FIX, "P1"),
+            ("raised_by_dedup", IssuePriority.MUST_FIX, "P3", None, "P1"),
         ]
     )
-    def test_severity_line_tracks_priority(self, priority: IssuePriority, label: str) -> None:
-        body = _format_issue_comment(_finding(priority=priority), _verdict())
+    def test_heading_shows_the_p_level_and_title(
+        self,
+        _name: str,
+        priority: IssuePriority,
+        reported: ReportedPriority | None,
+        adjusted: IssuePriority | None,
+        level: str,
+    ) -> None:
+        finding = _finding(priority=priority).model_copy(update={"reported_priority": reported})
 
-        assert f"{label} · bug" in body
+        body = _format_issue_comment(finding, _verdict(adjusted_priority=adjusted))
 
-    def test_layout_is_title_severity_issue_fix_without_validator_notes(self) -> None:
-        finding = _finding()
+        assert body.split("\n", 1)[0] == f"**{level} · Off-diff finding**"
+
+    def test_layout_is_heading_issue_fix_without_category_or_validator_notes(self) -> None:
+        body = _format_issue_comment(_finding(), _verdict())
+
+        assert body == f"**P2 · Off-diff finding**\n\nproblem fix\n\n{REVIEW_HOG_FINDING_MARKER}"
+        assert "bug" not in body and "reason" not in body
+
+    @parameterized.expand(
+        [
+            ("plain_prose", "The cache misses.", "Key it by team.", "The cache misses. Key it by team."),
+            (
+                "fix_opens_a_code_block",
+                "The cache misses.",
+                "```py\nkey = team\n```",
+                "The cache misses.\n\n```py\nkey = team\n```",
+            ),
+            (
+                "fix_is_a_list",
+                "The cache misses.",
+                "- key by team\n- add a test",
+                "The cache misses.\n\n- key by team\n- add a test",
+            ),
+            (
+                "issue_ends_with_a_code_block",
+                "Here:\n```\nx = 1\n```",
+                "Remove it.",
+                "Here:\n```\nx = 1\n```\n\nRemove it.",
+            ),
+        ]
+    )
+    def test_fix_joins_the_issue_without_breaking_markdown_blocks(
+        self, _name: str, issue: str, suggestion: str, expected: str
+    ) -> None:
+        finding = _finding().model_copy(update={"body": issue, "suggestion": suggestion})
+
         body = _format_issue_comment(finding, _verdict())
 
-        assert body.split("\n", 1)[0] == f"### {finding.title}"
-        assert body.index("**Should fix**") < body.index(finding.body) < body.index("**Suggested fix**")
-        assert "reason" not in body
-        assert "<details>" not in body and "![" not in body
+        assert body == f"**P2 · Off-diff finding**\n\n{expected}\n\n{REVIEW_HOG_FINDING_MARKER}"
 
     def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
         # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker

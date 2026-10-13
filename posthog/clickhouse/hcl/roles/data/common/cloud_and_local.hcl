@@ -471,60 +471,6 @@ SQL
     }
   }
 
-  table "heatmaps" {
-    column "session_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "x" {
-      type = "Int16"
-    }
-    column "y" {
-      type = "Int16"
-    }
-    column "scale_factor" {
-      type = "Int16"
-    }
-    column "viewport_width" {
-      type = "Int16"
-    }
-    column "viewport_height" {
-      type = "Int16"
-    }
-    column "pointer_target_fixed" {
-      type = "Bool"
-    }
-    column "current_url" {
-      type = "String"
-    }
-    column "type" {
-      type = "LowCardinality(String)"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_heatmaps"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))"
-    }
-  }
-
   table "llma_metrics_daily" {
     order_by     = ["team_id", "date", "metric_name"]
     partition_by = "toYYYYMM(date)"
@@ -549,7 +495,9 @@ SQL
     }
   }
 
-  table "log_entries" {
+  # Main-cluster reader over sharded_log_entries, kept as the rollback target for log_entries
+  # reads. The app-facing `log_entries` aux reader comes from roles/coshared/log_entries_aux.
+  table "log_entries_distributed" {
     column "team_id" {
       type = "UInt64"
     }

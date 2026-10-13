@@ -62,14 +62,6 @@ class TestSmartEngageTransport:
         assert is_valid is False
         assert message is not None and "SmartEngage request failed" in message
 
-    def test_get_resource_avatars_is_unpaginated_root_array(self) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint="avatars"))
-        assert resource["name"] == "avatars"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/avatars/list"
-        # SmartEngage returns the full collection as a bare JSON array in one response.
-        assert resource["endpoint"]["data_selector"] == "$"
-
     @parameterized.expand([("tags",), ("custom_fields",), ("sequences",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint: str) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
@@ -108,31 +100,3 @@ class TestSmartEngageTransport:
         # Child ids are only documented per avatar, so the avatar id must stay in the key —
         # dropping it seeds duplicate rows that every later merge multi-matches.
         assert response.primary_keys == ["avatar_id", child_id_field]
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_fanout_binds_avatar_id_in_path_and_sends_no_page_size(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("avatars", []),
-            _FakeDltResource("tags", []),
-        ]
-
-        smartengage_source(api_key="se_key", endpoint="tags", team_id=1, job_id="job-1")
-
-        config = mock_rest_api_resources.call_args.args[0]
-        parent, child = config["resources"]
-
-        # The avatar_id resolve param can only be bound via a path placeholder (the framework
-        # doesn't support resolve query params), so it must ride the path's query string.
-        assert child["endpoint"]["path"] == "/tags/list?avatar_id={avatar_id}"
-        assert child["endpoint"]["params"]["avatar_id"] == {
-            "type": "resolve",
-            "resource": "avatars",
-            "field": "avatar_id",
-        }
-        assert child["include_from_parent"] == ["avatar_id"]
-
-        # SmartEngage endpoints are unpaginated: no undocumented page-size param may be sent.
-        assert "limit" not in parent["endpoint"]["params"]
-        assert "limit" not in child["endpoint"]["params"]

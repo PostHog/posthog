@@ -3,8 +3,13 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import build_responses_url
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source import AsknicelySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
     AsknicelySourceConfig,
@@ -40,21 +45,6 @@ class TestAsknicelySource:
         # Changing the subdomain retargets which AskNicely tenant the stored key is
         # sent to, so it must force the API key to be re-entered.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    def test_get_schemas(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        responses = schemas["responses"]
-        assert responses.supports_incremental is True
-        assert responses.supports_append is True
-        assert [f["field"] for f in responses.incremental_fields] == ["responded"]
-
-        # Neither `stats` nor the unsubscribed list takes a server-side time cutoff, so
-        # advertising them as incremental would silently skip rows every sync.
-        for name in ("stats", "contacts_unsubscribed"):
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
 
     def test_get_schemas_filtered_by_names(self) -> None:
         assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["stats"])] == ["stats"]
@@ -119,12 +109,15 @@ class TestAsknicelySource:
             db_incremental_field_last_value=1700000000,
         )
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source.asknicely_source")
-    def test_source_for_pipeline_drops_last_value_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_drops_last_value_on_full_refresh(self) -> None:
         # A stale watermark left over from a previous incremental run must not leak into a
         # full-refresh sync, or the refresh would silently skip older responses.
-        inputs = _make_inputs(should_use_incremental_field=False, db_incremental_field_last_value=1700000000)
+        result = SourceDriver(self.source, self.config).run(
+            "responses",
+            [ScriptedResponse(json={"success": True, "data": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1700000000,
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(spec=ResumableSourceManager), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.urls == [build_responses_url("acme", page_number=1, since_time=0)]

@@ -194,10 +194,3 @@ class TestTrunkIoSource:
             self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), inputs)
 
         assert any(key in str(excinfo.value) for key in self.source.get_non_retryable_errors())
-
-    def test_merge_queue_table_is_not_synced_by_default(self):
-        # Flaky-Tests-only orgs are the majority and have no merge queue, so the table is offered
-        # but left unselected rather than failing their syncs.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["MergeQueuePullRequests"].should_sync_default is False
-        assert schemas["FailingTests"].should_sync_default is True

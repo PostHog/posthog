@@ -5,6 +5,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRComment, P
 from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    author_comments,
     build_chunk_prompt_context,
     load_template_and_schema,
 )
@@ -74,7 +75,8 @@ def build_review_prompt(
     pass is fed in. The prompt instructs the agent to pull the skill over MCP using its name and
     pinned version. `prior_findings` are problems earlier turns already found on this chunk's files;
     surfacing them tells the agent not to
-    re-investigate already-covered ground.
+    re-investigate already-covered ground. Of `pr_comments` the prompt shows only the PR author's own
+    (`author_comments`).
 
     The blind-spot check adds cross-perspective context WITHIN a turn: `same_turn_findings` are issues
     the wave already raised on this chunk this turn; `dig_deeper` reframes the covered block as "go
@@ -85,7 +87,7 @@ def build_review_prompt(
     """
     main_template, output_schema = load_template_and_schema("issues_review")
     return main_template.render(
-        **build_chunk_prompt_context(chunk, pr_metadata, pr_comments, pr_files),
+        **build_chunk_prompt_context(chunk, pr_metadata, author_comments(pr_comments, pr_metadata), pr_files),
         COVERED_FINDINGS=_covered_findings_for_chunk(prior_findings, same_turn_findings or [], chunk),
         DIG_DEEPER=dig_deeper,
         IS_BLIND_SPOT=blind_spot_check,

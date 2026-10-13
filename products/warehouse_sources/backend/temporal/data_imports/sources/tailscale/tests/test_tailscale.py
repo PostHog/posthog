@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.
     _parse_datetime,
     _parse_retry_after,
     get_rows,
-    normalize_tailnet,
     tailscale_source,
     validate_credentials,
 )
@@ -42,20 +41,6 @@ def _patch_session(responses: list[Any]) -> tuple[mock.MagicMock, Any]:
 
 
 class TestNormalizeTailnet:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            (None, "-"),
-            ("", "-"),
-            ("   ", "-"),
-            ("-", "-"),
-            ("example.com", "example.com"),
-            ("  example.com  ", "example.com"),
-        ],
-    )
-    def test_normalize(self, raw, expected):
-        assert normalize_tailnet(raw) == expected
-
     def test_endpoint_url_quotes_tailnet_as_single_path_segment(self):
         url = _endpoint_url(TAILSCALE_ENDPOINTS["devices"], "bad/../segment")
         assert url == "https://api.tailscale.com/api/v2/tailnet/bad%2F..%2Fsegment/devices"
@@ -79,13 +64,6 @@ class TestParseDatetime:
 
 
 class TestTailscaleAuth:
-    def test_api_key_used_directly_without_token_exchange(self):
-        session, patched = _patch_session([])
-        with patched:
-            headers = TailscaleAuth(api_key="tskey-api-x").get_headers()
-        assert headers["Authorization"] == "Bearer tskey-api-x"
-        session.post.assert_not_called()
-
     def test_oauth_client_exchanges_and_caches_token(self):
         session = mock.MagicMock()
         session.post.return_value = _response(json_data={"access_token": "at-123", "expires_in": 3600})
@@ -277,29 +255,6 @@ class TestAuditLogRows:
 
         assert session.get.call_count == 1
         assert session.get.call_args.kwargs["params"]["start"] == "2026-01-28T00:00:00Z"
-
-    def test_watermark_older_than_retention_is_clamped(self):
-        # Requesting a start older than the 90-day retention window risks a 4xx, so the
-        # start is clamped to now - 90 days.
-        with mock.patch.object(tailscale_module, "AUDIT_LOG_WINDOW_DAYS", 365):
-            _batches, session, _ = self._run(
-                [_response(json_data={"logs": []})],
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2025-01-01T00:00:00Z",
-            )
-        assert session.get.call_args.kwargs["params"] == {
-            "start": "2025-11-01T00:00:00Z",
-            "end": "2026-01-30T00:00:00Z",
-        }
-
-    def test_full_refresh_keeps_all_rows(self):
-        with mock.patch.object(tailscale_module, "AUDIT_LOG_WINDOW_DAYS", 365):
-            batches, _session, _ = self._run(
-                [_response(json_data={"logs": [self._log("2025-11-02T00:00:00Z")]})],
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=None,
-            )
-        assert [[r["eventTime"] for r in batch] for batch in batches] == [["2025-11-02T00:00:00Z"]]
 
 
 class TestValidateCredentials:

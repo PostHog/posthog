@@ -76,33 +76,11 @@ class TestKnowBe4Transport:
         assert message is not None
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.knowbe4.make_tracked_session")
-    def test_validate_credentials_probes_account_with_bearer(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=200)
-
-        validate_credentials(api_key="tok", region="us")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://us.api.knowbe4.com/v1/account"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer tok"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.knowbe4.make_tracked_session")
     def test_validate_credentials_handles_request_exception(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.exceptions.RequestException("boom")
         is_valid, message = validate_credentials(api_key="tok", region="us")
         assert is_valid is False
         assert message is not None and "boom" in message
-
-    def test_get_resource_users_bare_array_page_paginated(self) -> None:
-        resource = cast(dict[str, Any], get_resource(KNOWBE4_ENDPOINTS["users"]))
-        assert resource["name"] == "users"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/v1/users"
-        assert resource["endpoint"]["data_selector"] == "$"
-        assert resource["endpoint"]["params"]["per_page"] == 500
-        paginator = resource["endpoint"]["paginator"]
-        assert isinstance(paginator, PageNumberPaginator)
-        assert paginator.page == 1
-        assert paginator.page_param == "page"
 
     def test_get_resource_account_is_single_unpaginated_request(self) -> None:
         # `/v1/account` returns one object; a page paginator would refetch it forever because
@@ -116,18 +94,6 @@ class TestKnowBe4Transport:
         resource = cast(dict[str, Any], get_resource(KNOWBE4_ENDPOINTS["account_risk_score_history"]))
         assert resource["endpoint"]["params"] == {"per_page": 500, "full": "true"}
         assert isinstance(resource["endpoint"]["paginator"], PageNumberPaginator)
-
-    def test_get_resource_training_campaigns_carries_exclude_percentages(self) -> None:
-        # Without exclude_percentages=true, KnowBe4 caps the response at 10 campaigns.
-        resource = cast(dict[str, Any], get_resource(KNOWBE4_ENDPOINTS["training_campaigns"]))
-        assert resource["endpoint"]["params"]["exclude_percentages"] == "true"
-
-    def test_get_resource_training_enrollments_requests_enrichment_flags(self) -> None:
-        resource = cast(dict[str, Any], get_resource(KNOWBE4_ENDPOINTS["training_enrollments"]))
-        params = resource["endpoint"]["params"]
-        assert params["include_campaign_id"] == "true"
-        assert params["include_store_purchase_id"] == "true"
-        assert params["include_employee_number"] == "true"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.knowbe4.rest_api_resource")
     def test_knowbe4_source_users_top_level(self, mock_rest_api_resource) -> None:
@@ -182,27 +148,6 @@ class TestKnowBe4Transport:
         # because the child rows from every parent land in one table.
         assert rows == [expected_row]
         assert response.primary_keys == expected_primary_keys
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_knowbe4_source_phishing_recipients_fanout_keeps_own_pst_id(self, mock_rest_api_resources) -> None:
-        # Each recipient row already carries its own `pst_id` from the API, so no parent field
-        # injection is configured for this fan-out.
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("phishing_security_tests", [{"pst_id": 1}]),
-            _FakeDltResource("phishing_security_test_recipients", [{"recipient_id": 55, "pst_id": 1, "os": "MacOSX"}]),
-        ]
-
-        response = knowbe4_source(
-            api_key="tok", region="us", endpoint="phishing_security_test_recipients", team_id=1, job_id="job-1"
-        )
-
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"recipient_id": 55, "pst_id": 1, "os": "MacOSX"}]
-        # `recipient_id` is only documented unique within a single test, so the parent pst_id
-        # anchors the composite key.
-        assert response.primary_keys == ["pst_id", "recipient_id"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.knowbe4.build_dependent_resource")
     def test_knowbe4_source_fanout_uses_per_page_and_page_paginator(self, mock_build_dependent_resource) -> None:

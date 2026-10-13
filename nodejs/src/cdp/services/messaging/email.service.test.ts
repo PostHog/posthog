@@ -420,6 +420,7 @@ describe('EmailService', () => {
                 // than the upper bound + scheduler overhead.
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
                 expect(scheduledMs).toBeLessThan(before + 2000)
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
                 expect(result.metrics ?? []).toEqual([])

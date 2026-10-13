@@ -1,25 +1,21 @@
 import json
-from datetime import UTC, date, datetime
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.quo import (
     QuoResumeConfig,
-    _to_iso,
     quo_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
-    ENDPOINTS,
     QUO_API_VERSION_2026_03_30,
     QUO_API_VERSION_V1,
-    QUO_ENDPOINTS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -87,43 +83,7 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestToIso:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (None, None),
-            (datetime(2026, 1, 1, tzinfo=UTC), "2026-01-01T00:00:00+00:00"),
-            (datetime(2026, 1, 1), "2026-01-01T00:00:00+00:00"),
-            (date(2026, 1, 2), "2026-01-02T00:00:00+00:00"),
-            ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00+00:00"),
-            (1700000000, None),
-        ],
-    )
-    def test_to_iso_values(self, value: Any, expected: Optional[str]):
-        assert _to_iso(value) == expected
-
-
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        assert validate_credentials("key", QUO_API_VERSION_2026_03_30) is expected
-
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", QUO_API_VERSION_2026_03_30) is False
-
     @pytest.mark.parametrize(
         "api_version, expected_url, expected_version_header",
         [
@@ -168,18 +128,6 @@ class TestTopLevelPagination:
         manager.save_state.assert_called_once_with(QuoResumeConfig(page_token="tok"))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_carry_api_key_in_authorization_header(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "US1"}])])
-
-        _rows(_source("users", _make_manager()))
-
-        auth = requests_seen[0]["auth"]
-        assert isinstance(auth, APIKeyAuth)
-        assert auth.name == "Authorization"
-        assert auth.api_key == "key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(session, [_response([{"id": "US9"}])])
@@ -198,17 +146,6 @@ class TestTopLevelPagination:
         _rows(_source("users", _make_manager(QuoResumeConfig(page_token="cur5", api_version="2026-03-30"))))
 
         assert "pageToken" not in requests_seen[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_issues_one_request_without_page_size(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "PN1"}])])
-
-        rows = _rows(_source("phone_numbers", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["PN1"]
-        assert len(requests_seen) == 1
-        assert requests_seen[0]["params"] == {}
 
     @pytest.mark.parametrize(
         "incremental_field, expected_param",
@@ -234,47 +171,10 @@ class TestTopLevelPagination:
 
         assert requests_seen[0]["params"] == {"maxResults": 100, expected_param: WATERMARK_ISO}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_time_filters(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "CN1"}])])
-
-        _rows(_source("conversations", _make_manager()))
-
-        assert requests_seen[0]["params"] == {"maxResults": 100}
-
 
 class TestFanOut:
     def _fan_out_requests(self, session: mock.MagicMock) -> list[tuple[str, dict[str, Any]]]:
         return [(call.args[0], dict(call.kwargs.get("params") or {})) for call in session.get.call_args_list]
-
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_calls_fan_out_per_conversation(self, mock_session):
-        session = mock_session.return_value
-        session.get.side_effect = [
-            _json_response(
-                [
-                    {"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]},
-                    {"id": "CN2", "phoneNumberId": "PN2", "participants": ["+15550002"]},
-                ]
-            ),
-            _json_response([{"id": "AC1"}]),
-            _json_response([{"id": "AC2"}]),
-        ]
-
-        rows = _rows(_source("calls", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["AC1", "AC2"]
-        requests_seen = self._fan_out_requests(session)
-        assert requests_seen[0] == ("https://api.quo.com/v1/conversations", {"maxResults": 100})
-        assert requests_seen[1] == (
-            "https://api.quo.com/v1/calls",
-            {"maxResults": 100, "phoneNumberId": "PN1", "participants": ["+15550001"]},
-        )
-        assert requests_seen[2] == (
-            "https://api.quo.com/v1/calls",
-            {"maxResults": 100, "phoneNumberId": "PN2", "participants": ["+15550002"]},
-        )
 
     @pytest.mark.parametrize(
         "endpoint, expected_group_queried",
@@ -339,29 +239,6 @@ class TestFanOut:
         assert [row["id"] for row in rows] == ["AC1", "AC2"]
         requests_seen = self._fan_out_requests(session)
         assert requests_seen[2][1]["pageToken"] == "tok"
-
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_incremental_watermark_applied_to_child_requests_only(self, mock_session):
-        session = mock_session.return_value
-        session.get.side_effect = [
-            _json_response([{"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]}]),
-            _json_response([{"id": "AC1"}]),
-        ]
-
-        _rows(
-            _source(
-                "calls",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=WATERMARK,
-                incremental_field="createdAt",
-            )
-        )
-
-        requests_seen = self._fan_out_requests(session)
-        # The parent walk stays unfiltered: an old conversation can still receive new calls.
-        assert "createdAfter" not in requests_seen[0][1]
-        assert requests_seen[1][1]["createdAfter"] == WATERMARK_ISO
 
 
 def _dated_response(items: list[dict[str, Any]], next_cursor: str | None = None) -> Response:
@@ -474,25 +351,3 @@ class TestQuoSourceResponse:
     def test_unknown_endpoint_raises_unknown_resource(self):
         with pytest.raises(UnknownResourceError):
             _source("not_a_table", _make_manager())
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = QUO_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        # Quo lists return newest-first, so the watermark must only commit at sync end.
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(QUO_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "createdAt"

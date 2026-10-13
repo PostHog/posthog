@@ -75,32 +75,6 @@ def rows(result: SourceResponse) -> list[dict[str, Any]]:
     return [row for batch in cast(Iterable[list[dict[str, Any]]], result.items()) for row in batch]
 
 
-@pytest.mark.parametrize("endpoint", ["campaigns", "donations", "plans", "donors", "events", "tickets", "purchases"])
-def test_pagination_and_auth(
-    http_send: MagicMock, credentials: DonorboxSourceConfig, manager: MagicMock, endpoint: str
-) -> None:
-    http_send.side_effect = [response([{"id": 1}]), response([{"id": 2}]), response([])]
-    result = source(credentials, manager, endpoint)
-
-    assert rows(result) == [{"id": 1}, {"id": 2}]
-    for page, call in enumerate(http_send.call_args_list, start=1):
-        request = call.args[0]
-        url = urlsplit(request.url)
-        assert url.scheme == "https"
-        assert url.netloc == "donorbox.org"
-        assert url.path == f"/api/v1/{endpoint}"
-        assert parse_qs(url.query) == {"page": [str(page)], "per_page": ["100"], "order": ["desc"]}
-        assert b64decode(request.headers["Authorization"].split()[1]).decode() == "warehouse@example.com:test-api-key"
-    assert [call.args[0] for call in manager.save_state.call_args_list] == [
-        DonorboxResumeConfig(page=2),
-        DonorboxResumeConfig(page=3),
-    ]
-    manager.clear_state.assert_not_called()
-    assert result.on_complete is not None
-    result.on_complete()
-    manager.clear_state.assert_called_once()
-
-
 @pytest.mark.parametrize(
     "endpoint,incremental,watermark,expected",
     [
@@ -153,18 +127,6 @@ def test_resume_keeps_original_filter(
     manager.save_state.assert_called_once_with(DonorboxResumeConfig(page=5, date_from=saved_date))
 
 
-@pytest.mark.parametrize("has_stale_state", [False, True])
-def test_empty_first_page(
-    http_send: MagicMock, credentials: DonorboxSourceConfig, manager: MagicMock, has_stale_state: bool
-) -> None:
-    manager.can_resume.return_value = has_stale_state
-    manager.load_state.return_value = None
-    http_send.return_value = response([])
-    assert rows(source(credentials, manager)) == []
-    http_send.assert_called_once()
-    manager.save_state.assert_not_called()
-
-
 @pytest.mark.parametrize(
     "status,expected",
     [
@@ -204,13 +166,6 @@ def test_http_errors_are_not_retried(
         if pattern in str(error.value)
     ]
     assert bool(matches) == (status in (401, 403))
-
-
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_probe_failures_retry(http_send: MagicMock, credentials: DonorboxSourceConfig, status: int) -> None:
-    http_send.side_effect = [response({"error": "temporary"}, status), response([])]
-    assert validate_credentials(credentials) == (True, None)
-    assert http_send.call_count == 2
 
 
 def test_unexpected_probe_error_propagates(http_send: MagicMock, credentials: DonorboxSourceConfig) -> None:

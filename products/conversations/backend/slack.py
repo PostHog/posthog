@@ -18,6 +18,7 @@ from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 
 import structlog
@@ -49,6 +50,7 @@ from .cache import (
 )
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
+from .models.ticket import deleted_ticket_holds_thread
 from .services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
     MAX_ATTACHMENTS_PER_MESSAGE,
@@ -408,6 +410,24 @@ def _slack_hosted_fallback(f: dict) -> dict | None:
     }
 
 
+def _resolve_slack_file_stub(f: dict, client: WebClient | None) -> dict:
+    """The full file object for a file that arrived without a download URL.
+
+    In a Slack Connect channel the Events API sends only the file id, with
+    ``file_access: "check_file_info"``. The download URLs and the permalink are only
+    available from ``files.info``. Without them the file can be neither re-hosted nor linked.
+    """
+    file_id = f.get("id")
+    if f.get("url_private_download") or f.get("url_private") or not file_id or client is None:
+        return f
+    try:
+        full_file = client.files_info(file=file_id).get("file")
+    except Exception:
+        logger.warning("🖼️ slack_file_info_failed", file_id=file_id, exc_info=True)
+        return f
+    return full_file if isinstance(full_file, dict) else f
+
+
 def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient | None = None) -> list[dict]:
     """
     Extract attachments from Slack and re-host them in UploadedMedia.
@@ -429,7 +449,10 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
     attachments: list[dict] = []
     unavailable_count = 0
     for f in files[:MAX_ATTACHMENTS_PER_MESSAGE]:
-        attachment = _rehost_slack_file(f, team, bot_token) if can_read_files else None
+        attachment: dict | None = None
+        if can_read_files:
+            f = _resolve_slack_file_stub(f, client)
+            attachment = _rehost_slack_file(f, team, bot_token)
         if attachment is None:
             attachment = _slack_hosted_fallback(f)
             unavailable_count += 1
@@ -482,6 +505,17 @@ def create_or_update_slack_ticket(
         has_text=bool(text and text.strip()),
         files_count=len(files or []),
     )
+
+    # A deleted ticket holds its thread until the purge. Stop before files are re-hosted,
+    # or the stored copies have no comment that the purge can find them through.
+    if deleted_ticket_holds_thread(team_id=team.id, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts):
+        logger.info(
+            "slack_inbound_deleted_ticket",
+            team_id=team_id,
+            slack_channel_id=slack_channel_id,
+            thread_ts=thread_ts,
+        )
+        return None
 
     # Extract attachments from Slack files, making them publicly accessible
     attachments = split_slack_attachments(extract_slack_files(files, team, client))
@@ -600,6 +634,14 @@ def create_or_update_slack_ticket(
         # Re-check after acquiring — the winner may have committed between our earlier
         # .exists() call and now.
         if Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts).exists():
+            return None
+        if deleted_ticket_holds_thread(team_id=team.id, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts):
+            logger.info(
+                "slack_inbound_deleted_ticket",
+                team_id=team_id,
+                slack_channel_id=slack_channel_id,
+                thread_ts=thread_ts,
+            )
             return None
 
         ticket = Ticket.objects.create_with_number(
@@ -1420,6 +1462,9 @@ def _backfill_thread_replies(
     ]
     if not thread_replies:
         return
+    # Stop before any file is re-hosted for a ticket that was deleted after it was created.
+    if Ticket.all_objects.filter(id=ticket.id, team=team, deleted_at__isnull=False).exists():
+        return
 
     logger.info(
         "slack_support_reaction_backfill_started",
@@ -1515,20 +1560,25 @@ def _backfill_thread_replies(
         )
 
     if comments_to_create:
-        # bulk_create intentionally skips post_save signals — backfilled historical
-        # messages should not trigger activity log entries or Slack reply notifications.
-        created_comments = Comment.objects.bulk_create(comments_to_create)
-        last_comment = created_comments[-1]
-        update_fields: dict[str, Any] = {
-            "message_count": F("message_count") + len(comments_to_create),
-            "last_message_at": last_comment.created_at,
-            "last_message_text": (last_comment.content or "")[:500],
-        }
-        if customer_message_count:
-            update_fields["unread_team_count"] = F("unread_team_count") + customer_message_count
-        if team_message_count:
-            update_fields["unread_customer_count"] = F("unread_customer_count") + team_message_count
-        Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
+        # The row lock makes the delete endpoint wait for these writes, or makes them see the delete.
+        with transaction.atomic():
+            locked = Ticket.all_objects.select_for_update().filter(id=ticket.id, team=team).first()
+            if locked is None or locked.deleted_at is not None:
+                return
+            # bulk_create intentionally skips post_save signals — backfilled historical
+            # messages should not trigger activity log entries or Slack reply notifications.
+            created_comments = Comment.objects.bulk_create(comments_to_create)
+            last_comment = created_comments[-1]
+            update_fields: dict[str, Any] = {
+                "message_count": F("message_count") + len(comments_to_create),
+                "last_message_at": last_comment.created_at,
+                "last_message_text": (last_comment.content or "")[:500],
+            }
+            if customer_message_count:
+                update_fields["unread_team_count"] = F("unread_team_count") + customer_message_count
+            if team_message_count:
+                update_fields["unread_customer_count"] = F("unread_customer_count") + team_message_count
+            Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
 
     logger.info(
         "slack_support_reaction_backfill_completed",

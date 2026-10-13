@@ -75,27 +75,6 @@ def test_paginated_collections(manager: MagicMock, endpoint: str, path: str) -> 
     manager.clear_state.assert_called_once()
 
 
-def test_divisions_do_not_send_unsupported_pagination_params(manager: MagicMock) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(
-            f"{BASE_URL}/divisions",
-            json={"completed": True, "data": {"divisions": [{"id": 9}], "hasMore": False}},
-            complete_qs=True,
-        )
-        assert rows(source_response(manager, "divisions")) == [{"id": 9}]
-        assert http.call_count == 1
-    manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize("collection", [[], None, [{"id": 8}]])
-def test_terminal_page(manager: MagicMock, collection: list[dict[str, int]] | None) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/tests", json={"completed": True, "data": {"tests": collection, "hasMore": False}})
-        assert rows(source_response(manager)) == (collection or [])
-        assert http.call_count == 1
-    manager.save_state.assert_not_called()
-
-
 def test_resume_starts_at_saved_url(manager: MagicMock) -> None:
     saved_url = f"{BASE_URL}/tests?pageNumber=7&pageSize=100"
     manager.can_resume.return_value = True

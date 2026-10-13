@@ -31,6 +31,7 @@ from products.ai_observability.backend.models.evaluation_reports import Evaluati
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+from products.ai_observability.backend.models.taggers import Tagger
 
 _DEFAULT_MODEL_CONFIGURATION = {
     "provider": "openai",
@@ -1617,6 +1618,48 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertNotIn("sampling_rate", get_response.data["conditions"][0])
         self.assertEqual(get_response.data["conditions"][0]["rollout_percentage"], 100)
 
+    @parameterized.expand(
+        [
+            (
+                "evaluations",
+                lambda team: Evaluation.objects.create(
+                    team=team,
+                    name="Patched conditions",
+                    evaluation_type="hog",
+                    evaluation_config={"source": "return true"},
+                    output_type="boolean",
+                    conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
+                ),
+            ),
+            (
+                "taggers",
+                lambda team: Tagger.objects.create(
+                    team=team,
+                    name="Patched conditions",
+                    tagger_config={"prompt": "Tag it", "tags": [{"name": "billing", "description": "Billing"}]},
+                    conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
+                ),
+            ),
+        ]
+    )
+    def test_patch_condition_without_id_generates_one(self, resource, create):
+        instance = create(self.team)
+        list_url = f"/api/environments/{self.team.id}/{resource}/"
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            patch_response = self.client.patch(
+                f"{list_url}{instance.id}/", {"conditions": [{"rollout_percentage": 100}]}, format="json"
+            )
+            get_response = self.client.get(f"{list_url}{instance.id}/")
+            list_response = self.client.get(list_url)
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK, patch_response.json())
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(get_response.data["conditions"][0]["id"])
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed = next(item for item in list_response.data["results"] if item["id"] == str(instance.id))
+        self.assertTrue(listed["conditions"][0]["id"])
+
     @parameterized.expand([(-1,), (101,), (150,)])
     def test_rollout_percentage_out_of_range_rejected(self, rollout_percentage):
         response = self.client.post(
@@ -2293,7 +2336,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
 
 class TestEvaluationsAccessControl(APIBaseTest):
     # Evaluations have their own access control resource (see ACCESS_CONTROL_RESOURCES in
-    # posthog/rbac/user_access_control.py). They used to inherit from `llm_analytics`.
+    # products/access_control/backend/facade/user_access_control.py). They used to inherit from `llm_analytics`.
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [

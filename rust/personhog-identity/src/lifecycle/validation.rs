@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use tonic::Status;
 use uuid::Uuid;
 
+use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
 use personhog_proto::personhog::identity::v1::MergePersonsRequest;
 use personhog_proto::personhog::lifecycle::v1::DeletePersonsRequest;
 
@@ -46,7 +47,6 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS: &[&str] = &[
     "true",
     "false",
 ];
-// '$posthog_cookieless' is the cookieless mode sentinel. Every cookieless visitor shares it.
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS: &[&str] = &[
     "[object Object]",
     "NaN",
@@ -55,7 +55,7 @@ const BARE_CASE_SENSITIVE_ILLEGAL_IDS: &[&str] = &[
     "null",
     "0",
     "undefined",
-    "$posthog_cookieless",
+    COOKIELESS_SENTINEL_VALUE,
 ];
 
 fn with_quoted(ids: &[&str]) -> HashSet<String> {

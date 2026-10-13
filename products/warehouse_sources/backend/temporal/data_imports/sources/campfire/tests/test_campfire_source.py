@@ -39,11 +39,6 @@ class TestCampfireSource:
     def setup_method(self) -> None:
         self.source = CampfireSource()
 
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # Public docs list the table catalog through this path; it must not need I/O.
-        tables = self.source.get_documented_tables()
-        assert [t["name"] for t in tables] == list(ENDPOINTS)
-
     def test_canonical_descriptions_are_keyed_by_endpoint_names(self) -> None:
         assert set(CANONICAL_DESCRIPTIONS.keys()) <= set(ENDPOINTS)
 

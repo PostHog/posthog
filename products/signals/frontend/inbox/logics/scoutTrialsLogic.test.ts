@@ -13,6 +13,7 @@ import {
     signalsScoutConfigList,
     signalsScoutConfigTrial,
     signalsScoutConfigTrialComparisonCreate,
+    signalsScoutConfigTrialComparisonArchive,
     signalsScoutConfigTrialComparisonRetrieve,
     signalsScoutConfigTrialComparisonHistory,
     signalsScoutConfigTrialComparisonResume,
@@ -26,6 +27,7 @@ import type {
     ScoutTrialEvaluationApi,
     ScoutTrialResultApi,
     ScoutTrialComparisonApi,
+    ScoutTrialComparisonHistoryApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import { tasksRunsCancelCreate } from 'products/tasks/frontend/generated/api'
 
@@ -45,6 +47,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigTrial: jest.fn(),
     signalsScoutConfigTrialComparisonCreate: jest.fn(),
+    signalsScoutConfigTrialComparisonArchive: jest.fn(),
     signalsScoutConfigTrialComparisonRetrieve: jest.fn(),
     signalsScoutConfigTrialComparisonHistory: jest.fn(),
     signalsScoutConfigTrialComparisonResume: jest.fn(),
@@ -84,7 +87,11 @@ describe('scoutTrialsLogic', () => {
             ...trialFixtureResult,
             launch_id: params.launch_id,
         }))
-        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({ results: [], has_more: false })
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [],
+            next_cursor: null,
+            has_more: false,
+        })
         jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockRejectedValue(new ApiError('Not found', 404))
         jest.mocked(signalsScoutConfigTrialComparisonResume).mockResolvedValue({
             ...trialFixtureServerComparison,
@@ -98,6 +105,11 @@ describe('scoutTrialsLogic', () => {
             variants: request.variants.map((variant) => ({ ...variant, skill_body_sha256: 'a'.repeat(64) })),
             status: 'running',
             evaluation: null,
+        }))
+        jest.mocked(signalsScoutConfigTrialComparisonArchive).mockImplementation(async (_, __, request) => ({
+            ...trialFixtureServerComparison,
+            comparison_id: request.comparison_id,
+            archived: request.archived,
         }))
         logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
         await expectLogic(logic, () => {
@@ -297,6 +309,7 @@ describe('scoutTrialsLogic', () => {
                         evaluation: null,
                     },
                 ],
+                next_cursor: null,
                 has_more: false,
             })
             throw new Error('Connection closed after saving the plan')
@@ -319,6 +332,7 @@ describe('scoutTrialsLogic', () => {
                 ...trialFixtureResult,
                 status: 'not_started',
                 task_status: null,
+                error: 'The scout trial has not started. Retry the launch with the same ID.',
             })
             logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
             await expectLogic(logic, () => {
@@ -326,7 +340,33 @@ describe('scoutTrialsLogic', () => {
             }).toFinishAllListeners()
             await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
             expect(logic.values.comparisonRows.every((row) => row.status === 'not_started')).toBe(true)
+            expect(logic.values.comparisonRows.every((row) => row.error === null)).toBe(true)
+            const launchId = logic.values.comparisonRows[0].launchId
+            logic.actions.selectResult(launchId)
+            expect(logic.values.selectedResult?.error).toBeNull()
+            expect(logic.values.results[launchId].error).toContain('has not started')
+            logic.actions.setResults({}, { [launchId]: 'Status unavailable.' })
+            expect(logic.values.comparisonRows[0].error).toBe('Status unavailable.')
+            logic.actions.setResults({ [launchId]: logic.values.results[launchId] }, {})
             const saved = logic.values.comparisonState.value!
+            jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+                results: [
+                    { ...saved, status: 'not_started' },
+                    { ...saved, comparison_id: 'older-trial', status: 'completed', variants: [] },
+                ],
+                next_cursor: null,
+                has_more: false,
+            })
+            await expectLogic(logic, () =>
+                logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+            ).toFinishAllListeners()
+            expect(logic.values.comparisonState.value?.status).toBe(saved.status)
+            expect(logic.values.selectedResult?.error).toBeNull()
+            expect(logic.values.comparisonsForConfig.map((comparison) => comparison.id)).toEqual([
+                saved.comparison_id,
+                'older-trial',
+            ])
+
             jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue({ ...saved, status: 'judging' })
             jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, params) => ({
                 ...trialFixtureResult,
@@ -349,6 +389,7 @@ describe('scoutTrialsLogic', () => {
 
             jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
                 results: [{ ...saved, status: 'completed', evaluation: null }],
+                next_cursor: null,
                 has_more: false,
             })
             await expectLogic(logic, () =>
@@ -363,6 +404,50 @@ describe('scoutTrialsLogic', () => {
         }
     })
 
+    test.each(['not_started', 'failed', 'unknown'] as const)(
+        'keeps launch errors actionable when the trial itself is %s',
+        async (status) => {
+            jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, params) => ({
+                ...trialFixtureResult,
+                launch_id: params.launch_id,
+                status: 'not_started',
+                task_status: null,
+                error: 'The scout trial has not started. Retry the launch with the same ID.',
+            }))
+            await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+            const comparison = logic.values.comparisonState.value!
+            const launchId = logic.values.comparisonRows[0].launchId
+            logic.actions.selectResult(launchId)
+            expect(logic.values.selectedResult?.error).toBeNull()
+
+            jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue({ ...comparison, status })
+            await expectLogic(logic, () =>
+                logic.actions.loadComparison(comparison.comparison_id)
+            ).toFinishAllListeners()
+
+            expect(logic.values.comparisonRows[0].error).toContain('has not started')
+            expect(logic.values.selectedResult?.error).toContain('has not started')
+        }
+    )
+
+    test.each([
+        ['failed', true],
+        ['not_started', false],
+    ] as const)('keeps run errors for status=%s and owned by an active trial=%s', async (status, owned) => {
+        await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+        const launchId = owned ? logic.values.comparisonRows[0].launchId : 'unrelated-launch'
+        const result = { ...trialFixtureResult, launch_id: launchId, status, error: 'Run needs attention.' }
+        logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId }])
+        logic.actions.setResults({ [launchId]: result }, {})
+        logic.actions.selectResult(launchId)
+
+        expect(logic.values.rows.find((row) => row.launchId === launchId)?.error).toBe(result.error)
+        expect(logic.values.selectedResult?.error).toBe(result.error)
+
+        logic.actions.untrackLaunches([launchId])
+        expect(logic.values.selectedResult?.error).toBe(result.error)
+    })
+
     it('reuses completed results during background refresh and reloads them on explicit refresh', async () => {
         await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
         jest.mocked(signalsScoutConfigTrialResult).mockClear()
@@ -372,6 +457,281 @@ describe('scoutTrialsLogic', () => {
 
         await expectLogic(logic, () => logic.actions.refreshResults(true)).toFinishAllListeners()
         expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([404, 503])(
+        'loads old run details only when opened and retries only the affected run (%s)',
+        async (status) => {
+            logic.unmount()
+            jest.useFakeTimers()
+            const visibility = jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+            const launchId = trialFixtureComparison.groups[0].launchIds[0]
+            try {
+                jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+                    results: [trialFixtureServerComparison],
+                    next_cursor: null,
+                    has_more: false,
+                })
+                jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
+                logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+                await expectLogic(logic, () => {
+                    logic.mount()
+                }).toFinishAllListeners()
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(signalsScoutConfigTrialResult).not.toHaveBeenCalled()
+
+                jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, params) => {
+                    if (params.launch_id === launchId) {
+                        throw new ApiError('Saved result unavailable', status)
+                    }
+                    return { ...trialFixtureResult, launch_id: params.launch_id }
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.selectComparison(trialFixtureComparison.configId, trialFixtureComparison.id)
+                ).toFinishAllListeners()
+                expect(logic.values.resultErrors[launchId]).toBeTruthy()
+                expect(logic.values.comparisonRows.some((row) => row.launchId === launchId)).toBe(true)
+                expect(logic.values.pollError).toBeNull()
+                const calls = jest.mocked(signalsScoutConfigTrialResult).mock.calls.length
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(calls)
+
+                const gate = promiseResolveReject<ScoutTrialResultApi>()
+                jest.mocked(signalsScoutConfigTrialResult).mockReturnValueOnce(gate.promise)
+                logic.actions.retryResult(launchId)
+                logic.actions.retryResult(launchId)
+                expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(calls + 1)
+                expect(logic.values.refreshingLaunchIds).toEqual([launchId])
+                await expectLogic(logic, () =>
+                    gate.resolve({ ...trialFixtureResult, launch_id: launchId })
+                ).toFinishAllListeners()
+                expect(logic.values.resultErrors).toEqual({})
+                expect(logic.values.refreshingLaunchIds).toEqual([])
+
+                const saved = logic.values.results[launchId]
+                jest.mocked(signalsScoutConfigTrialResult).mockRejectedValueOnce(new Error('Connection unavailable'))
+                await expectLogic(logic, () => logic.actions.retryResult(launchId)).toFinishAllListeners()
+                expect(logic.values.results[launchId]).toEqual(saved)
+                expect(logic.values.resultErrors[launchId]).toBeTruthy()
+                expect(logic.values.pollError).toBeNull()
+                await expectLogic(logic, () => logic.actions.loadResults([])).toFinishAllListeners()
+                expect(logic.values.pollError).toBeNull()
+            } finally {
+                visibility.mockRestore()
+                jest.useRealTimers()
+            }
+        }
+    )
+
+    it('archives on the server once, hides saved browser entries after reload, and restores archived trials', async () => {
+        const comparisonId = trialFixtureServerComparison.comparison_id
+        const archived = { ...trialFixtureServerComparison, archived: true, status: 'not_started' as const }
+        logic.actions.registerServerComparison(trialFixtureServerComparison)
+        const gate = promiseResolveReject<ScoutTrialComparisonApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonArchive).mockReturnValueOnce(gate.promise)
+        logic.actions.archiveComparison(comparisonId, true)
+        logic.actions.archiveComparison(comparisonId, true)
+        expect(signalsScoutConfigTrialComparisonArchive).toHaveBeenCalledTimes(1)
+        expect(logic.values.archiving).toEqual([comparisonId])
+        await expectLogic(logic, () => gate.resolve(archived)).toFinishAllListeners()
+        expect(logic.values.comparisonsForConfig).toEqual([])
+        expect(logic.values.archiving).toEqual([])
+        expect(signalsScoutConfigTrialComparisonArchive).toHaveBeenCalledWith('2', trialFixtureConfig.id, {
+            comparison_id: comparisonId,
+            archived: true,
+        })
+
+        // An older browser session may still have this trial's identifiers saved.
+        logic.actions.registerComparison(trialFixtureComparison)
+        logic.unmount()
+        logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.comparisonsForConfig).toEqual([])
+        expect(logic.values.tracked).toEqual([])
+        expect(signalsScoutConfigTrialResult).not.toHaveBeenCalled()
+
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [archived],
+            next_cursor: null,
+            has_more: false,
+        })
+        await expectLogic(logic, () => logic.actions.setShowArchived(true)).toFinishAllListeners()
+        expect(logic.values.comparisonsForConfig.map((item) => item.id)).toEqual([comparisonId])
+        expect(signalsScoutConfigTrialComparisonHistory).toHaveBeenLastCalledWith('2', trialFixtureConfig.id, {
+            limit: 30,
+            include_archived: true,
+        })
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [trialFixtureServerComparison],
+            next_cursor: null,
+            has_more: false,
+        })
+        await expectLogic(logic, () => logic.actions.archiveComparison(comparisonId, false)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setShowArchived(false)).toFinishAllListeners()
+        expect(logic.values.comparisonsForConfig.map((item) => item.id)).toEqual([comparisonId])
+        expect(logic.values.comparisonStates[comparisonId].value?.archived).toBe(false)
+
+        await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+        const startedHere = logic.values.batch!
+        await expectLogic(logic, () =>
+            logic.actions.registerServerComparison({ ...logic.values.comparisonState.value!, status: 'completed' })
+        ).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+        expect(logic.values.batch?.comparison.id).toBe(startedHere.comparison.id)
+        expect(logic.values.comparisonsForConfig.map((item) => item.id)).not.toContain(startedHere.comparison.id)
+        const removedIds = startedHere.comparison.groups.flatMap((group) => group.launchIds)
+        expect(logic.values.tracked.some((entry) => removedIds.includes(entry.launchId))).toBe(false)
+    })
+
+    it('pages through older trials without losing access after reload or a failed page request', async () => {
+        const cursor = 'older-trials'
+        const recent = {
+            results: Array.from({ length: 30 }, (_, index) => ({
+                ...trialFixtureServerComparison,
+                comparison_id: `recent-trial-${index}`,
+                variants: [],
+            })),
+            has_more: true,
+            next_cursor: cursor,
+        }
+        const older = { results: [trialFixtureServerComparison], has_more: false, next_cursor: null }
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockImplementation(async (_, __, params) =>
+            params?.cursor ? older : recent
+        )
+        logic.actions.registerServerComparison(trialFixtureServerComparison)
+        await expectLogic(logic, () =>
+            logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+        ).toFinishAllListeners()
+        expect(logic.values.comparisonsForConfig.map((trial) => trial.id)).toEqual(
+            recent.results.map((trial) => trial.comparison_id)
+        )
+
+        const page = promiseResolveReject<ScoutTrialComparisonHistoryApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockReturnValueOnce(page.promise)
+        const calls = jest.mocked(signalsScoutConfigTrialComparisonHistory).mock.calls.length
+        logic.actions.nextComparisonHistoryPage()
+        logic.actions.nextComparisonHistoryPage()
+        expect(signalsScoutConfigTrialComparisonHistory).toHaveBeenCalledTimes(calls + 1)
+        expect(logic.values.comparisonHistoryCursors).toEqual([])
+        await expectLogic(logic, () => page.reject(new Error('Connection unavailable'))).toFinishAllListeners()
+        expect(logic.values.comparisonHistory).toEqual(recent)
+        expect(logic.values.comparisonHistoryCursors).toEqual([])
+        expect(logic.values.comparisonsForConfig).toHaveLength(30)
+
+        await expectLogic(logic, () => logic.actions.nextComparisonHistoryPage()).toFinishAllListeners()
+        expect(signalsScoutConfigTrialComparisonHistory).toHaveBeenLastCalledWith('2', trialFixtureConfig.id, {
+            limit: 30,
+            include_archived: false,
+            cursor,
+        })
+        expect(logic.values.comparisonHistoryCursors).toEqual([cursor])
+        expect(logic.values.comparisonsForConfig.map((trial) => trial.id)).toEqual([
+            trialFixtureServerComparison.comparison_id,
+        ])
+        expect(logic.values.loadErrors.comparisonHistory).toBeNull()
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
+        await expectLogic(logic, () =>
+            logic.actions.selectComparison(trialFixtureConfig.id, trialFixtureServerComparison.comparison_id)
+        ).toFinishAllListeners()
+        expect(logic.values.comparisonState.value).toEqual(trialFixtureServerComparison)
+        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+        expect(logic.values.comparisonHistoryCursors).toEqual([cursor])
+        await expectLogic(logic, () => logic.actions.previousComparisonHistoryPage()).toFinishAllListeners()
+        expect(logic.values.comparisonHistoryCursors).toEqual([])
+        expect(logic.values.comparisonsForConfig).toHaveLength(30)
+
+        logic.unmount()
+        logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.comparisonHistoryCursors).toEqual([])
+        await expectLogic(logic, () => logic.actions.nextComparisonHistoryPage()).toFinishAllListeners()
+        expect(logic.values.comparisonsForConfig.map((trial) => trial.id)).toEqual([
+            trialFixtureServerComparison.comparison_id,
+        ])
+    })
+
+    it.each(['scout', 'archived filter'])(
+        'resets pagination and ignores a stale page after changing %s',
+        async (change) => {
+            const first = { results: [trialFixtureServerComparison], has_more: true, next_cursor: 'page-2' }
+            jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue(first)
+            await expectLogic(logic, () =>
+                logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.nextComparisonHistoryPage()).toFinishAllListeners()
+            expect(logic.values.comparisonHistoryCursors).toEqual(['page-2'])
+            const page = promiseResolveReject<ScoutTrialComparisonHistoryApi>()
+            jest.mocked(signalsScoutConfigTrialComparisonHistory).mockReturnValueOnce(page.promise)
+            logic.actions.nextComparisonHistoryPage()
+            jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+                results: [],
+                has_more: false,
+                next_cursor: null,
+            })
+            if (change === 'scout') {
+                logic.actions.selectConfig('another-scout')
+            } else {
+                logic.actions.setShowArchived(true)
+            }
+            await expectLogic(logic, () => page.resolve(first)).toFinishAllListeners()
+            expect(logic.values.comparisonHistoryCursors).toEqual([])
+            expect(logic.values.comparisonHistory?.results).toEqual([])
+            expect(signalsScoutConfigTrialComparisonHistory).toHaveBeenLastCalledWith(
+                '2',
+                change === 'scout' ? 'another-scout' : trialFixtureConfig.id,
+                { limit: 30, include_archived: change !== 'scout' }
+            )
+        }
+    )
+
+    it('keeps an opened trial available when a pending history page finishes', async () => {
+        const first = { results: [trialFixtureServerComparison], has_more: true, next_cursor: 'page-2' }
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue(first)
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
+        await expectLogic(logic, () =>
+            logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+        ).toFinishAllListeners()
+        const page = promiseResolveReject<ScoutTrialComparisonHistoryApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockReturnValueOnce(page.promise)
+        logic.actions.nextComparisonHistoryPage()
+        logic.actions.selectComparison(trialFixtureConfig.id, trialFixtureServerComparison.comparison_id)
+        await expectLogic(logic, () =>
+            page.resolve({ results: [], has_more: false, next_cursor: null })
+        ).toFinishAllListeners()
+        expect(logic.values.selectedComparison?.id).toBe(trialFixtureServerComparison.comparison_id)
+        expect(logic.values.comparisonState.value).toEqual(trialFixtureServerComparison)
+        expect(logic.values.trialView).toBe('detail')
+    })
+
+    it('keeps a trial visible if archiving fails, and does not archive an active trial', async () => {
+        const comparisonId = trialFixtureServerComparison.comparison_id
+        logic.actions.registerServerComparison({ ...trialFixtureServerComparison, status: 'running' })
+        await expectLogic(logic, () => logic.actions.archiveComparison(comparisonId, true)).toFinishAllListeners()
+        expect(signalsScoutConfigTrialComparisonArchive).not.toHaveBeenCalled()
+
+        logic.actions.registerServerComparison(trialFixtureServerComparison)
+        jest.mocked(signalsScoutConfigTrialComparisonArchive).mockRejectedValueOnce(new Error('Save failed'))
+        await expectLogic(logic, () => logic.actions.archiveComparison(comparisonId, true)).toFinishAllListeners()
+        expect(logic.values.comparisonsForConfig.map((item) => item.id)).toEqual([comparisonId])
+        expect(logic.values.archiveErrors[comparisonId]).toBeTruthy()
+        expect(logic.values.archiving).toEqual([])
+
+        await expectLogic(logic, () =>
+            logic.actions.loadComparisonHistorySuccess({
+                results: [{ ...trialFixtureServerComparison, status: 'not_started', archived: true }],
+                next_cursor: null,
+                has_more: false,
+            })
+        ).toFinishAllListeners()
+        expect(logic.values.comparisonStates[comparisonId].value).toMatchObject({
+            status: 'completed',
+            archived: true,
+        })
+        expect(logic.values.comparisonsForConfig).toEqual([])
     })
 
     it('bounds concurrent result reads and preserves successful, failed, and missing launch results', async () => {
@@ -396,7 +756,7 @@ describe('scoutTrialsLogic', () => {
             }
         })
         logic.actions.trackLaunches(launches.map((launchId) => ({ configId: trialFixtureConfig.id, launchId })))
-        logic.actions.refreshResults()
+        logic.actions.loadResults(launches)
         try {
             expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(5)
             expect(logic.values.refreshing).toBe(true)
@@ -407,7 +767,7 @@ describe('scoutTrialsLogic', () => {
         expect(maximumActive).toBe(5)
         expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(12)
         expect(Object.keys(logic.values.results)).toEqual(launches.filter((_, index) => index !== 2 && index !== 7))
-        expect(Object.keys(logic.values.resultErrors)).toEqual([launches[2]])
+        expect(Object.keys(logic.values.resultErrors)).toEqual([launches[2], launches[7]])
         expect(logic.values.tracked.map(({ launchId }) => launchId)).not.toContain(launches[7])
         expect(logic.values.refreshing).toBe(false)
     })
@@ -421,7 +781,7 @@ describe('scoutTrialsLogic', () => {
         logic.actions.trackLaunches(
             Array.from({ length: 12 }, (_, index) => ({ configId: trialFixtureConfig.id, launchId: `launch-${index}` }))
         )
-        logic.actions.refreshResults()
+        logic.actions.loadResults(logic.values.tracked.map((entry) => entry.launchId))
         logic.unmount()
         try {
             await expectLogic(logic, () => gate.resolve()).toFinishAllListeners()
@@ -470,11 +830,11 @@ describe('scoutTrialsLogic', () => {
         }
     })
 
-    it('stops polling a missing old launch until the server confirms it in history', async () => {
+    it('does not poll a missing historical run and reloads it when opened explicitly', async () => {
         const launchId = trialFixtureResult.launch_id
         logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId }])
         jest.mocked(signalsScoutConfigTrialResult).mockRejectedValueOnce(new ApiError('Not found', 404))
-        await expectLogic(logic, () => logic.actions.refreshResults()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.retryResult(launchId)).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.refreshResults()).toFinishAllListeners()
         expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(1)
         expect(logic.values.tracked).toEqual([])
@@ -494,11 +854,15 @@ describe('scoutTrialsLogic', () => {
                 has_more: false,
             })
         }).toFinishAllListeners()
+        expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(1)
+        expect(logic.values.pollError).toBeNull()
+        await expectLogic(logic, () => logic.actions.selectResult(launchId)).toFinishAllListeners()
         expect(logic.values.results[launchId]).toEqual(trialFixtureResult)
+        expect(logic.values.resultErrors).toEqual({})
         expect(logic.values.pollError).toBeNull()
     })
 
-    it('fetches a completed run found in history while an earlier result is loading', async () => {
+    it('leaves completed history unloaded until the run is opened', async () => {
         let resolveOld!: (value: ScoutTrialResultApi) => void
         jest.mocked(signalsScoutConfigTrialResult).mockImplementationOnce(
             () =>
@@ -507,7 +871,7 @@ describe('scoutTrialsLogic', () => {
                 })
         )
         logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId: trialFixtureResult.launch_id }])
-        logic.actions.refreshResults()
+        logic.actions.retryResult(trialFixtureResult.launch_id)
         const newLaunch = '00000000-0000-4000-8000-000000000012'
         logic.actions.loadHistorySuccess({
             results: [
@@ -524,6 +888,9 @@ describe('scoutTrialsLogic', () => {
             has_more: false,
         })
         await expectLogic(logic, () => resolveOld(trialFixtureResult)).toFinishAllListeners()
+        expect(logic.values.results[newLaunch]).toBeUndefined()
+        expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(1)
+        await expectLogic(logic, () => logic.actions.selectResult(newLaunch)).toFinishAllListeners()
         expect(logic.values.results[newLaunch]?.launch_id).toBe(newLaunch)
         expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(2)
     })
@@ -537,23 +904,26 @@ describe('scoutTrialsLogic', () => {
                 })
         )
         logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId: trialFixtureResult.launch_id }])
-        logic.actions.refreshResults()
+        logic.actions.retryResult(trialFixtureResult.launch_id)
         const newConfig = '00000000-0000-4000-8000-000000000010'
         jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue({ ...trialFixtureSetup, config_id: newConfig })
-        await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions(['loadHistorySuccess'])
+        await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions([
+            'loadComparisonHistorySuccess',
+        ])
         await expectLogic(logic, () => rejectOld(new Error('Old result failed'))).toFinishAllListeners()
         expect(logic.values.rows).toEqual([])
         expect(logic.values.pollError).toBeNull()
     })
 
-    it('clears recovered history errors without clearing a separate result error', async () => {
+    it('keeps history failures page-wide and result failures attached only to their runs', async () => {
         jest.mocked(signalsScoutConfigTrialHistory).mockRejectedValueOnce(new Error('History failed'))
         await expectLogic(logic, () => logic.actions.loadHistory(trialFixtureConfig.id)).toFinishAllListeners()
         expect(logic.values.pollError).toContain("Couldn't load recent runs")
         await expectLogic(logic, () => logic.actions.loadHistory(trialFixtureConfig.id)).toFinishAllListeners()
         expect(logic.values.pollError).toBeNull()
 
-        logic.actions.setPollError('Result request failed')
+        const launchId = trialFixtureResult.launch_id
+        logic.actions.setResults({}, { [launchId]: 'Result request failed' })
         jest.mocked(signalsScoutConfigTrialComparisonHistory).mockRejectedValueOnce(new Error('History failed'))
         await expectLogic(logic, () =>
             logic.actions.loadComparisonHistory(trialFixtureConfig.id)
@@ -562,7 +932,8 @@ describe('scoutTrialsLogic', () => {
         await expectLogic(logic, () =>
             logic.actions.loadComparisonHistory(trialFixtureConfig.id)
         ).toFinishAllListeners()
-        expect(logic.values.pollError).toBe('Result request failed')
+        expect(logic.values.pollError).toBeNull()
+        expect(logic.values.resultErrors[launchId]).toBe('Result request failed')
     })
 
     it.each(['loadSetup', 'loadHistory', 'loadComparisonHistory'] as const)(
@@ -585,7 +956,6 @@ describe('scoutTrialsLogic', () => {
             jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue({ ...trialFixtureSetup, config_id: newConfig })
             await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions([
                 'loadSetupSuccess',
-                'loadHistorySuccess',
                 'loadComparisonHistorySuccess',
             ])
             await expectLogic(logic, () => rejectOld(new Error('Old scout request failed'))).toFinishAllListeners()
@@ -646,8 +1016,7 @@ describe('scoutTrialsLogic', () => {
             await expectLogic(logic, () => {
                 logic.mount()
             }).toFinishAllListeners()
-            logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId: trialFixtureResult.launch_id }])
-            await expectLogic(logic, () => logic.actions.refreshResults()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
             jest.mocked(signalsScoutConfigTrialResult).mockClear()
 
             await jest.advanceTimersByTimeAsync(10_000)
@@ -671,7 +1040,7 @@ describe('scoutTrialsLogic', () => {
                 launchId: `old-launch-${index}`,
             }))
         )
-        logic.actions.refreshResults()
+        logic.actions.loadResults(logic.values.tracked.map((entry) => entry.launchId))
         const newConfig = '00000000-0000-4000-8000-000000000010'
         const newLaunch = '00000000-0000-4000-8000-000000000011'
         jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue({ ...trialFixtureSetup, config_id: newConfig })
@@ -694,7 +1063,11 @@ describe('scoutTrialsLogic', () => {
             has_more: false,
         })
 
-        await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions(['loadHistorySuccess'])
+        await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions([
+            'loadComparisonHistorySuccess',
+        ])
+        logic.actions.trackLaunches([{ configId: newConfig, launchId: newLaunch }])
+        logic.actions.selectResult(newLaunch)
         await expectLogic(logic, () => gate.resolve()).toFinishAllListeners()
 
         expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(6)
@@ -712,11 +1085,17 @@ describe('scoutTrialsLogic', () => {
         await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
         const tracked = logic.values.tracked
         const comparison = logic.values.selectedComparison
-        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue({
+        const savedComparison = {
             ...logic.values.comparisonState.value!,
-            status: 'completed',
+            status: 'completed' as const,
             evaluation: trialFixtureEvaluation,
+        }
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [savedComparison],
+            next_cursor: null,
+            has_more: false,
         })
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(savedComparison)
         logic.actions.updateEvaluation(comparison!.id, { value: trialFixtureEvaluation })
         const stored = JSON.stringify(localStorage)
         expect(stored).not.toContain('Private replacement prompt')
@@ -737,10 +1116,19 @@ describe('scoutTrialsLogic', () => {
         expect(logic.values.selectedComparison).toEqual(comparison)
         expect(logic.values.evaluationState.value?.report).toEqual(trialFixtureEvaluation.report)
         expect(logic.values.comparisonState.value?.status).toBe('completed')
+        expect(signalsScoutConfigTrialComparisonRetrieve).not.toHaveBeenCalled()
+        await expectLogic(logic, () =>
+            logic.actions.selectComparison(comparison!.configId, comparison!.id)
+        ).toFinishAllListeners()
         expect(signalsScoutConfigTrialComparisonRetrieve).toHaveBeenLastCalledWith('2', trialFixtureConfig.id, {
             comparison_id: comparison!.id,
         })
         expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [],
+            next_cursor: null,
+            has_more: false,
+        })
         const otherUser = scoutTrialsLogic({ teamId: 2, userId: 43 })
         await expectLogic(otherUser, () => {
             otherUser.mount()
@@ -758,6 +1146,7 @@ describe('scoutTrialsLogic', () => {
             })
             jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
                 results: [trialFixtureServerComparison],
+                next_cursor: null,
                 has_more: false,
             })
             jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
@@ -813,6 +1202,13 @@ describe('scoutTrialsLogic', () => {
         await expectLogic(logic, () => logic.actions.resumeComparison()).toFinishAllListeners()
         expect(signalsScoutConfigTrialComparisonResume).not.toHaveBeenCalled()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_TRIALS], { [FEATURE_FLAGS.SCOUT_TRIALS]: true })
+
+        const archive = promiseResolveReject<ScoutTrialComparisonApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonArchive).mockReturnValueOnce(archive.promise)
+        logic.actions.archiveComparison(trialFixtureComparison.id, true)
+        logic.actions.resumeComparison()
+        expect(signalsScoutConfigTrialComparisonResume).not.toHaveBeenCalled()
+        await expectLogic(logic, () => archive.reject(new Error('Save failed'))).toFinishAllListeners()
 
         logic.actions.resumeComparison()
         logic.actions.resumeComparison()
@@ -936,6 +1332,9 @@ describe('scoutTrialsLogic', () => {
                 logic.mount()
             }).toFinishAllListeners()
             expect(logic.values.selectedComparison?.id).toBe(next.id)
+            await expectLogic(logic, () =>
+                logic.actions.selectComparison(next.configId, next.id)
+            ).toFinishAllListeners()
             expect(logic.values.evaluationState.preparedRequest).toEqual({
                 ...previousEvaluation.request,
                 evaluation_id: next.id,
@@ -1024,7 +1423,7 @@ describe('scoutTrialsLogic', () => {
             task_status: stopped ? 'cancelled' : 'in_progress',
         }))
         logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId }])
-        await expectLogic(logic, () => logic.actions.refreshResults(true)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.selectResult(launchId)).toFinishAllListeners()
         const rowError = (): string | null | undefined =>
             logic.values.rows.find((row) => row.launchId === launchId)?.error
         jest.mocked(tasksRunsCancelCreate).mockRejectedValueOnce(new Error('Connection closed'))

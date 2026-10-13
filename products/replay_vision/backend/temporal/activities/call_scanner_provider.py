@@ -8,6 +8,7 @@ Each step validates its own output and re-prompts once on failure; required step
 """
 
 import re
+import json
 import math
 import time
 import asyncio
@@ -160,20 +161,12 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
         raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
-    if inputs.snapshot_override is not None:
-        snapshot = inputs.snapshot_override
-        team_name, llm_inputs, network_payload = await asyncio.gather(
-            sync_to_async(_load_team_name)(inputs.team_id),
-            _load_llm_inputs(inputs.observation_id),
-            _load_network_payload(inputs.observation_id),
-        )
-    else:
-        snapshot, team_name, llm_inputs, network_payload = await asyncio.gather(
-            sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-            sync_to_async(_load_team_name)(inputs.team_id),
-            _load_llm_inputs(inputs.observation_id),
-            _load_network_payload(inputs.observation_id),
-        )
+    snapshot, team_name, llm_inputs, network_payload = await asyncio.gather(
+        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
+        sync_to_async(_load_team_name)(inputs.team_id),
+        _load_llm_inputs(inputs.observation_id),
+        _load_network_payload(inputs.observation_id),
+    )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
     scanner = await _inject_learned_rules(scanner, snapshot, inputs.team_id)
@@ -191,7 +184,9 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         team_id=inputs.team_id,
         video_clock=video_clock,
         network_payload=network_payload,
-        trace_id=_scan_trace_id(inputs),
+        # The observation id, so every step, the lookup round, and retry of a scan reads as a single LLM
+        # analytics conversation and the observation id doubles as the trace search key.
+        trace_id=str(inputs.observation_id),
     )
 
 
@@ -336,15 +331,6 @@ def _identity_values(identity: SessionIdentity) -> list[str]:
     return [value for value in [*values, *(group.name for group in identity.groups)] if value]
 
 
-def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
-    """LLM analytics trace id for one scan: the observation id, so every step, the lookup round, and retry of
-    a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
-    re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
-    if inputs.snapshot_override is not None:
-        return str(uuid4())
-    return str(inputs.observation_id)
-
-
 def _resolve_citations(
     finalized: _OutputT,
     scanner: BaseScanner,
@@ -432,10 +418,8 @@ async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScann
     """Give an experiment scanner the variant and experiment description the workflow resolved.
 
     Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
-    When the inputs carry neither field — a prompt evaluation re-scanning a rated session, or a
-    history from before attribution shipped — the source observation's persisted attribution
-    stands in, so an evaluation tests the prompt with its experiment block rather than without.
-    Best effort there: a lookup failure must not fail the scan, and a pre-attribution row simply
+    When the inputs carry neither field, the source observation's persisted attribution stands in.
+    Best effort there: a lookup failure must not fail the scan, and a row without attribution simply
     has nothing persisted to inject."""
     if not isinstance(scanner, ExperimentScanner):
         return scanner
@@ -929,6 +913,17 @@ async def _run_step(
             # The cap counts thoughts, so the usual "respond with raw JSON" correction would only re-run the
             # same reasoning into the same wall. Name the cause so the re-prompt asks for less thinking.
             error = "the response ran out of output tokens before the JSON was complete; reason more briefly"
+        answer = response.candidates[0].content
+        if parsed is not None and _has_control_chars(parsed.model_dump(mode="json")):
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                parsed, error = None, _CONTROL_CHARS_ERROR
+            else:
+                # Postgres cannot store some of these characters, so a lost letter is better than a lost observation.
+                logger.warning("replay_vision.call_scanner_provider.control_chars_dropped", step=step.name)
+                scrubbed = json.dumps(_strip_control_chars(json.loads(text)), ensure_ascii=False)
+                parsed, error = _parse_and_validate(step, scrubbed)
+                # Later steps re-read this turn, so they get the cleaned answer rather than the broken characters.
+                answer = types.Content(role="model", parts=[types.Part(text=scrubbed)])
         record_provider_call(
             **metric_labels,
             outcome="ok" if error is None else "output_cap_hit" if capped else "validation_failed",
@@ -936,7 +931,7 @@ async def _run_step(
         )
 
         if error is None:
-            convo.append(response.candidates[0].content)  # carry the answer into the next turn
+            convo.append(answer)  # carry the answer into the next turn
             return _StepResult(output=parsed)
 
         last_error = error
@@ -982,6 +977,35 @@ _RUNAWAY_NUMBER_CORRECTION = (
 
 def _is_runaway_number(exc: ValueError) -> bool:
     return "integer string conversion" in str(exc)
+
+
+# The model sometimes writes an accented letter as a wrong `\u` escape, which decodes to a control character.
+# Tab, newline and carriage return are left out because a real answer can contain them.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_CONTROL_CHARS_ERROR = (
+    "the answer contains control characters where letters belong; write accented and non-English letters "
+    "directly, never as \\u escapes"
+)
+
+
+def _has_control_chars(value: Any) -> bool:
+    if isinstance(value, str):
+        return _CONTROL_CHARS_RE.search(value) is not None
+    if isinstance(value, dict):
+        return any(_has_control_chars(key) or _has_control_chars(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_control_chars(item) for item in value)
+    return False
+
+
+def _strip_control_chars(value: Any) -> Any:
+    if isinstance(value, str):
+        return _CONTROL_CHARS_RE.sub("", value)
+    if isinstance(value, dict):
+        return {_strip_control_chars(key): _strip_control_chars(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_strip_control_chars(item) for item in value]
+    return value
 
 
 def _hit_output_cap(response: Any) -> bool:
