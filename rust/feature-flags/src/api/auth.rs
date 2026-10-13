@@ -1,9 +1,11 @@
 use crate::{
-    api::errors::FlagError, database::get_connection_with_metrics, router::State as AppState,
+    api::errors::FlagError, database::get_connection_with_metrics,
+    metrics::consts::LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, router::State as AppState,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
 use common_database::PostgresReader;
+use metrics::counter;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -134,6 +136,8 @@ pub async fn validate_secret_api_token(
     let token_owned = token.to_string();
     let hash_for_loader = token_hash.clone();
     let accept_team_secret_tokens = *state.config.accept_team_secret_tokens;
+    // The shadow only informs the flip, so it has nothing to compare once legacy is off.
+    let mirror_shadow = accept_team_secret_tokens && *state.config.legacy_token_mirror_shadow;
 
     let result = state
         .auth_token_cache
@@ -143,6 +147,7 @@ pub async fn validate_secret_api_token(
                 &token_owned,
                 &hash_for_loader,
                 accept_team_secret_tokens,
+                mirror_shadow,
             )
         })
         .await?;
@@ -191,6 +196,7 @@ async fn load_token_from_pg(
     plaintext_token: &str,
     hashed_token: &str,
     accept_team_secret_tokens: bool,
+    mirror_shadow: bool,
 ) -> Result<Option<TokenAuthData>, FlagError> {
     use sqlx::Row;
 
@@ -200,10 +206,13 @@ async fn load_token_from_pg(
         // to avoid doubling DB work during outages.
         match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
             Ok(team) => {
+                if mirror_shadow {
+                    spawn_mirror_shadow_check(pg_reader.clone(), hashed_token.to_string(), team.id);
+                }
                 return Ok(Some(TokenAuthData::Secret {
                     team_id: team.id,
                     api_token: Some(team.api_token),
-                }))
+                }));
             }
             Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
             Err(e) => return Err(e),
@@ -252,6 +261,66 @@ async fn load_token_from_pg(
             );
             Ok(None)
         }
+    }
+}
+
+/// Transitional (#66179): after a successful legacy-token auth, check in the background
+/// that the PSAK lookup replacing the legacy branch post-flip resolves this token to the
+/// same team. Fire-and-forget: it never delays or fails the auth path, and it only runs
+/// on auth-cache misses, so the extra query is bounded by unique active tokens per cache
+/// TTL, not by request volume.
+fn spawn_mirror_shadow_check(pg_reader: PostgresReader, hashed_token: String, team_id: i32) {
+    tokio::spawn(async move {
+        let result = mirror_shadow_result(pg_reader, &hashed_token, team_id).await;
+        if result != "match" {
+            warn!(
+                team_id = team_id,
+                result = result,
+                "Legacy token has no usable PSAK mirror row"
+            );
+        }
+        counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => result).increment(1);
+    });
+}
+
+/// Classify a legacy token's PSAK mirror state. Uses the same scope filter as the real
+/// PSAK lookup in `load_token_from_pg`, so "match" means the post-flip lookup would
+/// authenticate this token hash for this team.
+pub async fn mirror_shadow_result(
+    pg_reader: PostgresReader,
+    hashed_token: &str,
+    team_id: i32,
+) -> &'static str {
+    let mut conn = match get_connection_with_metrics(
+        &pg_reader,
+        "non_persons_reader",
+        "legacy_token_mirror_shadow",
+    )
+    .await
+    {
+        Ok(conn) => conn,
+        Err(_) => return "error",
+    };
+    let query = r#"
+        SELECT team_id
+        FROM posthog_projectsecretapikey
+        WHERE secure_value = $1
+          AND (
+              scopes IS NULL
+              OR '*' = ANY(scopes)
+              OR 'feature_flag:read' = ANY(scopes)
+              OR 'feature_flag:write' = ANY(scopes)
+          )
+    "#;
+    match sqlx::query_scalar::<_, i32>(query)
+        .bind(hashed_token)
+        .fetch_optional(&mut *conn)
+        .await
+    {
+        Ok(Some(row_team_id)) if row_team_id == team_id => "match",
+        Ok(Some(_)) => "team_mismatch",
+        Ok(None) => "missing",
+        Err(_) => "error",
     }
 }
 
@@ -354,7 +423,7 @@ pub async fn current_team_id_for_personal_api_key(
 /// Hash a token value using SHA256
 /// Ported from PostHog's `hash_key_value` function in `posthog/models/utils.py`
 /// Used by both PersonalAPIKey and ProjectSecretAPIKey
-pub(crate) fn hash_token_value(value: &str) -> String {
+pub fn hash_token_value(value: &str) -> String {
     use sha2::{Digest, Sha256};
 
     // No salt — see https://github.com/jazzband/django-rest-knox/issues/188
@@ -1076,7 +1145,8 @@ mod tests {
         let client = Arc::new(FailingClient::new());
         let pg_reader: common_database::PostgresReader = client.clone();
 
-        let result = load_token_from_pg(pg_reader, "phs_test_token", "sha256$fake", true).await;
+        let result =
+            load_token_from_pg(pg_reader, "phs_test_token", "sha256$fake", true, false).await;
 
         // The first query (Team::from_pg_by_secret_token) should fail with DatabaseUnavailable.
         // The function should propagate that error immediately, NOT fall through to the
