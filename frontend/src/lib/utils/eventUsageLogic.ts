@@ -76,7 +76,6 @@ import {
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
-import type { ExperimentViewedHealthProperties } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -1253,12 +1252,10 @@ export interface eventUsageLogicActions {
     }
     reportExperimentViewed: (
         experiment: Experiment,
-        duration: number | null,
-        healthProperties: ExperimentViewedHealthProperties
+        duration: number | null
     ) => {
         duration: number | null
         experiment: Experiment
-        healthProperties: ExperimentViewedHealthProperties
     }
     reportExperimentWatchCardSelected: (
         experimentId: ExperimentIdType,
@@ -1945,11 +1942,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             hasSearch: boolean
             archived: boolean
         }) => listView,
-        reportExperimentViewed: (
-            experiment: Experiment,
-            duration: number | null,
-            healthProperties: ExperimentViewedHealthProperties
-        ) => ({ experiment, duration, healthProperties }),
+        reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
             metricUuid: string,
@@ -2589,13 +2582,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 archived,
             })
         },
-        reportExperimentViewed: ({ experiment, duration, healthProperties }) => {
+        reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 experiment_id: experiment.id,
                 experiment_status: getExperimentStatus(experiment),
                 duration,
-                ...healthProperties,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {

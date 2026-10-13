@@ -1,14 +1,26 @@
 from collections.abc import Callable
 from datetime import date
+from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.swarmia import (
+    SwarmiaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.settings import SWARMIA_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source import SwarmiaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.swarmia import (
     SwarmiaResumeConfig,
     SwarmiaRetryableError,
@@ -20,12 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.sw
     _window_params,
     check_credentials,
     check_endpoint_access,
-    get_rows,
-    swarmia_source,
-)
-
-_TRACKED_SESSION_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.swarmia.make_tracked_session"
 )
 
 # The tenacity `@retry` decorator wraps the real function; `__wrapped__` reaches the undecorated
@@ -49,13 +55,6 @@ def _mock_response(status_code: int = 200, text: str = "") -> MagicMock:
         requests.HTTPError(f"{status_code} Client Error", response=response) if status_code >= 400 else None
     )
     return response
-
-
-def _mock_manager(resume: SwarmiaResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
 
 
 class TestColumnHandling:
@@ -178,31 +177,33 @@ class TestFetchCsv:
             _fetch_csv_direct(session, "/reports/dora", {}, {}, MagicMock())
 
 
+def _driver() -> SourceDriver:
+    return SourceDriver(SwarmiaSource(), SwarmiaSourceConfig(api_key="token"))
+
+
+def _csv(text: str) -> ScriptedResponse:
+    return ScriptedResponse(body=text.encode())
+
+
 class TestGetRows:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):
         with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
             yield
 
-    @patch(_TRACKED_SESSION_PATH)
-    def test_monthly_endpoint_uses_month_param(self, mock_make_session: MagicMock) -> None:
-        session = mock_make_session.return_value
-        session.get.return_value = _mock_response(
-            200, "Month,Author ID,Email,FTE,Swarmia issue type,Issue key\n2026-06,A1,a@example.com,0.25,Epic,ENG-1\n"
-        )
-        manager = _mock_manager(resume=SwarmiaResumeConfig(next_window_start="2026-06-01"))
-
-        batches = list(
-            get_rows(
-                api_key="token",
-                endpoint="fte",
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-            )
+    def test_monthly_endpoint_uses_month_param(self) -> None:
+        result = _driver().run(
+            "fte",
+            [
+                _csv(
+                    "Month,Author ID,Email,FTE,Swarmia issue type,Issue key\n2026-06,A1,a@example.com,0.25,Epic,ENG-1\n"
+                )
+            ],
+            resume_state=SwarmiaResumeConfig(next_window_start="2026-06-01"),
         )
 
-        assert "month=2026-06" in session.get.call_args[0][0]
-        assert batches[0][0] == {
+        assert result.params("month") == ["2026-06"]
+        assert result.rows[0] == {
             "month": date(2026, 6, 1),
             "author_id": "A1",
             "email": "a@example.com",
@@ -211,62 +212,61 @@ class TestGetRows:
             "issue_key": "ENG-1",
         }
 
-    @patch(_TRACKED_SESSION_PATH)
-    def test_header_only_csv_yields_nothing(self, mock_make_session: MagicMock) -> None:
-        session = mock_make_session.return_value
-        session.get.return_value = _mock_response(200, "Start Date,End Date,Deployment Count\n")
-        manager = _mock_manager()
-
-        batches = list(
-            get_rows(
-                api_key="token",
-                endpoint="dora",
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2026, 6, 28),
-            )
+    def test_header_only_csv_yields_nothing(self) -> None:
+        result = _driver().run(
+            "dora",
+            always(_csv("Start Date,End Date,Deployment Count\n")),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 28),
         )
 
-        assert batches == []
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestCredentialChecks:
     @parameterized.expand([("valid", 200), ("unauthorized", 401), ("forbidden", 403)])
-    @patch(_TRACKED_SESSION_PATH)
-    def test_check_credentials_returns_status(self, _name: str, status_code: int, mock_make_session: MagicMock) -> None:
-        mock_make_session.return_value.get.return_value = _mock_response(status_code)
+    def test_check_credentials_returns_status(self, _name: str, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            assert check_credentials("token") == status_code
 
-        assert check_credentials("token") == status_code
-
-    @patch(_TRACKED_SESSION_PATH)
-    def test_check_credentials_network_failure_returns_none(self, mock_make_session: MagicMock) -> None:
-        mock_make_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert check_credentials("token") is None
+    def test_check_credentials_network_failure_returns_none(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert check_credentials("token") is None
 
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    @patch(_TRACKED_SESSION_PATH)
-    def test_check_endpoint_access_flags_denied_reports(self, mock_make_session: MagicMock) -> None:
-        session = mock_make_session.return_value
+    def test_check_endpoint_access_flags_denied_reports(self) -> None:
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/reports/capex"):
+                return ScriptedResponse(status=403)
+            return _csv("Start Date,End Date\n")
 
-        def _get(url: str, **kwargs: object) -> MagicMock:
-            if "/reports/capex" in url:
-                return _mock_response(403)
-            return _mock_response(200, "Start Date,End Date\n")
-
-        session.get.side_effect = _get
-
-        results = check_endpoint_access("token", ["pull_requests", "capex"])
+        with scripted_network(script):
+            results = check_endpoint_access("token", ["pull_requests", "capex"])
 
         assert results["pull_requests"] is None
         assert results["capex"] is not None and "can't access" in results["capex"]
 
-    @patch(_TRACKED_SESSION_PATH)
-    def test_check_endpoint_access_network_blip_is_not_a_permission_error(self, mock_make_session: MagicMock) -> None:
-        mock_make_session.return_value.get.side_effect = requests.ConnectionError("boom")
+    def test_check_endpoint_access_network_blip_is_not_a_permission_error(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert check_endpoint_access("token", ["dora"]) == {"dora": None}
 
-        assert check_endpoint_access("token", ["dora"]) == {"dora": None}
+
+def _extraction_session_options() -> list[dict[str, Any]]:
+    result = _driver().run("pull_requests", always(_csv(PULL_REQUESTS_CSV)))
+    return result.session_options
+
+
+def _check_credentials_session_options() -> list[dict[str, Any]]:
+    with scripted_network(always(_csv(PULL_REQUESTS_CSV))) as network:
+        check_credentials("token")
+    return network.session_options
+
+
+def _check_endpoint_access_session_options() -> list[dict[str, Any]]:
+    with scripted_network(always(_csv(PULL_REQUESTS_CSV))) as network:
+        check_endpoint_access("token", ["pull_requests"])
+    return network.session_options
 
 
 class TestHttpSampleCaptureDisabled:
@@ -276,34 +276,21 @@ class TestHttpSampleCaptureDisabled:
     # shared sample store, so assert the contract at the session boundary for each entry point.
     @parameterized.expand(
         [
-            (
-                "get_rows",
-                lambda: list(
-                    get_rows(
-                        api_key="token",
-                        endpoint="pull_requests",
-                        logger=MagicMock(),
-                        resumable_source_manager=_mock_manager(),
-                    )
-                ),
-            ),
-            ("check_credentials", lambda: check_credentials("token")),
-            ("check_endpoint_access", lambda: check_endpoint_access("token", ["pull_requests"])),
+            ("get_rows", _extraction_session_options),
+            ("check_credentials", _check_credentials_session_options),
+            ("check_endpoint_access", _check_endpoint_access_session_options),
         ]
     )
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    @patch(_TRACKED_SESSION_PATH)
     def test_every_request_path_disables_capture_and_redacts_token(
-        self, _name: str, invoke: Callable[[], object], mock_make_session: MagicMock
+        self, _name: str, session_options: Callable[[], list[dict[str, Any]]]
     ) -> None:
-        mock_make_session.return_value.get.return_value = _mock_response(200, PULL_REQUESTS_CSV)
+        options = session_options()
 
-        invoke()
-
-        assert mock_make_session.call_count >= 1
-        for call in mock_make_session.call_args_list:
-            assert call.kwargs["capture"] is False
-            assert call.kwargs["redact_values"] == ("token",)
+        assert len(options) >= 1
+        for call in options:
+            assert call["capture"] is False
+            assert call["redact_values"] == ("token",)
 
 
 class TestSwarmiaSourceResponse:
@@ -317,14 +304,11 @@ class TestSwarmiaSourceResponse:
             ("fte", ["month", "author_id", "issue_key"], None),
         ]
     )
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
-        response = swarmia_source(
-            api_key="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_mock_manager(),
-        )
+        response = _driver().run(endpoint, always(_csv("Start Date\n"))).response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"

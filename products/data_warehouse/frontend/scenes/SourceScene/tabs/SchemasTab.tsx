@@ -13,6 +13,7 @@ import {
     LemonTable,
     LemonTag,
     LemonTagType,
+    Link,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -40,6 +41,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
 import {
     splitQualifiedTableName,
     supportsDirectQuery,
@@ -49,6 +51,7 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import {
     IncrementalSyncBlockedMessageMap,
@@ -58,6 +61,7 @@ import {
     SyncTypeLabelMap,
     allowedSyncFrequencies,
 } from 'products/data_warehouse/frontend/utils'
+import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
@@ -168,6 +172,15 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         loadJobs,
     } = useActions(sourceSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { loadDestinations } = useActions(destinationLookupLogic)
+    const { destinationsById } = useValues(destinationLookupLogic)
+    const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
+
+    useEffect(() => {
+        if (showDestinations) {
+            loadDestinations()
+        }
+    }, [showDestinations, loadDestinations])
 
     // Load (and poll) jobs so the Row count column can show live progress for in-progress
     // syncs, before the warehouse table exists. loadJobsSuccess reschedules itself.
@@ -331,6 +344,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                     deleteTable={deleteTable}
                                     openAccessControl={openAccessControl}
                                     showMetrics={showMetrics}
+                                    destinationsById={showDestinations ? destinationsById : {}}
                                 />
                             ),
                         }))}
@@ -350,6 +364,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     deleteTable={deleteTable}
                     openAccessControl={openAccessControl}
                     showMetrics={showMetrics}
+                    destinationsById={showDestinations ? destinationsById : {}}
                 />
             )}
             {accessControlSchema?.table && (
@@ -380,6 +395,7 @@ interface ManagedSchemaTableProps {
     /** Undefined when the warehouse access control feature is off. */
     openAccessControl?: (schema: ExternalDataSourceSchema) => void
     showMetrics: boolean
+    destinationsById: Record<string, ExternalDataDestinationApi>
     /** Rendered inside a namespace group — the group header already shows the namespace, so strip it from row names. */
     inSchemaGroup?: boolean
 }
@@ -397,6 +413,7 @@ function ManagedSchemaTable({
     deleteTable,
     openAccessControl,
     showMetrics,
+    destinationsById,
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
@@ -494,12 +511,34 @@ function ManagedSchemaTable({
                                 {label}
                             </LemonTag>
                         )
-                        return tooltip ? (
+                        const statusTag = tooltip ? (
                             <Tooltip title={tooltip} interactive>
                                 {tagContent}
                             </Tooltip>
                         ) : (
                             tagContent
+                        )
+                        const destination =
+                            schema.status === ExternalDataSchemaStatus.Failed
+                                ? failedDestinationFor(
+                                      schema.latest_error,
+                                      Object.keys(destinationsById),
+                                      destinationsById
+                                  )
+                                : null
+                        return (
+                            <div className="flex flex-col items-start gap-1">
+                                {statusTag}
+                                {destination && (
+                                    <Link
+                                        className="text-xs"
+                                        to={urls.warehouseDestination(destination.id)}
+                                        data-attr="warehouse-schema-failed-destination-link"
+                                    >
+                                        {`Could not deliver to ${destination.name}`}
+                                    </Link>
+                                )}
+                            </div>
                         )
                     },
                 },

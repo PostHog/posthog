@@ -1,45 +1,65 @@
+from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.printify import (
+    PrintifySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify import printify
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.printify import (
     PrintifyResumeConfig,
     PrintifyRetryableError,
     check_access,
-    get_rows,
-    printify_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import (
     ENDPOINTS,
     PRINTIFY_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.printify.source import PrintifySource
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = printify._fetch_page.__wrapped__  # type: ignore[attr-defined]
 
-# (path, page) -> (items, has_more), the shape _fetch_page returns per request.
+# (path, page) -> (items, has_more), the shape the vendor answers per request.
 _Pages = dict[tuple[str, int | None], tuple[list[dict], bool]]
 
 
-class _FakeResumableManager:
-    def __init__(self, state: PrintifyResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[PrintifyResumeConfig] = []
+def _script(pages: _Pages) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Answer each (path, page) from `pages`. A request for a page that is not listed fails the run."""
 
-    def can_resume(self) -> bool:
-        return self._state is not None
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        page = request.param("page")
+        key = (request.path.removeprefix("/v1"), int(page) if page is not None else None)
+        if key not in pages:
+            raise UnexpectedRequest(f"the script has no page for {key}")
+        items, has_more = pages[key]
+        if key[1] is None:
+            return ScriptedResponse(json=items)
+        current = key[1]
+        return ScriptedResponse(
+            json={"current_page": current, "last_page": current + 1 if has_more else current, "data": items}
+        )
 
-    def load_state(self) -> PrintifyResumeConfig | None:
-        return self._state
+    return respond
 
-    def save_state(self, data: PrintifyResumeConfig) -> None:
-        self.saved.append(data)
+
+def _driver() -> SourceDriver:
+    return SourceDriver(PrintifySource(), PrintifySourceConfig(api_key="printify-key"))
 
 
 class TestFetchPage:
@@ -127,119 +147,97 @@ class TestFetchPage:
 
 class TestGetRows:
     @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: _Pages,
-        endpoint: str,
-    ) -> list[dict]:
-        def fake_fetch(
-            session: Any, path: str, page: int | None, limit: int | None, logger: Any
-        ) -> tuple[list[dict], bool]:
-            return pages[(path, page)]
+    def _run(pages: _Pages, endpoint: str, resume_state: PrintifyResumeConfig | None = None) -> DriveResult:
+        result = _driver().run(endpoint, _script(pages), resume_state=resume_state)
+        assert result.raised is None
+        return result
 
-        monkeypatch.setattr(printify, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(printify, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="printify-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_shop_fanout_injects_shop_id_into_rows(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_shop_fanout_injects_shop_id_into_rows(self) -> None:
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}, {"id": 222}], False),
             ("/shops/111/products.json", 1): ([{"id": "p1"}], False),
             ("/shops/222/products.json", 1): ([{"id": "p2"}], False),
         }
-        rows = self._collect(manager, monkeypatch, pages, "products")
-        assert rows == [{"id": "p1", "shop_id": 111}, {"id": "p2", "shop_id": 222}]
+        result = self._run(pages, "products")
+        assert result.rows == [{"id": "p1", "shop_id": 111}, {"id": "p2", "shop_id": 222}]
 
-    def test_webhook_rows_keep_api_shop_id_and_drop_signing_secret(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_webhook_rows_keep_api_shop_id_and_drop_signing_secret(self) -> None:
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
             ("/shops/111/webhooks.json", None): ([{"id": "w1", "shop_id": "111", "secret": "whsec_123"}], False),
         }
-        rows = self._collect(manager, monkeypatch, pages, "webhooks")
+        result = self._run(pages, "webhooks")
         # The signing secret must never reach the warehouse — a reader could forge webhook requests.
-        assert rows == [{"id": "w1", "shop_id": "111"}]
+        assert result.rows == [{"id": "w1", "shop_id": "111"}]
 
-    def test_paginated_fanout_saves_state_after_each_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_paginated_fanout_saves_state_after_each_page(self) -> None:
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
             ("/shops/111/products.json", 1): ([{"id": "p1"}], True),
             ("/shops/111/products.json", 2): ([{"id": "p2"}], False),
         }
-        rows = self._collect(manager, monkeypatch, pages, "products")
-        assert [r["id"] for r in rows] == ["p1", "p2"]
-        assert [(s.shop_id, s.page) for s in manager.saved] == [(111, 2)]
+        result = self._run(pages, "products")
+        assert [r["id"] for r in result.rows] == ["p1", "p2"]
+        assert [(s.shop_id, s.page) for s in result.saved_states] == [(111, 2)]
 
-    def test_resume_skips_earlier_shops_and_starts_at_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(PrintifyResumeConfig(shop_id=222, page=3))
+    def test_resume_skips_earlier_shops_and_starts_at_saved_page(self) -> None:
         # Pages for shop 111 (and pages 1-2 of shop 222) are deliberately absent — fetching them
-        # would KeyError, proving the resume path never re-fetches them.
+        # would fail the run, proving the resume path never re-fetches them.
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}, {"id": 222}, {"id": 333}], False),
             ("/shops/222/products.json", 3): ([{"id": "p3"}], False),
             ("/shops/333/products.json", 1): ([{"id": "p4"}], False),
         }
-        rows = self._collect(manager, monkeypatch, pages, "products")
-        assert [r["id"] for r in rows] == ["p3", "p4"]
+        result = self._run(pages, "products", PrintifyResumeConfig(shop_id=222, page=3))
+        assert [r["id"] for r in result.rows] == ["p3", "p4"]
+        assert result.paths == ["/v1/shops.json", "/v1/shops/222/products.json", "/v1/shops/333/products.json"]
 
-    def test_resume_with_vanished_shop_restarts_from_first_shop(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(PrintifyResumeConfig(shop_id=999, page=5))
+    def test_resume_with_vanished_shop_restarts_from_first_shop(self) -> None:
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
             ("/shops/111/products.json", 1): ([{"id": "p1"}], False),
         }
-        rows = self._collect(manager, monkeypatch, pages, "products")
-        assert [r["id"] for r in rows] == ["p1"]
+        result = self._run(pages, "products", PrintifyResumeConfig(shop_id=999, page=5))
+        assert [r["id"] for r in result.rows] == ["p1"]
 
-    def test_account_level_paginated_endpoint_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(PrintifyResumeConfig(shop_id=None, page=2))
+    def test_account_level_paginated_endpoint_resumes_from_saved_page(self) -> None:
         pages: _Pages = {
             ("/uploads.json", 2): ([{"id": "u2"}], False),
         }
-        rows = self._collect(manager, monkeypatch, pages, "uploads")
-        assert [r["id"] for r in rows] == ["u2"]
+        result = self._run(pages, "uploads", PrintifyResumeConfig(shop_id=None, page=2))
+        assert [r["id"] for r in result.rows] == ["u2"]
 
-    def test_non_paginated_account_endpoint_yields_once_without_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_account_level_paginated_endpoint_starts_from_the_first_page(self) -> None:
+        pages: _Pages = {
+            ("/uploads.json", 1): ([{"id": "u1"}], False),
+        }
+        result = self._run(pages, "uploads")
+        assert [r["id"] for r in result.rows] == ["u1"]
+
+    def test_non_paginated_account_endpoint_yields_once_without_state(self) -> None:
         pages: _Pages = {
             ("/catalog/blueprints.json", None): ([{"id": 5}, {"id": 6}], False),
         }
-        rows = self._collect(manager, monkeypatch, pages, "blueprints")
-        assert [r["id"] for r in rows] == [5, 6]
-        assert manager.saved == []
+        result = self._run(pages, "blueprints")
+        assert [r["id"] for r in result.rows] == [5, 6]
+        assert result.saved_states == []
 
-    def test_non_paginated_fanout_saves_state_per_shop(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_non_paginated_fanout_saves_state_per_shop(self) -> None:
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}, {"id": 222}], False),
             ("/shops/111/webhooks.json", None): ([{"id": "w1"}], False),
             ("/shops/222/webhooks.json", None): ([], False),
         }
-        self._collect(manager, monkeypatch, pages, "webhooks")
-        assert [(s.shop_id, s.page) for s in manager.saved] == [(111, 1), (222, 1)]
+        result = self._run(pages, "webhooks")
+        assert [(s.shop_id, s.page) for s in result.saved_states] == [(111, 1), (222, 1)]
 
 
 class TestPrintifySourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = printify_source(
-            api_key="printify-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _driver().run(endpoint, always(ScriptedResponse(json=[]))).response
+
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == PRINTIFY_ENDPOINTS[endpoint].primary_keys
 
@@ -250,43 +248,21 @@ class TestPrintifySourceResponse:
 
 
 class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Printify returned HTTP 500"),
+            ("ok", 200, 200, None),
+            ("unauthorized", 401, 401, None),
+            ("forbidden", 403, 403, None),
+            ("server_error", 500, 500, "Printify returned HTTP 500"),
         ]
     )
-    @patch(f"{printify.__name__}.make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
-        assert check_access("printify-key") == (expected_status, expected_message)
+    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json=[]))):
+            assert check_access("printify-key") == (expected_status, expected_message)
 
-    @patch(f"{printify.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("printify-key")
+    def test_connection_error_maps_to_zero(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            status, message = check_access("printify-key")
         assert status == 0
         assert message is not None and "boom" in message
 
@@ -298,17 +274,8 @@ class TestCheckAccess:
             ("server_error", 500, False, "Printify returned HTTP 500"),
         ]
     )
-    @patch(f"{printify.__name__}.make_tracked_session")
     def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_session: MagicMock,
+        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
-        assert validate_credentials("printify-key") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status, json=[]))):
+            assert validate_credentials("printify-key") == (expected_valid, expected_message)

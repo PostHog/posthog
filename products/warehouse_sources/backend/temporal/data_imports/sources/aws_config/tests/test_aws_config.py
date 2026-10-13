@@ -7,7 +7,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
-from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config import aws_config
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.aws_config import (
@@ -18,7 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config
     aws_config_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source import AwsConfigSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsconfig import (
     AwsConfigSourceConfig,
 )
@@ -68,31 +73,41 @@ def make_manager(state: AwsConfigResumeConfig | None = None) -> MagicMock:
     ],
 )
 def test_signed_tracked_request(region: str | None, token: str | None, host: str, signing_region: str) -> None:
-    with patch.object(aws_config, "make_tracked_session") as factory:
-        factory.return_value.post.return_value = make_response({"ConfigRules": []})
+    with scripted_network([ScriptedResponse(json={"ConfigRules": []})]) as network:
         client = AwsConfigClient(make_config(region=region, aws_session_token=token), "2014-11-12")
         assert client.request("DescribeConfigRules", {"NextToken": "page-2"}) == {"ConfigRules": []}
+        client.close()
 
-    call = factory.return_value.post.call_args
-    assert call.args == (f"https://{host}/",)
-    assert json.loads(call.kwargs["data"]) == {"NextToken": "page-2"}
-    headers = call.kwargs["headers"]
-    assert headers["X-Amz-Target"] == "StarlingDoveService.DescribeConfigRules"
-    assert headers["Content-Type"] == "application/x-amz-json-1.1"
-    assert headers["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/")
-    assert f"/{signing_region}/config/aws4_request" in headers["Authorization"]
-    assert "x-amz-target" in headers["Authorization"]
-    assert headers["X-Amz-Date"]
-    assert headers.get("X-Amz-Security-Token") == token
-    assert call.kwargs["allow_redirects"] is False
-    assert call.kwargs["timeout"] == 60
-    assert "example-secret" in factory.call_args.kwargs["redact_values"]
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.url == f"https://{host}/"
+    assert request.json() == {"NextToken": "page-2"}
+    assert request.headers["x-amz-target"] == "StarlingDoveService.DescribeConfigRules"
+    assert request.headers["content-type"] == "application/x-amz-json-1.1"
+    authorization = request.headers["authorization"]
+    assert authorization.startswith("AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/")
+    assert f"/{signing_region}/config/aws4_request" in authorization
+    assert "x-amz-target" in authorization
+    assert request.headers["x-amz-date"]
+    assert request.headers.get("x-amz-security-token") == token
+    assert request.read_timeout == 60
+    options = network.session_options[0]
+    assert "example-secret" in options["redact_values"]
     if token:
-        assert token in factory.call_args.kwargs["redact_values"]
-    retry_policy = factory.call_args.kwargs["retry"]
+        assert token in options["redact_values"]
+    retry_policy = options["retry"]
     assert retry_policy.is_retry("POST", 503)
     assert retry_policy.is_retry("POST", 429)
     assert not retry_policy.is_retry("POST", 400)
+
+    with scripted_network(
+        [ScriptedResponse(status=302, headers={"Location": "https://example.com/"})]
+    ) as redirect_network:
+        client = AwsConfigClient(make_config(region=region, aws_session_token=token), "2014-11-12")
+        with pytest.raises(AwsConfigError):
+            client.request("DescribeConfigRules", {})
+        client.close()
+    assert len(redirect_network.requests_log) == 1
 
 
 @pytest.mark.parametrize(
@@ -206,13 +221,15 @@ def test_checkpoint_is_staged_before_yield_and_session_closes_on_interruption(se
     manager.clear_state.assert_not_called()
 
 
-def test_completed_resume_does_not_repeat_requests(session: MagicMock) -> None:
-    manager = make_manager(AwsConfigResumeConfig(complete=True))
-    response = aws_config_source(make_config(), "config_rules", "2014-11-12", manager)
+def test_completed_resume_does_not_repeat_requests() -> None:
+    result = SourceDriver(AwsConfigSource(), make_config()).run(
+        "config_rules", [], resume_state=AwsConfigResumeConfig(complete=True)
+    )
 
-    assert list(cast(Iterable[Any], response.items())) == []
-    manager.clear_state.assert_called_once()
-    session.post.assert_not_called()
+    assert result.raised is None
+    assert result.rows == []
+    assert result.final_state is None
+    assert result.requests == []
 
 
 @pytest.mark.parametrize("token", ["saved-token", 123])
@@ -259,15 +276,17 @@ def test_error_classification(status: int, body: Any, headers: dict[str, str], c
     assert isinstance(error, AwsConfigThrottledError) is throttled
 
 
-def test_body_throttles_retry_without_sleep(session: MagicMock) -> None:
-    session.post.side_effect = [
-        make_response({"__type": "ThrottlingException", "message": "Rate exceeded"}, 400),
-        make_response({"ConfigRules": []}),
-    ]
-    client = AwsConfigClient(make_config(), "2014-11-12")
-    with patch.object(AwsConfigClient.request.retry, "wait", wait_none()):  # type: ignore[attr-defined]
+def test_body_throttles_retry_without_sleep() -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(status=400, json={"__type": "ThrottlingException", "message": "Rate exceeded"}),
+            ScriptedResponse(json={"ConfigRules": []}),
+        ]
+    ) as network:
+        client = AwsConfigClient(make_config(), "2014-11-12")
         assert client.request("DescribeConfigRules", {}) == {"ConfigRules": []}
-    assert session.post.call_count == 2
+        client.close()
+    assert len(network.requests_log) == 2
 
 
 @pytest.mark.parametrize("schema_name", [None, "config_rules"])
@@ -292,12 +311,12 @@ def test_access_denied_only_blocks_selected_table(session: MagicMock, schema_nam
         ("InternalError", "try again"),
     ],
 )
-def test_credential_errors_are_actionable(session: MagicMock, code: str, message: str) -> None:
-    session.post.return_value = make_response({"__type": code, "message": "Vendor error"}, 400)
-    valid, reason = validate_credentials(make_config(), "2014-11-12")
+def test_credential_errors_are_actionable(code: str, message: str) -> None:
+    with scripted_network([ScriptedResponse(status=400, json={"__type": code, "message": "Vendor error"})]) as network:
+        valid, reason = validate_credentials(make_config(), "2014-11-12")
     assert not valid
     assert message in (reason or "")
-    session.post.assert_called_once()
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize(
@@ -308,40 +327,47 @@ def test_credential_errors_are_actionable(session: MagicMock, code: str, message
         ("conformance_packs", "DescribeConformancePacks", 1),
     ],
 )
-def test_credential_probe_is_one_request(
-    session: MagicMock, schema: str | None, operation: str, limit: int | None
-) -> None:
-    assert validate_credentials(make_config(), "2014-11-12", schema) == (True, None)
-    session.post.assert_called_once()
-    call = session.post.call_args
-    assert call.kwargs["headers"]["X-Amz-Target"] == f"StarlingDoveService.{operation}"
-    assert json.loads(call.kwargs["data"]).get("Limit") == limit
+def test_credential_probe_is_one_request(schema: str | None, operation: str, limit: int | None) -> None:
+    with scripted_network([ScriptedResponse(json={})]) as network:
+        assert validate_credentials(make_config(), "2014-11-12", schema) == (True, None)
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.headers["x-amz-target"] == f"StarlingDoveService.{operation}"
+    assert request.json().get("Limit") == limit
 
 
 @pytest.mark.parametrize("region", ["https://example.com", "us-east-1.example.com/path", "us-east-1\n", "../us-east-1"])
-def test_invalid_region_fails_before_transport(session: MagicMock, region: str) -> None:
-    valid, reason = validate_credentials(make_config(region=region), "2014-11-12")
+def test_invalid_region_fails_before_transport(region: str) -> None:
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(make_config(region=region), "2014-11-12")
     assert not valid
     assert reason == "Enter an AWS region such as us-east-1."
-    session.post.assert_not_called()
+    assert network.requests_log == []
 
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
-def test_missing_credentials_fail_before_transport(session: MagicMock, field: str) -> None:
-    valid, reason = validate_credentials(make_config(**{field: ""}), "2014-11-12")
+def test_missing_credentials_fail_before_transport(field: str) -> None:
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(make_config(**{field: ""}), "2014-11-12")
     assert not valid
     assert "Enter both" in (reason or "")
-    session.post.assert_not_called()
+    assert network.requests_log == []
 
 
-def test_unknown_table_and_version_fail_before_transport(session: MagicMock) -> None:
-    assert validate_credentials(make_config(), "2014-11-12", "unknown") == (False, "Unknown AWS Config table: unknown")
-    with pytest.raises(ValueError, match="Unknown AWS Config table"):
-        aws_config_source(make_config(), "unknown", "2014-11-12", make_manager())
-    valid, reason = validate_credentials(make_config(), "invalid-version")
+def test_unknown_table_and_version_fail_before_transport() -> None:
+    with scripted_network([]) as network:
+        assert validate_credentials(make_config(), "2014-11-12", "unknown") == (
+            False,
+            "Unknown AWS Config table: unknown",
+        )
+        valid, reason = validate_credentials(make_config(), "invalid-version")
+    result = SourceDriver(AwsConfigSource(), make_config()).run("unknown", [])
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown AWS Config table" in str(result.raised)
     assert not valid
     assert "Unsupported AWS Config API version" in (reason or "")
-    session.post.assert_not_called()
+    assert network.requests_log == []
+    assert result.requests == []
 
 
 def test_network_failure_closes_probe_session(session: MagicMock) -> None:
@@ -352,13 +378,10 @@ def test_network_failure_closes_probe_session(session: MagicMock) -> None:
     session.close.assert_called_once()
 
 
-def test_new_invalid_token_is_not_silently_restarted(session: MagicMock) -> None:
-    session.post.return_value = make_response({"__type": "InvalidNextTokenException"}, 400)
-    with pytest.raises(AwsConfigError, match="InvalidNextTokenException"):
-        list(
-            cast(
-                Iterable[Any],
-                aws_config_source(make_config(), "config_rules", "2014-11-12", make_manager()).items(),
-            )
-        )
-    session.post.assert_called_once()
+def test_new_invalid_token_is_not_silently_restarted() -> None:
+    result = SourceDriver(AwsConfigSource(), make_config()).run(
+        "config_rules", [ScriptedResponse(status=400, json={"__type": "InvalidNextTokenException"})]
+    )
+    assert isinstance(result.raised, AwsConfigError)
+    assert "InvalidNextTokenException" in str(result.raised)
+    assert len(result.requests) == 1

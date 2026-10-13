@@ -3,8 +3,10 @@ from typing import Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openalex import (
     OpenalexSourceConfig,
 )
@@ -15,23 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source import OpenalexSource
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source"
-
-
-def _inputs(schema_name: str) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-1",
-        source_id="source-1",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job-1",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
 
 
 class TestOpenalexSource:
@@ -76,10 +61,7 @@ class TestOpenalexSource:
             ("institutions", None),
         ],
     )
-    @patch(f"{SOURCE_MODULE}.openalex_source")
-    def test_each_table_gets_its_own_filter(
-        self, mock_openalex_source: MagicMock, endpoint: str, expected_filter: Optional[str]
-    ) -> None:
+    def test_each_table_gets_its_own_filter(self, endpoint: str, expected_filter: Optional[str]) -> None:
         # Sending the works filter to another entity would be rejected as an invalid filter field.
         config = OpenalexSourceConfig(
             api_key="key",
@@ -88,10 +70,14 @@ class TestOpenalexSource:
             awards_filter="awards-scope",
         )
 
-        self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), _inputs(endpoint))
+        result = SourceDriver(self.source, config).run(
+            endpoint,
+            [ScriptedResponse(json={"meta": {"count": 1, "next_cursor": None}, "results": [{"id": "W1"}]})],
+        )
 
-        assert mock_openalex_source.call_args.kwargs["entity_filter"] == expected_filter
-        assert mock_openalex_source.call_args.kwargs["endpoint"] == endpoint
+        assert result.raised is None
+        assert result.paths == [f"/{endpoint}"]
+        assert result.requests[0].param("filter") == expected_filter
 
     @patch(f"{SOURCE_MODULE}.validate_openalex_credentials")
     def test_validate_credentials_probes_every_configured_filter(self, mock_validate: MagicMock) -> None:

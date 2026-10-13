@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import io
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from typing import ClassVar
 
 import pyarrow as pa
@@ -34,15 +35,23 @@ from products.batch_exports.backend.facade.destinations.databricks import (
     FIVE_MINUTES,
     ONE_HOUR,
     ONE_MINUTE,
+    DatabricksCatalogNotFoundError,
     DatabricksClient,
+    DatabricksConnectionError,
     DatabricksField,
+    DatabricksInsufficientPermissionsError,
     DatabricksIntegrationNotFoundError,
+    DatabricksSchemaNotFoundError,
     handle_common_errors,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
     dedupe_merge_source,
@@ -56,6 +65,38 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     run_scope,
     stamp_batch_index,
 )
+
+CONNECTION_DETAIL = (
+    "Databricks could not connect. Check the server hostname and the service principal's client ID and secret, "
+    "then run the sync again."
+)
+PERMISSIONS_DETAIL = (
+    "The Databricks service principal lacks privileges on the catalog, schema or volume. "
+    "Grant USE CATALOG, USE SCHEMA, CREATE TABLE, CREATE VOLUME and WRITE VOLUME, then run the sync again."
+)
+CATALOG_DETAIL = (
+    "The Databricks catalog does not exist or the service principal cannot see it. "
+    "Check the catalog and grant the service principal access, then run the sync again."
+)
+SCHEMA_DETAIL = (
+    "The Databricks schema does not exist or the service principal cannot see it. "
+    "Check the schema and grant the service principal access, then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, DatabricksConnectionError) and err.retryable is False:
+        return CONNECTION_DETAIL
+    if isinstance(err, DatabricksInsufficientPermissionsError):
+        return PERMISSIONS_DETAIL
+    if isinstance(err, DatabricksCatalogNotFoundError):
+        return CATALOG_DETAIL
+    if isinstance(err, DatabricksSchemaNotFoundError):
+        return SCHEMA_DETAIL
+    if isinstance(err, DatabricksIntegrationNotFoundError):
+        return MISSING_INTEGRATION_DETAIL
+    return None
+
 
 _DATABRICKS_BY_ARROW = {
     pa.bool_(): "BOOLEAN",
@@ -202,11 +243,24 @@ class DatabricksDestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
     async def _make_client(self) -> DatabricksClient:
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        creds = await _load_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            creds = await _load_integration(self._ctx.integration_id, self._ctx.team_id)
+        except DatabricksIntegrationNotFoundError as err:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from err
 
         return DatabricksClient(
             server_hostname=creds.server_hostname,
@@ -316,6 +370,12 @@ class DatabricksDestinationWriter:
         return None
 
     async def write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await self._write_batch(batches, ctx)
+
+    async def _write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
         run = ctx.run
@@ -468,6 +528,10 @@ class DatabricksDestinationWriter:
         return batch.num_rows
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._finalize_run(ctx)
+
+    async def _finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
         if not ctx.is_full_refresh:
             return
@@ -516,6 +580,10 @@ class DatabricksDestinationWriter:
                 )
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._abort_run(ctx)
+
+    async def _abort_run(self, ctx: DestinationRunContext) -> None:
         # The next run stages under its own id, so a leftover table costs storage only.
         _assert_safe_identifier(ctx.table_name, "table name")
         client = await self._make_client()

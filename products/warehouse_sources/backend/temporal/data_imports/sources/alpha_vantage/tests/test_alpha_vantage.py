@@ -30,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vant
     _parse_time_series,
     _request_params,
     alpha_vantage_source,
-    get_rows,
     parse_symbols,
     validate_credentials,
     validate_symbols,
@@ -38,8 +37,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vant
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.settings import (
     ALPHA_VANTAGE_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.source import AlphaVantageSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alphavantage import (
+    AlphaVantageSourceConfig,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage"
+
+
+def _driver(symbols: str = "IBM", api_key: str = "KEY") -> SourceDriver:
+    return SourceDriver(AlphaVantageSource(), AlphaVantageSourceConfig(api_key=api_key, symbols=symbols))
 
 
 def _response(*, body: Any = None, status: int = 200, ok: bool = True) -> MagicMock:
@@ -311,19 +324,20 @@ class TestAlphaVantage:
 
     def test_get_rows_skips_symbol_on_error_message(self) -> None:
         # An unknown ticker returns an HTTP 200 "Error Message" scoped to that symbol; the rest sync.
-        responses = [
-            _response(body={"Error Message": "Invalid API call"}),
-            _response(body={"Global Quote": {"01. symbol": "AAPL", "05. price": "2"}}),
-        ]
-        with patch(f"{MODULE}.make_tracked_session", return_value=_session_returning(responses)):
-            rows = _collect_rows(get_rows("KEY", ["BADSYM", "AAPL"], "global_quote", MagicMock()))
-        assert [r["symbol"] for r in rows] == ["AAPL"]
+        result = _driver("BADSYM, AAPL").run(
+            "global_quote",
+            [
+                ScriptedResponse(json={"Error Message": "Invalid API call"}),
+                ScriptedResponse(json={"Global Quote": {"01. symbol": "AAPL", "05. price": "2"}}),
+            ],
+        )
+        assert result.raised is None
+        assert result.params("symbol") == ["BADSYM", "AAPL"]
+        assert [row["symbol"] for row in result.rows] == ["AAPL"]
 
     def test_get_rows_propagates_permanent_quota_error(self) -> None:
-        responses = [_response(body={"Information": "premium endpoint"})]
-        with patch(f"{MODULE}.make_tracked_session", return_value=_session_returning(responses)):
-            with pytest.raises(AlphaVantageAPIError):
-                _collect_rows(get_rows("KEY", ["IBM"], "global_quote", MagicMock()))
+        result = _driver().run("global_quote", [ScriptedResponse(json={"Information": "premium endpoint"})])
+        assert isinstance(result.raised, AlphaVantageAPIError)
 
     def test_fetch_csv_information_envelope_is_permanent(self) -> None:
         session = _session_returning([_text_response('{"Information": "daily limit reached"}')])
@@ -339,12 +353,14 @@ class TestAlphaVantage:
 
     def test_get_rows_does_not_fan_out_the_listing_over_symbols(self) -> None:
         # LISTING_STATUS covers the whole market, so the request count must not scale with the symbols.
-        responses = [_text_response("symbol,status\nIBM,Active\n"), _text_response("{}")]
-        session = _session_returning(responses)
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            rows = _collect_rows(get_rows("KEY", ["IBM", "AAPL", "MSFT"], "listing_status", MagicMock()))
-        assert session.get.call_count == len(LISTING_STATES)
-        assert rows == [{"symbol": "IBM", "status": "Active"}]
+        result = _driver("IBM, AAPL, MSFT").run(
+            "listing_status",
+            [ScriptedResponse(body=b"symbol,status\nIBM,Active\n"), ScriptedResponse(json={})],
+        )
+        assert result.raised is None
+        assert result.params("state") == list(LISTING_STATES)
+        assert result.params("symbol") == [None] * len(LISTING_STATES)
+        assert result.rows == [{"symbol": "IBM", "status": "Active"}]
 
     def test_parse_news_injects_symbol_and_keeps_the_nested_blocks(self) -> None:
         article = _article("https://news.example.com/a", "20260911T025650")
@@ -521,16 +537,22 @@ class TestAlphaVantage:
         logger.warning.assert_called_once()
 
     def test_get_rows_fans_news_out_over_symbols_with_the_watermark(self) -> None:
-        responses = [
-            _news_response(_article("https://ibm", "20260101T010000")),
-            _news_response(_article("https://aapl", "20260101T020000")),
+        result = _driver("IBM, AAPL").run(
+            "news_sentiment",
+            [
+                ScriptedResponse(json={"items": "1", "feed": [_article("https://ibm", "20260101T010000")]}),
+                ScriptedResponse(json={"items": "1", "feed": [_article("https://aapl", "20260101T020000")]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="20251231T235900",
+        )
+        assert result.raised is None
+        assert [(row["symbol"], row["url"]) for row in result.rows] == [
+            ("IBM", "https://ibm"),
+            ("AAPL", "https://aapl"),
         ]
-        session = _session_returning(responses)
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            rows = _collect_rows(get_rows("KEY", ["IBM", "AAPL"], "news_sentiment", MagicMock(), "20251231T235900"))
-        assert [(row["symbol"], row["url"]) for row in rows] == [("IBM", "https://ibm"), ("AAPL", "https://aapl")]
-        assert [call.kwargs["params"]["tickers"] for call in session.get.call_args_list] == ["IBM", "AAPL"]
-        assert all(call.kwargs["params"]["time_from"] == "20251231T2359" for call in session.get.call_args_list)
+        assert result.params("tickers") == ["IBM", "AAPL"]
+        assert result.params("time_from") == ["20251231T2359", "20251231T2359"]
 
     def test_earnings_calendar_rows_requests_the_widest_horizon_and_chunks(self) -> None:
         header = "symbol,name,reportDate,fiscalDateEnding,estimate,currency,timeOfTheDay\n"
@@ -563,11 +585,13 @@ class TestAlphaVantage:
 
     def test_get_rows_does_not_fan_out_the_earnings_calendar_over_symbols(self) -> None:
         header = "symbol,reportDate,fiscalDateEnding\n"
-        session = _session_returning([_text_response(header + "IBM,2026-10-22,2026-09-30\n")])
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            rows = _collect_rows(get_rows("KEY", ["IBM", "AAPL", "MSFT"], "earnings_calendar", MagicMock()))
-        assert session.get.call_count == 1
-        assert rows == [{"symbol": "IBM", "reportDate": "2026-10-22", "fiscalDateEnding": "2026-09-30"}]
+        result = _driver("IBM, AAPL, MSFT").run(
+            "earnings_calendar", [ScriptedResponse(body=(header + "IBM,2026-10-22,2026-09-30\n").encode())]
+        )
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.requests[0].param("symbol") is None
+        assert result.rows == [{"symbol": "IBM", "reportDate": "2026-10-22", "fiscalDateEnding": "2026-09-30"}]
 
     @parameterized.expand(
         [
@@ -639,7 +663,11 @@ class TestAlphaVantage:
         ]
     )
     def test_validate_credentials(self, _name: str, api_key: str, status: int, body: dict, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(body=body, status=status, ok=status == 200)
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+        response = ScriptedResponse(status=status, json=body)
+        script = always(response) if status >= 500 else [response]
+        with scripted_network(script) as network:
             assert validate_credentials(api_key) is expected
+        if api_key:
+            assert network.requests_log[0].param("apikey") == api_key
+        else:
+            assert network.requests_log == []
