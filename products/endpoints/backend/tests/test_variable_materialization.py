@@ -1497,10 +1497,17 @@ class TestMaterializedQueryExecution(APIBaseTest):
         assert transformed[1].expr.chain == ["date"]
         assert transformed[1].is_aggregate is False
 
-    def test_select_transformation_without_alias(self):
+    @parameterized.expand(
+        [
+            ("aggregate", "SELECT count() FROM events", "count()", True, "sum"),
+            ("qualified_field", "SELECT e.event FROM events AS e", "event", False, None),
+        ]
+    )
+    def test_select_transformation_without_alias(
+        self, _name, query_str, expected_name, expected_is_aggregate, expected_reaggregate_fn
+    ):
         from products.endpoints.backend.materialization_transforms import transform_select_for_materialized_table
 
-        query_str = "SELECT count() FROM events"
         parsed = parse_select(query_str)
 
         assert isinstance(parsed, ast.SelectQuery)
@@ -1509,9 +1516,10 @@ class TestMaterializedQueryExecution(APIBaseTest):
         assert len(transformed) == 1
 
         assert isinstance(transformed[0].expr, ast.Field)
-        assert transformed[0].expr.chain == ["count()"]
-        assert transformed[0].is_aggregate is True
-        assert transformed[0].reaggregate_fn == "sum"
+        assert transformed[0].expr.chain == [expected_name]
+        assert transformed[0].name == expected_name
+        assert transformed[0].is_aggregate is expected_is_aggregate
+        assert transformed[0].reaggregate_fn == expected_reaggregate_fn
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
