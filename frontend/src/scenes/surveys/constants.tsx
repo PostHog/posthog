@@ -56,6 +56,9 @@ export const SURVEY_RATING_SCALE = {
 
 export type SurveyRatingScaleValue = (typeof SURVEY_RATING_SCALE)[keyof typeof SURVEY_RATING_SCALE]
 
+// Leading page sentinel: the confirmation message trails at questions.length, so the intro sits at -1 and question indices never shift.
+export const INTRO_SCREEN_PAGE_INDEX = -1
+
 // Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {
     [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],

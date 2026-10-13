@@ -53,12 +53,19 @@ The first column stays visible while the metrics scroll horizontally.
 The `marketing-analytics-search-conversions` flag controls PostHog conversion goals in Search performance, independently of the precomputation flags.
 When the flag is off or unavailable, the UI hides the goal columns and the backend skips conversion attribution, including requests from older clients.
 Platform-reported conversions remain available, and the main Ad performance conversion goals keep their existing behavior.
-In Landing pages → Conversions, the Ad performance Include conversion goals switch adds the first five supported event or action goals and their cost per conversion.
+In Search performance → Conversions, the Ad performance Include conversion goals switch adds the first five supported event or action goals and their cost per conversion.
 Goals with missing actions are skipped with a warning before the five-goal limit is applied.
 If more goals are configured, a warning directs users to the attribution report for other goals.
 This limits each search request to five attribution queries, or ten with period comparison.
+Search requests calculate credit for the configured model only, without the attribution report’s visitor counts, revenue, or footer totals.
 These conversions use the session attribution engine with the team's attribution model, lookback window, goal filters, and test-account exclusion setting.
-Credit is matched by landing URL and search source after attribution, so other channels retain their share.
+Credit is matched after attribution, so other channels retain their share.
+Landing pages match by landing URL and search source.
+Paid keywords match by the session entry `utm_term` and search source, ignoring case and surrounding whitespace.
+Set `utm_term` to the keyword text in Google Ads or Bing Ads tracking URLs.
+Click IDs identify the paid source but do not provide a keyword lookup.
+Organic query rows do not receive PostHog conversion credit; use Landing pages for organic goals.
+Keywords with multiple match types or currencies leave PostHog metrics empty because the same credit cannot be assigned to individual rows.
 URL query parameters and fragments are combined in this view.
 Opening a combined landing page preserves this URL matching in the organic query details without loading PostHog goals.
 With goals off, landing page details keep exact URL matching.
@@ -66,12 +73,12 @@ Google organic search, paid Google search, and paid Bing search receive separate
 Canonical Google and Bing source names match regardless of capitalization.
 Paid Search sessions can also identify Google through `gclid` and Bing through `msclkid`.
 A click ID alone does not classify a session as search traffic; the session must have the Paid Search channel.
-When `marketing-analytics-live-session-resolution` is enabled, eligible landing-page goals reuse shared live session resolution.
+When `marketing-analytics-live-session-resolution` is enabled, eligible search goals reuse shared live session resolution.
 They do not read session or conversion precomputation tables.
 Organic rows have no cost per conversion, and pages with spend in multiple currencies leave PostHog metrics empty because credit cannot be assigned to individual ad accounts.
-Data warehouse goals are not supported by landing-page attribution.
+Data warehouse goals are not supported by search attribution.
 Turning the switch off removes PostHog goal columns and stops their queries while keeping platform-reported conversions.
-The switch only loads search conversions in the Landing pages Conversions view; keyword detail views do not imply query-level PostHog attribution.
+The switch only loads search conversions in the Conversions view; organic detail views do not imply query-level PostHog attribution.
 For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
 
 ## X Ads
