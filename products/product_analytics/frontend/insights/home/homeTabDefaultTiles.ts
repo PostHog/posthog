@@ -35,6 +35,7 @@ export interface HomeTabStatQuery {
     kind: WebAnalyticsItemKind
     isIncreaseBad?: boolean
     query: TrendsQuery
+    trendQuery?: TrendsQuery
     summary?: 'daily_average'
     description?: string
 }
@@ -136,6 +137,7 @@ function statQuery(
         title,
         kind,
         isIncreaseBad,
+        trendQuery: trendsQuery(series, dateRange, false),
         query: {
             ...trendsQuery(series, dateRange, compare),
             trendsFilter: { display: ChartDisplayType.BoldNumber },

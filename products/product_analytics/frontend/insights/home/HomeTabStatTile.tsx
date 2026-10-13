@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { formatBucketLabel, lastBucketIsInProgress, normalizeBucket } from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -22,7 +24,8 @@ interface HomeTabStatTileProps {
 }
 
 export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabStatTileProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeamId, currentTeam } = useValues(teamLogic)
+    const theme = useChartTheme()
     const key = homeTabStatKey(currentTeamId, stat.key)
     const logic = dataNodeLogic({
         query: stat.query,
@@ -30,6 +33,20 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
         dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
     })
     useAttachedLogic(logic, homeTabDefaultLogic)
+    const trendLogic = dataNodeLogic({
+        query: stat.trendQuery ?? stat.query,
+        key: stat.trendQuery ? homeTabStatKey(currentTeamId, `${stat.key}.trend`) : key,
+        dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
+    })
+    useAttachedLogic(trendLogic, homeTabDefaultLogic)
+    const { response: trendResponse } = useValues(trendLogic)
+    const trend = (trendResponse as TrendsQueryResponse | undefined)?.results?.[0] as TrendResult | undefined
+    const interval = (stat.trendQuery ?? stat.query).interval ?? 'day'
+    const incompleteTail = lastBucketIsInProgress(
+        trend?.days.map(normalizeBucket) ?? [],
+        currentTeam?.timezone ?? 'UTC',
+        interval
+    )
     const { response, responseError, responseLoading } = useValues(logic)
     const loading = responseLoading || (!response && !responseError)
 
@@ -70,10 +87,18 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             dataAttr={`home-tab-metric-${stat.key}`}
             value={value ?? undefined}
             showChange={compare}
-            change={changeFromPreviousPct ? { value: changeFromPreviousPct } : null}
+            change={changeFromPreviousPct != null ? { value: changeFromPreviousPct } : null}
+            hoverChangeFromPreviousPoint
+            data={trend?.data}
+            labels={trend?.days}
+            theme={theme}
+            sparklineHeight={50}
+            sparklineClassName="mt-3"
+            sparklineDashedFromIndex={incompleteTail ? (trend?.data.length ?? 0) - 1 : undefined}
+            formatLabel={(bucket) => formatBucketLabel(bucket, interval)}
             goodDirection="up"
             formatValue={(statValue) => formatItem(statValue, stat.kind)}
-            subtitle={<span translate="no">{subtitle}</span>}
+            restingSubtitle={<span translate="no">{subtitle}</span>}
         />
     )
 }

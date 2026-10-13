@@ -99,6 +99,14 @@ describe('homeTabDefaultTiles', () => {
         for (const stat of stats) {
             expect(stat.query.dateRange).toEqual(dateRange)
             expect(stat.query.compareFilter?.compare).toBe(false)
+            if (stat.trendQuery) {
+                expect(stat.query.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+                expect(stat.trendQuery.dateRange).toEqual(dateRange)
+                expect(stat.trendQuery.interval).toBe(stat.query.interval)
+                expect(stat.trendQuery.series).toEqual(stat.query.series)
+                expect(stat.trendQuery.compareFilter?.compare).toBe(false)
+                expect(stat.trendQuery.trendsFilter?.display).not.toBe(ChartDisplayType.BoldNumber)
+            }
         }
 
         for (const chart of charts) {

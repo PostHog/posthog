@@ -49,7 +49,10 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
         homeTabLoadTimeLogic({
             teamId: currentTeamId,
             tileIds: [
-                ...getHomeTabStatQueries(dateRange, compare).map((stat) => homeTabStatKey(currentTeamId, stat.key)),
+                ...getHomeTabStatQueries(dateRange, compare).flatMap((stat) => [
+                    homeTabStatKey(currentTeamId, stat.key),
+                    ...(stat.trendQuery ? [homeTabStatKey(currentTeamId, `${stat.key}.trend`)] : []),
+                ]),
                 ...[primaryChart, contentChart, eventsChart, ...audienceCharts, retentionChart].map((chart) =>
                     insightVizDataNodeKey({ dashboardItemId: homeTabChartInsightId(currentTeamId, chart.key) })
                 ),
