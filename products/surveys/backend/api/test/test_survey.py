@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.constants import AvailableFeature
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -38,9 +38,12 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
+    SURVEY_APPEARANCE_HTML_FIELDS,
+    SurveyAppearanceSchemaSerializer,
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
+    normalize_survey_appearance,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
@@ -556,7 +559,10 @@ class TestSurvey(APIBaseTest):
             ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
             translations={
-                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+                "es": {
+                    "thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">',
+                    "introScreenDescription": '<strong>Bienvenido</strong><img src="invalid" onerror="void 0">',
+                }
             },
         )
 
@@ -568,6 +574,7 @@ class TestSurvey(APIBaseTest):
         assert "link" not in serialized_survey["questions"][0]
         assert "<strong>Detalles</strong>" in serialized_survey["questions"][0]["translations"]["es"]["description"]
         assert "<strong>Gracias</strong>" in serialized_survey["translations"]["es"]["thankYouMessageDescription"]
+        assert "<strong>Bienvenido</strong>" in serialized_survey["translations"]["es"]["introScreenDescription"]
         assert "onerror" not in json.dumps(serialized_survey)
 
     def test_detail_payload_sanitizes_stored_survey_html(self) -> None:
@@ -586,7 +593,10 @@ class TestSurvey(APIBaseTest):
             ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
             translations={
-                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+                "es": {
+                    "thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">',
+                    "introScreenDescription": '<strong>Bienvenido</strong><img src="invalid" onerror="void 0">',
+                }
             },
         )
 
@@ -596,6 +606,7 @@ class TestSurvey(APIBaseTest):
         assert "<strong>Welcome</strong>" in response.json()["appearance"]["introScreenDescription"]
         assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
         assert "<strong>Gracias</strong>" in response.json()["translations"]["es"]["thankYouMessageDescription"]
+        assert "<strong>Bienvenido</strong>" in response.json()["translations"]["es"]["introScreenDescription"]
         assert "onerror" not in json.dumps(response.json())
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
@@ -660,6 +671,17 @@ class TestSurvey(APIBaseTest):
         assert "en-us" in result
         assert "default" not in result
         assert "en" not in result
+
+    def test_sdk_payload_keeps_intro_screen_translation_fields(self) -> None:
+        intro_fields = {
+            "introScreenHeader": "Bienvenido",
+            "introScreenDescription": "Dos preguntas rápidas",
+            "introScreenButtonText": "Comenzar",
+        }
+
+        result = get_survey_api_translations({"es": {**intro_fields, "unknownField": "dropped"}}, base_language="en")
+
+        assert result == {"es": intro_fields}
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
@@ -910,6 +932,25 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in survey.translations["es"]["thankYouMessageDescription"]
         assert "<strong>Cerrar</strong>" in survey.translations["es"]["thankYouMessageCloseButtonText"]
         assert "<script>" not in survey.translations["es"]["thankYouMessageCloseButtonText"]
+
+    @parameterized.expand([("introScreenHeader",), ("introScreenDescription",), ("introScreenButtonText",)])
+    def test_intro_screen_translations_are_persisted_and_sanitized(self, field: str):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Question?"}],
+                "translations": {"es": {field: "<em>Bienvenido</em><script>xss()</script>"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.translations is not None
+        assert "<em>Bienvenido</em>" in survey.translations["es"][field]
+        assert "<script>" not in survey.translations["es"][field]
 
     def test_inline_question_translations_sanitize_all_fields(self):
         response = self.client.post(
@@ -4396,6 +4437,31 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
         assert "onerror" not in response.json()["questions"][0]["description"]
 
+    @parameterized.expand(
+        [
+            ("read", "get", {}),
+            ("update", "patch", {"data": {"name": "Renamed survey"}, "format": "json"}),
+        ]
+    )
+    def test_the_api_replaces_the_legacy_appearance_position(
+        self, _name: str, method: str, request_kwargs: dict[str, Any]
+    ) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey saved with the old default position",
+            type="popover",
+            questions=[],
+            appearance={"position": "bottom-right"},
+        )
+
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/surveys/{survey.id}/", **request_kwargs)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        appearance = response.json()["appearance"]
+        assert appearance["position"] == "right"
+        assert SurveyAppearanceSchemaSerializer(data=appearance).is_valid()
+
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
     def setUp(self):
@@ -4598,24 +4664,21 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "text"
 
-    def test_validate_thank_you_description_content_type(self):
+    @parameterized.expand([("thankYouMessageDescriptionContentType",), ("introScreenDescriptionContentType",)])
+    def test_validate_description_content_type(self, content_type_field: str):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": "Notebooks beta release survey",
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
-                "appearance": {
-                    "thankYouMessageHeader": "Thanks for your feedback!",
-                    "thankYouMessageDescription": "This is a thank you message",
-                    "thankYouMessageDescriptionContentType": "text/html",
-                },
+                "appearance": {content_type_field: "text/html"},
             },
             format="json",
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert response_data["detail"] == "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
+        assert response_data["detail"] == f"{content_type_field} must be one of ['text', 'html']"
 
     def test_create_survey_with_survey_popup_delay(self):
         response = self.client.post(
@@ -4997,6 +5060,26 @@ class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
         assert set(value.keys()) <= {"id", "name", "steps"}, value
         assert "created_by" not in value
         assert value["name"] == "person subscribed"
+
+
+class TestSurveyAppearanceSchema(SimpleTestCase):
+    def test_documented_schema_keeps_every_supported_appearance_key(self) -> None:
+        appearance = {
+            **DEFAULT_SURVEY_APPEARANCE,
+            **{field: f"{field} text" for field in SURVEY_APPEARANCE_HTML_FIELDS},
+            "inputTextColor": "black",
+        }
+        serializer = SurveyAppearanceSchemaSerializer(data=appearance)
+
+        assert serializer.is_valid(), serializer.errors
+        assert set(serializer.validated_data) == set(appearance)
+
+    def test_legacy_position_becomes_a_documented_position(self) -> None:
+        normalized = normalize_survey_appearance({**DEFAULT_SURVEY_APPEARANCE, "position": "bottom-right"})
+        serializer = SurveyAppearanceSchemaSerializer(data=normalized)
+
+        assert normalized["position"] == "right"
+        assert serializer.is_valid(), serializer.errors
 
 
 @time_machine.travel("2024-12-12 00:00:00", tick=False)
