@@ -57,10 +57,11 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAut
 
 Either way, the connection needs **full access** so the following resources can be read:
 - Audiences
-- Broadcasts
+- Broadcasts and their clicked links
 - Contacts
 - Domains
-- Emails
+- Emails and email metrics
+- Suppressions
 """,
             iconPath="/static/services/resend.png",
             docsUrl="https://posthog.com/docs/cdp/sources/resend",

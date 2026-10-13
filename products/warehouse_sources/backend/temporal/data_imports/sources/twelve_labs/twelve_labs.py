@@ -9,12 +9,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    make_parent_key_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     AuthConfig,
+    Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -30,11 +35,37 @@ TWELVE_LABS_BASE_URL = "https://api.twelvelabs.io/v1.3"
 # Max page size the API allows; larger values are rejected.
 PAGE_LIMIT = 50
 
-# The internal parent resource that drives the videos fan-out. include_from_parent lands the parent
-# index id under `_{name}__id` (the `_id` field starts with an underscore), which the child data_map
-# renames to the composite `index_id` primary-key column.
-_INDEXES_PARENT_NAME = "indexes_list"
-_PARENT_INDEX_ID_KEY = f"_{_INDEXES_PARENT_NAME}__id"
+
+@dataclasses.dataclass(frozen=True)
+class _FanOutParent:
+    # Internal resource name. include_from_parent lands each parent field under
+    # `_{resource_name}_{field}`, which the child data_map renames to the column in `include`.
+    resource_name: str
+    path: str
+    params: dict[str, Any]
+    resolve_param: str
+    # Parent field -> child column.
+    include: dict[str, str]
+
+
+_FAN_OUT_PARENTS: dict[str, _FanOutParent] = {
+    "indexes": _FanOutParent(
+        resource_name="indexes_list",
+        path="/indexes",
+        params={"page_limit": PAGE_LIMIT},
+        resolve_param="index_id",
+        include={"_id": "index_id"},
+    ),
+    # Only video and audio assets can carry a transcription, so images and documents are filtered
+    # out server-side instead of paying a 404 per asset.
+    "assets": _FanOutParent(
+        resource_name="assets_list",
+        path="/assets",
+        params={"page_limit": PAGE_LIMIT, "asset_types": ["video", "audio"]},
+        resolve_param="asset_id",
+        include={"_id": "asset_id", "created_at": "asset_created_at"},
+    ),
+}
 
 # Twelve Labs list endpoints paginate with page/page_limit and report the page count as
 # page_info.total_page, so termination stops after the last page instead of paying an extra request.
@@ -192,46 +223,56 @@ def _top_level_resource(
 
 def _fan_out_resource(
     config: TwelveLabsEndpointConfig,
+    parent: _FanOutParent,
     api_key: str,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[TwelveLabsResumeConfig],
 ) -> Resource:
-    """Fan out over every index, yielding that index's videos with the parent ``index_id`` injected.
+    """Fan out over every parent index or asset, injecting the parent id into each child row.
 
-    The [index_id, _id] primary key keeps rows unique table-wide, so videos from different indexes
-    never collide and merge dedupes cleanly.
+    The parent id is part of the primary key, so rows from different parents never collide and
+    merge dedupes cleanly.
     """
-    child_params = _build_params(config, False, None, None)
 
-    def _inject_index_id(row: dict[str, Any]) -> dict[str, Any]:
-        # include_from_parent lands the parent index id under the mangled key; expose it under the
-        # plain `index_id` column exactly as the hand-rolled source produced (`{**row, "index_id": ...}`).
-        row["index_id"] = row.pop(_PARENT_INDEX_ID_KEY)
+    def _inject_parent_fields(row: dict[str, Any]) -> dict[str, Any]:
+        for parent_field, column in parent.include.items():
+            row[column] = row.pop(make_parent_key_name(parent.resource_name, parent_field))
         return row
 
     parent_resource: EndpointResource = {
-        "name": _INDEXES_PARENT_NAME,
+        "name": parent.resource_name,
         "endpoint": {
-            "path": "/indexes",
-            "params": {"page_limit": PAGE_LIMIT},
+            "path": parent.path,
+            "params": parent.params,
             "paginator": _paginator(),
             "data_selector": "data",
         },
     }
-    child_resource: EndpointResource = {
-        "name": config.name,
-        "include_from_parent": ["_id"],
-        "data_map": _inject_index_id,
-        "endpoint": {
+    resolve_params: dict[str, Any] = {
+        parent.resolve_param: {"type": "resolve", "resource": parent.resource_name, "field": "_id"}
+    }
+    child_endpoint: Endpoint
+    if config.single_object:
+        child_endpoint = {
             "path": config.path,
-            "params": {
-                "index_id": {"type": "resolve", "resource": _INDEXES_PARENT_NAME, "field": "_id"},
-                **child_params,
-            },
+            "params": {**resolve_params, **config.params},
+            "paginator": SinglePagePaginator(),
+            # A parent with no child object (e.g. an asset without a transcription) returns 404.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        }
+    else:
+        child_endpoint = {
+            "path": config.path,
+            "params": {**resolve_params, **_build_params(config, False, None, None), **config.params},
             "paginator": _paginator(),
             "data_selector": "data",
-        },
+        }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "include_from_parent": list(parent.include),
+        "data_map": _inject_parent_fields,
+        "endpoint": child_endpoint,
     }
 
     rest_config: RESTAPIConfig = {
@@ -279,8 +320,10 @@ def twelve_labs_source(
 ) -> SourceResponse:
     config = TWELVE_LABS_ENDPOINTS[endpoint]
 
-    if config.fan_out_over_indexes:
-        resource = _fan_out_resource(config, api_key, team_id, job_id, resumable_source_manager)
+    if config.fan_out_over:
+        resource = _fan_out_resource(
+            config, _FAN_OUT_PARENTS[config.fan_out_over], api_key, team_id, job_id, resumable_source_manager
+        )
     else:
         resource = _top_level_resource(
             config,

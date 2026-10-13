@@ -24,7 +24,6 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
-    "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
@@ -34,8 +33,6 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "ee.api.subscription.SubscriptionDeliveryViewSet",
     "ee.api.subscription.SubscriptionViewSet",
     "ee.clickhouse.views.experiment_saved_metrics.ExperimentSavedMetricViewSet",
-    "ee.clickhouse.views.groups.GroupsTypesViewSet",
-    "ee.clickhouse.views.groups.GroupsViewSet",
     "ee.clickhouse.views.person.EnterprisePersonViewSet",
     "ee.clickhouse.views.person.LegacyEnterprisePersonViewSet",
     "posthog.api.advanced_activity_logs.viewset.ActivityLogViewSet",
@@ -176,6 +173,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.feature_flags.backend.api.staff_teams.FeatureFlagsStaffTeamSearchViewSet",
     "products.feature_flags.backend.presentation.request_usage.FeatureFlagRequestUsageViewSet",
     "products.field_notes.backend.api.FieldNoteViewSet",
+    "products.groups.backend.presentation.views.GroupsTypesViewSet",
+    "products.groups.backend.presentation.views.GroupsViewSet",
     "products.growth.backend.api.identity_matching.IdentityMatchingLinkViewSet",
     "products.legal_documents.backend.presentation.views.LegalDocumentViewSet",
     "products.logs.backend.presentation.views.alerts_api.LogsAlertViewSet",
@@ -192,6 +191,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.mcp_store.backend.presentation.gateway_views.MCPGatewayMemberViewSet",
     "products.mcp_store.backend.presentation.views.MCPOAuthRedirectViewSet",
     "products.mcp_store.backend.presentation.views.MCPServerViewSet",
+    # Lists at most 20 imports from the last 7 days, so it has no pages.
+    "products.metrics.backend.presentation.dashboard_import_api.MetricsDashboardImportViewSet",
     "products.notebooks.backend.presentation.views.notebook.NotebookViewSet",
     "products.notebooks.backend.presentation.views.reusable_widget.ReusableWidgetViewSet",
     "products.notifications.backend.presentation.views.NotificationsViewSet",
@@ -228,6 +229,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.stamphog.backend.presentation.views.PullRequestViewSet",
     "products.stamphog.backend.presentation.views.ReviewRunViewSet",
     "products.stamphog.backend.presentation.views.StamphogRepoConfigViewSet",
+    "products.messaging.backend.presentation.views.message_templates.MessageTemplatesViewSet",
     "products.streamlit_apps.backend.presentation.views.StreamlitAppViewSet",
     "products.surveys.backend.api.survey.SurveyViewSet",
     "products.tasks.backend.presentation.views.api.SandboxCustomImageViewSet",
@@ -267,6 +269,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.HogFlowTemplateViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
+    "products.messaging.backend.presentation.views.message_categories.MessageCategoryViewSet",
 }
 
 

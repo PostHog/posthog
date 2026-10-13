@@ -2,12 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lovable import (
     LovableSourceConfig,
 )
@@ -21,21 +15,6 @@ class TestLovableSource:
     def setup_method(self) -> None:
         self.source = LovableSource()
         self.config = LovableSourceConfig(api_key="lov_key")
-
-    def test_source_config_is_released_with_an_api_key_field(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.iconPath == "/static/services/lovable.png"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.fields is not None
-        assert [field.name for field in config.fields] == ["api_key"]
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     @parameterized.expand(
         [

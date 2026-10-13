@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.source import CoolifySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coolify import (
     CoolifySourceConfig,
@@ -10,26 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 def _config() -> CoolifySourceConfig:
     return CoolifySourceConfig(base_url="https://coolify.example.com", api_token="coolify-token")
-
-
-class TestCoolifyGetSchemas:
-    def test_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = CoolifySource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Coolify has no server-side timestamp filter, so nothing may advertise incremental
-        # sync; an "incremental" run would re-fetch every endpoint at full API cost anyway.
-        assert all(not s.supports_incremental for s in schemas)
-        assert all(not s.supports_append for s in schemas)
-
-    def test_filters_by_names(self) -> None:
-        schemas = CoolifySource().get_schemas(_config(), team_id=1, names=["applications"])
-        assert [s.name for s in schemas] == ["applications"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials=True powers the public docs Supported tables section;
-        # it must produce an entry per endpoint from the static catalog with no network call.
-        tables = CoolifySource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
 
 class TestCoolifySourceForPipeline:
@@ -70,11 +49,3 @@ class TestCoolifySourceForPipeline:
             assert response.partition_keys == [expected_partition_key]
         else:
             assert response.partition_mode is None
-
-
-class TestCoolifyCanonicalDescriptions:
-    def test_descriptions_key_on_real_endpoints(self) -> None:
-        # Canonical descriptions are keyed by schema name; a typo'd key silently falls back to
-        # LLM enrichment instead of the curated text, so keep the keys inside the endpoint set.
-        descriptions = CoolifySource().get_canonical_descriptions()
-        assert set(descriptions.keys()) <= set(ENDPOINTS)

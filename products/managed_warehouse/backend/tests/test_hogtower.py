@@ -147,11 +147,29 @@ class TestTransport:
 
         assert (out.status_code, out.json()) == (502, {"error": "<html>bad gateway</html>"})
 
-    def test_unmapped_route_fails_without_calling_hogtower(self, fake: FakeHogtower) -> None:
-        out = _mapped("PATCH", "/teams")
+    @pytest.mark.parametrize(
+        "method,path,shown",
+        [
+            ("PATCH", "/teams", "PATCH /teams"),
+            ("GET", "/service-grants", "GET /service-grants"),
+            ("POST", "/service-grants/svc_x", "POST /service-grants/svc_x"),
+            ("PUT", "", "PUT /"),
+            ("POST", "warehouses", "POST warehouses"),
+        ],
+    )
+    def test_unmapped_route_is_501_without_calling_hogtower(
+        self, fake: FakeHogtower, method: str, path: str, shown: str
+    ) -> None:
+        with patch("products.managed_warehouse.backend.presentation.hogtower.logger") as logger:
+            out = _mapped(method, path, json_body={"credential_secret": _FAKE_SECRET})
 
-        assert out.status_code == 500
+        assert (out.status_code, out.json()) == (
+            501,
+            {"error": f"not supported by the hogtower control plane: {shown}"},
+        )
         assert fake.calls == []
+        logger.warning.assert_called_once_with("hogtower_adapter_unmapped_route", method=method, path=path or "/")
+        assert _FAKE_SECRET not in str(logger.mock_calls)
 
     def test_is_configured_follows_the_setting(self) -> None:
         with override_settings(HOGTOWER_API_URL=None):
@@ -430,6 +448,20 @@ class TestServiceCredentials:
         assert credential.credential_secret == _FAKE_SECRET
         assert fake.calls[0]["json"] == {"ttl_seconds": 900, "rotate_secret": False}
 
+    @_routes({("DELETE", f"{W}/service-credentials/{_CID}"): (200, {"revoked": _CID})})
+    def test_revoke_maps_the_v1_service_grant_delete(self, fake: FakeHogtower) -> None:
+        out = _mapped("DELETE", f"/service-grants/{_CID}")
+
+        assert (out.status_code, out.json()) == (200, {"revoked": _CID})
+        assert fake.paths == [("DELETE", f"{W}/service-credentials/{_CID}")]
+        assert fake.calls[0]["json"] is None
+
+    def test_revoke_unknown_credential_passes_the_error_through(self, fake: FakeHogtower) -> None:
+        out = _mapped("DELETE", "/service-grants/svc_gone")
+
+        assert (out.status_code, out.json()) == (404, {"error": "not found"})
+        assert fake.paths == [("DELETE", f"{W}/service-credentials/svc_gone")]
+
 
 @patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
 class TestViewsUseHogtower:
@@ -452,6 +484,15 @@ class TestViewsUseHogtower:
             resp = managed_warehouse.list_teams(ORG)
 
         assert (resp.status_code, resp.data) == (504, {"error": "Provisioning service timed out"})
+
+    def test_unmapped_route_is_a_501_response(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse._request("GET", ORG, "/service-grants")
+
+        assert (resp.status_code, resp.data) == (
+            501,
+            {"error": "not supported by the hogtower control plane: GET /service-grants"},
+        )
+        assert fake.calls == []
 
     @_routes({("GET", "/database-names/acme"): (200, {"name": "acme", "available": False, "reason": ""})})
     def test_check_name(self, _enabled: MagicMock, fake: FakeHogtower) -> None:

@@ -27,6 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -92,13 +93,14 @@ import {
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
-import { consumeScannerHandoffIntent } from './scannerHandoffIntent'
+import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     ExperimentScannerConfig,
     MAX_CREDIT_LIMIT,
+    OBSERVATION_CREDITS_BY_MODEL,
     OBSERVATION_LIST_URL_PARAM_KEYS,
     SamplingMode,
     ScannerConfig,
@@ -411,11 +413,25 @@ export function buildObservationListParams(
 // doesn't bind on ordinary month-to-month variance.
 const CREDIT_LIMIT_SEED_HEADROOM = 2
 
+export type CreditLimitUnit = 'credits' | 'observations'
+
+// Admission needs the full price of a scan, so a remainder under one price admits nothing.
+export function creditsToObservations(credits: number, creditsPerObservation: number): number {
+    return Math.floor(credits / creditsPerObservation)
+}
+
+export function observationsToCredits(observations: number, creditsPerObservation: number): number {
+    return Math.min(observations * creditsPerObservation, MAX_CREDIT_LIMIT)
+}
+
 export interface CreditLimitState {
     /** The limit in credits, or null when the field is empty or the limit is off. */
     limit: number | null
+    unit: CreditLimitUnit
+    observationLimit: number | null
     isOn: boolean
     estimatedMonthly: number | null
+    estimatedMonthlyObservations: number | null
     creditsPerObservation: number | null
     isBelowEstimate: boolean
     cannotAffordOneScan: boolean
@@ -435,6 +451,7 @@ export interface replayScannerLogicValues {
     copyingAllObservations: boolean
     creationMethod: ScannerCreationMethodEnumApi
     creditLimitState: CreditLimitState
+    creditLimitUnit: CreditLimitUnit
     durationValidationError: string | null
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
@@ -697,6 +714,9 @@ export interface replayScannerLogicActions {
             windowDays: number
         }
     }
+    scannerDashboardLinked: (dashboardId: number) => {
+        dashboardId: number
+    }
     scannerSaved: (scanner: ScannerFormValues) => {
         scanner: ScannerFormValues
     }
@@ -709,6 +729,9 @@ export interface replayScannerLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setCreditLimitUnit: (unit: CreditLimitUnit) => {
+        unit: CreditLimitUnit
     }
     setExperimentContext: (context: ExperimentScannerContext | null) => {
         context: ExperimentScannerContext | null
@@ -892,7 +915,12 @@ export interface replayScannerLogicMeta {
         availableTags: (observationStatsApi: ObservationStatsApi | null) => string[]
         observationStats: (observationStatsApi: ObservationStatsApi | null) => ObservationStatusStats
         sidePanelContext: (scanner: ScannerFormValues, isNew: boolean) => SidePanelSceneContext | null
-        creditLimitState: (scanner: ScannerFormValues, scannerEstimate: EstimateResponseApi | null) => CreditLimitState
+        creditLimitState: (
+            scanner: ScannerFormValues,
+            scannerEstimate: EstimateResponseApi | null,
+            scannerEstimateLoading: boolean,
+            creditLimitUnit: CreditLimitUnit
+        ) => CreditLimitState
     }
 }
 
@@ -910,6 +938,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     actions({
         setObservationsActive: (active: boolean) => ({ active }),
+        setCreditLimitUnit: (unit: CreditLimitUnit) => ({ unit }),
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
         loadScannerFailure: true,
@@ -956,6 +985,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         toggleEnabledFailure: true,
         turnOnSelfDriving: true,
         turnOnSelfDrivingSuccess: (scannerVersion: number, updatedAt: string) => ({ scannerVersion, updatedAt }),
+        scannerDashboardLinked: (dashboardId: number) => ({ dashboardId }),
         turnOnSelfDrivingFailure: true,
         setObservationStatusFilter: (values: ObservationStatusValue[]) => ({ values }),
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
@@ -1046,13 +1076,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     credit_limit:
                         creditLimitEnabled && scanner.credit_limit == null
                             ? // The toggle is on with an empty field. Block the save rather than silently saving as unlimited.
-                              'Enter a credit limit, or turn the limit off'
+                              'Enter a limit, or turn the limit off'
                             : scanner.credit_limit == null ||
                                 (Number.isInteger(scanner.credit_limit) &&
                                     scanner.credit_limit >= 1 &&
                                     scanner.credit_limit <= MAX_CREDIT_LIMIT)
                               ? undefined
-                              : `Credit limit must be a whole number between 1 and ${MAX_CREDIT_LIMIT.toLocaleString()}`,
+                              : `The limit must be a whole number of credits between 1 and ${MAX_CREDIT_LIMIT.toLocaleString()}`,
                     scanner_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
                 }
             },
@@ -1091,7 +1121,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             scannerToApiBody({ ...body, creation_method: values.creationMethod })
                         )
                         actions.scannerSaved(scanner)
-                        router.actions.replace(urls.replayVision(response.id))
+                        leaveScannerEditor(props.id, urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
                         // pending panel and the button hands off to the instant on-demand tab.
                         lemonToast.success('Scanner created. First scan in progress.', {
@@ -1105,7 +1135,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
-                        router.actions.push(urls.replayVision(props.id))
+                        leaveScannerEditor(props.id, urls.replayVision(props.id))
                     }
                 } catch (error: any) {
                     // A duplicate name is the one field error the details step can fix, so route back to it.
@@ -1212,6 +1242,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     reducers({
         observationsActive: [false, { setObservationsActive: (_, { active }) => active }],
+        // UI-only: the API stores every limit in credits, so a reopened scanner shows credits again.
+        creditLimitUnit: [
+            'credits' as CreditLimitUnit,
+            {
+                setCreditLimitUnit: (_, { unit }) => unit,
+                startFromTemplate: () => 'credits',
+                discardScannerDraft: () => 'credits',
+            },
+        ],
         scannerDraftSavedAt: [
             null as number | null,
             {
@@ -1269,6 +1308,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             // Only the sweep watermark lands, so a background refresh can't clobber unsaved form edits.
             scannerWatermarkRefreshed: (state: ReplayScanner, { scanner }: { scanner: ReplayScanner }) =>
                 state ? { ...state, last_swept_at: scanner.last_swept_at } : scanner,
+            scannerDashboardLinked: (state: ReplayScanner, { dashboardId }: { dashboardId: number }) =>
+                state ? { ...state, dashboard_id: dashboardId, dashboard_suggested: false } : state,
         },
         experimentContext: [
             null as ExperimentScannerContext | null,
@@ -1290,6 +1331,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     state
                         ? { ...state, emits_signals: true, scanner_version: scannerVersion, updated_at: updatedAt }
                         : state,
+                // Mirrors the `scanner` patch so linking a dashboard never leaves the form looking edited.
+                scannerDashboardLinked: (state, { dashboardId }) =>
+                    state ? { ...state, dashboard_id: dashboardId, dashboard_suggested: false } : state,
             },
         ],
         togglingEnabled: [
@@ -1717,15 +1761,30 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // derive it from having a limit set. Decoding it here keeps the form validator and the editor
         // card from drifting apart on what "on but empty" means.
         creditLimitState: [
-            (s) => [s.scanner, s.scannerEstimate],
-            (scanner: ScannerFormValues | null, estimate: EstimateResponseApi | null): CreditLimitState => {
+            (s) => [s.scanner, s.scannerEstimate, s.scannerEstimateLoading, s.creditLimitUnit],
+            (
+                scanner: ScannerFormValues | null,
+                estimate: EstimateResponseApi | null,
+                estimateLoading: boolean,
+                unit: CreditLimitUnit
+            ): CreditLimitState => {
                 const limit = typeof scanner?.credit_limit === 'number' ? scanner.credit_limit : null
                 const estimatedMonthly = estimate?.estimated_credits_per_month ?? null
-                const creditsPerObservation = estimate?.credits_per_observation ?? null
+                // A reloading estimate still prices the previous model, so the model table stands in until it lands.
+                const creditsPerObservation =
+                    (estimateLoading ? undefined : estimate?.credits_per_observation) ??
+                    (scanner ? OBSERVATION_CREDITS_BY_MODEL[scanner.model] : undefined) ??
+                    null
                 return {
                     limit,
+                    unit: creditsPerObservation ? unit : 'credits',
+                    observationLimit:
+                        limit !== null && creditsPerObservation
+                            ? creditsToObservations(limit, creditsPerObservation)
+                            : null,
                     isOn: scanner?.credit_limit_enabled ?? limit !== null,
                     estimatedMonthly,
+                    estimatedMonthlyObservations: estimate?.estimated_observations_per_month ?? null,
                     creditsPerObservation,
                     isBelowEstimate: limit !== null && estimatedMonthly !== null && limit < estimatedMonthly,
                     // A cap under one scan's cost never admits a single scan, so the scanner is stopped from
@@ -1735,7 +1794,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // No estimate yet, or a zero one: null leaves the field empty rather than inventing a number.
                     seedValue:
                         estimatedMonthly !== null && estimatedMonthly > 0
-                            ? Math.max(1, Math.round(estimatedMonthly * CREDIT_LIMIT_SEED_HEADROOM))
+                            ? // A seed under one scan's price would stop the scanner before its first scan.
+                              Math.max(
+                                  creditsPerObservation ?? 1,
+                                  Math.round(estimatedMonthly * CREDIT_LIMIT_SEED_HEADROOM)
+                              )
                             : null,
                 }
             },
@@ -1839,6 +1902,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // not stay armed for the rest of the tab session and prefill a later,
                     // unrelated wizard visit.
                     const handoff = consumeScannerHandoffIntent()
+                    const armedGoal = consumeScannerGoalDraftIntent()
                     // Prefill precedence: a cross-product hand-off (a whole scanner, armed by an
                     // in-tab click moments before navigation), then an experiment deep link, then
                     // an explicit ?filters= query (both carry fully built state), then a saved
@@ -1955,6 +2019,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // spend the user's AI allowance nor overwrite saved work without an explicit click.
                     if (goalParam && !hasFiltersPrefill) {
                         actions.setGoalDraftInput(goalParam)
+                    }
+                    const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
+                    if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
+                        actions.setGoalDraftInput(armedGoal)
+                        actions.draftScannerFromGoal(armedGoal, values.goalBudgetInput ?? undefined)
                     }
                     return
                 }
@@ -2192,9 +2261,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             draftScannerFromGoalFailure: ({ errorObject }) => {
                 lemonToast.error(errorObject?.detail ?? "Couldn't draft a scanner. Try again in a moment.")
                 // The goal flow moved to the overview skeleton on request; with no draft to show,
-                // send the user back to the questions to try again.
+                // send the user back to the questions, dropping the empty overview from history when it was pushed.
                 if (router.values.location.pathname.endsWith(urls.replayVisionScannerOverview('new'))) {
-                    router.actions.push(urls.replayVisionScannerTemplate('new'))
+                    if (router.values.lastMethod === 'PUSH') {
+                        window.history.back()
+                    } else {
+                        router.actions.replace(urls.replayVisionScannerTemplate('new'))
+                    }
                 }
             },
 
@@ -2678,6 +2751,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scannerId: props.id,
                 currentPathname: router.values.location.pathname,
                 nextPathname: newLocation?.pathname,
+                browserPathname: window.location.pathname,
             }),
         message: 'Leave scanner editor?\nChanges you made will be discarded.',
         onConfirm: () => {
@@ -2721,14 +2795,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 ])
 
+export function leaveScannerEditor(scannerId: string, destination: string): void {
+    // A save can finish after the user has left this scanner's editor, and must not pull them away from where they are.
+    if (!scannerEditorPaths(scannerId).includes(removeProjectIdIfPresent(router.values.location.pathname))) {
+        return
+    }
+    const editor = scannerEditorSceneLogic.findMounted()
+    if (editor) {
+        editor.actions.leaveEditor(destination)
+    } else {
+        router.actions.replace(destination)
+    }
+}
+
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
         ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
         // The goal flow's overview step is editor territory too, though it sits outside the manual stepper.
         scannerStepUrl('overview', scannerId),
-        // Retired step: the redirect off it must not trip the unsaved-changes guard.
-        urls.replayVisionScannerSelfDriving(scannerId),
     ]
 }
 
@@ -2745,11 +2830,18 @@ export function shouldGuardScannerNavigation(params: {
     scannerId: string
     currentPathname: string
     nextPathname?: string
+    browserPathname?: string
 }): boolean {
-    const { hasUnsavedChanges, isSubmitting, hasSavedDraft, scannerId, currentPathname, nextPathname } = params
+    const { hasUnsavedChanges, isSubmitting, hasSavedDraft, scannerId, currentPathname, browserPathname } = params
     if (!hasUnsavedChanges || isSubmitting || hasSavedDraft) {
         return false
     }
+    // kea-router passes no destination on browser back/forward, but by then the window already shows it.
+    const nextPathname =
+        params.nextPathname ??
+        (browserPathname && removeProjectIdIfPresent(browserPathname) !== removeProjectIdIfPresent(currentPathname)
+            ? browserPathname
+            : undefined)
     // The router's stored pathname carries the `/project/:id` prefix, while `urls.*` never do,
     // so both sides must be normalized before comparing or the guard never engages.
     const editorPaths = scannerEditorPaths(scannerId)

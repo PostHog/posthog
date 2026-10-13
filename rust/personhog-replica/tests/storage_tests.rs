@@ -1599,6 +1599,53 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::statement_timeout(Some(200), "statement timeout")]
+#[case::lock_timeout(None, "lock timeout")]
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
+    #[case] statement_timeout_ms: Option<u64>,
+    #[case] expected_error: &str,
+) {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("upsert_locked_user", None)
+        .await
+        .expect("Failed to insert person");
+    let storage = match statement_timeout_ms {
+        Some(ms) => TestContext::storage_with_statement_timeout(ms),
+        None => ctx.storage.clone(),
+    };
+
+    // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
+    // person row.
+    let holder = ctx.lock_person_row(person.id).await.unwrap();
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        storage.upsert_hash_key_overrides(
+            ctx.team_id,
+            &["upsert_locked_user".to_string()],
+            &["test-flag".to_string()],
+            "my_hash_key",
+        ),
+    )
+    .await
+    .expect("the upsert waited for the person row lock instead of timing out");
+    holder.rollback().await.unwrap();
+
+    assert!(
+        matches!(
+            &result,
+            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains(expected_error)
+        ),
+        "expected a {expected_error}, got {result:?}"
+    );
+    assert_eq!(ctx.hash_key_override_count(person.id).await.unwrap(), 0);
+
+    ctx.cleanup().await.ok();
+}
+
 // ============================================================
 // Delete hash key overrides by teams tests
 // ============================================================
@@ -4220,13 +4267,7 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
     }
     let person_before = person_state(&ctx, person.uuid).await;
     let distinct_id_before = distinct_id_state(&ctx, "held_row").await;
-    let mut holder = ctx.pool.begin().await.unwrap();
-    sqlx::query("SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR UPDATE")
-        .bind(ctx.team_id)
-        .bind(person.id)
-        .execute(&mut *holder)
-        .await
-        .unwrap();
+    let holder = ctx.lock_person_row(person.id).await.unwrap();
 
     let started = Instant::now();
     let result = match write {

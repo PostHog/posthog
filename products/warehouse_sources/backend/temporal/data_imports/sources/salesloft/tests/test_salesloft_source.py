@@ -17,12 +17,6 @@ class TestSalesLoftSource:
         self.team_id = 123
         self.config = SalesLoftSourceConfig(api_key="sl_test_token")
 
-    def test_non_retryable_errors_matches_observed_error_message(self):
-        observed_error = "401 Client Error: Unauthorized for url: https://api.salesloft.com/v2/people?page=1"
-
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

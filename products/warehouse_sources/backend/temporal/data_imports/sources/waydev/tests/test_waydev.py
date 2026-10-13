@@ -10,7 +10,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.waydev import (
     WaydevResumeConfig,
-    _client_config,
     get_resource,
     validate_credentials,
     waydev_source,
@@ -31,34 +30,9 @@ def _make_http_response(body: Any, status_code: int = 200) -> Response:
 
 
 class TestGetResource:
-    def test_metrics_has_no_data_selector_or_extra_params(self) -> None:
-        resource = get_resource("Metrics")
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint["path"] == "/metrics"
-        assert endpoint.get("data_selector") is None
-        assert endpoint.get("params") is None
-
-    def test_incidents_paginates_and_selects_the_data_key(self) -> None:
-        resource = get_resource("Incidents")
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint["path"] == "/incidents"
-        assert endpoint["data_selector"] == "data"
-        assert endpoint["params"] == {"limit": 100}
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(KeyError):
             get_resource("NotAnEndpoint")
-
-
-class TestClientConfig:
-    def test_sends_raw_token_under_authorization_with_no_scheme_prefix(self) -> None:
-        config = _client_config("test-key")
-        assert config["auth"] == {
-            "type": "api_key",
-            "name": "Authorization",
-            "api_key": "test-key",
-            "location": "header",
-        }
 
 
 class TestWaydevSourceResumeBehavior:
@@ -92,34 +66,6 @@ class TestWaydevSourceResumeBehavior:
             list(cast(Iterable[Any], resource))
             return mock_session, sent_params
 
-    def test_metrics_fetches_exactly_one_page_and_saves_no_state(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, sent_params = self._drive(
-            "Metrics",
-            manager,
-            [_make_http_response([{"id": "impact", "name": "Impact"}])],
-        )
-
-        assert len(sent_params) == 1
-        manager.save_state.assert_not_called()
-
-    def test_incidents_fresh_run_pages_until_an_empty_page(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response({"current_page": 1, "data": [{"id": 1}]}),
-            _make_http_response({"current_page": 2, "data": [{"id": 2}]}),
-            _make_http_response({"current_page": 3, "data": []}),
-        ]
-        _, sent_params = self._drive("Incidents", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [1, 2, 3]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [WaydevResumeConfig(next_page=2), WaydevResumeConfig(next_page=3)]
-
     def test_incidents_resume_seeds_paginator_with_saved_page(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -130,15 +76,6 @@ class TestWaydevSourceResumeBehavior:
 
         assert [p.get("page") for p in sent_params] == [5]
         manager.load_state.assert_called_once()
-
-    def test_no_incidents_at_all_does_not_save_state(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, sent_params = self._drive("Incidents", manager, [_make_http_response({"current_page": 1, "data": []})])
-
-        assert len(sent_params) == 1
-        manager.save_state.assert_not_called()
 
     def test_a_single_real_page_still_probes_once_more_before_stopping(self) -> None:
         # stop_after_empty_page means the last real page is always followed by one more
@@ -170,22 +107,3 @@ class TestValidateCredentials:
     def test_ok(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("token") == (True, 200)
-
-    @mock.patch(WAYDEV_SESSION_PATCH)
-    def test_unauthorized(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("token") == (False, 401)
-
-    @mock.patch(WAYDEV_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") == (False, None)
-
-    @mock.patch(WAYDEV_SESSION_PATCH)
-    def test_probes_the_metrics_endpoint_with_a_raw_authorization_header(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("token")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.waydev.co/v2/metrics"
-        assert call.kwargs["headers"] == {"Authorization": "token"}

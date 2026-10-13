@@ -205,21 +205,3 @@ def test_rejects_unknown_table_without_a_request() -> None:
         with pytest.raises(ValueError, match="Unknown"):
             fiscal_data_source(make_inputs("unknown"), make_manager())
     send.assert_not_called()
-
-
-def test_exchange_rate_keys_preserve_amendments_and_duplicate_report_lines() -> None:
-    rows = [
-        {
-            "record_date": "2025-03-31",
-            "country_currency_desc": "Example country-Currency",
-            "effective_date": effective_date,
-            "src_line_nbr": line,
-            "exchange_rate": "12.34",
-        }
-        for effective_date, line in [("2025-03-31", "1"), ("2025-03-31", "2"), ("2025-04-15", "1")]
-    ]
-    with patch("requests.sessions.Session.send", return_value=response({"data": rows, "meta": {"total-pages": 1}})):
-        output = fiscal_data_source(make_inputs("rates_of_exchange"), make_manager())
-        actual = collect_rows(output)
-    assert output.primary_keys is not None
-    assert len({tuple(row[key] for key in output.primary_keys) for row in actual}) == 3

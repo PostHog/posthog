@@ -21,7 +21,6 @@ import {
     todayReportsPageRetrieve,
 } from 'products/today/frontend/generated/api'
 import type {
-    BriefingItemStateEnumApi,
     CodeFileApi,
     FigureMarkApi,
     FigureTextEnumApi,
@@ -35,6 +34,7 @@ import {
     todayExcerptChoiceCreateBodyFindingMax,
 } from 'products/today/frontend/generated/api.zod'
 
+import type { BriefingItemStateEnumApi } from '../../../../../products/today/frontend/generated/api.schemas'
 import { reportItemState } from './todayBriefingItems'
 import { type TodaySignalDestination } from './todayEvidence'
 import { type TodayMarkedFigure, markedFigures, staleEvidenceDate } from './todayFigureSources'
@@ -73,7 +73,6 @@ export interface todayReportLogicValues {
     draft: string
     evidenceCount: number
     expandedEvidence: Record<string, boolean>
-    feedbackNoteFocused: boolean
     figureMarks: FigureMarkApi[] | null
     figureMarksLoading: boolean
     fullReport: SignalReport | null
@@ -166,9 +165,6 @@ export interface todayReportLogicActions {
     }
     expandEvidence: (signalId: string) => {
         signalId: string
-    }
-    focusFeedbackNote: () => {
-        value: true
     }
     loadFigureMarks: () => any
     loadFigureMarksFailure: (
@@ -324,7 +320,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
         collapseEvidence: (signalId: string) => ({ signalId }),
         openComposer: true,
         setDraft: (draft: string) => ({ draft }),
-        focusFeedbackNote: true,
         startWithPostHog: true,
         markOpened: (kind: TodayMarkKind) => ({ kind }),
     }),
@@ -428,7 +423,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
             },
         ],
         composerOpen: [false, { openComposer: () => true }],
-        feedbackNoteFocused: [false, { focusFeedbackNote: () => true }],
         draft: [
             '',
             {

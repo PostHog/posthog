@@ -532,6 +532,8 @@ def _get_audit_log_rows(
 
     pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         _check_pagination_budget(pagination_deadline, config.name)
 
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, "endDate": window_end}
@@ -581,6 +583,8 @@ def _get_offset_paginated_rows(
 
     pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         _check_pagination_budget(pagination_deadline, config.name)
 
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, **config.extra_params}

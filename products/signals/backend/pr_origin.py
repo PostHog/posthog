@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_right
-from datetime import date, datetime
-from typing import TypeVar
+from datetime import date
 
 from django.conf import settings
 
 import structlog
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -34,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names
 from products.signals.backend.signal_metadata import (
     OriginSource,
@@ -59,8 +59,6 @@ _SECTION_END_RE = re.compile(rf"^(##[ \t]|---[ \t]*$|<!-- {ORIGIN_MARKER_PREFIX}
 # Linear and GitHub signals come from `fetch_source_references_for_report`, which already
 # validates their public links.
 _ISSUE_TRACKER_PRODUCTS = frozenset({"linear", "github"})
-
-ArtefactModel = TypeVar("ArtefactModel", bound=BaseModel)
 
 
 @frozen
@@ -142,25 +140,6 @@ def _source_lines(team_id: int, sources: list[OriginSource]) -> list[OriginSourc
     return lines
 
 
-def _latest_artefact_as(
-    team_id: int,
-    report_id: str,
-    artefact_type: str,
-    model: type[ArtefactModel],
-    created_before: datetime | None = None,
-) -> ArtefactModel | None:
-    artefacts = SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type=artefact_type)
-    if created_before is not None:
-        artefacts = artefacts.filter(created_at__lte=created_before)
-    artefact = artefacts.order_by("-created_at", "-id").first()
-    if artefact is None:
-        return None
-    try:
-        return model.model_validate_json(artefact.content)
-    except ValidationError:
-        return None
-
-
 def _cause_commit(team_id: int, report_id: str, repository: str) -> OriginLink | None:
     """The first commit of the newest finding, which the research prompt orders causative first.
 
@@ -168,10 +147,8 @@ def _cause_commit(team_id: int, report_id: str, repository: str) -> OriginLink |
     produce a hash that does not exist here. The commit links only when the suggested reviewers
     carry the same commit under this pull request's repository.
     """
-    finding = _latest_artefact_as(team_id, report_id, SignalReportArtefact.ArtefactType.SIGNAL_FINDING, SignalFinding)
-    reviewers = _latest_artefact_as(
-        team_id, report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS, SuggestedReviewers
-    )
+    finding = SignalReportArtefact.latest_content(team_id=team_id, report_id=report_id, model=SignalFinding)
+    reviewers = SignalReportArtefact.latest_content(team_id=team_id, report_id=report_id, model=SuggestedReviewers)
     if finding is None or reviewers is None:
         return None
     commit_prefix = f"https://github.com/{repository}/commit/".lower()
@@ -209,12 +186,8 @@ def _run_start(team_id: int, report_id: str, task_id: str) -> RunStart | None:
             task_run = TaskRunArtefact.model_validate_json(artefact.content)
         except ValidationError:
             continue
-        judgment = _latest_artefact_as(
-            team_id,
-            report_id,
-            SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            PriorityAssessment,
-            created_before=artefact.created_at,
+        judgment = SignalReportArtefact.latest_content(
+            team_id=team_id, report_id=report_id, model=PriorityAssessment, created_before=artefact.created_at
         )
         return RunStart(
             automatic=task_run.automation_branch is not None,
@@ -265,7 +238,7 @@ class PullRequestOrigin:
         sources = fetch_origin_sources_for_report(team, report_id)
         return cls(
             report_id=report_id,
-            report_url=f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}",
+            report_url=build_report_url(team.pk, report_id, ReportLinkSource.GITHUB_PR),
             sources=tuple(_source_lines(team.pk, sources)),
             issue_references=tuple(
                 _issue_link(reference, repository) for reference in fetch_source_references_for_report(team, report_id)

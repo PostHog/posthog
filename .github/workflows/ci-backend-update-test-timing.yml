@@ -438,15 +438,18 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         steps:
+            # The reader goes in its own directory, because a sparse checkout in the workspace
+            # root leaves the full checkout of the recorded commit below with an incomplete tree.
+            # That checkout also clears the workspace, and an older commit does not have the
+            # script, so the next step copies it out.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  path: depot-reader
                   sparse-checkout: .github/scripts/depot_scheduled_runs.py
                   sparse-checkout-cone-mode: false
 
-            # The checkout of the recorded commit below replaces the tree, and an older commit
-            # does not have the script.
             - name: Keep the Depot run reader
-              run: cp .github/scripts/depot_scheduled_runs.py "$RUNNER_TEMP/depot_scheduled_runs.py"
+              run: cp depot-reader/.github/scripts/depot_scheduled_runs.py "$RUNNER_TEMP/depot_scheduled_runs.py"
 
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 

@@ -68,7 +68,7 @@ It is deliberately not attached to `pull_request`: Gemini is nondeterministic an
 It collects a fresh dataset on the runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the aggregate scores to the job's step summary.
 The summary also links the run's `/ai-evals` offline experiment, where the harness publishes the same scores.
 Only those allowlisted summary lines are public: collector and harness output stay in runner-local files, because they carry session and observation ids.
-The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets `ci-ai.yml` already uses; if any is missing the job skips green and warns which.
+The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets; if any is missing the job skips green and warns which.
 
 ## Data handling
 

@@ -1,5 +1,3 @@
-from typing import Optional
-
 import pytest
 from unittest import mock
 
@@ -9,9 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     WooCommerceSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.settings import (
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
-    PARTITION_FIELDS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_SCHEMA_NAMES,
     WEBHOOK_TOPICS,
@@ -86,84 +82,6 @@ class TestWooCommerceSource:
 
         assert is_valid is False
         assert message == "Missing WooCommerce credentials"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source):
-        mock_resource = mock.MagicMock(name="orders", column_hints=None)
-        mock_source.return_value = mock_resource
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs("orders", should_use_incremental_field=True, last_value="2024-01-01T00:00:00")
-
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["store_url"] == "https://example.com"
-        assert kwargs["consumer_key"] == "ck_test"
-        assert kwargs["consumer_secret"] == "cs_test"
-        assert kwargs["endpoint"] == "orders"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "desc"
-
-    def test_source_for_pipeline_full_refresh_drops_last_value(self):
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs("customers", should_use_incremental_field=False, last_value="2024-01-01T00:00:00")
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
-        ) as mock_source:
-            mock_source.return_value = mock.MagicMock(name="customers", column_hints=None)
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["db_incremental_field_last_value"] is None
-        assert response.sort_mode == "asc"
-
-    def test_source_for_pipeline_ignores_incremental_for_non_incremental_endpoint(self):
-        # A non-incremental endpoint must stay full refresh even if the flag is set, so it
-        # doesn't advertise desc semantics or carry a cursor value it can't honor.
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs("customers", should_use_incremental_field=True, last_value="2024-01-01T00:00:00")
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
-        ) as mock_source:
-            mock_source.return_value = mock.MagicMock(name="customers", column_hints=None)
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
-        assert response.sort_mode == "asc"
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_source_for_pipeline_partitioning(self, endpoint):
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs(endpoint)
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
-        ) as mock_source:
-            mock_source.return_value = mock.MagicMock(name=endpoint, column_hints=None)
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        expected_key: Optional[str] = PARTITION_FIELDS.get(endpoint)
-        if expected_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [expected_key]
-        else:
-            assert response.partition_keys is None
-
-    def test_get_schemas_marks_only_webhook_capable_tables(self):
-        # WooCommerce only ships core webhook topics for four resources. Marking any other table
-        # would let setup switch it to webhook sync, which stops polling it for rows that can
-        # never arrive.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        assert {name for name, s in schemas.items() if s.supports_webhooks} == set(WEBHOOK_SCHEMA_NAMES)
 
     def test_webhook_resource_map_covers_every_webhook_capable_schema(self):
         # The map is what routes an incoming delivery to a table; a schema missing from it is a

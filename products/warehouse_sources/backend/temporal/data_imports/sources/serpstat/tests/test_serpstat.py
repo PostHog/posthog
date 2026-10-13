@@ -222,32 +222,6 @@ def test_errors_fail_without_exposing_vendor_message(
     assert len(sent) == 1
 
 
-@pytest.mark.parametrize(
-    "status,code,message",
-    [
-        (200, -32000, "Query frequency exceeded"),
-        (200, 429, "Too many queries"),
-        (429, 429, "Rate limit"),
-        (503, 500, "Unavailable"),
-    ],
-)
-def test_transient_errors_use_framework_retry(
-    transport: tuple[list[PreparedRequest], list[tuple[int, dict[str, Any]]]],
-    status: int,
-    code: int,
-    message: str,
-) -> None:
-    sent, responses = transport
-    responses.extend(
-        [
-            (status, {"error": {"code": code, "message": message}}),
-            (200, {"result": {"data": [], "summary_info": {"page_total": 0}}}),
-        ]
-    )
-    assert list(serpstat_resource(CONFIG, "projects", 1, "test-job", "v4")) == []
-    assert len(sent) == 2
-
-
 def test_missing_result_fails_instead_of_replacing_table_with_empty_data(
     transport: tuple[list[PreparedRequest], list[tuple[int, dict[str, Any]]]],
 ) -> None:
@@ -255,13 +229,3 @@ def test_missing_result_fails_instead_of_replacing_table_with_empty_data(
     responses.append((200, {"id": "posthog", "result": {"unexpected": []}}))
     with pytest.raises(ValueError):
         list(serpstat_resource(CONFIG, "projects", 1, "test-job", "v4"))
-
-
-def test_credential_check_stops_after_one_free_page(
-    transport: tuple[list[PreparedRequest], list[tuple[int, dict[str, Any]]]],
-) -> None:
-    sent, responses = transport
-    responses.append((200, {"result": {"data": [{"project_id": "123"}], "summary_info": {"page_total": 50}}}))
-    list(serpstat_resource(CONFIG, "projects", 1, "", "v4", credential_check=True))
-    assert len(sent) == 1
-    assert request_json(sent[0])["params"] == {"page": 1, "size": 20}

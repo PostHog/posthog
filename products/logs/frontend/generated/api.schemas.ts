@@ -2306,6 +2306,36 @@ export const OrderByEnumApi = {
     Earliest: 'earliest',
 } as const
 
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
+
+export const PropertyGroupOperatorEnumApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export interface _LogsFilterInnerGroupApi {
+    /** How to combine the filters in `values`.
+     *
+     * * `AND` - AND
+     * * `OR` - OR */
+    type: PropertyGroupOperatorEnumApi
+    /** Property filters in this group. */
+    values: _LogPropertyFilterApi[]
+}
+
+export interface _LogsFilterGroupApi {
+    /** How to combine the groups in `values`.
+     *
+     * * `AND` - AND
+     * * `OR` - OR */
+    type: PropertyGroupOperatorEnumApi
+    /** Groups of property filters. */
+    values: _LogsFilterInnerGroupApi[]
+}
+
+export type LogsFilterGroupInputApi = _LogPropertyFilterApi[] | _LogsFilterGroupApi
+
 export interface _LogsQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -2320,8 +2350,8 @@ export interface _LogsQueryBodyApi {
     orderBy?: OrderByEnumApi
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
-    /** Property filters for the query. */
-    filterGroup?: _LogPropertyFilterApi[]
+    /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
+    filterGroup?: LogsFilterGroupInputApi
     /** Max results (1-1000). */
     limit?: number
     /** Pagination cursor from previous response. */
@@ -2373,14 +2403,21 @@ export interface _LogEntryApi {
     trace_id: string
     /** Span ID. Returns "0000000000000000" when not set (padding, not null). */
     span_id: string
-    /** OpenTelemetry trace flags. */
-    trace_flags?: number
     /** Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns). */
     attributes: _LogEntryApiAttributes
     /** Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host. */
     resource_attributes: _LogEntryApiResourceAttributes
     /** OpenTelemetry event name, if set. */
     event_name?: string
+    /** OpenTelemetry instrumentation scope name. Empty when not set. */
+    instrumentation_scope: string
+    /** Hash of the resource attributes. Logs from the same pod or host share it. */
+    resource_fingerprint: string
+    /**
+     * Latest timestamp up to which ingestion is known to be complete. The same on every row. Logs newer than it can still arrive.
+     * @nullable
+     */
+    live_logs_checkpoint: string | null
 }
 
 export interface _LogsQueryResponseApi {
@@ -2722,8 +2759,8 @@ export interface _LogsSparklineBodyApi {
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
-    /** Property filters for the query. */
-    filterGroup?: _LogPropertyFilterApi[]
+    /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
+    filterGroup?: LogsFilterGroupInputApi
     /** Break down sparkline by "severity" (default) or "service".
      *
      * * `severity` - severity
@@ -2752,14 +2789,10 @@ export interface _LogsSparklineBucketApi {
     severity?: string
     /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
     service?: string
+    /** Number of log entries in the bucket. */
     count: number
     /** Sum of uncompressed bytes for the bucket. */
     bytes_uncompressed?: number
-}
-
-export interface _LogsSparklineResponseApi {
-    /** Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown. */
-    results: _LogsSparklineBucketApi[]
 }
 
 export interface _LogAttributeValueApi {
