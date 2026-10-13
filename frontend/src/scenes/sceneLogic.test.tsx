@@ -257,9 +257,22 @@ describe('sceneLogic', () => {
     // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
     // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
     // both across. The hash also carries global side-panel state, so it has to survive too.
+    // Visual review PR comments, commit statuses and digests link to the old /visual_review paths.
     it.each([
         ['/code_review', () => urls.codeReview(), { review: 'r-9' }, { panel: 'max:inspect' }],
         ['/activity/explore', () => urls.activity(ActivityTab.ExploreEvents), {}, { q: '{"kind":"DataTableNode"}' }],
+        [
+            '/visual_review/repos/PostHog/posthog/runs/run-1',
+            () => urls.visualReviewRepoRun('PostHog', 'posthog', 'run-1'),
+            {},
+            { snapshot: 'snap-1' },
+        ],
+        [
+            '/visual_review/repos/PostHog/posthog/storybook/snapshots/scenes%2FButton--dark',
+            () => urls.visualReviewSnapshotHistory('PostHog', 'posthog', 'storybook', 'scenes/Button--dark'),
+            {},
+            { panel: 'max:inspect' },
+        ],
     ])('redirects the old %s path, preserving search and hash params', async (from, to, search, hash) => {
         router.actions.push(from, search, hash)
         await expectLogic(logic).delay(1)
