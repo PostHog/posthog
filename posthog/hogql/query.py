@@ -926,7 +926,10 @@ class HogQLQueryExecutor:
             )
 
             workload = self.workload
-            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
+            # The logs tables exist on the logs cluster only, so a caller's workload cannot route them elsewhere.
+            if clickhouse_context.workload == Workload.LOGS or (
+                workload == Workload.DEFAULT and clickhouse_context.workload is not None
+            ):
                 workload = clickhouse_context.workload
 
             def run_clickhouse_query() -> Any:

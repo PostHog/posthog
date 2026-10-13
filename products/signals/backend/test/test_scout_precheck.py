@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import (
@@ -17,6 +18,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.workload import Workload
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
@@ -39,6 +42,7 @@ NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp 
 DASHBOARDS_QUERY = "SELECT count() FROM system.dashboards"
 SURVEYS_SKILL = "signals-scout-surveys"
 REVENUE_SKILL = "signals-scout-revenue-analytics"
+LOGS_SKILL = "signals-scout-logs"
 ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
 
@@ -252,6 +256,35 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
 
         assert result is not None
         assert (result.outcome, result.query_source) == (outcome, "skill_default")
+
+    @parameterized.expand(
+        [
+            ("no_logs", None, "skip"),
+            ("recent_info_line", 23, "run"),
+            ("only_older_lines", 25, "skip"),
+        ]
+    )
+    def test_logs_default_reads_the_logs_cluster(self, _name, hours_ago, outcome) -> None:
+        LLMSkill.objects.create(
+            team=self.team, name=LOGS_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=LOGS_SKILL)
+        if hours_ago is not None:
+            sync_execute(
+                "INSERT INTO logs (uuid, team_id, timestamp, body, severity_text, service_name) VALUES",
+                [(str(uuid4()), self.team.pk, NOW - timedelta(hours=hours_ago), "ok", "info", "api")],
+            )
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+            patch("posthog.hogql.query.sync_execute", wraps=sync_execute) as executed,
+        ):
+            result = evaluate_scout_precheck(self.team.pk, LOGS_SKILL)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+        assert executed.call_args.kwargs["workload"] == Workload.LOGS
 
     def test_project_outside_the_rollout_runs_as_before(self) -> None:
         result, capture = self._evaluate(rollout_percent=0)
