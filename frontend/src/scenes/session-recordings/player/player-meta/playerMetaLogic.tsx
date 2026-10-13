@@ -413,6 +413,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
 
                 // session properties win, person properties may be from a later session
                 const allProperties = { ...personProperties, ...recordingProperties }
+                // Person location can belong to a different session, even before session properties load.
+                allProperties['$geoip_country_code'] = recordingProperties['$geoip_country_code']
                 if (allProperties['$os_name'] && allProperties['$os']) {
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
                     delete allProperties['$os']
@@ -464,7 +466,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                   : undefined,
                         valueTooltip:
                             property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
-                                ? countryTitleFrom(recordingProperties, personProperties)
+                                ? countryTitleFrom(recordingProperties)
                                 : // we don't want to pass arbitrary objects to the overview grid's tooltip here, so we stringify them
                                   canRenderDirectly(value)
                                   ? value
@@ -512,7 +514,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const recordingProperties = sessionPlayerMetaData?.id
                     ? recordingPropertiesById[sessionPlayerMetaData.id]
                     : undefined
-                return countryTitleFrom(recordingProperties, getAllPersonProperties(sessionPlayerMetaData))
+                return countryTitleFrom(recordingProperties)
             },
         ],
     })),
