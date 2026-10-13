@@ -49,13 +49,21 @@ def called_tools(trial: AgentTrial) -> frozenset[str]:
 
 def _exec_call_target(tool_input: object) -> str | None:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    words = command.split() if isinstance(command, str) else []
-    if not words or words[0] != "call":
+    if not isinstance(command, str):
         return None
-    operands = words[1:]
-    while operands and operands[0] in EXEC_CALL_FLAGS:
-        operands = operands[1:]
-    return operands[0] if operands else None
+    verb, rest = _split_verb(command)
+    if verb != "call":
+        return None
+    target, rest = _split_verb(rest)
+    while target in EXEC_CALL_FLAGS:
+        target, rest = _split_verb(rest)
+    return target or None
+
+
+def _split_verb(text: str) -> tuple[str, str]:
+    # The server's parseCommand splits on the first literal space, so a tab or newline stays in the verb.
+    verb, _, rest = text.strip().partition(" ")
+    return verb, rest.strip()
 
 
 async def expected_tools_grader(scenario: Scenario, trial: AgentTrial) -> Judgment:
@@ -130,7 +138,8 @@ def format_grade_summary(report: GradedReport) -> str:
             rates.append(f"{name} {sum(passes)}/{len(passes)}" + (f" ({errors} errors)" if errors else ""))
         lines.append(f"  {scenario_id}: {', '.join(rates)}")
     if {"judge", "jev"} <= set(graders):
-        pairs = [_pair(grade, "judge", "jev") for grade in report.grades]
+        # Only answered trials reached the graders; the gate's verdicts on the rest would agree by construction.
+        pairs = [_pair(grade, "judge", "jev") for grade in report.grades if grade.outcome == "answered"]
         compared = [pair for pair in pairs if None not in pair]
         disagreements = sum(1 for first, second in compared if first != second)
         lines.append(f"judge and jev disagree on {disagreements} of {len(compared)} trials both graded")

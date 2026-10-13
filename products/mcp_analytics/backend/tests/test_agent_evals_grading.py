@@ -75,6 +75,8 @@ class TestCalledTools(SimpleTestCase):
             ("info_names_no_tool", _exec("info feature-flag-get-all"), set()),
             ("call_without_a_tool_names_none", _exec("call --json"), set()),
             ("non_string_command_names_none", _exec(42), set()),
+            ("a_tab_is_not_a_separator_on_the_server", _exec("call\tflag-x {}"), set()),
+            ("a_newline_stays_in_the_tool_token", _exec("call flag-x\n{}"), {"flag-x\n{}"}),
             ("a_direct_tool_is_itself", _call("feature-flag-get-all"), {"feature-flag-get-all"}),
         ]
     )
@@ -219,18 +221,18 @@ class TestJev(SimpleTestCase):
         assert "SECRET" not in repr(fake.sent)
 
 
-def _grade(scenario_id: str, trial: int, **passed: bool | None | str) -> TrialGrade:
+def _grade(scenario_id: str, trial: int, outcome: str = "answered", **passed: bool | None | str) -> TrialGrade:
     verdicts = tuple(
         Verdict(grader=name, passed=None, score=None, rationale="grader failed", error=value)
         if isinstance(value, str)
         else Verdict(grader=name, passed=value, score=None, rationale="")
         for name, value in passed.items()
     )
-    return TrialGrade(scenario_id=scenario_id, trial=trial, outcome="answered", verdicts=verdicts)
+    return TrialGrade(scenario_id=scenario_id, trial=trial, outcome=outcome, verdicts=verdicts)
 
 
 class TestSummary(SimpleTestCase):
-    def test_pass_rates_errors_and_judge_jev_disagreement(self) -> None:
+    def test_pass_rates_errors_and_disagreement_over_answered_trials_only(self) -> None:
         report = GradedReport(
             server_url="u", model="m", effort="low", started_at="t",
             grader_models={"expected_tools": "deterministic", "judge": "claude-sonnet-5-5", "jev": "jev-latest"},
@@ -238,13 +240,14 @@ class TestSummary(SimpleTestCase):
                 _grade("a", 1, expected_tools=True, judge=True, jev=False),
                 _grade("a", 2, expected_tools=False, judge=True, jev=True),
                 _grade("b", 1, expected_tools=None, judge="TimeoutError: read timed out", jev=True),
+                _grade("b", 2, "turn_limit", expected_tools=False, judge=False, jev=False),
             ),
         )  # fmt: skip
 
         assert format_grade_summary(report) == (
-            "graded 3 trials with expected_tools, judge, jev\n"
+            "graded 4 trials with expected_tools, judge, jev\n"
             "  a: expected_tools 1/2, judge 2/2, jev 1/2\n"
-            "  b: expected_tools 0/0, judge 0/0 (1 errors), jev 1/1\n"
+            "  b: expected_tools 0/1, judge 0/1 (1 errors), jev 1/2\n"
             "judge and jev disagree on 1 of 2 trials both graded"
         )
 
