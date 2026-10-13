@@ -215,6 +215,42 @@ describe('seriesToMetricConfig', () => {
             ],
         })
     })
+
+    it('keeps a renamed step of every kind and drops an empty rename', () => {
+        const series = [
+            { kind: NodeKind.EventsNode, event: 'step1', custom_name: 'Signed up' },
+            { kind: NodeKind.EventsNode, event: 'step2', custom_name: '' },
+            { kind: NodeKind.ActionsNode, id: 123, name: 'action1', custom_name: 'Activated' },
+            {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                id: 'stripe_charges',
+                table_name: 'stripe_charges',
+                name: 'Stripe charges',
+                custom_name: 'Paid',
+                timestamp_field: 'created_at',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
+            },
+        ] as SeriesNode[]
+
+        expect(seriesToMetricConfig(ExperimentMetricType.FUNNEL, series)).toEqual({
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                { kind: NodeKind.EventsNode, event: 'step1', custom_name: 'Signed up' },
+                { kind: NodeKind.EventsNode, event: 'step2' },
+                { kind: NodeKind.ActionsNode, id: 123, name: 'action1', custom_name: 'Activated' },
+                {
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'stripe_charges',
+                    name: 'Stripe charges',
+                    custom_name: 'Paid',
+                    timestamp_field: 'created_at',
+                    events_join_key: 'distinct_id',
+                    data_warehouse_join_key: 'customer_id',
+                },
+            ],
+        })
+    })
 })
 
 describe('getQuery', () => {

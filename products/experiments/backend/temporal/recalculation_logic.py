@@ -353,9 +353,8 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         )
         # Hours since the experiment launched, matching the legacy frontend definition exactly
         # (now - start_date, ignoring end_date) so dashboards can share the >12h filter across paths.
-        experiment_duration_hours = (
-            round((timezone.now() - experiment.start_date).total_seconds() / 3600) if experiment.start_date else None
-        )
+        hours_since_launch = experiment.hours_since_launch
+        experiment_duration_hours = round(hours_since_launch) if hours_since_launch is not None else None
         # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
         # metrics that the run never calculates do not.
         roles = [metric.metric_type for metric in discover_experiment_metrics(experiment)]

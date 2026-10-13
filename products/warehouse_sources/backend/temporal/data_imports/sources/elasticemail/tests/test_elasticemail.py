@@ -163,6 +163,102 @@ class TestPagination:
         assert [r["Email"] for r in rows] == ["resumed@x.com"]
 
 
+class TestListContactsFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_per_list_with_encoded_names(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        requests_seen: list[tuple[str, dict[str, Any]]] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            requests_seen.append((request.url, dict(request.params or {})))
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [
+            _make_response(200, json_body=[{"ListName": "News / EU"}, {"ListName": "Gone"}, {"ListName": "VIP"}]),
+            _make_response(200, json_body=[{"Email": "a@example.com"}, {"Email": "b@example.com"}]),
+            _make_response(404, text='{"Error":"List not found"}'),
+            _make_response(200, json_body=[{"Email": "a@example.com"}]),
+        ]
+
+        rows = _rows(_source("list_contacts", _make_manager()))
+
+        assert [(r["ListName"], r["Email"]) for r in rows] == [
+            ("News / EU", "a@example.com"),
+            ("News / EU", "b@example.com"),
+            ("VIP", "a@example.com"),
+        ]
+        assert [url for url, _ in requests_seen] == [
+            "https://api.elasticemail.com/v4/lists",
+            "https://api.elasticemail.com/v4/lists/News%20%2F%20EU/contacts",
+            "https://api.elasticemail.com/v4/lists/Gone/contacts",
+            "https://api.elasticemail.com/v4/lists/VIP/contacts",
+        ]
+        assert all(params["limit"] == elasticemail.PAGE_SIZE for _, params in requests_seen)
+
+
+class TestDailyStatistics:
+    @parameterized.expand(
+        [
+            (
+                "incremental_refetches_watermark_day",
+                True,
+                date(2026, 6, 13),
+                None,
+                ["2026-06-13", "2026-06-14", "2026-06-15"],
+            ),
+            (
+                "resume_skips_finished_days",
+                True,
+                date(2026, 6, 10),
+                ElasticEmailResumeConfig(next_day="2026-06-14"),
+                ["2026-06-14", "2026-06-15"],
+            ),
+            ("future_watermark_clamps_to_today", True, date(2026, 7, 1), None, ["2026-06-15"]),
+        ]
+    )
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_one_day_per_request(
+        self,
+        _name: str,
+        incremental: bool,
+        watermark: date,
+        resume: ElasticEmailResumeConfig | None,
+        expected_days: list[str],
+        MockSession: Any,
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_make_response(200, json_body={"Delivered": i}) for i in range(len(expected_days))])
+
+        rows = _rows(
+            _source(
+                "statistics",
+                _make_manager(resume),
+                should_use_incremental_field=incremental,
+                db_incremental_field_last_value=watermark,
+            )
+        )
+
+        assert [(r["Date"], r["Delivered"]) for r in rows] == [(day, i) for i, day in enumerate(expected_days)]
+        assert [(p["from"], p["to"]) for p in params] == [(f"{d}T00:00:00", f"{d}T23:59:59") for d in expected_days]
+        assert all("limit" not in p and "offset" not in p for p in params)
+
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_backfills_lookback_window(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        days = elasticemail.STATISTICS_LOOKBACK_DAYS + 1
+        params = _wire(session, [_make_response(200, json_body={"Delivered": 0}) for _ in range(days)])
+
+        rows = _rows(_source("statistics", _make_manager()))
+
+        assert len(rows) == days
+        assert params[0]["from"] == "2025-06-15T00:00:00"
+        assert params[-1]["from"] == "2026-06-15T00:00:00"
+
+
 def _wire_repeating(session: mock.MagicMock, response: requests.Response) -> None:
     """Return the same response for every send — a retryable status is re-issued until attempts run out."""
     session.headers = {}

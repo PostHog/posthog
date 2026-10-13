@@ -265,6 +265,17 @@ TRANSIENT_SOURCE_CONNECTION_MESSAGE = (
     "reachable and doesn't drop idle connections; the next sync runs on schedule."
 )
 
+# libpq prefixes a failure with "connection to server at <host>, port <port> failed:" only while it
+# sets the connection up. A drop there never reached an idle connection, so the generic copy points
+# the customer at the wrong cause. A server that accepts the TCP connection and then closes it
+# during startup is usually down, or an allowlist in front of it rejects PostHog's addresses.
+LIBPQ_CONNECT_FAILURE_MARKER = "connection to server at"
+
+TRANSIENT_CONNECT_DROPPED_MESSAGE = (
+    "Your database closed the connection while PostHog was connecting. Check that it's running and "
+    "allows PostHog's IP addresses; the next sync runs on schedule."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -465,7 +476,7 @@ def _transient_error_message(internal_error: str) -> str | None:
 
     First match wins, mirroring how the non-retryable path picks its friendly message.
     """
-    return next(
+    message = next(
         (
             message
             for pattern, message in Transient_Error_Messages.items()
@@ -473,6 +484,11 @@ def _transient_error_message(internal_error: str) -> str | None:
         ),
         None,
     )
+    if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
+        internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
+    ):
+        return TRANSIENT_CONNECT_DROPPED_MESSAGE
+    return message
 
 
 def _fail_stale_running_schema(

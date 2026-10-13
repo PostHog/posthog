@@ -172,6 +172,14 @@ class TestFanout:
                 {"limit": ["100"]},
                 {"limit": ["100"]},
             ),
+            (
+                "ecommerce_orders",
+                "/ecommerce/shops",
+                "/ecommerce/shops/c1/orders",
+                "shop_id",
+                {"limit": ["50"]},
+                {"limit": ["100"]},
+            ),
         ],
     )
     def test_walks_every_child_page_and_tags_rows_with_the_parent(

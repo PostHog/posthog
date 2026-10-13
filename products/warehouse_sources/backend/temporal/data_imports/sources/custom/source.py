@@ -199,6 +199,9 @@ def _without_retry_limit_overrides(client: dict[str, Any]) -> dict[str, Any]:
 class _ManifestClient(BaseModel):
     base_url: str = Field(min_length=1)
     auth: _ManifestAuth | None = None
+    # Modelled only so a non-object `headers` is rejected here. The probe and the REST
+    # engine both spread it into a dict, which raises a TypeError the sync would retry.
+    headers: dict[str, Any] | None = None
 
 
 class _ManifestEndpoint(BaseModel):

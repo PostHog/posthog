@@ -1,10 +1,13 @@
 import json
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
+import time_machine
 from unittest import mock
 
-from requests import Response
+from parameterized import parameterized
+from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n import (
     N8nResumeConfig,
@@ -31,6 +34,15 @@ def _response(
     return resp
 
 
+def _json_response(body: dict[str, Any], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.reason = "Forbidden" if status_code == 403 else "OK"
+    resp.url = "https://n.example.com/api/v1/insights/summary"
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
 def _make_manager(resume_state: N8nResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
@@ -38,7 +50,7 @@ def _make_manager(resume_state: N8nResumeConfig | None = None) -> mock.MagicMock
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+def _wire(session: mock.MagicMock, responses: list[Response], urls: list[str] | None = None) -> list[dict[str, Any]]:
     """Wire a mock session and return a list that captures each request's params AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
@@ -49,6 +61,8 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        if urls is not None:
+            urls.append(request.url)
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
@@ -175,3 +189,106 @@ class TestGetRows:
         # A 200 body without "data" means the response shape changed — fail loud, not silently 0 rows.
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("workflows", _make_manager()))
+
+
+class TestFanOut:
+    @parameterized.expand(
+        [
+            (
+                "project_users",
+                _response([{"id": "u1", "email": "a@example.com"}], next_cursor=None),
+                "/projects/p1/users",
+                {"limit": 250},
+            ),
+            (
+                "folders",
+                _json_response({"count": 1, "data": [{"id": "f1", "name": "Ops"}]}),
+                "/projects/p1/folders",
+                {"sortBy": "createdAt:asc", "skip": 0, "take": 250},
+            ),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_project_children_carry_project_id(self, endpoint, child_response, child_path, child_params, MockSession):
+        session = MockSession.return_value
+        urls: list[str] = []
+        params = _wire(session, [_response([{"id": "p1", "name": "Team"}], next_cursor=None), child_response], urls)
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert [row["projectId"] for row in rows] == ["p1"]
+        assert urls[1].endswith(child_path)
+        assert params[1] == child_params
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_test_cases_bind_workflow_and_run_ids(self, MockSession):
+        session = MockSession.return_value
+        urls: list[str] = []
+        _wire(
+            session,
+            [
+                _response([{"id": "w1"}], next_cursor=None),
+                _response([{"id": "r1", "status": "completed"}], next_cursor=None),
+                _response([{"id": "c1", "status": "success"}], next_cursor=None),
+            ],
+            urls,
+        )
+
+        rows = _rows(_source("test_cases", _make_manager()))
+
+        assert urls[2].endswith("/workflows/w1/test-runs/r1/test-cases")
+        assert [(row["workflowId"], row["testRunId"], row["id"]) for row in rows] == [("w1", "r1", "c1")]
+
+
+def _summary(total: int) -> dict[str, Any]:
+    return {"total": {"value": total, "deviation": None, "unit": "count"}}
+
+
+class TestInsightsSummary:
+    @parameterized.expand(
+        [
+            # The 3-day backfill exceeds the license, so the walk steps down to the 1-day one.
+            ("backfill_steps_down_past_license_limit", None, None, ["2026-10-09", "2026-10-11", "2026-10-12"]),
+            ("incremental_refetches_watermark_day", "2026-10-11T00:00:00Z", None, ["2026-10-11", "2026-10-12"]),
+            ("resume_starts_at_saved_day", None, "2026-10-12", ["2026-10-12"]),
+        ]
+    )
+    @time_machine.travel("2026-10-12T15:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.INSIGHTS_BACKFILL_DAYS", (3, 1))
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_walks_one_day_per_request_up_to_today(self, _name, last_value, resume_date, requested_days, mock_session):
+        responses = [_json_response(_summary(day)) for day in range(len(requested_days))]
+        if requested_days[0] == "2026-10-09":
+            responses[0] = _json_response({"message": "license"}, status_code=403)
+        mock_session.return_value.get.side_effect = responses
+        manager = _make_manager(N8nResumeConfig(next_date=resume_date) if resume_date else None)
+
+        rows = _rows(
+            n8n_source(
+                "https://n.example.com",
+                "key",
+                "insights_summary",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=last_value,
+            )
+        )
+
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert [parse_qs(urlparse(url).query)["startDate"][0][:10] for url in urls] == requested_days
+        synced_days = [day for day in requested_days if day != "2026-10-09"]
+        assert [row["date"] for row in rows] == synced_days
+        assert rows[-1]["endDate"] == "2026-10-13T00:00:00.000Z"
+        # Every day but today stages the next day before its row is yielded.
+        saved = [call.args[0].next_date for call in manager.save_state.call_args_list]
+        assert saved == synced_days[1:]
+
+    @time_machine.travel("2026-10-12T15:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.INSIGHTS_BACKFILL_DAYS", (3, 1))
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_refused_at_every_window_raises_forbidden(self, mock_session):
+        mock_session.return_value.get.side_effect = [_json_response({}, status_code=403)] * 2
+
+        with pytest.raises(HTTPError, match="403 Client Error: Forbidden for url"):
+            _rows(_source("insights_summary", _make_manager()))

@@ -1048,9 +1048,17 @@ describe('scoutFleetLogic', () => {
             // Every roster card subscribes to this map and ScoutRunBoxes keys its tooltip memo on it,
             // so a fresh map each poll re-renders the whole roster for nothing. Reusing it too
             // eagerly is the worse failure though: the roster would show a frozen cost forever.
-            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            // Each strip reads its own scout's slice, so a moved cost must replace only that
+            // scout's slice and leave every other strip's slice, and its render, alone.
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
+                makeRun({ run_id: 'run-priced' }),
+                makeRun({ run_id: 'run-other', skill_name: 'signals-scout-other' }),
+            ])
             mockSignalsScoutRunsTokenCosts.mockResolvedValue({
-                costs: [{ run_id: 'run-priced', token_cost_usd: 4.03 }],
+                costs: [
+                    { run_id: 'run-priced', token_cost_usd: 4.03 },
+                    { run_id: 'run-other', token_cost_usd: 0.5 },
+                ],
                 available: true,
             })
             await mountAsStaff(true)
@@ -1058,6 +1066,7 @@ describe('scoutFleetLogic', () => {
             logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
             const first = logic.values.scoutRunCosts
+            const firstSlices = logic.values.scoutRunCostsByScout
             expect(first.get('run-priced')).toBe(4.03)
 
             logic.actions.loadScoutRuns()
@@ -1065,13 +1074,20 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts).toBe(first)
 
             mockSignalsScoutRunsTokenCosts.mockResolvedValue({
-                costs: [{ run_id: 'run-priced', token_cost_usd: 5.11 }],
+                costs: [
+                    { run_id: 'run-priced', token_cost_usd: 5.11 },
+                    { run_id: 'run-other', token_cost_usd: 0.5 },
+                ],
                 available: true,
             })
             logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
             expect(logic.values.scoutRunCosts).not.toBe(first)
             expect(logic.values.scoutRunCosts.get('run-priced')).toBe(5.11)
+            const slices = logic.values.scoutRunCostsByScout
+            expect(slices.get(BASE_CONFIG.skill_name)).not.toBe(firstSlices.get(BASE_CONFIG.skill_name))
+            expect(slices.get(BASE_CONFIG.skill_name)?.get('run-priced')).toBe(5.11)
+            expect(slices.get('signals-scout-other')).toBe(firstSlices.get('signals-scout-other'))
         })
 
         it('sends no further batches once the deployment reports it cannot price runs', async () => {
@@ -1095,8 +1111,12 @@ describe('scoutFleetLogic', () => {
             const runIds = Array.from({ length: 401 }, (_, index) => `run-${index}`)
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
             const held: Array<() => void> = []
+            // A tenth of each batch costs more, so the fleet has a top decile to mark.
             mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
-                const costs = [{ run_id: body.run_ids[0], token_cost_usd: 1 }]
+                const costs = body.run_ids.map((run_id, index) => ({
+                    run_id,
+                    token_cost_usd: index % 10 === 0 ? 5 : 1,
+                }))
                 if (!body.run_ids.includes('run-0')) {
                     await new Promise<void>((resolve) => held.push(resolve))
                 }
@@ -1108,15 +1128,19 @@ describe('scoutFleetLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'mergeScoutRunCosts'])
             await new Promise((resolve) => setTimeout(resolve, 0))
 
-            expect(logic.values.scoutRunCosts.get('run-0')).toBe(1)
+            expect(logic.values.scoutRunCosts.get('run-0')).toBe(5)
             expect(logic.values.scoutRunCostsLoading).toBe(true)
             expect(held).toHaveLength(2)
+            // The threshold ranks the whole fleet, so it waits for the load to finish rather than
+            // moving with each batch and re-rendering every strip on the roster.
+            expect(logic.values.expensiveRunCostThreshold).toBeNull()
 
             held.forEach((resolve) => resolve())
             await expectLogic(logic).toDispatchActions(['loadScoutRunCostsSuccess'])
 
-            expect(logic.values.scoutRunCosts.get('run-200')).toBe(1)
-            expect(logic.values.scoutRunCosts.get('run-400')).toBe(1)
+            expect(logic.values.scoutRunCosts.get('run-200')).toBe(5)
+            expect(logic.values.scoutRunCosts.get('run-400')).toBe(5)
+            expect(logic.values.expensiveRunCostThreshold).toBe(5)
         })
 
         it('keeps the batches that answered when a later batch fails', async () => {

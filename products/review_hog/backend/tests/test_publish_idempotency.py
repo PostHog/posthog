@@ -14,6 +14,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.instance_setting import override_instance_config
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
@@ -22,8 +23,6 @@ from products.review_hog.backend.reviewer.persistence import upsert_review_repor
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
-    _promo_already_posted,
-    _promo_marker,
     _review_already_posted,
     _review_marker,
 )
@@ -34,6 +33,8 @@ from products.review_hog.backend.temporal.activities import PublishInput, _publi
 _PUBLISH = "products.review_hog.backend.reviewer.tools.publish_review.publish_review"
 _SNAPSHOT = "products.review_hog.backend.reviewer.tools.publish_review.load_pr_snapshot"
 _AUTH = "products.review_hog.backend.temporal.activities._installation_auth"
+pytestmark = pytest.mark.django_db
+
 _PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_api_get_paginated"
 _ACTIVITIES = "products.review_hog.backend.temporal.activities"
 
@@ -56,11 +57,6 @@ def _review_posted(marker: str, reviews: list[dict[str, Any]], *, boom: bool = F
         return _review_already_posted("o", "r", 1, marker, token="t", installation_id=None)
 
 
-def _promo_posted(marker: str, comments: list[dict[str, Any]], *, boom: bool = False) -> bool:
-    with patch(_PAGINATED, side_effect=_paginated(comments, boom=boom)):
-        return _promo_already_posted("o", "r", 1, marker, token="t", installation_id=None)
-
-
 def test_review_already_posted_detects_our_own_markered_review() -> None:
     # Post-then-crash backstop: a review we posted (an app-bot review) carries this run's marker, so
     # a retry recognizes it and skips. A review without the marker (another turn/author) must not
@@ -76,11 +72,11 @@ def test_review_already_posted_detects_our_own_markered_review() -> None:
     )
     assert _review_posted(marker, [{"body": f"no user field: {marker}"}]) is False
     # With the app's bot login configured, another installed bot's pasted marker must not match either.
-    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="posthog[bot]"):
+    with override_instance_config("GITHUB_APP_SLUG", "posthog"):
         assert _review_posted(marker, [{"body": marker, **bot}]) is True
         assert _review_posted(marker, [{"body": marker, "user": {"login": "rogue[bot]", "type": "Bot"}}]) is False
     # Unconfigured in production, no bot is trusted, because any installed bot could paste the marker.
-    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="", DEBUG=False, TEST=False):
+    with override_instance_config("GITHUB_APP_SLUG", ""), override_settings(DEBUG=False, TEST=False):
         assert _review_posted(marker, [{"body": marker, **bot}]) is False
 
 
@@ -122,20 +118,6 @@ def test_legacy_markers_only_suppress_reviews_in_the_same_mode(posted_mode: str,
                 legacy_marker=legacy,
                 review_mode=requested_mode,
             ) is (posted_mode == requested_mode)
-
-
-def test_promo_already_posted_detects_the_markered_comment() -> None:
-    # The promo posts before the review, so a retry after a transient review failure re-enters
-    # with published_head_sha still unset — the marker is what stops a second promo comment.
-    marker = _promo_marker("rep-1")
-    assert _promo_posted(marker, [{"body": f"promo text\n\n{marker}"}]) is True
-    assert _promo_posted(marker, [{"body": "unrelated comment"}, {"body": None}]) is False
-
-
-def test_promo_already_posted_skips_when_readback_fails() -> None:
-    # Inverted stakes vs the review readback: a duplicate promo is spam while a missing one is
-    # harmless, so an unreadable comment list counts as already posted.
-    assert _promo_posted(_promo_marker("rep-1"), [], boom=True) is True
 
 
 def _publish_input(team_id: int, report_id: str, head_sha: str) -> PublishInput:
@@ -227,12 +209,11 @@ class TestPublishIdempotency(BaseTest):
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", "9876543"))
-    def test_first_publish_posts_promo_and_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
+    def test_first_publish_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report()
         _publish(_publish_input(self.team.id, report_id, "sha1"))
         assert mock_publish.call_count == 1
-        assert mock_publish.call_args.kwargs["post_promo"] is True
         # The resolved installation id must reach the GitHub calls — dropping it silently turns the
         # publish identity-blind (no egress budget accounting).
         assert mock_publish.call_args.kwargs["installation_id"] == "9876543"
@@ -260,12 +241,11 @@ class TestPublishIdempotency(BaseTest):
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", None))
-    def test_new_head_publishes_without_promo(self, _auth, _snapshot, mock_publish) -> None:
+    def test_new_head_publishes(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report(published_head_sha="oldsha")
         _publish(_publish_input(self.team.id, report_id, "sha2"))
         assert mock_publish.call_count == 1
-        assert mock_publish.call_args.kwargs["post_promo"] is False
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha2"
 
     @patch(_PUBLISH)
