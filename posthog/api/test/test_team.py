@@ -1424,6 +1424,17 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
 
+        @parameterized.expand([("environments",), ("projects",)])
+        def test_clearing_modifiers_keeps_use_new_events_schema(self, prefix: str) -> None:
+            self.team.modifiers = {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+            self.team.save()
+
+            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": None}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self.team.refresh_from_db()
+            assert self.team.modifiers == {"useNewEventsSchema": True}
+
         @parameterized.expand(
             [
                 (1, True),
