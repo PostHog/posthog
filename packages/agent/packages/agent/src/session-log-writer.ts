@@ -5,6 +5,7 @@ import { serializeError, TranscriptBoundaries } from "@posthog/agent-contracts";
 import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
+import { splitLogBatches } from "./utils/log-batches";
 import { Logger } from "./utils/logger";
 import { redactSecrets } from "./utils/redact-secrets";
 
@@ -421,53 +422,68 @@ export class SessionLogWriter {
 
     this.lastFlushAttemptTime.set(sessionId, Date.now());
 
-    try {
-      await this.posthogAPI.appendTaskRunLog(
-        session.context.taskId,
-        session.context.runId,
-        pending,
-      );
-      this.retryCounts.set(sessionId, 0);
-      this.flushedBytes.set(
-        sessionId,
-        (this.flushedBytes.get(sessionId) ?? 0) +
-          Buffer.byteLength(JSON.stringify(pending)),
-      );
-    } catch (error) {
-      if (error instanceof PostHogAPIError && !error.retryable) {
+    const batches = splitLogBatches(pending);
+    for (const [index, batch] of batches.entries()) {
+      try {
+        await this.posthogAPI.appendTaskRunLog(
+          session.context.taskId,
+          session.context.runId,
+          batch.entries,
+        );
         this.retryCounts.set(sessionId, 0);
-        this.logger.error("Session log batch rejected, dropping it", {
-          taskId: session.context.taskId,
-          runId: session.context.runId,
-          status: error.status,
-          count: pending.length,
-          firstEventId: pending[0].first_event_id ?? pending[0].event_id,
-          lastEventId: pending[pending.length - 1].event_id,
-        });
+        this.flushedBytes.set(
+          sessionId,
+          (this.flushedBytes.get(sessionId) ?? 0) + batch.bytes,
+        );
+      } catch (error) {
+        if (error instanceof PostHogAPIError && !error.retryable) {
+          this.retryCounts.set(sessionId, 0);
+          this.logger.error("Session log batch rejected, dropping it", {
+            taskId: session.context.taskId,
+            runId: session.context.runId,
+            status: error.status,
+            count: batch.entries.length,
+            bytes: batch.bytes,
+            firstEventId:
+              batch.entries[0].first_event_id ?? batch.entries[0].event_id,
+            lastEventId: batch.entries[batch.entries.length - 1].event_id,
+          });
+          continue;
+        }
+        const unsent = batches.slice(index).flatMap((b) => b.entries);
+        this.requeueAfterFailure(sessionId, session, unsent, error);
         return;
       }
-      const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
-      this.retryCounts.set(sessionId, retryCount);
-      const currentPending = this.pendingEntries.get(sessionId) ?? [];
-      this.pendingEntries.set(sessionId, [...pending, ...currentPending]);
-
-      if (retryCount === 1) {
-        this.logger.warn("Failed to persist session logs, will retry", {
-          taskId: session.context.taskId,
-          runId: session.context.runId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      } else if (retryCount % SessionLogWriter.FLUSH_FAILURE_LOG_EVERY === 0) {
-        this.logger.error("Session logs still failing to persist", {
-          taskId: session.context.taskId,
-          runId: session.context.runId,
-          attempts: retryCount,
-          pendingEntries: pending.length + currentPending.length,
-          errorDetail: serializeError(error),
-        });
-      }
-      this.scheduleFlush(sessionId);
     }
+  }
+
+  private requeueAfterFailure(
+    sessionId: string,
+    session: SessionState,
+    unsent: StoredNotification[],
+    error: unknown,
+  ): void {
+    const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
+    this.retryCounts.set(sessionId, retryCount);
+    const currentPending = this.pendingEntries.get(sessionId) ?? [];
+    this.pendingEntries.set(sessionId, [...unsent, ...currentPending]);
+
+    if (retryCount === 1) {
+      this.logger.warn("Failed to persist session logs, will retry", {
+        taskId: session.context.taskId,
+        runId: session.context.runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } else if (retryCount % SessionLogWriter.FLUSH_FAILURE_LOG_EVERY === 0) {
+      this.logger.error("Session logs still failing to persist", {
+        taskId: session.context.taskId,
+        runId: session.context.runId,
+        attempts: retryCount,
+        pendingEntries: unsent.length + currentPending.length,
+        errorDetail: serializeError(error),
+      });
+    }
+    this.scheduleFlush(sessionId);
   }
 
   private flushMaxIntervalMs(sessionId: string): number {

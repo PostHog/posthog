@@ -144,6 +144,61 @@ describe("SessionLogWriter", () => {
       expect(retriedEntries[0].notification.method).toBe("test");
     });
 
+    it("splits a large flush into size-capped requests and retries only the unsent ones", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      mockAppendLog
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new PostHogAPIError("unavailable", 503))
+        .mockResolvedValue(undefined);
+
+      const big = "x".repeat(3 * 1024 * 1024);
+      for (const method of ["a", "b"]) {
+        logWriter.appendRawLine(
+          sessionId,
+          JSON.stringify({ method, params: { text: big } }),
+        );
+      }
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "c" }));
+
+      await logWriter.flush(sessionId);
+      await logWriter.flush(sessionId);
+
+      const sentMethods = mockAppendLog.mock.calls.map((call) =>
+        (call[2] as StoredNotification[]).map(
+          (entry) => entry.notification.method,
+        ),
+      );
+      expect(sentMethods).toEqual([["a"], ["b", "c"], ["b", "c"]]);
+      for (const call of mockAppendLog.mock.calls) {
+        expect(Buffer.byteLength(JSON.stringify(call[2]))).toBeLessThan(
+          4 * 1024 * 1024,
+        );
+      }
+    });
+
+    it("drops only the rejected batch and still sends the rest", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      mockAppendLog
+        .mockRejectedValueOnce(new PostHogAPIError("too big", 400))
+        .mockResolvedValue(undefined);
+
+      logWriter.appendRawLine(
+        sessionId,
+        JSON.stringify({
+          method: "huge",
+          params: { text: "x".repeat(5 * 1024 * 1024) },
+        }),
+      );
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "small" }));
+      await logWriter.flush(sessionId);
+
+      expect(mockAppendLog).toHaveBeenCalledTimes(2);
+      const sent: StoredNotification[] = mockAppendLog.mock.calls[1][2];
+      expect(sent.map((entry) => entry.notification.method)).toEqual(["small"]);
+    });
+
     it("keeps retrying past ten failures and delivers once persistence recovers", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
