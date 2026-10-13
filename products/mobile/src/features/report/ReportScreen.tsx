@@ -236,9 +236,9 @@ function ReportBody({
                     headline={report.headline}
                     accent={report.accent}
                     lede={report.lede}
+                    meta={<ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />}
                     onHeadlineHeight={setHeadlineHeight}
                 />
-                <ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />
                 <Evidence blocks={report.evidence} />
                 <Facts facts={report.facts} />
                 {report.observation ? (

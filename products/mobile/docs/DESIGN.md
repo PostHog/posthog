@@ -60,7 +60,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `ImpactMetrics` | `features/report/metrics/ImpactMetrics.tsx` | "Impact" eyebrow over a two-column grid of tiles: 20pt mono value, title, and the window or measured time. A tile with a link opens the insight |
 | `ReportCharts` | `features/report/metrics/ReportCharts.tsx` | "Charts" eyebrow over one card per chart: title, caption, the chart when the app can draw it, and Open insight |
 | `ReportContextMenu` | `features/inbox/ReportContextMenu.tsx` | Inbox row long-press menu on `FloatingCard`; nav menu width; opens 8pt below the row, or above it when the bottom bar is in the way (`contextMenuPlacement.ts`) |
-| `ReportMeta` | `features/report/ReportMeta.tsx` | Byline under the lede (source glyph and label · "Since …"), then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
+| `ReportMeta` | `features/report/ReportMeta.tsx` | Byline under the headline, above the lede (source glyph and label · "Since …"), then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
 | `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
@@ -87,7 +87,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   "No matches" are separate screens; when one of the two sources fails, a line above the list
   says so and offers Try again.
 - **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
-- **Report**: top chrome, headline, lede, the byline with the Owner and Priority chips (`ReportMeta`),
+- **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   evidence (trace, quotes, replay), facts, the observation card, impact tiles, charts,
   activity, and the action bar.
 - **Action bar** (`actionBarStateFor`): `idle` (Hand off to PostHog + chevron),

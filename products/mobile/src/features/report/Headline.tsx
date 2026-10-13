@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { type LayoutChangeEvent, StyleSheet, Text, type TextStyle, View } from 'react-native'
 
 import type { Accent, Headline as HeadlineModel } from '@/model/types'
@@ -8,6 +8,7 @@ interface HeadlineProps {
     headline: HeadlineModel
     accent: Accent
     lede: string
+    meta: ReactNode
     onHeadlineHeight?: (height: number) => void
 }
 
@@ -15,7 +16,7 @@ export function headlineText(headline: HeadlineModel): string {
     return headline.number ? `${headline.number} ${headline.rest}` : headline.rest
 }
 
-export function Headline({ headline, accent, lede, onHeadlineHeight }: HeadlineProps): ReactElement {
+export function Headline({ headline, accent, lede, meta, onHeadlineHeight }: HeadlineProps): ReactElement {
     const onLayout = (event: LayoutChangeEvent): void => onHeadlineHeight?.(event.nativeEvent.layout.height)
     return (
         <View>
@@ -28,6 +29,7 @@ export function Headline({ headline, accent, lede, onHeadlineHeight }: HeadlineP
                 {headline.number ? <Text style={NUMBER_STYLES[accent]}>{headline.number} </Text> : null}
                 {headline.rest}
             </Text>
+            {meta}
             <Text style={[styles.lede, prettyWrap]} lineBreakStrategyIOS="standard">
                 {lede}
             </Text>
@@ -48,7 +50,7 @@ const styles = StyleSheet.create({
     },
     lede: {
         ...type.body,
-        marginTop: 8,
+        marginTop: 14,
         color: colors.muted,
     },
 })
