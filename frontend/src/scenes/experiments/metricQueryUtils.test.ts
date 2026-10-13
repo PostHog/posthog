@@ -230,19 +230,41 @@ describe('filterToMetricSource', () => {
 describe('filterToMetricConfig', () => {
     it('returns FUNNEL metric config when funnel type is provided', () => {
         const events = [
-            { id: 'step1', properties: [], order: 0 },
-            { id: 'step2', properties: [], order: 1 },
+            { id: 'step1', custom_name: 'Signed up', properties: [], order: 0 },
+            { id: 'step2', custom_name: '', properties: [], order: 1 },
         ]
-        const actions = [{ id: 123, name: 'action1', properties: [], order: 2 }]
+        const actions = [{ id: 123, name: 'action1', custom_name: 'Activated', properties: [], order: 2 }]
+        const dataWarehouse = [
+            {
+                id: 'stripe_charges',
+                name: 'Stripe charges',
+                custom_name: 'Paid',
+                timestamp_field: 'created_at',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
+                properties: [],
+                order: 3,
+            },
+        ]
 
-        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, actions, events, undefined)
+        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, actions, events, dataWarehouse)
 
         expect(result).toEqual({
             metric_type: ExperimentMetricType.FUNNEL,
             series: [
-                { kind: NodeKind.EventsNode, event: 'step1', properties: [] },
+                { kind: NodeKind.EventsNode, event: 'step1', custom_name: 'Signed up', properties: [] },
                 { kind: NodeKind.EventsNode, event: 'step2', properties: [] },
-                { kind: NodeKind.ActionsNode, id: 123, name: 'action1', properties: [] },
+                { kind: NodeKind.ActionsNode, id: 123, name: 'action1', custom_name: 'Activated', properties: [] },
+                {
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'stripe_charges',
+                    name: 'Stripe charges',
+                    custom_name: 'Paid',
+                    timestamp_field: 'created_at',
+                    events_join_key: 'distinct_id',
+                    data_warehouse_join_key: 'customer_id',
+                    properties: [],
+                },
             ],
         })
     })
