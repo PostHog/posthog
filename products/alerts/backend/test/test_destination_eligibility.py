@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from products.alerts.backend.facade.contracts import DestinationHoldBack
-from products.alerts.backend.facade.destinations import classify_alert_destinations
+from products.alerts.backend.facade.destinations import classify_alert_destinations, unbound_alert_destinations
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -31,21 +31,29 @@ def _with(inputs: dict[str, Any], key: str, value: Any) -> dict[str, Any]:
 
 class TestDestinationEligibility(APIBaseTest):
     def _function(
-        self, template_id: str, inputs: dict[str, Any], secret_keys: frozenset[str] = frozenset(), **fields: Any
+        self,
+        template_id: str,
+        inputs: dict[str, Any],
+        secret_keys: frozenset[str] = frozenset(),
+        alert_id: str | None = ALERT_ID,
+        enabled: bool = True,
+        **fields: Any,
     ) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
             name="Alert destination",
             type="internal_destination",
             template_id=template_id,
-            enabled=True,
+            enabled=enabled,
             inputs=inputs,
             inputs_schema=[{"key": key, "type": "string", "secret": key in secret_keys} for key in inputs],
             hog="return event",
             filters={
                 "source": "internal-events",
                 "events": [{"id": EVENT, "type": "events"}],
-                "properties": [{"key": "alert_id", "value": ALERT_ID, "operator": "exact", "type": "event"}],
+                "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}]
+                if alert_id
+                else [],
             },
             **fields,
         )
@@ -171,3 +179,12 @@ class TestDestinationEligibility(APIBaseTest):
         self._function("template-some-custom-sink", {"url": {"value": "https://hooks.example.com/hook"}})
 
         assert self._classify() == (DestinationHoldBack.UNRECOGNIZED_TEMPLATE,)
+
+    def test_a_function_no_alert_owns_is_unbound(self) -> None:
+        self._function("template-slack", SLACK_INPUTS)
+        team_wide = self._function("template-slack", SLACK_INPUTS, alert_id=None)
+        self._function("template-slack", SLACK_INPUTS, alert_id=None, enabled=False)
+
+        assert unbound_alert_destinations(team_id=self.team.id, alert_ids=[ALERT_ID], allowed_event_ids=[EVENT]) == (
+            team_wide.id,
+        )

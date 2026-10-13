@@ -228,3 +228,12 @@ def classify_alert_destinations(
     return destination_eligibility.classify_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def unbound_alert_destinations(
+    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+) -> tuple[UUID, ...]:
+    """Enabled functions that take a source's alert events but belong to none of its alerts."""
+    return destination_eligibility.unbound_alert_destinations(
+        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    )

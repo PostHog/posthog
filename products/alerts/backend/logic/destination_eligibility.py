@@ -17,7 +17,7 @@ from uuid import UUID
 
 from products.alerts.backend.facade.contracts import DestinationEligibility, DestinationHoldBack
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, WebhookDestination, input_value
-from products.alerts.backend.logic.destinations import owned_alert_destinations_qs
+from products.alerts.backend.logic.destinations import _allowed_event_filter, owned_alert_destinations_qs
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -58,6 +58,27 @@ def classify_alert_destinations(
             hold_backs=_hold_backs(function, first_snapshots.get(function.id)),
         )
         for function in functions
+    )
+
+
+def unbound_alert_destinations(
+    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+) -> tuple[UUID, ...]:
+    """Enabled functions that take a source's alert events but belong to none of its alerts.
+
+    Such a function fires for every alert of the team. Native delivery reads destinations per
+    alert, so it would stop sending at cutover.
+    """
+    owned = owned_alert_destinations_qs(
+        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids, known_templates_only=False
+    ).values("id")
+    return tuple(
+        HogFunction.objects.filter(
+            _allowed_event_filter(allowed_event_ids), team_id=team_id, deleted=False, enabled=True
+        )
+        .exclude(id__in=owned)
+        .order_by("created_at", "id")
+        .values_list("id", flat=True)
     )
 
 
