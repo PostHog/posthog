@@ -50,7 +50,7 @@ import type { PermissionRequestRecord, StagedAttachment } from '../types/streamT
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
-import { withCommentContexts } from '../utils/commentContext'
+import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -613,7 +613,7 @@ export type runInteractionLogicType = MakeLogicType<
 
 function takeCommentContexts(taskId: string, content: string): string {
     const commentLogic = taskId ? taskCommentContextsLogic.findMounted({ taskId }) : null
-    if (!commentLogic) {
+    if (!commentLogic || isClearCommand(content)) {
         return content
     }
     const message = withCommentContexts(commentLogic.values.commentContexts, content)
@@ -1205,6 +1205,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // A queue send that never landed goes back as the rows it took, so one failure doesn't fuse them
         // into a single uneditable row. A send with no rows attached still has its text, so it returns as
         // one row rather than vanishing.
+        const restoreCommentContexts = (content: string): string => {
+            const { contexts, text } = extractCommentContexts(content)
+            if (contexts.length > 0 && props.taskId) {
+                taskCommentContextsLogic.findMounted({ taskId: props.taskId })?.actions.restoreCommentContexts(contexts)
+            }
+            return contexts.length > 0 ? text : content
+        }
+
         const restoreQueuedRows = (rows: QueuedMessage[], content: string): void => {
             actions.prependQueuedMessages(rows.length > 0 ? rows : [{ id: nextQueuedMessageId(), content }])
         }
@@ -1466,8 +1474,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         // Land the pending keystroke first: writing the draft cancels the composer's debounced
                         // sync, so text typed inside that window would be dropped rather than merged behind.
                         props.flushDraft?.()
+                        const draftContent = restoreCommentContexts(content)
                         actions.setComposerFormValues({
-                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                            draft: values.composerForm.draft
+                                ? `${draftContent}\n\n${values.composerForm.draft}`
+                                : draftContent,
                         })
                     } else {
                         actions.queueDeliveryFailed()
@@ -1634,10 +1645,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         actions.rollbackOptimisticResume()
                     }
                     actions.releaseApplyBackTargets(streamKey)
+                    const draftContent = restoreCommentContexts(content)
                     if (optimisticStarted) {
                         props.flushDraft?.()
                         actions.setComposerFormValues({
-                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                            draft: values.composerForm.draft
+                                ? `${draftContent}\n\n${values.composerForm.draft}`
+                                : draftContent,
                         })
                         optimisticStarted = false
                     }
@@ -1687,6 +1701,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 return
             }
             commentLogic.actions.consumePendingCommentText()
+            props.flushDraft?.()
             const draft = values.composerForm.draft.trimEnd()
             actions.setComposerFormValues({ draft: [draft, ...pendingText].filter(Boolean).join('\n\n') })
         },

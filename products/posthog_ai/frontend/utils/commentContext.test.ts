@@ -1,4 +1,9 @@
-import { commentContextPreview, commentContextXml, splitCommentContexts } from './commentContext'
+import {
+    commentContextPreview,
+    commentContextXml,
+    splitCommentContexts,
+    splitLeadingCommentContexts,
+} from './commentContext'
 
 describe('commentContext', () => {
     it.each([
@@ -34,5 +39,19 @@ describe('commentContext', () => {
         ['the label when there is no quote', '- **Artifact** report.md', 'report.md (region)'],
     ])('previews %s, not the raw markdown', (_, body, expected) => {
         expect(commentContextPreview({ label: 'report.md (region)', body })).toEqual(expected)
+    })
+
+    it('keeps unclosed blocks as plain text', () => {
+        const text = '<comment_context label="a">\nno close <comment_context label="b">'
+        expect(splitCommentContexts(text)).toEqual([{ type: 'text', text }])
+    })
+
+    it('splits the leading chips from the text a queued message edits', () => {
+        const prefix = `${commentContextXml({ label: 'report.md', body: '> Most people leave' })}\n`
+        expect(splitLeadingCommentContexts(`${prefix}Add the numbers`)).toEqual({
+            prefix,
+            contexts: [{ label: 'report.md', body: '> Most people leave' }],
+            text: 'Add the numbers',
+        })
     })
 })

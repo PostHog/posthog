@@ -9,7 +9,8 @@ export interface CommentContext {
 
 export type MessageSegment = { type: 'text'; text: string } | ({ type: 'comment_context' } & CommentContext)
 
-const COMMENT_CONTEXT_BLOCK = /<comment_context\b([^>]*)>([\s\S]*?)<\/comment_context>/g
+const OPEN_TAG = `<${COMMENT_CONTEXT_TAG}`
+const CLOSE_TAG = `</${COMMENT_CONTEXT_TAG}>`
 const LABEL_ATTR = /\blabel="([^"]*)"/
 const FILE_TAG = /<file\s+path="[^"]*"\s*\/>\n?/g
 
@@ -32,24 +33,97 @@ export function withCommentContexts(contexts: CommentContext[], content: string)
     return [...contexts.map(commentContextXml), content].join('\n')
 }
 
+interface CommentContextBlock extends CommentContext {
+    start: number
+    end: number
+}
+
+function findCommentContextBlocks(text: string): CommentContextBlock[] {
+    const blocks: CommentContextBlock[] = []
+    let cursor = 0
+    while (cursor < text.length) {
+        const start = text.indexOf(OPEN_TAG, cursor)
+        if (start === -1) {
+            break
+        }
+        const afterName = text[start + OPEN_TAG.length]
+        if (afterName !== '>' && !/\s/.test(afterName ?? '')) {
+            cursor = start + OPEN_TAG.length
+            continue
+        }
+        const openEnd = text.indexOf('>', start)
+        if (openEnd === -1) {
+            break
+        }
+        const close = text.indexOf(CLOSE_TAG, openEnd)
+        if (close === -1) {
+            break
+        }
+        const attrs = text.slice(start + OPEN_TAG.length, openEnd)
+        blocks.push({
+            start,
+            end: close + CLOSE_TAG.length,
+            label: unescapeXml(LABEL_ATTR.exec(attrs)?.[1] ?? '') || 'Comment',
+            body: unescapeXml(
+                text
+                    .slice(openEnd + 1, close)
+                    .replace(FILE_TAG, '')
+                    .trim()
+            ),
+        })
+        cursor = close + CLOSE_TAG.length
+    }
+    return blocks
+}
+
 export function splitCommentContexts(text: string): MessageSegment[] {
     const segments: MessageSegment[] = []
     let cursor = 0
-    for (const match of text.matchAll(COMMENT_CONTEXT_BLOCK)) {
-        const before = text.slice(cursor, match.index)
+    for (const { start, end, label, body } of findCommentContextBlocks(text)) {
+        const before = text.slice(cursor, start)
         if (before.trim()) {
             segments.push({ type: 'text', text: before })
         }
-        const label = unescapeXml(LABEL_ATTR.exec(match[1])?.[1] ?? '') || 'Comment'
-        const body = unescapeXml(match[2].replace(FILE_TAG, '').trim())
         segments.push({ type: 'comment_context', label, body })
-        cursor = match.index + match[0].length
+        cursor = end
     }
     const rest = text.slice(cursor)
     if (rest.trim() || segments.length === 0) {
         segments.push({ type: 'text', text: rest })
     }
     return segments
+}
+
+export function extractCommentContexts(text: string): { contexts: CommentContext[]; text: string } {
+    const segments = splitCommentContexts(text)
+    return {
+        contexts: segments.flatMap((segment) =>
+            segment.type === 'comment_context' ? [{ label: segment.label, body: segment.body }] : []
+        ),
+        text: segments
+            .flatMap((segment) => (segment.type === 'text' ? [segment.text.trim()] : []))
+            .filter(Boolean)
+            .join('\n\n'),
+    }
+}
+
+export function splitLeadingCommentContexts(text: string): {
+    prefix: string
+    contexts: CommentContext[]
+    text: string
+} {
+    const contexts: CommentContext[] = []
+    let prefixEnd = 0
+    for (const block of findCommentContextBlocks(text)) {
+        if (text.slice(prefixEnd, block.start).trim()) {
+            break
+        }
+        contexts.push({ label: block.label, body: block.body })
+        prefixEnd = block.end
+    }
+    const rest = text.slice(prefixEnd)
+    const textStart = prefixEnd + (rest.length - rest.trimStart().length)
+    return { prefix: text.slice(0, textStart), contexts, text: text.slice(textStart) }
 }
 
 export function commentContextPreview({ label, body }: CommentContext): string {

@@ -390,6 +390,22 @@ describe('runInteractionLogic', () => {
         comments.unmount()
     })
 
+    it('gives the comment chips back and keeps the XML out of the draft when a send fails', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(new Error('network'))
+        const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+        comments.mount()
+        comments.actions.addCommentToChat({ label: 'report.md', body: '- **Artifact** report.md' }, 'unused')
+
+        logic.actions.setComposerFormValues({ draft: 'Fix the title' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(logic.values.composerForm.draft).toBe('Fix the title')
+        expect(comments.values.commentContexts).toEqual([
+            { id: expect.any(String), label: 'report.md', body: '- **Artifact** report.md' },
+        ])
+        comments.unmount()
+    })
+
     it('does not prewarm a recovered terminal draft or copy it into another user or project', async () => {
         const key = taskDraftStorageKey('user-1', 997, TASK_ID)
         new TaskDraftPersistence(key).save({ runId: RUN_ID, draft: 'saved draft', queuedText: '', recovery: null })

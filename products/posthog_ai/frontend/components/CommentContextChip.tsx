@@ -16,16 +16,21 @@ export function CommentContextChip({
                 <div className="max-w-80 whitespace-pre-wrap break-words text-xs">{commentContextPreview(context)}</div>
             }
         >
-            <LemonTag
-                icon={<IconComment />}
-                onClose={onRemove}
-                closable={!!onRemove}
-                closeOnClick={!!onRemove}
-                className="flex max-w-60 items-center text-secondary"
+            <span
+                tabIndex={0}
+                aria-label={`Comment on ${context.label}`}
+                className="inline-flex max-w-60 min-w-0 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
                 data-attr="posthog-ai-comment-context-chip"
             >
-                <span className="min-w-0 flex-1 truncate">{context.label}</span>
-            </LemonTag>
+                <LemonTag
+                    icon={<IconComment />}
+                    onClose={onRemove}
+                    closable={!!onRemove}
+                    className="flex min-w-0 items-center text-secondary"
+                >
+                    <span className="min-w-0 flex-1 truncate">{context.label}</span>
+                </LemonTag>
+            </span>
         </Tooltip>
     )
 }
