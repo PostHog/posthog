@@ -95,10 +95,12 @@ JEV_WATCHABLE_MIN = 0.3
 JEV_MAX_SCANNER_SHARE = 0.4
 _SCANNER_SPREAD_FLOOR = 3
 # Observations per Jev request: the request carries the chunk as shared state and one question per
-# observation, so the facade's per-request question cap is the most context one judgment can get. A
-# judgment is therefore relative to its chunk, not to the whole window at once.
-WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST
-# Per-entry prose caps, so a 24-entry chunk state stays small and per-chunk latency predictable
+# observation, so a judgment is relative to its chunk, not to the whole window at once. Half the
+# facade's per-request question cap: a request's prompt grows with its state, and a full 32-entry
+# state was larger than the decision service admits in flight on one host, so while it ran that host
+# refused every other product's requests.
+WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST // 2
+# Per-entry prose caps, so a chunk state stays small and per-chunk latency predictable
 # whatever the scanner's configured summary length.
 _MAX_TITLE_CHARS = 300
 _MAX_PROSE_CHARS = 1500

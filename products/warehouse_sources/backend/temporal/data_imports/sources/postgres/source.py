@@ -130,6 +130,13 @@ _INVALID_CREDENTIALS_ERROR = (
     "this source, then re-enable the sync."
 )
 
+# The role exists but has NOLOGIN, the default for a role made with CREATE ROLE. libpq prefixes
+# the refusal with the customer's host and port, so the raw text names nothing they can act on.
+_ROLE_CANNOT_LOG_IN_ERROR = (
+    "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a different "
+    "user, then re-enable the sync."
+)
+
 # A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
 # name") or the raw socket wording ("Name or service not known" / "No address associated with
 # hostname"). Already non-retryable, but the bare driver text gives the customer nothing to act on,
@@ -164,6 +171,11 @@ _HOST_UNREACHABLE_VALIDATION_ERROR = (
 )
 
 _CONNECT_TIMEOUT_VALIDATION_ERROR = "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option."
+
+_DATABASE_NOT_FOUND_VALIDATION_ERROR = (
+    "The database named in your connection details doesn't exist on this server. Check the database name is "
+    "correct and try again."
+)
 
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
@@ -286,7 +298,7 @@ PostgresErrors = {
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
-    'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
+    'database "': _DATABASE_NOT_FOUND_VALIDATION_ERROR,
     "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
@@ -591,7 +603,7 @@ class PostgresSource(
             "XminUnsupportedError": None,
             "xmin replication": None,
             "NoSuchTableError": None,
-            "is not permitted to log in": None,
+            "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
             # Newer Supabase/Supavisor poolers report a missing tenant/user with a different
@@ -1355,6 +1367,19 @@ class PostgresSource(
                 'This can happen when a NULL marker from a text-format export (for example "\\N") '
                 "wasn't translated to a real NULL. Fix the remote data or the foreign table's column "
                 "type, or remove the foreign table from the sync, then re-enable the sync."
+            ),
+            # A value that isn't a uuid reached a uuid column (InvalidTextRepresentation, SQLSTATE
+            # 22P02). Ordinary tables validate uuid values at write time, so the value comes from the
+            # customer's side: a foreign table or a view that casts text to uuid, or a row filter on a
+            # uuid column. Row filter validation treats uuid as a plain string, so it accepts any
+            # value. No query PostHog builds casts to uuid, and uuid is never an incremental field
+            # type. Every retry runs the same statement again. The volatile value is excluded.
+            "invalid input syntax for type uuid": (
+                "PostgreSQL rejected a value that isn't a valid UUID for a uuid column "
+                '("invalid input syntax for type uuid"). If this table has a row filter on a uuid '
+                "column, change the filter value to a valid UUID. Otherwise the table is likely a view "
+                "or foreign table that converts text to uuid, so fix the data or the column type, or "
+                "remove the table from the sync. Then re-enable the sync."
             ),
         }
 

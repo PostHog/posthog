@@ -14,6 +14,7 @@ import {
     tasksRunsCommandCreate,
     tasksWarmResumeCreate,
 } from 'products/tasks/frontend/generated/api'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
@@ -46,6 +47,7 @@ jest.mock('./runStreamLogic', () => {
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
             markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
+            markRunStarted: true,
             setCurrentMode: (mode: string) => ({ mode }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
@@ -1069,6 +1071,80 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+    })
+
+    describe('Pi task', () => {
+        let piLogic: ReturnType<typeof runInteractionLogic.build>
+
+        beforeEach(() => {
+            logic.unmount()
+            piLogic = runInteractionLogic({
+                taskId: TASK_ID,
+                runId: RUN_ID,
+                onRunStarted,
+                taskRuntime: TaskRuntimeEnumApi.Pi,
+            })
+            piLogic.mount()
+        })
+
+        afterEach(() => {
+            piLogic.unmount()
+            logic.mount()
+        })
+
+        const configCommand = (configId: string, value: string): [string, string, string, Record<string, unknown>] => [
+            '997',
+            TASK_ID,
+            RUN_ID,
+            { jsonrpc: '2.0', method: 'set_config_option', params: { configId, value } },
+        ]
+
+        it.each([
+            { caseName: 'no pick', pick: () => {}, commands: [] },
+            {
+                caseName: 'a picked model',
+                pick: () => piLogic.actions.setModel('claude-opus-5-5'),
+                commands: [configCommand('model', 'claude-opus-5-5')],
+            },
+            {
+                caseName: 'a picked effort',
+                pick: () => piLogic.actions.setEffort('low'),
+                commands: [configCommand('effort', 'low')],
+            },
+        ])('syncs $caseName to the Pi session before a follow-up', async ({ pick, commands }) => {
+            pick()
+            piLogic.actions.setComposerFormValues({ draft: 'keep going' })
+            await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
+                ...commands,
+                userMessageCommand('keep going'),
+            ])
+        })
+
+        it.each([
+            { caseName: 'no pick', pick: () => {}, selection: {} },
+            {
+                caseName: 'a picked model and effort',
+                pick: () => {
+                    piLogic.actions.setModel('claude-opus-5-5')
+                    piLogic.actions.setEffort('low')
+                },
+                selection: { model: 'claude-opus-5-5', reasoning_effort: 'low' },
+            },
+        ])('resumes a terminal run with $caseName', async ({ pick, selection }) => {
+            setStatus('completed')
+            pick()
+            piLogic.actions.setComposerFormValues({ draft: 'continue from here' })
+            await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(tasksRunCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here', ...selection },
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            )
+        })
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {

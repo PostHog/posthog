@@ -72,6 +72,7 @@ from posthog.schema_enums import (
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
     BreakdownType as BreakdownType,
+    Calculation as Calculation,
     CalendarHeatmapMathType as CalendarHeatmapMathType,
     ChartDisplayCategory as ChartDisplayCategory,
     ChartDisplayType as ChartDisplayType,
@@ -95,6 +96,7 @@ from posthog.schema_enums import (
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
+    DatePart as DatePart,
     DaysOfWeekEnum as DaysOfWeekEnum,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
@@ -276,10 +278,12 @@ from posthog.schema_enums import (
     RetentionType as RetentionType,
     RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
+    Scope as Scope,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
+    Shelf as Shelf,
     SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
     SlashCommandName as SlashCommandName,
@@ -1008,13 +1012,22 @@ class BILocalFieldDefinition1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregate: bool
+    expression: str
+    kind: Literal["expression"] = "expression"
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     expression: str
     groups: list[BICategoryGroup]
     kind: Literal["groups"] = "groups"
     other: str
 
 
-class BILocalFieldDefinition2(BaseModel):
+class BILocalFieldDefinition3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1259,6 +1272,14 @@ class DataWarehouseSourceUsage(BaseModel):
 class DataWarehouseSyncWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    data_is_current: bool | None = Field(
+        default=None,
+        description=(
+            "True when the last sync is still within the table's sync interval, so the"
+            " data is current and the warning only says it will stop updating (a sync"
+            " paused recently). False or absent when the data is out of date."
+        ),
     )
     message: str = Field(..., description="Human-readable warning shown to the user")
     schema_name: str = Field(
@@ -1834,10 +1855,18 @@ class GoalLine(BaseModel):
         extra="forbid",
     )
     borderColor: str | None = None
+    calculation: Calculation | None = Field(
+        default=None,
+        description=("Recalculate from returned chart marks. An absent calculation uses the fixed value."),
+    )
     displayIfCrossed: bool | None = None
     displayLabel: bool | None = None
     label: str
     position: Position | None = None
+    scope: Scope | None = Field(
+        default=None,
+        description=("SQL chart calculations use the primary axis, across all series or separately per series."),
+    )
     value: float
 
 
@@ -5138,9 +5167,11 @@ class BIField(BaseModel):
         extra="forbid",
     )
     dateBucket: BIDateBucket | None = None
+    datePart: DatePart | None = None
     expression: str
     id: str
-    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | None = None
+    localFieldId: str | None = None
     name: str
     source: BIDataSource
     type: DatabaseSerializedFieldType
@@ -5157,6 +5188,15 @@ class BIFilter(BaseModel):
     value: str
     valueTo: str | None = None
     values: list[str] | None = None
+
+
+class BIHierarchy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    levels: list[BIField] = Field(..., description="Ordered from the broadest dimension to the most detailed.")
+    name: str
 
 
 class BIResultFilter(BaseModel):
@@ -5218,6 +5258,7 @@ class BIValue(BaseModel):
     field: BIField
     formatting: ChartSettingsFormatting | None = None
     label: str | None = None
+    shelf: Shelf | None = Field(default=None, description="Measures in older worksheets belong to rows.")
     tableCalculation: BITableCalculation | None = None
 
 
@@ -11361,6 +11402,7 @@ class BIConfig(BaseModel):
         extra="forbid",
     )
     chartType: ChartDisplayType
+    colorBy: str | None = None
     columns: list[BIField]
     compareFilter: CompareFilter | None = None
     comparisonPeriod: ComparisonPeriod | None = Field(
@@ -11373,6 +11415,10 @@ class BIConfig(BaseModel):
     )
     dateRange: DateRange | None = None
     filters: list[BIFilter]
+    hierarchies: list[BIHierarchy] | None = Field(
+        default=None,
+        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
+    )
     limit: BIQueryLimit
     localFields: list[BIField] | None = Field(
         default=None, description="Reusable expressions owned by this worksheet only."
@@ -27579,6 +27625,10 @@ class DashboardFilter(BaseModel):
         extra="forbid",
     )
     breakdown_filter: BreakdownFilter | None = None
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Period comparison forced onto every insight that supports one. Absent/null = inherit."),
+    )
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
@@ -29895,6 +29945,7 @@ class TileFilters(BaseModel):
         extra="forbid",
     )
     breakdown_filter: BreakdownFilter | None = None
+    compareFilter: CompareFilter | None = None
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None

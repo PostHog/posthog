@@ -92,6 +92,17 @@ The group, group membership and custom role tables come from the Claude Enterpri
 
         return CANONICAL_DESCRIPTIONS
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The report endpoints share one organization rate limit, and Anthropic can ask for a wait of
+        # up to an hour once it is spent. A schedule shorter than that keeps hitting the same limit,
+        # so the generic "short problem on the source's side" copy sends the customer nowhere.
+        return {
+            "HTTP 429 for https://api.anthropic.com": (
+                "Anthropic's API rate limit for your organization ran out before this sync finished. "
+                "Set this table to sync less often, such as every 6 hours, so each run stays within the limit."
+            ),
+        }
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         rbac_group_denied = "This table comes from the Claude Enterprise user management API, which your key can't reach. Reconnect the source with an Admin API key created in claude.ai for all your linked organizations, carrying the read:rbac_groups scope, or turn this table's sync off."
         rbac_role_denied = "This table comes from the Claude Enterprise user management API, which your key can't reach. Reconnect the source with an Admin API key created in claude.ai carrying the read:members scope, or turn this table's sync off."

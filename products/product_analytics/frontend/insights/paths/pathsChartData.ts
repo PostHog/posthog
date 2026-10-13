@@ -3,6 +3,7 @@ import type { SankeyChartLayout, SankeyLinkInput, SankeyNodeInput } from '@posth
 import { FunnelPathsFilter, PathsFilter, PathsLink } from '~/queries/schema/schema-general'
 
 import { FALLBACK_CANVAS_WIDTH } from './constants'
+import { buildPathsSankeyGraph } from './pathsChartTransforms'
 import { PathNodeData, PathTargetLink, isSelectedPathEndpoint, stripStepPrefix } from './pathUtils'
 import { Paths } from './types'
 
@@ -18,8 +19,8 @@ export interface PathsGraph {
     links: SankeyLinkInput<PathsLink>[]
 }
 
-/** Chart inputs for a paths result. Node ids are the result's `N_name` keys, which are unique per
- *  step, so the same page at two steps is two nodes. */
+/** Chart inputs for a paths result, with the start or end point the filter selected in the accent
+ *  color. */
 export function buildPathsGraph(
     paths: Paths,
     pathsFilter: PathsFilter,
@@ -32,23 +33,17 @@ export function buildPathsGraph(
         hasOutgoing.add(link.source)
         hasIncoming.add(link.target)
     }
-    const nodes = paths.nodes.map((node): SankeyNodeInput => {
-        const selected = isSelectedPathEndpoint(pathsFilter, funnelPathsFilter, {
-            name: stripStepPrefix(node.name),
-            isPathStart: !hasIncoming.has(node.name),
-            isPathEnd: !hasOutgoing.has(node.name),
-        })
-        return { id: node.name, color: selected ? colors.selectedNode : colors.node }
+    const { nodes, links } = buildPathsSankeyGraph(paths.links, {
+        linkColor: colors.link,
+        nodeColor: (key) =>
+            isSelectedPathEndpoint(pathsFilter, funnelPathsFilter, {
+                name: stripStepPrefix(key),
+                isPathStart: !hasIncoming.has(key),
+                isPathEnd: !hasOutgoing.has(key),
+            })
+                ? colors.selectedNode
+                : colors.node,
     })
-    const links = paths.links.map(
-        (link): SankeyLinkInput<PathsLink> => ({
-            source: link.source,
-            target: link.target,
-            value: link.value,
-            color: colors.link,
-            meta: link,
-        })
-    )
     return { nodes, links }
 }
 

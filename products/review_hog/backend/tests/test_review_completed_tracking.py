@@ -239,6 +239,7 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
+            "flash_coordinator": False,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
 
@@ -327,6 +328,7 @@ class TestTrackReviewCompleted(BaseTest):
             probability=0.03,
             model="jevk5",
             own_commits=2,
+            own_code_lines=14,
         )
 
         with (
@@ -355,10 +357,11 @@ class TestTrackReviewCompleted(BaseTest):
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
-        assert (props["skipped"], props["reason"], props["system_one_probability"]) == (
+        assert (props["skipped"], props["reason"], props["system_one_probability"], props["own_code_lines"]) == (
             True,
             "system_one_below_threshold",
             0.03,
+            14,
         )
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
 

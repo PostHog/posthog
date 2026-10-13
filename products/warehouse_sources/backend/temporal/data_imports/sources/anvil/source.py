@@ -55,7 +55,7 @@ class AnvilSource(ResumableSource[AnvilSourceConfig, AnvilResumeConfig]):
             category=DataWarehouseSourceCategory.SALES,
             label="Anvil",
             keywords=["useanvil.com", "e-signature", "pdf"],
-            caption="""Sync metadata about your Anvil documents into the PostHog Data warehouse: organizations, PDF templates (casts), workflows (welds), workflow submissions, and e-signature packets with their signer status.
+            caption="""Sync metadata about your Anvil documents into the PostHog Data warehouse: organizations, PDF templates (casts), workflows (welds), workflow submissions with their webforms and signers, e-signature packets with their signer status, and form and signing activity logs.
 
 Create an API key in your Anvil organization settings, under API settings. Development keys are rate limited to 4 requests per second, so large accounts sync faster with a production key.
 

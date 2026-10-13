@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import time_machine
@@ -11,6 +12,13 @@ from parameterized import parameterized
 from tenacity import Future, RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
     KlaviyoSourceConfig,
 )
@@ -21,15 +29,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.co
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
     KlaviyoConversionMetricError,
-    KlaviyoResumeConfig,
     KlaviyoRetryableError,
     _build_filter,
     _build_initial_params,
     _clamp_future_value_to_now,
     _format_incremental_value,
     _parse_retry_after,
-    get_rows,
-    klaviyo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     FORM_REPORT_STATISTICS,
@@ -40,6 +45,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KlaviyoValuesReportConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
+
+
+def _driver(conversion_metric_id: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        KlaviyoSource(), KlaviyoSourceConfig(api_key="pk_test", conversion_metric_id=conversion_metric_id)
+    )
+
+
+def _page(data: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=data)
+
+
+def _drive_pages(endpoint: str, pages: dict[str, Any], **inputs: Any) -> DriveResult:
+    responses = [value if isinstance(value, ScriptedResponse) else _page(value) for value in pages.values()]
+    result = _driver().run(endpoint, responses, **inputs)
+    expected = [urlsplit(url) for url in pages]
+    assert result.paths == [url.path for url in expected]
+    assert result.queries == [{name: tuple(values) for name, values in parse_qs(url.query).items()} for url in expected]
+    assert [request.origin for request in result.requests] == [f"{url.scheme}://{url.netloc}" for url in expected]
+    return result
+
+
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.rows for row in table.to_pylist()]
 
 
 class TestFormatIncrementalValue:
@@ -369,21 +398,6 @@ class TestFetchPageErrorDetail:
         assert self._url in str(exc_info.value)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: KlaviyoResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[KlaviyoResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> KlaviyoResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: KlaviyoResumeConfig) -> None:
-        self.saved.append(data)
-
-
 def _list_url(list_id: str, filter_value: str | None = None) -> str:
     filter_part = f"&filter={filter_value}" if filter_value else ""
     return (
@@ -393,32 +407,7 @@ def _list_url(list_id: str, filter_value: str | None = None) -> str:
 
 
 class TestListProfilesFanOut:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], **incremental: Any
-    ) -> list[dict]:
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            result = pages[url]
-            if isinstance(result, Exception):
-                raise result
-            return result
-
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-
-        rows: list[dict] = []
-        for table in get_rows(
-            api_key="pk_test",
-            endpoint="list_profiles",
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            **incremental,
-        ):
-            rows.extend(table.to_pylist())
-        return rows
-
-    def test_incremental_run_filters_with_lookback_on_every_list(self, monkeypatch: Any) -> None:
-        # Fixtures are keyed by exact URL, so this fails loudly (KeyError) if the fan-out stops
-        # forwarding the incremental inputs and silently reverts to a full refresh.
+    def test_incremental_run_filters_with_lookback_on_every_list(self) -> None:
         expected_filter = "greater-than(joined_group_at,2026-03-03T02:58:14.000Z)"
         pages = {
             "https://a.klaviyo.com/api/lists?page[size]=10": {
@@ -436,17 +425,18 @@ class TestListProfilesFanOut:
                 "links": {"next": None},
             },
         }
-        rows = self._collect(
-            _FakeResumableManager(),
-            monkeypatch,
+        result = _drive_pages(
+            "list_profiles",
             pages,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
             incremental_field="joined_group_at",
         )
-        assert rows == [{"list_id": "L1", "profile_id": "P1", "joined_group_at": "2026-03-04T01:00:00+00:00"}]
+        assert result.raised is None
+        assert result.params("filter") == [None, expected_filter, expected_filter]
+        assert _rows(result) == [{"list_id": "L1", "profile_id": "P1", "joined_group_at": "2026-03-04T01:00:00+00:00"}]
 
-    def test_follows_membership_pagination(self, monkeypatch: Any) -> None:
+    def test_follows_membership_pagination(self) -> None:
         next_url = "https://a.klaviyo.com/api/lists/L1/profiles?page[cursor]=abc"
         pages = {
             "https://a.klaviyo.com/api/lists?page[size]=10": {
@@ -466,14 +456,15 @@ class TestListProfilesFanOut:
                 "links": {"next": None},
             },
         }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
-        assert rows == [
+        result = _drive_pages("list_profiles", pages)
+        assert result.raised is None
+        assert result.params("page[cursor]") == [None, None, "abc"]
+        assert _rows(result) == [
             {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
             {"list_id": "L1", "profile_id": "P2", "joined_group_at": "2025-11-07T00:00:00+00:00"},
         ]
 
-    def test_list_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
-        not_found = requests.HTTPError(response=_response_with_status(404))
+    def test_list_deleted_mid_fan_out_is_skipped(self) -> None:
         pages = {
             "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}, {"id": "GONE"}, {"id": "L2"}],
@@ -485,7 +476,7 @@ class TestListProfilesFanOut:
                 ],
                 "links": {"next": None},
             },
-            _list_url("GONE"): not_found,
+            _list_url("GONE"): _page({"errors": []}, status=404),
             _list_url("L2"): {
                 "data": [
                     {"type": "profile", "id": "P2", "attributes": {"joined_group_at": "2025-12-01T09:30:00+00:00"}}
@@ -493,57 +484,44 @@ class TestListProfilesFanOut:
                 "links": {"next": None},
             },
         }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
-        assert rows == [
+        result = _drive_pages("list_profiles", pages)
+        assert result.raised is None
+        assert _rows(result) == [
             {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
             {"list_id": "L2", "profile_id": "P2", "joined_group_at": "2025-12-01T09:30:00+00:00"},
         ]
 
-    def test_non_404_http_error_propagates(self, monkeypatch: Any) -> None:
-        server_error = requests.HTTPError(response=_response_with_status(500))
-        pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=10": {
-                "data": [{"id": "L1"}],
-                "links": {"next": None},
-            },
-            _list_url("L1"): server_error,
-        }
-        with pytest.raises(requests.HTTPError):
-            self._collect(_FakeResumableManager(), monkeypatch, pages)
+    def test_non_404_http_error_propagates(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/lists":
+                return _page({"data": [{"id": "L1"}], "links": {"next": None}})
+            return _page({"errors": []}, status=500)
 
+        result = _driver().run("list_profiles", respond)
+        assert isinstance(result.raised, KlaviyoRetryableError)
+        assert set(result.paths) == {"/api/lists", "/api/lists/L1/profiles"}
 
-def _collect_rows(endpoint: str, monkeypatch: Any, pages: dict[str, Any], **kwargs: Any) -> list[dict]:
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None) -> dict:
-        result = pages[url]
-        if isinstance(result, Exception):
-            raise result
-        return result
+    def test_non_retryable_non_404_http_error_propagates(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/lists":
+                return _page({"data": [{"id": "L1"}], "links": {"next": None}})
+            return _page({"errors": []}, status=403)
 
-    monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-
-    rows: list[dict] = []
-    for table in get_rows(
-        api_key="pk_test",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(table.to_pylist())
-    return rows
+        result = _driver().run("list_profiles", respond)
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.raised.response is not None
+        assert result.raised.response.status_code == 403
 
 
 class TestGeneralizedFanOut:
-    def test_deleted_flow_is_skipped_while_enumerating_two_level_parents(self, monkeypatch: Any) -> None:
+    def test_deleted_flow_is_skipped_while_enumerating_two_level_parents(self) -> None:
         # A flow deleted between enumeration and the action fetch must not fail the whole sync.
         pages = {
             "https://a.klaviyo.com/api/flows?page[size]=50": {
                 "data": [{"id": "GONE"}, {"id": "F2"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/flows/GONE/flow-actions?page[size]=50": requests.HTTPError(
-                response=_response_with_status(404)
-            ),
+            "https://a.klaviyo.com/api/flows/GONE/flow-actions?page[size]=50": _page({"errors": []}, status=404),
             "https://a.klaviyo.com/api/flows/F2/flow-actions?page[size]=50": {
                 "data": [{"id": "A2"}],
                 "links": {"next": None},
@@ -553,8 +531,11 @@ class TestGeneralizedFanOut:
                 "links": {"next": None},
             },
         }
-        rows = _collect_rows("flow_messages", monkeypatch, pages)
-        assert rows == [{"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"}]
+        result = _drive_pages("flow_messages", pages)
+        assert result.raised is None
+        assert _rows(result) == [
+            {"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"}
+        ]
 
     @parameterized.expand(
         [
@@ -569,7 +550,7 @@ class TestGeneralizedFanOut:
 
 
 class TestProfilesSubscriptionsRoundTrip:
-    def test_suppression_and_consent_land_in_the_synced_row(self, monkeypatch: Any) -> None:
+    def test_suppression_and_consent_land_in_the_synced_row(self) -> None:
         # Suppression and consent status only exist inside the nested subscriptions object; if
         # flattening or batching drops or reshapes it, a team exporting unsubscribes before a
         # sending-platform migration silently loses exactly the profiles that must not be messaged.
@@ -614,7 +595,9 @@ class TestProfilesSubscriptionsRoundTrip:
             },
         }
 
-        rows = {row["id"]: row for row in _collect_rows("profiles", monkeypatch, pages)}
+        result = _drive_pages("profiles", pages)
+        assert result.raised is None
+        rows = {row["id"]: row for row in _rows(result)}
 
         assert rows["P_SUPPRESSED"]["email"] == "suppressed@example.com"
         assert json.loads(rows["P_SUPPRESSED"]["subscriptions"]) == suppressed_subscriptions
@@ -622,188 +605,144 @@ class TestProfilesSubscriptionsRoundTrip:
 
 
 class TestValuesReports:
-    @staticmethod
-    def _pages(report_path: str, results: list[dict], next_url: str | None = None) -> dict[str, Any]:
-        return {
-            "https://a.klaviyo.com/api/metrics": {
-                "data": [
-                    {"id": "M_OTHER", "attributes": {"name": "Viewed Product"}},
-                    {"id": "M_ORDER", "attributes": {"name": "Placed Order"}},
-                ],
-                "links": {"next": None},
-            },
-            f"https://a.klaviyo.com/api{report_path}": {
-                "data": {"type": "campaign-values-report", "attributes": {"results": results}},
-                "links": {"next": next_url},
-            },
-        }
-
-    def test_prefers_a_value_tracking_metric_over_the_accounts_first_metric(self, monkeypatch: Any) -> None:
+    def test_prefers_a_value_tracking_metric_over_the_accounts_first_metric(self) -> None:
         # Blindly taking the first metric picked an engagement metric that Klaviyo rejects for values
         # reporting. Resolution must prefer a value-tracking metric by name even when it is not first.
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            if json_body is not None:
-                return {
-                    "data": {
-                        "attributes": {"results": [{"groupings": {"campaign_id": "C1"}, "statistics": {"opens": 1}}]}
-                    },
-                    "links": {},
-                }
-            return {
-                "data": [
-                    {"id": "M_ENGAGEMENT", "attributes": {"name": "Viewed Product"}},
-                    {"id": "M_ORDERED", "attributes": {"name": "Ordered Product"}},
-                ],
-                "links": {},
-            }
+        result = _driver().run(
+            "campaign_values_reports",
+            [
+                _page(
+                    {
+                        "data": [
+                            {"id": "M_ENGAGEMENT", "attributes": {"name": "Viewed Product"}},
+                            {"id": "M_ORDERED", "attributes": {"name": "Ordered Product"}},
+                        ],
+                        "links": {},
+                    }
+                ),
+                _page(
+                    {
+                        "data": {
+                            "attributes": {
+                                "results": [{"groupings": {"campaign_id": "C1"}, "statistics": {"opens": 1}}]
+                            }
+                        },
+                        "links": {},
+                    }
+                ),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/metrics", "/api/campaign-values-reports"]
+        assert _rows(result)[0]["conversion_metric_id"] == "M_ORDERED"
+        assert result.requests[1].json()["data"]["attributes"]["conversion_metric_id"] == "M_ORDERED"
 
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        rows = [
-            row
-            for table in get_rows(
-                api_key="pk_test",
-                endpoint="campaign_values_reports",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-            )
-            for row in table.to_pylist()
-        ]
-
-        assert rows[0]["conversion_metric_id"] == "M_ORDERED"
-
-    def test_ineligible_conversion_metric_fails_the_sync_instead_of_finishing_empty(self, monkeypatch: Any) -> None:
+    def test_ineligible_conversion_metric_fails_the_sync_instead_of_finishing_empty(self) -> None:
         # Klaviyo rejects some metrics (e.g. system metrics) as conversion metrics for values
         # reports. Returning empty here finalized the run green with zero rows, so the broken table
         # looked healthy forever; the run must fail visibly with an actionable message instead.
-        response = _response_with_status(400)
-        response._content = (
+        body = (
             b'{"errors":[{"status":400,"code":"invalid","title":"Invalid input.",'
             b'"detail":"Passed in conversion metric does not support querying for values data",'
             b'"source":{"pointer":"/data/attributes/conversion_metric_id"}}]}'
         )
 
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            if json_body is not None:
-                raise requests.HTTPError(response=response)
-            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+        result = _driver().run(
+            "campaign_values_reports",
+            [
+                _page({"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}),
+                ScriptedResponse(status=400, body=body),
+            ],
+        )
+        assert isinstance(result.raised, KlaviyoConversionMetricError)
+        assert "isn't eligible for values reporting" in str(result.raised)
 
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        with pytest.raises(KlaviyoConversionMetricError, match="isn't eligible for values reporting"):
-            list(
-                get_rows(
-                    api_key="pk_test",
-                    endpoint="campaign_values_reports",
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
-
-    def test_unrelated_http_error_still_propagates(self, monkeypatch: Any) -> None:
+    def test_unrelated_http_error_still_propagates(self) -> None:
         # Only the ineligible-conversion-metric 400 becomes a KlaviyoConversionMetricError; any other
         # HTTP failure (e.g. a transient 500) must propagate unchanged so it keeps its own handling.
-        response = _response_with_status(500)
-        response._content = b'{"errors":[{"status":500,"title":"Internal Server Error"}]}'
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/metrics":
+                return _page({"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}})
+            return _page({"errors": [{"status": 500, "title": "Internal Server Error"}]}, status=500)
 
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            if json_body is not None:
-                raise requests.HTTPError(response=response)
-            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+        result = _driver().run("campaign_values_reports", respond)
+        assert isinstance(result.raised, KlaviyoRetryableError)
+        assert set(result.paths) == {"/api/metrics", "/api/campaign-values-reports"}
 
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        with pytest.raises(requests.HTTPError):
-            list(
-                get_rows(
-                    api_key="pk_test",
-                    endpoint="campaign_values_reports",
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
+    @pytest.mark.parametrize(
+        "status,body",
+        [
+            (400, b'{"errors":[{"status":400,"code":"invalid","detail":"Some other validation failure"}]}'),
+            (403, b'{"errors":[{"status":403,"code":"forbidden"}]}'),
+        ],
+    )
+    def test_a_report_error_other_than_an_ineligible_metric_propagates_as_the_http_error(
+        self, status: int, body: bytes
+    ) -> None:
+        result = _driver().run(
+            "campaign_values_reports",
+            [
+                _page({"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}),
+                ScriptedResponse(status=status, body=body),
+            ],
+        )
+        assert isinstance(result.raised, requests.HTTPError)
+        assert not isinstance(result.raised, KlaviyoConversionMetricError)
 
-    def test_account_with_no_metrics_fails_instead_of_posting_an_invalid_report(self, monkeypatch: Any) -> None:
+    def test_account_with_no_metrics_fails_instead_of_posting_an_invalid_report(self) -> None:
         # No conversion metric means no valid report to post. Failing loudly keeps the run from
         # finalizing green with zero rows against a table the user believes is syncing.
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            assert json_body is None, "must not post a report without a conversion metric"
-            return {"data": [], "links": {}}
-
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        with pytest.raises(KlaviyoConversionMetricError, match="needs a conversion metric"):
-            list(
-                get_rows(
-                    api_key="pk_test",
-                    endpoint="campaign_values_reports",
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
+        result = _driver().run("campaign_values_reports", [_page({"data": [], "links": {}})])
+        assert isinstance(result.raised, KlaviyoConversionMetricError)
+        assert "needs a conversion metric" in str(result.raised)
+        assert result.paths == ["/api/metrics"]
 
 
 class TestReportVariants:
     # Monday 03:30 UTC, which is still Sunday evening in the account's timezone. A window computed in
     # UTC would open a week later and end seven hours ahead of the account's clock.
     @time_machine.travel("2026-09-14T03:30:00Z", tick=False)
-    def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self, monkeypatch: Any) -> None:
+    def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self) -> None:
         # Series reports return each statistic as an array aligned to a top-level date_times list;
         # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
         # Klaviyo also 400s a series report missing the interval, so the body must carry it.
-        captured: dict[str, Any] = {}
-
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            if json_body is not None:
-                captured["body"] = json_body
-                return {
-                    "data": {
-                        "attributes": {
-                            "results": [
-                                {
-                                    "groupings": {
-                                        "flow_id": "F1",
-                                        "flow_message_id": "FM1",
-                                        "send_channel": "email",
-                                    },
-                                    "statistics": {"opens": [1, 2]},
-                                }
-                            ],
-                            "date_times": ["2026-01-05T00:00:00+00:00", "2026-01-12T00:00:00+00:00"],
-                        }
-                    },
-                    "links": {},
-                }
-            if url.endswith("/accounts"):
-                return {"data": [{"id": "A1", "attributes": {"timezone": "America/Los_Angeles"}}]}
-            return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
-
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        rows = [
-            row
-            for table in get_rows(
-                api_key="pk_test",
-                endpoint="flow_series_reports",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-            )
-            for row in table.to_pylist()
-        ]
-
-        attributes = captured["body"]["data"]["attributes"]
+        result = _driver().run(
+            "flow_series_reports",
+            [
+                _page({"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}),
+                _page({"data": [{"id": "A1", "attributes": {"timezone": "America/Los_Angeles"}}]}),
+                _page(
+                    {
+                        "data": {
+                            "attributes": {
+                                "results": [
+                                    {
+                                        "groupings": {
+                                            "flow_id": "F1",
+                                            "flow_message_id": "FM1",
+                                            "send_channel": "email",
+                                        },
+                                        "statistics": {"opens": [1, 2]},
+                                    }
+                                ],
+                                "date_times": ["2026-01-05T00:00:00+00:00", "2026-01-12T00:00:00+00:00"],
+                            }
+                        },
+                        "links": {},
+                    }
+                ),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/metrics", "/api/accounts", "/api/flow-series-reports"]
+        attributes = result.requests[-1].json()["data"]["attributes"]
         assert attributes["interval"] == "weekly"
         # Klaviyo rejects a weekly series report whose window is over 52 weeks, and rejects any
         # timeframe key it does not publish, so the window goes as a custom start/end pair. Klaviyo
         # ignores the offset on the pair and reads it in the account's timezone, so the pair must be
         # computed there: 51 weeks that open on a Monday and end at the account's current time.
         assert attributes["timeframe"] == {"start": "2025-09-22T00:00:00-07:00", "end": "2026-09-13T20:30:00-07:00"}
-        assert rows == [
+        assert _rows(result) == [
             {
                 "flow_id": "F1",
                 "flow_message_id": "FM1",
@@ -836,75 +775,48 @@ class TestReportVariants:
         # Form and segment reports don't accept a conversion_metric_id; sending one (or the group_by
         # segment reports also reject) 400s the request, and resolving one would cost a needless
         # /metrics walk on every sync.
-        captured: dict[str, Any] = {}
-        fetched_urls: list[str] = []
-
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            fetched_urls.append(url)
-            if json_body is not None:
-                captured["body"] = json_body
-                return {"data": {"attributes": {"results": []}}, "links": {}}
-            return {"data": [], "links": {}}
-
-        with patch.object(klaviyo, "_fetch_page", fake_fetch):
-            list(
-                get_rows(
-                    api_key="pk_test",
-                    endpoint=endpoint,
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
-
-        attributes = captured["body"]["data"]["attributes"]
-        assert captured["body"]["data"]["type"] == report_type
+        script = [_page({"data": {"attributes": {"results": []}}, "links": {}})]
+        if endpoint == "form_values_reports":
+            script.append(_page({"data": [], "links": {}}))
+        result = _driver().run(endpoint, script)
+        assert result.raised is None
+        body = result.requests[0].json()
+        attributes = body["data"]["attributes"]
+        assert body["data"]["type"] == report_type
         assert "conversion_metric_id" not in attributes
-        assert fetched_urls[0] == f"https://a.klaviyo.com/api{path}"
-        assert all("/metrics" not in url for url in fetched_urls)
+        assert result.paths[0] == f"/api{path}"
+        assert all("/metrics" not in url for url in result.urls)
         if expected_group_by is None:
             assert "group_by" not in attributes
         else:
             assert attributes["group_by"] == expected_group_by
 
     def test_form_values_report_lists_every_form_and_zero_fills_the_quiet_ones(self) -> None:
-        fetched_urls: list[str] = []
-
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            fetched_urls.append(url)
-            if json_body is not None:
-                return {
-                    "data": {
-                        "attributes": {
-                            "results": [
-                                {
-                                    "groupings": {"form_id": "FORM_ACTIVE"},
-                                    "statistics": {"viewed_form": 40, "submits": 4, "submit_rate": 0.1},
-                                }
-                            ]
-                        }
-                    },
-                    "links": {},
-                }
-            assert url.startswith("https://a.klaviyo.com/api/forms?")
-            return {"data": [{"id": "FORM_ACTIVE"}, {"id": "FORM_QUIET"}], "links": {}}
-
-        with patch.object(klaviyo, "_fetch_page", fake_fetch):
-            rows = [
-                row
-                for table in get_rows(
-                    api_key="pk_test",
-                    endpoint="form_values_reports",
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-                for row in table.to_pylist()
-            ]
-
-        by_form = {row["form_id"]: row for row in rows}
+        result = _driver().run(
+            "form_values_reports",
+            [
+                _page(
+                    {
+                        "data": {
+                            "attributes": {
+                                "results": [
+                                    {
+                                        "groupings": {"form_id": "FORM_ACTIVE"},
+                                        "statistics": {"viewed_form": 40, "submits": 4, "submit_rate": 0.1},
+                                    }
+                                ]
+                            }
+                        },
+                        "links": {},
+                    }
+                ),
+                _page({"data": [{"id": "FORM_ACTIVE"}, {"id": "FORM_QUIET"}], "links": {}}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/form-values-reports", "/api/forms"]
+        assert result.requests[1].param("page[size]") == "100"
+        by_form = {row["form_id"]: row for row in _rows(result)}
         assert set(by_form) == {"FORM_ACTIVE", "FORM_QUIET"}
         assert (by_form["FORM_ACTIVE"]["viewed_form"], by_form["FORM_ACTIVE"]["submits"]) == (40, 4)
         assert by_form["FORM_ACTIVE"]["submit_rate"] == 0.1
@@ -912,7 +824,7 @@ class TestReportVariants:
         assert quiet["timeframe_key"] == VALUES_REPORT_TIMEFRAME_KEY
         assert quiet["submit_rate"] is None
         assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
-        assert len(fetched_urls) == 2
+        assert len(result.requests) == 2
 
     @parameterized.expand(
         [
@@ -1055,13 +967,9 @@ class TestSourceResponseSortMode:
     def test_source_response_sort_mode(self, endpoint: str, expected: str) -> None:
         # "desc" defers watermark persistence to successful job end; reverting the fan-out to "asc"
         # per-batch persistence lets a crashed run advance the watermark past lists it never fetched.
-        response = klaviyo_source(
-            api_key="pk_test",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.sort_mode == expected
+        result = _driver().run(endpoint, [])
+        assert result.response is not None
+        assert result.response.sort_mode == expected
 
 
 class TestApiVersionThreadsToRevisionHeader:
@@ -1069,24 +977,9 @@ class TestApiVersionThreadsToRevisionHeader:
     def test_pinned_version_reaches_revision_header(self, api_version: str) -> None:
         # The resolved pin must reach Klaviyo's `revision` header, or a source pinned to a supported
         # revision would silently sync against whatever version the request layer hardcodes.
-        captured: dict[str, str] = {}
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            captured.update(headers)
-            return {"data": [], "links": {"next": None}}
-
-        with patch.object(klaviyo, "_fetch_page", fake_fetch):
-            list(
-                get_rows(
-                    api_key="pk_test",
-                    endpoint="events",
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                    api_version=api_version,
-                )
-            )
-
-        assert captured["revision"] == api_version
+        result = _driver().run("events", [_page({"data": [], "links": {"next": None}})], api_version=api_version)
+        assert result.raised is None
+        assert result.requests[0].headers["revision"] == api_version
 
 
 class TestValidateCredentialsResolvedPin:
@@ -1099,24 +992,18 @@ class TestValidateCredentialsResolvedPin:
         ]
     )
     def test_class_probe_threads_resolved_pin(self, pin: str | None, expected: str) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source.validate_klaviyo_credentials",
-            return_value=(True, None),
-        ) as mock_validate:
-            KlaviyoSource().validate_credentials(KlaviyoSourceConfig(api_key="pk_test"), 1, api_version=pin)
-
-        assert mock_validate.call_args.args[-1] == expected
+        with scripted_network([_page({})]) as network:
+            result = KlaviyoSource().validate_credentials(KlaviyoSourceConfig(api_key="pk_test"), 1, api_version=pin)
+        assert result == (True, None)
+        assert network.requests_log[0].headers["revision"] == expected
 
     @parameterized.expand([(KLAVIYO_API_VERSION_2024_10_15,), (KLAVIYO_API_VERSION_2026_07_15,)])
     def test_probe_sends_pin_as_revision_header(self, api_version: str) -> None:
         # A 2024-10-15-pinned source must validate on the same `revision` header it syncs with.
-        with patch.object(klaviyo, "make_tracked_session") as session_factory:
-            response = MagicMock(status_code=200)
-            session_factory.return_value.get.return_value = response
+        with scripted_network([_page({})]) as network:
             assert klaviyo.validate_credentials("pk_test", api_version) == (True, None)
-
-        headers = session_factory.return_value.get.call_args.kwargs["headers"]
-        assert headers["revision"] == api_version
+        assert network.requests_log[0].headers["revision"] == api_version
+        assert network.requests_log[0].path == "/api/accounts"
 
     @parameterized.expand(
         [
@@ -1126,9 +1013,9 @@ class TestValidateCredentialsResolvedPin:
         ]
     )
     def test_failure_status_picks_the_matching_message(self, status: int, expected: str) -> None:
-        with patch.object(klaviyo, "make_tracked_session") as session_factory:
-            session_factory.return_value.get.return_value = MagicMock(status_code=status)
+        with scripted_network([_page({}, status=status)]) as network:
             ok, error = klaviyo.validate_credentials("pk_test")
 
         assert ok is False
         assert error == expected
+        assert network.requests_log[0].path == "/api/accounts"

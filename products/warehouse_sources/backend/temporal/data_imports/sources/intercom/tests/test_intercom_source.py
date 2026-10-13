@@ -1,6 +1,11 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
@@ -53,20 +58,19 @@ class TestIntercomSource:
 
     @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), (None, "2.16")])
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.validate_intercom_credentials"
-    )
-    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
     )
-    def test_validate_credentials_probes_under_resolved_pin(self, mock_get_integration, mock_validate, pin, expected):
+    def test_validate_credentials_probes_under_resolved_pin(self, mock_get_integration, pin, expected):
         # The probe must run on the source's pin, not a hardcoded version — otherwise a
         # 2.13-pinned source validates against 2.15 and can report a scope it doesn't have.
         mock_get_integration.return_value = mock.MagicMock(access_token="token")
-        mock_validate.return_value = (True, None)
 
-        self.source.validate_credentials(self.config, self.team_id, api_version=pin)
+        with scripted_network([ScriptedResponse(status=200, json={"type": "admin"})]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id, api_version=pin)
 
-        assert mock_validate.call_args.kwargs["api_version"] == expected
+        assert result == (True, None)
+        assert network.requests_log[0].path == "/me"
+        assert network.requests_log[0].headers["intercom-version"] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
@@ -152,10 +156,7 @@ class TestIntercomSource:
     def test_source_for_pipeline_no_access_token_raises(self, mock_get_integration):
         mock_get_integration.return_value = mock.MagicMock(access_token=None)
 
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "job-1"
-        inputs.schema_name = "contacts"
+        result = SourceDriver(self.source, self.config).run("contacts", [], team_id=self.team_id, job_id="job-1")
 
-        with pytest.raises(ValueError, match="Intercom access token not found for job job-1"):
-            self.source.source_for_pipeline(self.config, self.manager, inputs)
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Intercom access token not found for job job-1"

@@ -12,6 +12,7 @@ from products.review_hog.backend.models import (
     ReviewRepository,
     ReviewUserSettings,
 )
+from products.review_hog.backend.reviewer.progress import run_outcome_markers
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 
@@ -174,6 +175,9 @@ class TestResolveActingUser(BaseTest):
         assert result.acting_user_id == (self.user.id if runs else None)
         report.refresh_from_db()
         assert report.status == (ReviewReport.Status.ACTIVE if runs else ReviewReport.Status.IDLE)
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        expected = [] if runs else [("skipped", "flash_after_full", 1, "flash")]
+        assert [(m.outcome, m.reason, m.run_index, m.review_mode) for m in markers] == expected
 
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved preferences must reach the workflow — if resolve stops loading any of them,

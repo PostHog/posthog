@@ -74,6 +74,23 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 - A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
 - `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
 
+## BarList
+
+Ranked rows: a label, a bar on a neutral track, and a value, one row per series.
+It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`.
+
+- It takes the same `series` as `PieChart` and values a row the same way, as the sum of its data floored at 0. Rows keep the order of `series`, so sort them first.
+- `config.scale: 'max'` (default) fills the track with the largest row. `'total'` makes the track the whole, so a bar shows its share.
+- `total` sets the whole that shares are taken of. It defaults to the sum of the rows. Set it when the rows are the top of a larger whole.
+- `config.valueDisplay` picks the value column: `'value'` (default), `'percent'`, or `'both'` for `share · value`. `valueFormatter` formats the value part and the tooltip.
+  With `labelPosition: 'start'`, a list narrower than 28rem shows only the share for `'both'`, so the bar keeps its room. The root is a size container for this query, so it takes its width from its parent and not from its content.
+- `renderLabel(series)` replaces the label cell content, for example with an icon or a link. The labels and values are DOM, outside the canvas, so a link in a label needs no overlay attribute.
+- `config.labelPosition: 'start'` (default) puts the label left of the bar and the value right of it. The label column sizes to its content up to 40% of the width and truncates past that. The value column sizes to its content, and the bar column takes the rest.
+- `config.labelPosition: 'top'` puts the label and the value on one line above the bar. Use it for long labels such as URL paths, or for narrow lists, because the bar and the label get the full width. The label line sits on top of the chart, so the tooltip shows only over the bar and its track.
+- Each row is `config.rowHeight` tall (default 28, or 40 for `'top'`) and each bar is `config.barHeight` thick (default 12, or 8 for `'top'`). The chart takes its height from the rows, so it does not need a parent with a fixed height.
+- The tooltip uses `hitArea: 'band'`, so a row reports its tooltip anywhere along its track. It shows the row label and the formatted value. A `tooltip` render prop replaces it, and `seriesData[0].series.meta` is the `meta` of the hovered row.
+- A non-zero row stays at least 4px long, so a row with a tiny share still shows next to the largest row.
+
 ## BoxPlot
 
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
@@ -99,8 +116,15 @@ There is no `series` or `labels`.
   `var(--…)` colors resolve inside the chart.
 - `nodeAlign` decides where a flow that ends early sits: `justify` (default) moves terminal nodes to the last column; `left` keeps each node at its own depth, which reads right when columns are stages.
   `preserveNodeOrder` keeps input order within a column instead of untangling ribbons.
-- `columnLabels` renders headers above each column and reserves room for them.
+  A node with `column` set is pinned there whatever its depth, and the graph grows to fit the highest pin; use it when the data names its own stage, so `columnLabels` stay truthful for flows that end early or start late.
+  Pin every node or none, because an unpinned node is placed by depth and ignores its neighbors' pins.
+  Pins must run forward along the links: a link whose target column is at or before its source's draws backwards, with no error.
+  A pin that is not a whole number from 0 to `MAX_SANKEY_COLUMN` throws.
+- `columnLabels` renders headers above each column and reserves room for them, added to any consumer `margins.top`; a header too wide for its column truncates.
   Node labels are DOM overlays beside each node, truncated to the free space before the next column; the last column's labels sit to its left.
+  `lastColumnLabels: 'outside'` moves the last column's labels to the right of the nodes and reserves a margin for them (capped at 160px and at half the plot width), so names in that column read in full on a narrow chart. The margin counts only the nodes that land in the last column under `nodeAlign`, and it adds to a consumer `margins.right` rather than being replaced by it.
+  Hovering a label counts as hovering its node, so a truncated name shows in full in the tooltip.
+  A label that would print over a larger neighbor's label in the same column is dropped; the tooltip still names that node.
   `showNodeValues` appends the node value.
 - Hovering a node lifts its ribbons and dims the rest of the graph; hovering a ribbon lifts just that ribbon.
   The default tooltip shows the node label or `source → target`, the value, and its share of `layout.total` (the summed value of source nodes with no incoming link).

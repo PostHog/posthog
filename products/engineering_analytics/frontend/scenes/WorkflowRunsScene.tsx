@@ -184,9 +184,10 @@ export function WorkflowRunsScene(): JSX.Element {
         {
             title: 'Branch',
             key: 'branch',
+            className: 'w-full max-w-0',
             render: (_, run) =>
                 run.headBranch ? (
-                    <span className="flex items-center gap-1.5 font-mono text-xs">
+                    <span className="flex min-w-0 items-center gap-1.5 font-mono text-xs">
                         {(run.headBranch === 'master' || run.headBranch === 'main') && (
                             <span
                                 className={cn(
@@ -195,7 +196,9 @@ export function WorkflowRunsScene(): JSX.Element {
                                 )}
                             />
                         )}
-                        {run.headBranch}
+                        <Tooltip title={run.headBranch}>
+                            <span className="truncate">{run.headBranch}</span>
+                        </Tooltip>
                     </span>
                 ) : (
                     <span className="text-xs text-secondary">—</span>
@@ -205,12 +208,13 @@ export function WorkflowRunsScene(): JSX.Element {
             title: 'Commit',
             key: 'commit',
             width: 90,
+            className: 'hidden @min-[48rem]/runs:table-cell',
             render: (_, run) =>
                 run.headSha ? (
                     <Link
                         to={githubCommitUrl(run.repoOwner, run.repoName, run.headSha)}
                         target="_blank"
-                        className="font-mono text-xs text-tertiary"
+                        className="font-mono text-xs whitespace-nowrap text-tertiary"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {run.headSha.slice(0, 7)}
@@ -223,6 +227,7 @@ export function WorkflowRunsScene(): JSX.Element {
             title: 'PR',
             key: 'pr',
             width: 80,
+            className: 'hidden @min-[40rem]/runs:table-cell',
             render: (_, run) =>
                 run.prNumber != null ? (
                     <Link
@@ -244,6 +249,7 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'attempt',
             width: 80,
             align: 'right',
+            className: 'hidden @min-[48rem]/runs:table-cell',
             render: (_, run) =>
                 (run.runAttempt ?? 1) > 1 ? (
                     <LemonTag type="warning">{run.runAttempt}</LemonTag>
@@ -458,7 +464,9 @@ export function WorkflowRunsScene(): JSX.Element {
                     )}
                 </Section>
                 <Section id="runs" title="Runs">
-                    <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                    {/* Container queries drop the secondary columns when the scene is narrow, so Duration and
+                        Started stay in view. */}
+                    <LemonCard hoverEffect={false} className="overflow-hidden p-0 @container/runs">
                         <LemonTable<WorkflowRunRow>
                             dataSource={runRows}
                             columns={runColumns}

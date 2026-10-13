@@ -29,6 +29,8 @@ const CHART_CONFIG: SankeyChartConfig = {
     nodeAlign: 'left',
     preserveNodeOrder: true,
     linkOpacity: 0.45,
+    // Outcome names sit in their own margin, so Completed and Error read in full on a narrow panel.
+    lastColumnLabels: 'outside',
 }
 
 function nodeFill(kind: JourneyNodeKind, theme: ChartTheme): string {

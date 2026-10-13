@@ -42,8 +42,8 @@
 #     to swap the finished dist in before it posts "ready". Cuts wall-clock:
 #     the FE build hides under the longer bring-up.
 #   - teardown on PR close + the daily stale-sweep: pr-closed.yml (box + pen) +
-#     hogbox-preview-cleanup.yml's cron. The GitHub Deployment/environment
-#     (preview-pr-<n>) is reaped by pr-cleanup.yml's existing deployment cleanup.
+#     hogbox-preview-cleanup.yml's cron. The GitHub Deployments live in the
+#     shared `hogbox-preview` environment with task `preview-pr-<n>`.
 #   - teardown fast path: the `teardown` job below fires when `hogbox-preview` is
 #     removed OR `no-preview` is added (the cron is the backstop); it also marks
 #     the Deployment inactive and flips the CI report section.
@@ -106,6 +106,10 @@ env:
     HOG_HOST: https://hogland.hedgehog-kitefin.ts.net
     HOG_OIDC_AUDIENCE: hogland.prod-us.posthog.dev
     PR: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+    # One shared GitHub environment for every PR, keyed per PR by the deployment
+    # task. GitHub creates an environment for each new deployment name, and a
+    # workflow token cannot delete environments, so a per-PR name leaks one each.
+    DEPLOY_ENVIRONMENT: hogbox-preview
 
 jobs:
     # ----------------------------------------------------------------------------
@@ -261,10 +265,10 @@ jobs:
                           sha = data.head.sha;
                       }
                       core.setOutput('sha', sha);
-                      const environment = `preview-pr-${pr}`;
+                      const environment = process.env.DEPLOY_ENVIRONMENT;
                       const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
                       const dep = await github.rest.repos.createDeployment({
-                          ...context.repo, ref: sha, environment, auto_merge: false,
+                          ...context.repo, ref: sha, environment, task: `preview-pr-${pr}`, auto_merge: false,
                           required_contexts: [], transient_environment: true, description: 'Hogbox preview',
                       });
                       core.setOutput('deployment_id', String(dep.data.id));
@@ -668,9 +672,8 @@ jobs:
                   URL: ${{ steps.build.outputs.url }}
               with:
                   script: |
-                      const pr = Number(process.env.PR);
                       const url = process.env.URL;
-                      const environment = `preview-pr-${pr}`;
+                      const environment = process.env.DEPLOY_ENVIRONMENT;
                       const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
                       // Honest wall-clock: run start (≈ the push) → now (usable).
                       // The full pipeline time a reviewer actually waited, not just
@@ -683,6 +686,8 @@ jobs:
                           await github.rest.repos.createDeploymentStatus({
                               ...context.repo, deployment_id: Number(process.env.DEP), state: 'success',
                               environment, environment_url: url, log_url: runUrl, description: 'Preview ready',
+                              // The environment is shared across PRs, so this status must never inactivate another PR's deployment.
+                              auto_inactive: false,
                           });
                       }
 
@@ -710,8 +715,7 @@ jobs:
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
-                      const pr = Number(process.env.PR);
-                      const environment = `preview-pr-${pr}`;
+                      const environment = process.env.DEPLOY_ENVIRONMENT;
                       const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
                       if (process.env.DEP) {
                           await github.rest.repos.createDeploymentStatus({
@@ -797,9 +801,8 @@ jobs:
               run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
 
             # Don't leave a green "ready" Deployment + section pointing at a box
-            # that no longer exists: mark every deployment of this PR's
-            # environment inactive and flip the CI report section. (The close path
-            # gets the same treatment from pr-cleanup.yml's deployment reaper.)
+            # that no longer exists: mark every deployment of this PR inactive
+            # and flip the CI report section.
             - name: Deactivate deployment
               if: always()
               continue-on-error: true
@@ -807,9 +810,9 @@ jobs:
               with:
                   script: |
                       const pr = Number(process.env.PR);
-                      const environment = `preview-pr-${pr}`;
+                      const environment = process.env.DEPLOY_ENVIRONMENT;
                       const deployments = await github.paginate(github.rest.repos.listDeployments,
-                          { ...context.repo, environment, per_page: 100 });
+                          { ...context.repo, environment, task: `preview-pr-${pr}`, per_page: 100 });
                       for (const d of deployments) {
                           await github.rest.repos.createDeploymentStatus({
                               ...context.repo, deployment_id: d.id, state: 'inactive',
