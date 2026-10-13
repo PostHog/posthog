@@ -20,7 +20,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, cast
 
-from django.db import InterfaceError, InternalError, OperationalError, transaction
+from django.db import InterfaceError, InternalError, OperationalError, close_old_connections, transaction
 
 import structlog
 from structlog.types import FilteringBoundLogger
@@ -34,7 +34,12 @@ from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.queue_runs.budgets import RETRY_WINDOW_MARGIN, claim_deadline, run_budget
+from products.warehouse_sources.backend.queue_runs.budgets import (
+    RETRY_WINDOW_MARGIN,
+    RunShape,
+    claim_deadline,
+    run_budget,
+)
 from products.warehouse_sources.backend.queue_runs.metrics import (
     ROWS_EXTRACTED_TOTAL,
     RUN_DURATION_SECONDS,
@@ -71,6 +76,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    get_v3_pipeline_lock_holder,
+)
 from products.warehouse_sources.backend.temporal.data_imports.run_control import (
     EventShutdownMonitor,
     RunControl,
@@ -137,6 +145,7 @@ class _Attempt:
     # Counted retries before this attempt, and the most this run may count.
     counted_retries: int
     max_counted_attempts: int
+    on_resumable_retry_budget: bool
     deadline: dt.datetime
 
 
@@ -166,9 +175,8 @@ class SyncExtractHandler:
     async def on_engine_failed(self, job: Job, reason: str) -> None:
         """Fail the run's job row when the engine failed the queue job without this handler.
 
-        Otherwise the row stays Running, and the overlap check then skips every later run of the
-        schema. The finalizer's terminal states absorb later writes, so a race with a real
-        terminal write is safe.
+        Otherwise the row stays Running with no run behind it. The finalizer's terminal states
+        absorb later writes, so a race with a real terminal write is safe.
         """
         payload = SyncExtractPayload.from_json(job.payload)
         with _job_log_context(payload, job, job.latest_attempt):
@@ -213,10 +221,8 @@ class SyncExtractHandler:
 
         existing = await database_sync_to_async_pool(_find_run_job)(payload.team_id, job.id)
 
-        if await database_sync_to_async_pool(_other_run_is_running)(
-            payload.team_id, payload.schema_id, existing.id if existing is not None else None
-        ):
-            await logger.ainfo("Skipping queue run: another run of this schema is running")
+        if await asyncio.to_thread(_sync_lock_held_by_another_run, payload.team_id, payload.schema_id, job.id):
+            await logger.ainfo("Skipping queue run: another run of this schema holds its sync lock")
             if existing is not None and existing.status == ExternalDataJob.Status.RUNNING:
                 # This run's own job row is left from an earlier attempt, and the other run replaces it.
                 await self._finalize(
@@ -284,7 +290,8 @@ class SyncExtractHandler:
         budget = run_budget(
             source_type=plan.source_type,
             incremental_or_append=plan.incremental_or_append,
-            keyset_full_load_enabled=plan.keyset_full_load_enabled,
+            schema_name=plan.schema_name,
+            failed_runs_in_a_row=plan.failed_runs_in_a_row,
         )
         history = await ctx.retry_history(job, uncounted_tag=SHUTDOWN_RETRY_TAG)
         run = _Attempt(
@@ -295,6 +302,7 @@ class SyncExtractHandler:
             plan=plan,
             counted_retries=history.counted_retries,
             max_counted_attempts=budget.max_attempts,
+            on_resumable_retry_budget=budget.shape == RunShape.RESUMABLE,
             deadline=claim_deadline(job.created_at),
         )
 
@@ -401,7 +409,7 @@ class SyncExtractHandler:
             reset_pipeline=payload.reset_pipeline,
             fast_return_eligible=plan.fast_return_eligible,
             scheduled_full_refresh=plan.scheduled_full_refresh,
-            keyset_full_load_enabled=plan.keyset_full_load_enabled,
+            on_resumable_retry_budget=run.on_resumable_retry_budget,
         )
 
         work = asyncio.create_task(_extract(inputs, logger, control))
@@ -634,18 +642,15 @@ def _find_run_job(team_id: int, queue_job_id: str) -> ExternalDataJob | None:
     )
 
 
-def _other_run_is_running(team_id: int, schema_id: Any, own_job_id: Any | None) -> bool:
-    """Whether another run of the schema is live, from either scheduler.
+def _sync_lock_held_by_another_run(team_id: int, schema_id: Any, own_token: str) -> bool:
+    """Whether another run of the schema is still in flight, from either scheduler.
 
-    Temporal skips a run that overlaps a live one, for manual triggers too. A queue run does the
-    same, so a Temporal run that is still going after the flag changed keeps the table to itself.
+    A Temporal run holds the V3 sync lock until its load step ends, and the lock expires. Job rows
+    do not answer this: a run that died can leave its row Running for good, and that row must not
+    stop the schema. When Redis is unavailable there is no holder to see, so the run goes ahead.
     """
-    running = ExternalDataJob.objects.filter(
-        team_id=team_id, schema_id=schema_id, status=ExternalDataJob.Status.RUNNING
-    )
-    if own_job_id is not None:
-        running = running.exclude(id=own_job_id)
-    return running.exists()
+    holder = get_v3_pipeline_lock_holder(team_id, str(schema_id))
+    return holder is not None and holder != own_token
 
 
 def _held_for_repartition(payload: SyncExtractPayload, logger: FilteringBoundLogger) -> bool:
@@ -668,6 +673,8 @@ def _validate_payload_and_eligibility(payload: SyncExtractPayload, *, lock: bool
 def _prepare_run_and_stamp(
     inputs: CreateExternalDataJobModelActivityInputs, payload: SyncExtractPayload, queue_job_id: str
 ) -> CreateExternalDataJobModelActivityOutputs:
+    # Inside the transaction below this would close the connection the transaction runs on.
+    close_old_connections()
     # The plan is part of creating a queue run: either both it and the job row commit, or neither
     # does. A retry can never observe the half-created row the former separate UPDATE allowed.
     with transaction.atomic():

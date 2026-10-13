@@ -3,18 +3,19 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+from unittest.mock import patch
 
 import psycopg
 
 from products.warehouse_sources_queue.backend.core.batch_consumer import BatchConsumerConfig, _group_by_key
 from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE, JOB_TABLE, Job, JobsTable
 from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
-from products.warehouse_sources_queue.backend.core.overlap import GroupJobState, OverlapPolicy, overlap_allows
 from products.warehouse_sources_queue.backend.core.metrics import (
     GENERIC_JOBS_CLAIMABLE,
     GENERIC_JOBS_CLAIMS_GATED_TOTAL,
     GENERIC_JOBS_OLDEST_UNCLAIMED_SECONDS,
 )
+from products.warehouse_sources_queue.backend.core.overlap import GroupJobState, OverlapPolicy, overlap_allows
 from products.warehouse_sources_queue.backend.sdk.jobs import (
     Fail,
     FollowerSpec,
@@ -711,7 +712,9 @@ class TestEngineFailedHook:
         await _left_executing_by_a_dead_pod(conn, job_id, 2)
         handler = _EngineFailureRecordingHandler(Success(), hook_error=RuntimeError("app db down"))
 
-        await _run_consumer_until_failed(conn, _db_url, handler, [job_id], max_attempts=2)
+        # The fleet-wide sweep slot outlives the test, so without this the retry never comes.
+        with patch.object(JobsTable, "RECOVERY_SWEEP_SLOT_TTL_SECONDS", 0):
+            await _run_consumer_until_failed(conn, _db_url, handler, [job_id], max_attempts=2)
 
         assert handler.seen == []
         assert [failed_id for failed_id, _ in handler.engine_failures] == [job_id, job_id]

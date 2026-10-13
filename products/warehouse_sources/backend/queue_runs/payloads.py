@@ -25,7 +25,10 @@ class SyncTrigger(enum.StrEnum):
 
 
 def group_key(team_id: int, schema_id: uuid.UUID | str) -> str:
-    """The lease key of a schema on the extract lane. One run of a schema executes at a time."""
+    """The group of a schema on the extract lane. One run of a schema executes at a time.
+
+    The consumer leases this group, and the scheduler's overlap policy reads the live jobs in it.
+    """
     return f"{team_id}:{schema_id}"
 
 

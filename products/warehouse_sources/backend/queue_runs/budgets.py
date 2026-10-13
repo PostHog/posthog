@@ -15,6 +15,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports import external_data_job
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
+    import_retry_budget,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
@@ -49,26 +50,31 @@ class RunBudget:
     timeout: timedelta
 
 
-def run_budget(*, source_type: str, incremental_or_append: bool, keyset_full_load_enabled: bool) -> RunBudget:
+def run_budget(
+    *, source_type: str, incremental_or_append: bool, schema_name: str, failed_runs_in_a_row: int
+) -> RunBudget:
     """The budget the workflow would give this run, with the long timeout cut to fit the queue."""
     source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     # Same test as the workflow: the class can resume, and its resume covers a run of this shape.
     if isinstance(source, ResumableSource) and source.resume_covers_run(
         incremental_or_append=incremental_or_append,
-        keyset_full_load_enabled=keyset_full_load_enabled,
+        schema_name=schema_name,
     ):
-        return RunBudget(
-            shape=RunShape.RESUMABLE,
-            max_attempts=external_data_job.MAX_RESUMABLE_SOURCE_RETRIES,
-            timeout=LONG_RUN_TIMEOUT,
+        shape, max_attempts, timeout = (
+            RunShape.RESUMABLE,
+            external_data_job.MAX_RESUMABLE_SOURCE_RETRIES,
+            LONG_RUN_TIMEOUT,
         )
-    if incremental_or_append:
-        return RunBudget(
-            shape=RunShape.INCREMENTAL,
-            max_attempts=external_data_job.MAX_INCREMENTAL_SOURCE_RETRIES,
-            timeout=LONG_RUN_TIMEOUT,
+    elif incremental_or_append:
+        shape, max_attempts, timeout = (
+            RunShape.INCREMENTAL,
+            external_data_job.MAX_INCREMENTAL_SOURCE_RETRIES,
+            LONG_RUN_TIMEOUT,
         )
-    return RunBudget(shape=RunShape.FULL_REFRESH, max_attempts=FULL_REFRESH_MAX_ATTEMPTS, timeout=FULL_REFRESH_TIMEOUT)
+    else:
+        shape, max_attempts, timeout = RunShape.FULL_REFRESH, FULL_REFRESH_MAX_ATTEMPTS, FULL_REFRESH_TIMEOUT
+    # The workflow cuts the cap the same way for a schema whose runs keep failing.
+    return RunBudget(shape=shape, max_attempts=import_retry_budget(max_attempts, failed_runs_in_a_row), timeout=timeout)
 
 
 def claim_deadline(job_created_at: datetime) -> datetime:

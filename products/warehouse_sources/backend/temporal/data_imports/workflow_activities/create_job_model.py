@@ -367,6 +367,7 @@ class CreateExternalDataJobModelActivityOutputs:
 def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
 ) -> CreateExternalDataJobModelActivityOutputs:
+    close_old_connections()
     info = activity.info()
     return prepare_run(inputs, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id, verify_v3_lock=True)
 
@@ -385,8 +386,6 @@ def prepare_run(
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
-
-    close_old_connections()
 
     # Kept out of the try below so the generic handler does not log a stack trace for a
     # deletion race that the activity handles.

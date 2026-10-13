@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.management.commands.report_warehouse_sch
     parse_schedule_fired_at,
 )
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.queue_runs.payloads import EXTRACT_LANE, SYNC_EXTRACT_KIND, group_key
 from products.warehouse_sources.backend.scheduling import runner as scheduler_runner
 from products.warehouse_sources.backend.scheduling.runner import ShadowScheduler, ShadowSchedulerConfig
 from products.warehouse_sources.backend.scheduling.shadow import (
@@ -35,15 +36,12 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     DECISION_SKIP_OUT_OF_SCOPE,
     DECISION_SKIP_OVERLAP,
     DECISION_WOULD_FIRE,
-    SYNC_EXTRACT_KIND,
-    SYNC_EXTRACT_LANE,
     EvaluationResult,
     SchemaCadence,
     evaluate_due,
     fetch_in_scope_schema_page,
     latest_fire_at,
     next_due_after,
-    queue_group_key,
     schedule_offset,
     window_boundary,
 )
@@ -234,8 +232,8 @@ def _seed_extract_job(db_url: str, team_id: int, schema_id: str, state: str) -> 
             job_id = await JobsTable.insert(
                 conn,
                 kind=SYNC_EXTRACT_KIND,
-                lane=SYNC_EXTRACT_LANE,
-                group_key=queue_group_key(team_id, schema_id),
+                lane=EXTRACT_LANE,
+                group_key=group_key(team_id, schema_id),
                 team_id=team_id,
                 payload={},
             )

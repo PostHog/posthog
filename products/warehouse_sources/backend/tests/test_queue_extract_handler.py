@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     SYNC_RUN_STALLED_MESSAGE,
     SYNC_RUN_TOO_LONG_MESSAGE,
     WORKER_RESTART_ERROR_MESSAGE,
+    _update_job_status,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
@@ -192,8 +193,11 @@ def boundaries() -> Any:
         patch("posthoganalytics.capture"),
         patch(f"{HANDLER}.aworkload_reporting", _no_workload_reporting),
         patch(f"{POST_EXTRACTION}.create_warehouse_templates_for_source") as create_templates,
+        patch(f"{HANDLER}.get_v3_pipeline_lock_holder", return_value=None) as lock_holder,
     ):
-        yield MagicMock(update_should_sync=update_should_sync, create_templates=create_templates)
+        yield MagicMock(
+            update_should_sync=update_should_sync, create_templates=create_templates, lock_holder=lock_holder
+        )
 
 
 @pytest.fixture
@@ -684,17 +688,6 @@ async def test_payload_source_must_belong_to_the_schema(
     assert await sync_to_async(ExternalDataJob.objects.filter(schema_id=schema.id).exists)() is False
 
 
-def _running_temporal_job(schema: ExternalDataSchema) -> None:
-    ExternalDataJob.objects.create(
-        team_id=schema.team_id,
-        pipeline_id=schema.source_id,
-        schema=schema,
-        status=ExternalDataJob.Status.RUNNING,
-        workflow_id=str(schema.id),
-        workflow_run_id="temporal-run",
-    )
-
-
 def _staged_repartition_swap(schema: ExternalDataSchema) -> None:
     schema.sync_type_config = {
         **(schema.sync_type_config or {}),
@@ -706,7 +699,6 @@ def _staged_repartition_swap(schema: ExternalDataSchema) -> None:
 @pytest.mark.parametrize(
     "setup,expected_jobs",
     [
-        pytest.param(_running_temporal_job, 1, id="overlaps_a_running_temporal_run"),
         pytest.param(_staged_repartition_swap, 0, id="held_for_repartition"),
     ],
 )
@@ -731,6 +723,56 @@ async def test_a_run_that_cannot_start_ends_without_a_job_row(
     rows = await sync_to_async(_jobs)(schema)
     assert len(rows) == expected_jobs
     assert all(row.workflow_run_id != job.id for row in rows)
+
+
+def _orphaned_running_job(schema: ExternalDataSchema) -> None:
+    # A run that died without a status write leaves its row Running long after the run is gone.
+    orphan = ExternalDataJob.objects.create(
+        team_id=schema.team_id,
+        pipeline_id=schema.source_id,
+        schema=schema,
+        status=ExternalDataJob.Status.RUNNING,
+        workflow_id=str(schema.id),
+        workflow_run_id="dead-temporal-run",
+    )
+    ExternalDataJob.objects.filter(id=orphan.id).update(created_at=FIRE_AT - dt.timedelta(days=90))
+
+
+OWN_RUN = object()
+
+
+@pytest.mark.parametrize(
+    "lock_holder,orphaned_row,expect_run",
+    [
+        pytest.param("temporal-run", False, False, id="another_run_holds_the_sync_lock"),
+        pytest.param(OWN_RUN, False, True, id="its_own_token_holds_the_sync_lock"),
+        pytest.param(None, True, True, id="an_orphaned_running_job_row_does_not_block_it"),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_overlap_is_decided_by_the_sync_lock_not_by_job_rows(
+    lock_holder: object,
+    orphaned_row: bool,
+    expect_run: bool,
+    boundaries: MagicMock,
+    schema: ExternalDataSchema,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    if orphaned_row:
+        await sync_to_async(_orphaned_running_job)(schema)
+    job = await _claim(conn, _payload(schema))
+    boundaries.lock_holder.return_value = job.id if lock_holder is OWN_RUN else lock_holder
+    extraction = _FakeExtraction(_returns(WITH_BATCHES))
+
+    outcome = await _handle(_handler(temporal), job, _ctx(_db_url), extraction)
+
+    assert outcome == Success()
+    assert len(extraction.controls) == (1 if expect_run else 0)
+    own_rows = [row for row in await sync_to_async(_jobs)(schema) if row.workflow_run_id == job.id]
+    assert len(own_rows) == (1 if expect_run else 0)
 
 
 @pytest.mark.parametrize(
@@ -872,6 +914,17 @@ def _keep_row(row: ExternalDataJob) -> None:
     return
 
 
+def _fails_once_then_finalizes(error: Exception) -> Callable[..., Awaitable[None]]:
+    errors = [error]
+
+    async def update_job_status(*args: Any, **kwargs: Any) -> None:
+        if errors:
+            raise errors.pop()
+        await _update_job_status(*args, **kwargs)
+
+    return update_job_status
+
+
 @pytest.mark.parametrize(
     "engine_path,change_row,finalizer_error,expected_status",
     [
@@ -928,9 +981,11 @@ async def test_a_job_the_engine_fails_by_itself_fails_its_run(
 
     with (
         patch(f"{HANDLER}.run_extraction", extraction),
-        patch(f"{HANDLER}._update_job_status", AsyncMock(side_effect=[finalizer_error, None]))
+        patch(f"{HANDLER}._update_job_status", _fails_once_then_finalizes(finalizer_error))
         if finalizer_error
         else contextlib.nullcontext(),
+        # The fleet-wide sweep slot outlives the test, so a retried hook would never run again.
+        patch.object(JobsTable, "RECOVERY_SWEEP_SLOT_TTL_SECONDS", 0),
     ):
         run_task = asyncio.create_task(consumer.run())
         try:

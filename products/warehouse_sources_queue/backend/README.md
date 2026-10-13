@@ -212,7 +212,12 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
 
 1. Claim: the engine leases the group `"{team_id}:{schema_id}"` on the extract lane, so one run of a schema executes at a time.
    A closed claim gate (`--min-free-memory-mb`) makes a poll claim nothing and increments `warehouse_jobs_claims_gated_total`.
-2. Checks: when another `ExternalDataJob` of the schema is `Running`, from either scheduler, the handler ends the job with no run (`skipped_overlap`).
+2. Checks: the handler never reads `ExternalDataJob` rows to decide overlap.
+   A run that dies without a status write can leave its row `Running` for good, and such a row must not stop the schema.
+   Overlap between scheduled windows is decided when the job is enqueued, by the kind's `OverlapPolicy` against the live jobs in `queuejob` (`sync.extract` uses `SKIP`).
+   A run that is still in flight outside the queue (a Temporal run at cutover, or its load step) holds the V3 sync lock `v3_pipeline_lock:{team_id}:{schema_id}`, which expires.
+   When another run holds that lock, the handler ends the job as skipped (`Success`, `warehouse_extract_runs_skipped_total{reason="overlap"}`) before it creates a job row.
+   When Redis is unavailable, the handler sees no holder and the run goes ahead.
    A schema that a repartition holds is also skipped, because queue runs never run the repartition step.
 3. Job row: the first attempt calls `prepare_run` and creates the `ExternalDataJob`.
    The row gets `workflow_id` from the payload, `workflow_run_id` = the queue job id, and `phase = extracting`.
@@ -235,7 +240,7 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
 - The engine fails a job without its handler at its own attempt cap: at the claim, or in the recovery sweep.
   A handler that implements `EngineFailureHandler.on_engine_failed` hears about each such job after the queue-side `failed` write, and about a job the engine fails after a `Retry` or an exception.
   The engine logs and ignores errors from the hook and gives it 30s, so it cannot stop a sweep. It does not call the hook for a job whose handler returned `Fail`.
-  `SyncExtractHandler` uses it to write `Failed` on the run's job row, which otherwise stays `Running` and makes every later run of the schema skip as an overlap.
+  `SyncExtractHandler` uses it to write `Failed` on the run's job row, which otherwise stays `Running` with no run behind it.
 - On SIGTERM the engine sets its shutdown event. The run stops at its next shutdown check, releases its held batch and commits its resume state, and the handler returns a `Retry` tagged `{"reason": "shutdown"}`.
   The job row stays `Running`, and the next attempt continues under it.
   Tagged retries do not count against the cap.

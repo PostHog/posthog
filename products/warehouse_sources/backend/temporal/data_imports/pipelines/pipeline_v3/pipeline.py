@@ -2,8 +2,7 @@ import time
 import asyncio
 import datetime
 import contextlib
-from collections.abc import AsyncGenerator, AsyncIterator
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any, Generic
 
 import pyarrow as pa
