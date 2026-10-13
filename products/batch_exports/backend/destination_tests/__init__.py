@@ -23,6 +23,13 @@ def get_destination_test(
         from products.batch_exports.backend.destination_tests.bigquery import BigQueryDestinationTest  # noqa: PLC0415
 
         return BigQueryDestinationTest()
+    elif destination == "BigQueryCreateDataset":
+        # Not a batch export destination: batch exports require the dataset to exist.
+        from products.batch_exports.backend.destination_tests.bigquery_create_dataset import (  # noqa: PLC0415
+            BigQueryCreateDatasetDestinationTest,
+        )
+
+        return BigQueryCreateDatasetDestinationTest()
     elif destination == "Snowflake":
         from products.batch_exports.backend.destination_tests.snowflake import SnowflakeDestinationTest  # noqa: PLC0415
 
