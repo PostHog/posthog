@@ -346,13 +346,13 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
             (overview: ReviewRepositoryOverviewApi | null): number =>
                 Math.max(1, Math.ceil((overview?.total ?? 0) / REPOSITORIES_PAGE_SIZE)),
         ],
-        // Back to the Settings tab after GitHub authorizes, so the user lands on the claim picker.
+        // Back to the Project settings tab after GitHub authorizes, so the user lands on the claim picker.
         connectGitHubUrl: [
             (s) => [s.currentTeamId],
             (currentTeamId: number | null): string =>
                 `${getIntegrationsAuthorizeRetrieveUrl(String(currentTeamId))}?${new URLSearchParams({
                     kind: 'github',
-                    next: combineUrl(urls.codeReview(), { tab: 'settings' }).url,
+                    next: combineUrl(urls.codeReview(), { tab: 'project' }).url,
                 })}`,
         ],
     }),

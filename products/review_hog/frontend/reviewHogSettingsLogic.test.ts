@@ -321,7 +321,7 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadReviewsSuccess', 'applyDefaultReviewsScope', 'loadReviewsSuccess'])
             .toFinishAllListeners()
-        // The Settings tab's skill counts read the viewer's own Deep reviews, so the Activity switch
+        // The My preferences tab's skill counts read the viewer's own Deep reviews, so the Activity switch
         // must never reload or rescope them.
         const ownDeepLoads = statsScopes.filter((scope) => scope === 'own_deep').length
         expect(ownDeepLoads).toBe(1)

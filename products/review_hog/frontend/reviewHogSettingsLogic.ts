@@ -838,7 +838,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 },
             },
         ],
-        // The review skills on the Settings tab: the viewer's own last Deep reviews, whatever the
+        // The review skills on the My preferences tab: the viewer's own last Deep reviews, whatever the
         // Activity tab's Mine / Everyone switch says, because only the person who starts a Deep
         // review picks its skills.
         deepSkillStats: [
@@ -1017,7 +1017,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             },
         ],
         // The "Mine / Everyone" filter on the reviews table: it scopes the list AND every stat
-        // surface fed by perspectiveStats (proof card, effectiveness cards on the Settings tab).
+        // surface fed by perspectiveStats (proof card, effectiveness cards on the My preferences tab).
         // Skill lists and their toggles stay per-user regardless.
         reviewsScope: [
             ReviewHogReviewsListScope.Mine as ReviewHogReviewsListScope,
@@ -1655,7 +1655,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     // can be shared via a link; the default scope keeps the URL clean. The auto-default deliberately
     // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
     // the fallback would silently upgrade it into a permanent explicit choice on reload.
-    // The tab mirrors to `?tab=settings` so a link can open the Settings tab; Activity keeps the URL clean.
+    // The tab mirrors to `?tab=` so a link can open My preferences or Project settings; Activity keeps the URL clean.
     // The table's filters and page mirror to `reviews_*` params the same way, so a filtered view
     // can be shared too; each default keeps its param out of the URL.
     // The drawer mirrors to `?review=<report id>` the same way — a PERMANENT PUBLIC CONTRACT (PR
