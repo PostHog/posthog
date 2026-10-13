@@ -58,7 +58,7 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       .github/scripts/report_workflow_run_traces.py
-                      .github/scripts/depot_scheduled_runs.py
+                      .github/scripts/depot_backend_runs.py
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
