@@ -282,7 +282,7 @@ export interface visualReviewSnapshotOverviewSceneLogicMeta {
             filters: Filters
         ) => FacetGroups
         facetSelection: (filters: Filters) => FacetSelection
-        thumbnailBasePath: (currentProjectId: number | string, overviewRepoId: any) => string | null
+        thumbnailBasePath: (currentProjectId: number | string, overviewRepoId: string | null) => string | null
         breadcrumbs: (repo: RepoApi | null, repoFullName: string) => Breadcrumb[]
     }
 }
