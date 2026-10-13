@@ -2799,7 +2799,21 @@ def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_eva
 
 
 @pytest.mark.django_db
-def test_immediate_event_deletion_skips_flag_evaluations(cluster: ClickhouseCluster) -> None:
+@pytest.mark.parametrize(
+    "events, delete_all_events, hogql_predicate, surviving_flag_evaluations",
+    [
+        pytest.param([FLAG_EVALUATIONS_SOURCE_EVENT], False, "", 0, id="named_event"),
+        pytest.param([], True, "", 0, id="all_events"),
+        pytest.param([FLAG_EVALUATIONS_SOURCE_EVENT], False, "properties.$browser = 'Chrome'", 1, id="hogql_predicate"),
+    ],
+)
+def test_immediate_event_deletion_of_flag_evaluations(
+    cluster: ClickhouseCluster,
+    events: list[str],
+    delete_all_events: bool,
+    hogql_predicate: str,
+    surviving_flag_evaluations: int,
+) -> None:
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
@@ -2826,13 +2840,14 @@ def test_immediate_event_deletion_skips_flag_evaluations(cluster: ClickhouseClus
         team_id=team.id,
         start_time=now - timedelta(days=7),
         end_time=now + timedelta(minutes=1),
-        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
-        hogql_predicate="properties.$browser = 'Chrome'",
+        events=events,
+        delete_all_events=delete_all_events,
+        hogql_predicate=hogql_predicate,
     )
     _run_event_deletion(cluster, deletion_ctx)
 
     assert cluster.any_host(partial(_count_events_by_name, team.id, FLAG_EVALUATIONS_SOURCE_EVENT)).result() == 0
-    assert len(cluster.any_host(partial(_flag_evaluation_person_ids, team.id)).result()) == 1
+    assert len(cluster.any_host(partial(_flag_evaluation_person_ids, team.id)).result()) == surviving_flag_evaluations
 
     cluster.any_host(_truncate_flag_evaluations).result()
 
