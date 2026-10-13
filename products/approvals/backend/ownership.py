@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Optional
 
-import posthoganalytics
+from posthog.ph_client import feature_enabled_or_false
 
 # A recorded classification meaning "nothing owned this resource". It is distinct from NULL,
 # which means no classification was recorded at all: a request created before the column
@@ -21,7 +21,7 @@ def owner_kind_changed(recorded: Optional[str], current: Optional[str]) -> bool:
     return recorded != current
 
 
-# Narrowing removes approval coverage from about 72% of production flags, so it rolls out per
+# Narrowing takes every product-owned flag out of `feature_flag.*` coverage, so it rolls out per
 # organization rather than all at once. Off, every family behaves as it did before narrowing:
 # `feature_flag.*` covers every flag and the owner-scoped families match nothing.
 SCOPE_BY_OWNER_FLAG = "approvals-scope-by-flag-owner"
@@ -35,16 +35,13 @@ def scope_by_owner_enabled(organization) -> bool:
     """
     if organization is None:
         return False
-    return (
-        posthoganalytics.feature_enabled(
-            SCOPE_BY_OWNER_FLAG,
-            f"org-{organization.id}",
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        is True
+    return feature_enabled_or_false(
+        SCOPE_BY_OWNER_FLAG,
+        f"org-{organization.id}",
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
     )
 
 
