@@ -233,3 +233,16 @@ The full search connection card appears only when no search source is connected,
 
 The rescan cooldown uses the server scan time. Failed plan requests can retry without a fresh scan.
 Search controls and the Search Console connection action remain available during paid sync.
+
+Source refresh failures preserve the last successful source list and retry with a bounded backoff while the onboarding flow is mounted.
+An initial connection failure offers a retry in both paid and search sections.
+The one-hour rescan cooldown uses the server's seven-day source scan timestamp; loading a cached plan does not start a new cooldown.
+A failed plan request can retry during the cooldown without forcing an event scan.
+Dashboard dismissals share Setup's restore controls; existing dashboard dismissals migrate to the shared list.
+When all detected platforms are dismissed, the card offers Restore suggestions instead of reporting no detections.
+Required tables that are missing, disabled, failed, paused, or canceled show Needs attention with a Manage source link before the first sync.
+Search date and comparison controls remain available with only Search Console connected, and Search Console can be connected while paid sources sync.
+Background source refreshes keep the Search performance table mounted.
+Manual source setup opens with the originating project in the URL.
+
+The redesigned dashboard preserves its existing source suggestions and dashboard view when source onboarding is disabled.
