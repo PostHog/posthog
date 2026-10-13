@@ -719,7 +719,7 @@ export interface hogFunctionConfigurationLogicMeta {
         surveyIdFromFilters: (configuration: HogFunctionConfigurationType) => string | null
         type: (configuration: HogFunctionConfigurationType, hogFunction: HogFunctionType | null) => HogFunctionTypeType
         hasGroupsAddon: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
         useMapping: (
             hogFunction: HogFunctionType | null,
@@ -752,8 +752,7 @@ export interface hogFunctionConfigurationLogicMeta {
             currentProject: ProjectType | null,
             groupTypes: Map<GroupTypeIndex, GroupType>,
             contextId: HogFunctionConfigurationContextId,
-            survey: Survey | null,
-            hogFunction: HogFunctionType | null
+            survey: Survey | null
         ) => CyclotronJobInvocationGlobals
         sampleGlobalsWithInputs: (
             sampleGlobals: CyclotronJobInvocationGlobals | null,
@@ -1403,14 +1402,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey, s.hogFunction],
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
             (
                 configuration: HogFunctionConfigurationType,
                 currentProject: null | import('~/types').ProjectType,
                 groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 contextId: HogFunctionConfigurationContextId,
-                survey: Survey | null,
-                hogFunction: HogFunctionType | null
+                survey: Survey | null
             ): CyclotronJobInvocationGlobals => {
                 // Log transformations are seeded with a sample record (no event), so the inline
                 // tester shows something useful to run against instead of an empty object.
@@ -1428,7 +1426,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const eventId = uuid()
                 const personId = uuid()
                 const source = {
-                    id: hogFunction?.id ?? '00000000-0000-0000-0000-000000000000',
                     name: configuration?.name ?? 'Unnamed',
                     url: currentUrl,
                 }
