@@ -986,7 +986,7 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
     enabled = models.BooleanField(default=True)
     triggers = models.JSONField(default=list)  # list of Trigger values
     # Same property-filter shape hog functions store, with the compiled HogQL bytecode
-    # embedded under "bytecode" (see posthog.cdp.filters.compile_filters_bytecode).
+    # embedded under "bytecode" (see products.cdp.backend.filters.compile_filters_bytecode).
     filters = models.JSONField(default=dict, blank=True)
     # Minimum seconds between thread-opening notifications per (alert, issue).
     # Replies into an existing thread are never throttled. 0 disables the throttle.

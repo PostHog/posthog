@@ -4374,7 +4374,7 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         repository, pr_number = reference
-        user_github = UserGitHubIntegration(user_integration)
+        user_github = UserGitHubIntegration(user_integration, source="signals_api", priority=Priority.CRITICAL)
         if comment_id is not None:
             lookup = self._run_user_github_write(
                 lambda: user_github.get_pull_request_review_comment(repository, comment_id),
@@ -5741,7 +5741,9 @@ class SignalReportArtefactViewSet(
         # PRs). That connection boundary is the intended scope — any `task:write` holder can already
         # run agents against those same repos — and the repo/ref values are validated in `get_diff`.
         try:
-            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+            github = GitHubIntegration.first_for_team_repository(
+                self.team.id, repository, source="signals_api", priority=Priority.CRITICAL
+            )
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if github is None:
