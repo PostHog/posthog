@@ -127,6 +127,18 @@ function noMetricChecks(input: HealthDebugInput): HealthDebugCheck[] {
     ]
 }
 
+function flagVariantsChecks(input: HealthDebugInput): HealthDebugCheck[] {
+    return [
+        {
+            check: 'flag_variants_mismatch',
+            source: 'server',
+            result: serverResult(input.health, (code) => code === 'flag_variants_mismatch'),
+            note: null,
+            differs: false,
+        },
+    ]
+}
+
 function forcedVariantChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const finding = input.health?.findings.find(({ code }) => code === 'forced_variant_release_condition')
     return [
@@ -208,6 +220,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         ...flagStateChecks(input),
+        ...flagVariantsChecks(input),
         ...forcedVariantChecks(input),
         ...noMetricChecks(input),
         ...exposureChecks(input),
