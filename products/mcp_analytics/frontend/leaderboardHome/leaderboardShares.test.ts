@@ -1,16 +1,17 @@
+import { modelRowLabels } from '../aiLabs'
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
     type LabShare,
     buildLabShares,
     buildLabUserShares,
+    buildModelShareSeries,
     buildReliabilitySeries,
     harnessErrorRateRows,
-    labSqlExpression,
     buildShareSeries,
     hasKnownLabels,
     leadingLabs,
-    modelLab,
+    modelRowsFromBuckets,
     toReliabilityRows,
     topFacetRows,
     type ReliabilityRow,
@@ -22,16 +23,30 @@ const labShare = (lab: LabShare['lab'], share: number): LabShare => ({ lab, shar
 const windowRow = (label: string, calls: number): WindowFacetRow => ({ label, calls, users: 1, errors: 0 })
 
 describe('leaderboardShares', () => {
-    test.each([
-        ['claude-opus-4-5', 'Anthropic'],
-        ['gpt-5-codex', 'OpenAI'],
-        ['gpt-oss-120b', 'Open weights'],
-        ['gemini-2.5-pro', 'Google'],
-        ['grok-4', 'xAI'],
-        ['composer-1', 'Cursor'],
-        ['some-new-model', 'Other'],
-    ])('modelLab(%s) is %s', (model, lab) => {
-        expect(modelLab(model)).toEqual(lab)
+    it('names the top models and lone leftovers, folds the rest per lab, and orders series by lab', () => {
+        const rows = [
+            row('d1', 'gpt-6', 50),
+            row('d1', 'claude-opus-5-5', 40),
+            row('d1', 'claude-haiku-5', 5),
+            row('d1', 'claude-opus-4-8', 2),
+            row('d1', 'gpt-5', 4),
+            row('d1', 'grok-4.7', 3),
+            row('d1', 'example-custom-model', 2),
+            row('d1', 'Other', 1),
+            row('d1', 'Unknown', 99),
+        ]
+        const rowLabels = modelRowLabels(
+            rows.map((row) => row.label).filter((label) => label !== 'Unknown'),
+            new Set(['gpt-6', 'claude-opus-5-5'])
+        )
+        expect(buildModelShareSeries(rows, ['d1'], rowLabels)).toEqual([
+            { label: 'claude-opus-5-5', data: [40] },
+            { label: 'Other Anthropic models', data: [7] },
+            { label: 'gpt-6', data: [50] },
+            { label: 'gpt-5', data: [4] },
+            { label: 'grok-4.7', data: [3] },
+            { label: 'Other models', data: [3] },
+        ])
     })
 
     it('groups per bucket, drops null groups and folds the tail into a final Other series', () => {
@@ -49,6 +64,28 @@ describe('leaderboardShares', () => {
             { label: 'a', data: [5, 5] },
             { label: 'b', data: [3, 0] },
             { label: 'Other', data: [1, 1] },
+        ])
+    })
+
+    it('uses model names to break ties between model series in one lab', () => {
+        const rows = [row('d1', 'claude-sonnet', 1), row('d1', 'claude-opus', 1)]
+        const rowLabels = modelRowLabels(
+            rows.map(({ label }) => label),
+            new Set(rows.map(({ label }) => label))
+        )
+
+        expect(buildModelShareSeries(rows, ['d1'], rowLabels).map(({ label }) => label)).toEqual([
+            'claude-opus',
+            'claude-sonnet',
+        ])
+    })
+
+    it('builds model totals from the same bucketed rows as the time chart', () => {
+        expect(
+            modelRowsFromBuckets([row('d1', 'claude-sonnet', 2), row('d2', 'claude-sonnet', 3), row('d2', 'gpt-6', 4)])
+        ).toEqual([
+            { model: 'claude-sonnet', total_calls: 5 },
+            { model: 'gpt-6', total_calls: 4 },
         ])
     })
 
@@ -96,13 +133,6 @@ describe('leaderboardShares', () => {
             { lab: 'Anthropic', share: 90 },
             { lab: 'OpenAI', share: 60 },
         ])
-    })
-
-    it('builds the SQL from the same patterns that modelLab matches', () => {
-        const sql = labSqlExpression('m')
-        expect(sql).toContain("match(lower(m), 'claude|opus|sonnet|haiku|fable|anthropic'), 'Anthropic'")
-        expect(sql.startsWith("multiIf(m = 'Unknown', 'Unknown', ")).toBe(true)
-        expect(sql.endsWith(", 'Other')")).toBe(true)
     })
 
     it('keeps the most used harnesses for the error rate chart and leaves out Other', () => {
