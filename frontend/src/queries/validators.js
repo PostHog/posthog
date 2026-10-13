@@ -92,6 +92,7 @@ const schema14 = {
         'in',
         'not_in',
         'is_cleaned_path_exact',
+        'is_cleaned_path_not_exact',
         'flag_evaluates_to',
         'semver_eq',
         'semver_neq',
@@ -367,6 +368,7 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -610,6 +612,7 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -856,6 +859,7 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -1112,6 +1116,7 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -1354,6 +1359,7 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -1596,6 +1602,7 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -1874,6 +1881,7 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'in' ||
                                             data3 === 'not_in' ||
                                             data3 === 'is_cleaned_path_exact' ||
+                                            data3 === 'is_cleaned_path_not_exact' ||
                                             data3 === 'flag_evaluates_to' ||
                                             data3 === 'semver_eq' ||
                                             data3 === 'semver_neq' ||
@@ -2396,6 +2404,7 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -2638,6 +2647,7 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -3003,6 +3013,7 @@ function validate39(data, { instancePath = '', parentData, parentDataProperty, r
                                                 data5 === 'in' ||
                                                 data5 === 'not_in' ||
                                                 data5 === 'is_cleaned_path_exact' ||
+                                                data5 === 'is_cleaned_path_not_exact' ||
                                                 data5 === 'flag_evaluates_to' ||
                                                 data5 === 'semver_eq' ||
                                                 data5 === 'semver_neq' ||
@@ -3249,6 +3260,7 @@ function validate42(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -3646,6 +3658,7 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -3888,6 +3901,7 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -4130,6 +4144,7 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -4373,6 +4388,7 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -4621,6 +4637,7 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -4864,6 +4881,7 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -5112,6 +5130,7 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -5358,6 +5377,7 @@ function validate69(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -5600,6 +5620,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||
@@ -6124,6 +6145,7 @@ function validate75(data, { instancePath = '', parentData, parentDataProperty, r
                                                             data8 === 'in' ||
                                                             data8 === 'not_in' ||
                                                             data8 === 'is_cleaned_path_exact' ||
+                                                            data8 === 'is_cleaned_path_not_exact' ||
                                                             data8 === 'flag_evaluates_to' ||
                                                             data8 === 'semver_eq' ||
                                                             data8 === 'semver_neq' ||
@@ -7313,6 +7335,7 @@ function validate89(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'is_cleaned_path_not_exact' ||
                                         data2 === 'flag_evaluates_to' ||
                                         data2 === 'semver_eq' ||
                                         data2 === 'semver_neq' ||

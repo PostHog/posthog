@@ -619,6 +619,12 @@ export const sessionPropertiesToPathClean = new Set([
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
 
+/** Operators that compare raw paths, mapped to the operators that clean both sides before they compare. */
+export const cleanedPathOperators: Partial<Record<PropertyOperator, PropertyOperator>> = {
+    [PropertyOperator.Exact]: PropertyOperator.IsCleanedPathExact,
+    [PropertyOperator.IsNot]: PropertyOperator.IsCleanedPathNotExact,
+}
+
 /**
  * Pick the operator for an exact match on a breakdown value. With path cleaning on, the value is a
  * cleaned path such as `/user/:id`, which no raw property equals. `IsCleanedPathExact` cleans the
