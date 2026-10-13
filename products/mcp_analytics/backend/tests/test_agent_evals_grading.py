@@ -166,21 +166,15 @@ class TestJudge(SimpleTestCase):
 
         assert [(v.passed, v.error) for v in grade.verdicts] == [(None, "ValueError: judge stopped with refusal")]
 
-    def test_the_judge_sees_the_answer_not_tool_results_through_the_verdict_schema(self) -> None:
+    def test_the_judge_sees_only_the_answer_as_user_input_and_replies_in_the_verdict_schema(self) -> None:
         fake = _FakeMessages(_judge_reply('{"passed": true, "rationale": "ok"}'))
 
         asyncio.run(_judge(fake)(SCENARIO, _trial((_exec("call x"),))))
 
         assert "tool_choice" not in fake.sent
         assert fake.sent["output_config"]["format"]["schema"]["required"] == ["passed", "rationale"]
-        assert fake.sent["messages"] == [
-            {
-                "role": "user",
-                "content": "<request>\nList all our active feature flags.\n</request>\n\n"
-                "<success_criteria>\nReturns the active flags by key.\n</success_criteria>\n\n"
-                "<answer>\nTwo flags.\n</answer>",
-            }
-        ]
+        assert fake.sent["messages"] == [{"role": "user", "content": "Two flags."}]
+        assert "<success_criteria>\nReturns the active flags by key.\n</success_criteria>" in fake.sent["system"]
 
 
 class _FakeJev:
