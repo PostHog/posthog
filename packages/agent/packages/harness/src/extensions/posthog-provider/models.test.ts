@@ -63,6 +63,15 @@ describe("resolveModelConfigs", () => {
     vi.restoreAllMocks();
   });
 
+  it("lists the Go spelling of every @cf fallback model", () => {
+    const ids = new Set(fallbackModelConfigs("us").map((model) => model.id));
+    const cf = [...ids].filter((id) => id.startsWith("@cf/"));
+    expect(cf.length).toBeGreaterThan(0);
+    for (const id of cf) {
+      expect(ids).toContain(id.replace(/^@cf\//, ""));
+    }
+  });
+
   it("returns fallback models when PI_OFFLINE is set", async () => {
     process.env.PI_OFFLINE = "1";
     const fetchSpy = vi.fn();
