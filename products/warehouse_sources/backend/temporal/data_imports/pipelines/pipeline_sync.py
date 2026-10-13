@@ -407,7 +407,10 @@ async def validate_schema_and_update_table(
         new_url_pattern = job.url_pattern_by_schema(names.folder_name)
 
         try:
-            logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
+            logger.info(
+                f"Run row count for {_schema_name} ({_schema_id}) is {row_count}, "
+                f"Delta log row count is {live_row_count}"
+            )
 
             table_params = {
                 "name": table_name,
@@ -447,12 +450,16 @@ async def validate_schema_and_update_table(
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                if external_data_schema.table_row_count_is_cumulative or row_count == 0:
+                if live_row_count is not None:
+                    table.row_count = live_row_count
+                elif external_data_schema.table_row_count_is_cumulative or row_count == 0:
                     # A reported 0 can under-count a real write (see above), so read the true count
                     # from the just-published files rather than zero a table we are republishing.
-                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})", live_row_count)
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
-                    table.row_count = table_params["row_count"]
+                    # A count of the files on each full refresh costs more than this statistic is
+                    # worth, so a run that resumed stores only the rows of its last attempt here.
+                    table.row_count = row_count
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
                 # on a fresh connection rather than let this escape as error-tracking noise.

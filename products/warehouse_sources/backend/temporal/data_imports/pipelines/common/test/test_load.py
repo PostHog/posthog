@@ -194,14 +194,14 @@ class TestRunPostLoadDeltaMaintenance:
 class TestRegisterTableRowCount:
     @parameterized.expand(
         [
-            ("cumulative", True, 10, 40_000_000),
-            ("full_refresh_with_rows", False, 10, 40_000_000),
-            ("full_refresh_reporting_zero", False, 0, 40_000_000),
+            ("cumulative", True, 40_000_000),
+            ("full_refresh", False, 40_000_000),
+            ("log_without_statistics", False, None),
         ]
     )
     @pytest.mark.asyncio
     async def test_passes_the_delta_log_count_to_the_registration(
-        self, _name: str, cumulative: bool, row_count: int, expected: int | None
+        self, _name: str, cumulative: bool, live_row_count: int | None
     ) -> None:
         # Without the log count, registration counts every published file through chdb or the
         # ClickHouse cluster on each sync of an incremental table, and a full refresh that ran over
@@ -210,11 +210,11 @@ class TestRegisterTableRowCount:
         schema.table_row_count_is_cumulative = cumulative
         validate = AsyncMock()
 
-        await _run_post_load(schema, _make_helper(live_row_count=40_000_000), validate=validate, row_count=row_count)
+        await _run_post_load(schema, _make_helper(live_row_count=live_row_count), validate=validate)
 
         validate.assert_awaited_once()
         assert validate.await_args is not None
-        assert validate.await_args.kwargs["live_row_count"] == expected
+        assert validate.await_args.kwargs["live_row_count"] == live_row_count
 
 
 class TestPostLoadTableSize:

@@ -499,15 +499,19 @@ class TestValidateSchemaAndUpdateTable:
         assert table.row_count == 150
 
     @pytest.mark.parametrize(
-        "table_exists,sync_type",
+        "table_exists,sync_type,live_row_count,expected_row_count",
         [
-            pytest.param(False, ExternalDataSchema.SyncType.FULL_REFRESH, id="first_sync_full_refresh"),
-            pytest.param(False, ExternalDataSchema.SyncType.INCREMENTAL, id="first_sync_incremental"),
-            pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, id="later_full_refresh"),
+            pytest.param(False, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, id="first_sync_full_refresh"),
+            pytest.param(False, ExternalDataSchema.SyncType.INCREMENTAL, 1_200, 1_200, id="first_sync_incremental"),
+            pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, id="later_full_refresh"),
+            # A full refresh must not count the published files when the log has no statistics.
+            pytest.param(
+                True, ExternalDataSchema.SyncType.FULL_REFRESH, None, 200, id="full_refresh_without_log_count"
+            ),
         ],
     )
     def test_a_run_over_several_attempts_stores_the_table_size_not_the_last_attempts_rows(
-        self, team, table_exists, sync_type
+        self, team, table_exists, sync_type, live_row_count, expected_row_count
     ):
         schema, job = self._schema_and_job(team)
         schema.sync_type = sync_type
@@ -526,12 +530,12 @@ class TestValidateSchemaAndUpdateTable:
                 row_count=200,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders_v2",
-                live_row_count=1_200,
+                live_row_count=live_row_count,
             )
 
         schema.refresh_from_db()
         assert schema.table is not None
-        assert schema.table.row_count == 1_200
+        assert schema.table.row_count == expected_row_count
 
     @pytest.mark.parametrize(
         "previous_size_mib,live_size_mib,expected_size_mib,expected_delta_mib",
