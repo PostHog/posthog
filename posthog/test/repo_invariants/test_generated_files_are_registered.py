@@ -15,6 +15,7 @@ PIPELINE_ROOTS = (
     "products/*/frontend/generated/*",
     "nodejs/src/common/generated/*",
     "posthog/usage_ingestion/generated/*",
+    "products/authz/generated/*",
     "services/mcp/src/generated/*",
     "services/mcp/src/tools/generated/*",
     "services/mcp/src/ui-apps/generated/*",

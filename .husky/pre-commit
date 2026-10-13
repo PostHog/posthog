@@ -58,7 +58,7 @@ if [ -f .github/scripts/check-comment-density.sh ]; then
 fi
 
 LINT_STAGED_CONCURRENCY=""
-if ! git diff --cached --quiet -- products/authz/model products/authz/model.fga; then
+if ! git diff --cached --quiet -- products/authz/model products/authz/generated; then
     # Model generation writes a JSON artifact and runs Go tests; avoid racing staged formatters.
     LINT_STAGED_CONCURRENCY="--concurrent false"
 fi

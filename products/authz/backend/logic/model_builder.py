@@ -22,8 +22,9 @@ from products.authz.backend.facade.enums import Action, Level, ResourceType
 
 PRODUCT_DIR = Path(__file__).resolve().parents[2]
 SOURCE_DIR = PRODUCT_DIR / "model"
-MODEL_PATH = PRODUCT_DIR / "model.fga"
-JSON_MODEL_PATH = PRODUCT_DIR / "openfga_model.json"
+GENERATED_DIR = PRODUCT_DIR / "generated"
+MODEL_PATH = GENERATED_DIR / "model.fga"
+JSON_MODEL_PATH = GENERATED_DIR / "openfga_model.json"
 
 CORE_FILE = "core.fga"
 BASES_FILE = "object.fga"
@@ -365,7 +366,7 @@ class ModelRules:
         except ModelSourceError as error:
             return [str(error)]
         if self.model != built:
-            return ["model.fga does not match its sources. Run products/authz/generate_model.sh."]
+            return ["generated/model.fga does not match its sources. Run products/authz/generate_model.sh."]
         return [
             *self._json_matches_model(),
             *self._resources_are_resource_types(),
@@ -377,7 +378,9 @@ class ModelRules:
     def _json_matches_model(self) -> list[str]:
         model_types = {name: definition.relation_names() for name, definition in self.types.items()}
         if dict(self.json_relations) != model_types:
-            return ["openfga_model.json does not match model.fga. Run products/authz/generate_model.sh."]
+            return [
+                "generated/openfga_model.json does not match generated/model.fga. Run products/authz/generate_model.sh."
+            ]
         return []
 
     def _resources_are_resource_types(self) -> list[str]:
@@ -519,9 +522,9 @@ def read_model_tests(path: Path) -> ModelTests:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    build = commands.add_parser("build", help="write model.fga from products/authz/model/")
-    build.add_argument("--force", action="store_true", help="overwrite changes made to model.fga by hand")
-    commands.add_parser("check", help="check model.fga and openfga_model.json against the model rules")
+    build = commands.add_parser("build", help="write generated/model.fga from products/authz/model/")
+    build.add_argument("--force", action="store_true", help="overwrite changes made to generated/model.fga by hand")
+    commands.add_parser("check", help="check the generated model files against the model rules")
     args = parser.parse_args(argv)
     try:
         if args.command == "build":

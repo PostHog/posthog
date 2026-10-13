@@ -23,7 +23,7 @@ def ready_state(organization_id: UUID) -> bytes | None:
 
 @cache
 def model_relations() -> dict[str, frozenset[str]]:
-    model = json.loads((Path(__file__).resolve().parents[2] / "openfga_model.json").read_text())
+    model = json.loads((Path(__file__).resolve().parents[2] / "generated" / "openfga_model.json").read_text())
     return {definition["type"]: frozenset(definition.get("relations", {})) for definition in model["type_definitions"]}
 
 
