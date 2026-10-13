@@ -250,7 +250,7 @@ const AutoresearchPartialUpdateSchema = () => {
 
 const autoresearchPartialUpdate = (): ToolBase<
     ReturnType<typeof AutoresearchPartialUpdateSchema>,
-    WithPostHogUrl<Schemas.AutoresearchPipelineCreate>
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
 > => ({
     name: 'autoresearch-partial-update',
     schema: AutoresearchPartialUpdateSchema(),
@@ -299,7 +299,7 @@ const autoresearchPartialUpdate = (): ToolBase<
         if (params.write_person_property !== undefined) {
             body['write_person_property'] = params.write_person_property
         }
-        const result = await context.api.request<Schemas.AutoresearchPipelineCreate>({
+        const result = await context.api.request<Schemas.AutoresearchPipeline>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
             body,

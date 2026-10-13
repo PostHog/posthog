@@ -188,9 +188,9 @@ tools:
             output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target
             people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a
             cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list).
-            Changing write_person_property needs the person:write scope. Prediction
-            events, online validation and segments work with it off. target_event, target_definition, horizon_days,
-            training_lookback_days and the two populations cannot change once a model has been trained.
+            Changing write_person_property needs the person:write scope. Prediction events, online validation and
+            segments work with it off. target_event, target_definition, horizon_days, training_lookback_days and the two
+            populations cannot change once a model has been trained.
         exclude_params:
             - id
             - created_by

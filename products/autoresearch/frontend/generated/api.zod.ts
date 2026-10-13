@@ -123,7 +123,7 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from every person who has it."
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 
@@ -588,7 +588,7 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from every person who has it."
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 
@@ -706,7 +706,7 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from every person who has it."
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 

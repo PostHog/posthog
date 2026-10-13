@@ -408,7 +408,7 @@ export interface AutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
-    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from every person who has it. */
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
     write_person_property?: boolean
 }
 
@@ -1526,7 +1526,7 @@ export interface PatchedAutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
-    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from every person who has it. */
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
     write_person_property?: boolean
 }
 
