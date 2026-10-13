@@ -2,7 +2,9 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
@@ -189,6 +191,8 @@ describe('spaceSceneLogic', () => {
         [404, true],
         [500, false],
     ])('treats a %s space load as missing: %s', async (status, missing) => {
+        const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
         useMocks({
             get: { '/api/projects/:team_id/task_channels/:id/': () => [status, { detail: 'Error' }] },
         })
@@ -198,6 +202,10 @@ describe('spaceSceneLogic', () => {
 
         expect(logic.values.spaceMissing).toBe(missing)
         expect(logic.values.spaceUnavailable).toBe(true)
+        expect(toastError).toHaveBeenCalledTimes(missing ? 0 : 1)
+        expect(captureException).toHaveBeenCalledTimes(missing ? 0 : 1)
+        toastError.mockRestore()
+        captureException.mockRestore()
     })
 
     it.each([
