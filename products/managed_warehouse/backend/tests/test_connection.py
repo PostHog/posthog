@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from copy import deepcopy
 from typing import TypedDict
 
@@ -734,6 +735,62 @@ def _source_schema(table_name: str, source_schema: str = "posthog") -> SourceSch
 
 @pytest.mark.django_db
 class TestReconcileManagedWarehouseTables:
+    def test_flag_switch_reconciles_the_same_source_and_table_in_both_engines(self) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        source = _ensure(team)
+        cursor = MagicMock()
+        cursor.fetchall.side_effect = [
+            [("posthog", "events")],
+            [("posthog", "events", "uuid", "varchar", "YES")],
+        ]
+        connection = MagicMock(catalog="org_example")
+        connection.cursor.return_value = cursor
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.managed_warehouse.backend.logic.sql_editor_trino.connect_managed_warehouse_trino",
+                return_value=nullcontext(connection),
+            ),
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+        schema = ExternalDataSchema.objects.get(source=source, name="posthog.events")
+        assert schema.table is not None
+        table_id = schema.table_id
+        assert schema.table.url_pattern == "direct://trino"
+        assert schema.table.options["direct_trino_catalog"] == "org_example"
+        assert schema.table.columns is not None
+        assert schema.table.columns["uuid"]["hogql"] == "string"
+        source.refresh_from_db()
+        assert source.job_inputs == {}
+        assert source.is_dynamic_managed_warehouse
+
+        postgres_connection = ManagedWarehousePostgresConnection(
+            host=_CONNECTION["host"],
+            port=5432,
+            database="ducklake",
+            username="svc_reader",
+            password="example-secret",
+            sslmode="require",
+        )
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch(
+                "products.managed_warehouse.backend.logic.connection.resolve_managed_warehouse_postgres_connection",
+                return_value=postgres_connection,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+                return_value=[_source_schema("events")],
+            ),
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+        schema.refresh_from_db()
+        assert schema.table_id == table_id
+        assert schema.table is not None
+        assert schema.table.url_pattern == DIRECT_POSTGRES_URL_PATTERN
+        assert ExternalDataSource.objects.filter(team=team, deleted=False).count() == 1
+
     def _setup(self) -> tuple[Organization, Team]:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)

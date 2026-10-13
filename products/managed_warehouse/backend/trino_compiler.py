@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 
     from posthog.schema import HogQLQuery
 
-    from posthog.hogql.constants import LimitContext
     from posthog.hogql import ast
+    from posthog.hogql.constants import LimitContext
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User

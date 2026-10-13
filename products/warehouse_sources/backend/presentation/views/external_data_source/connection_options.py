@@ -88,11 +88,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Default database schema used to group tables in the SQL editor.",
     )
-    engine = serializers.ChoiceField(
-        source="connection_metadata.engine",
-        read_only=True,
-        allow_null=True,
-        choices=helpers.DIRECT_CONNECTION_ENGINE_CHOICES,
+    engine = serializers.SerializerMethodField(
         help_text="Backend engine detected for the direct connection.",
     )
     source_type = serializers.ChoiceField(
@@ -116,6 +112,19 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User-set description of the source, shown as its display name in the connection picker when set.",
     )
+
+    @extend_schema_field(serializers.ChoiceField(choices=helpers.DIRECT_CONNECTION_ENGINE_CHOICES, allow_null=True))
+    def get_engine(self, source: ExternalDataSource) -> str | None:
+        from posthog.hogql.direct_sql import (
+            get_adapter_for_source,  # noqa: PLC0415 -- keeps optional drivers off Django startup
+        )
+
+        if source.is_dynamic_managed_warehouse or source.is_managed_warehouse_ready:
+            adapter = get_adapter_for_source(source, team=self.context.get("team"))
+            if adapter is not None and adapter.engine == "trino":
+                return "trino"
+        metadata = source.connection_metadata
+        return metadata.get("engine") if isinstance(metadata, dict) else None
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_hogql(self, source: ExternalDataSource) -> bool:
@@ -230,7 +239,10 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
         serializer = ExternalDataSourceConnectionOptionSerializer(
             options,
             many=True,
-            context={"builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None},
+            context={
+                "builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None,
+                "team": self.team,
+            },
         )
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 

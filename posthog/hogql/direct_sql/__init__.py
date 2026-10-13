@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from posthog.hogql.direct_sql.adapter import (
     DirectQueryPrincipal,
     DirectQueryRequest,
@@ -20,6 +22,9 @@ from posthog.hogql.direct_sql.trino_adapter import TrinoAdapter
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 register_adapter(PostgresAdapter())
 register_adapter(MySQLAdapter())
 register_adapter(SnowflakeAdapter())
@@ -30,12 +35,27 @@ register_adapter(TrinoAdapter())
 register_adapter(BigQueryAdapter())
 
 
-def get_raw_adapter_for_source(source: ExternalDataSource) -> DirectSQLAdapter | None:
+def get_adapter_for_source(source: ExternalDataSource, *, team: "Team | None" = None) -> DirectSQLAdapter | None:
+    if source.is_dynamic_managed_warehouse:
+        from products.managed_warehouse.backend.facade.sql_editor import (  # noqa: PLC0415 -- optional managed engine drivers stay off startup paths
+            managed_trino_adapter,
+            managed_warehouse_sql_editor_uses_trino,
+        )
+
+        if managed_warehouse_sql_editor_uses_trino((team or source.team).organization_id):
+            return managed_trino_adapter()
+    return get_adapter(source.direct_engine)
+
+
+def get_raw_adapter_for_source(source: ExternalDataSource, *, team: "Team | None" = None) -> DirectSQLAdapter | None:
     if source.has_managed_warehouse_prefix:
         managed_warehouse_mode = source.managed_warehouse_sql_mode
         if not source.is_managed_warehouse or not is_direct_capable(source):
             return None
         if managed_warehouse_mode == ManagedWarehouseSQLMode.BUILT_IN:
+            adapter = get_adapter_for_source(source, team=team)
+            if adapter is not None and adapter.engine == "trino":
+                return adapter
             return DuckgresRawAdapter()
         if managed_warehouse_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
             return None
@@ -60,6 +80,7 @@ __all__ = [
     "is_direct_capable",
     "ensure_single_direct_statement",
     "get_adapter",
+    "get_adapter_for_source",
     "get_raw_adapter_for_source",
     "register_adapter",
     "registered_engines",

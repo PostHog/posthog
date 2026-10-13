@@ -20,6 +20,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
+from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
@@ -94,6 +95,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 managed_warehouse_sql_mode = source.managed_warehouse_sql_mode
                 if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
                     raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+                if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
+                    adapter = get_adapter_for_source(source, team=self.team)
+                    direct_engine = adapter.engine if adapter is not None else None
         self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
         self._direct_engine = direct_engine
         self._direct_connection_validated = True
@@ -103,6 +107,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         payload = super().get_cache_payload()
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
+            if self._direct_engine == "trino":
+                payload["managed_warehouse_engine"] = "trino"
         if self._modifiers_override_provided and self.query.modifiers is not None:
             # Old workers preferred query modifiers while new workers prefer the constructor override.
             # Keep their cached results apart during a rolling deploy.
