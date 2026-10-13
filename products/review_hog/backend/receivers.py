@@ -319,6 +319,7 @@ def _start_review(
     # Function-local: importing the temporal client executes the review_hog temporal package, whose
     # activity registration reaches temporalio, modal, openai, and anthropic — all four forbidden at
     # django.setup() by the startup-import-budget test. See the module-top comment.
+    from products.review_hog.backend.review_request_rules import trigger_review_mode  # noqa: PLC0415
     from products.review_hog.backend.reviewer.tools.github_meta import PRParser  # noqa: PLC0415
     from products.review_hog.backend.temporal.client import start_review_pr_workflow, workflow_running  # noqa: PLC0415
     from products.review_hog.backend.temporal.types import TRIGGER_INBOX, resolve_pr_workflow_id  # noqa: PLC0415
@@ -359,6 +360,7 @@ def _start_review(
             publish=True,
             acting_user_id=user_id,
             trigger_source=TRIGGER_INBOX,
+            review_mode=trigger_review_mode(team_id, pr_repository, int(pr_info["pr_number"])),
             signal_report_id=signal_report_id,
             signal_priority=signal_priority,
             pr_url=pr_url,

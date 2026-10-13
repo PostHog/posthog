@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from unittest import mock
@@ -6,9 +6,17 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Request
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wasabi import WasabiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.settings import (
     DEFAULT_UTILIZATION_START_DATE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.source import WasabiSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi import (
     WasabiDateWindowPaginator,
     WasabiResumeConfig,
@@ -29,6 +37,10 @@ class _FixedTodayPaginator(WasabiDateWindowPaginator):
 
 def _fixed_today_paginator(start: date, window_days: int = 30) -> WasabiDateWindowPaginator:
     return _FixedTodayPaginator(start_date=start, window_days=window_days)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(WasabiSource(), WasabiSourceConfig(api_key="key"))
 
 
 class _FakeResumableSourceManager:
@@ -96,10 +108,9 @@ class TestValidateCredentials:
             (500, False),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.make_tracked_session")
-    def test_status_code_mapping(self, status_code: int, expected_valid: bool, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.Mock(status_code=status_code)
-        is_valid, message = validate_credentials("wasabi-key")
+    def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
+            is_valid, message = validate_credentials("wasabi-key")
         assert is_valid is expected_valid
         if expected_valid:
             assert message is None
@@ -178,37 +189,28 @@ class TestWasabiSourceTransport:
         # The window walk starts at the incremental watermark date.
         assert paginator._window_start == date(2024, 3, 5)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resource")
-    def test_resume_state_is_seeded_into_paginator(self, mock_rest_api_resource: mock.MagicMock) -> None:
-        manager = _FakeResumableSourceManager(WasabiResumeConfig(paginator_state={"next_from": "2025-06-01"}))
-        wasabi_source(
-            api_key="key",
-            endpoint="utilizations",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=cast(Any, manager),
+    def test_resume_state_is_seeded_into_paginator(self) -> None:
+        result = _driver().run(
+            "utilizations",
+            always(ScriptedResponse(json=[])),
+            resume_state=WasabiResumeConfig(paginator_state={"next_from": "2025-06-01"}),
         )
 
-        kwargs = mock_rest_api_resource.call_args.kwargs
-        assert kwargs["initial_paginator_state"] == {"next_from": "2025-06-01"}
+        assert result.params("from")[0] == "2025-06-01"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resource")
-    def test_resume_hook_saves_state_after_batches(self, mock_rest_api_resource: mock.MagicMock) -> None:
-        manager = _FakeResumableSourceManager()
-        wasabi_source(
-            api_key="key",
-            endpoint="utilizations",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=cast(Any, manager),
+    def test_resume_hook_saves_state_after_batches(self) -> None:
+        today = datetime.now(UTC).date()
+        result = _driver().run(
+            "utilizations",
+            always(ScriptedResponse(json=[{"UtilizationNum": 1}])),
+            incremental_field="StartTime",
+            db_incremental_field_last_value=datetime.combine(today - timedelta(days=40), datetime.min.time(), UTC),
         )
 
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-        resume_hook({"next_from": "2024-02-01"})
-        # A None state means the walk completed — nothing to persist.
-        resume_hook(None)
-
-        assert [saved.paginator_state for saved in manager.saved] == [{"next_from": "2024-02-01"}]
+        # Only mid-walk positions are saved: the final window completes the walk and saves nothing.
+        assert result.saved_states == [
+            WasabiResumeConfig(paginator_state={"next_from": (today - timedelta(days=10)).isoformat()})
+        ]
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resources")
     def test_sub_account_invoices_fans_out_from_accounts(self, mock_rest_api_resources: mock.MagicMock) -> None:
