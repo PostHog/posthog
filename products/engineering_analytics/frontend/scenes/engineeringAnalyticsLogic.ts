@@ -666,7 +666,7 @@ export interface engineeringAnalyticsLogicMeta {
             trunkQuarantine: TrunkQuarantineData | null
         ) => Record<string, TrunkQuarantinedTestRow[]>
         activeSource: (
-            githubSources: GitHubSourceApi[],
+            githubSources: GitHubSourceApi[] | null,
             sourceId: string | null,
             scopeRepo: string | null
         ) => GitHubSourceApi | null
@@ -1144,12 +1144,15 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     scopeRepo: string | null
                 ): GitHubSourceApi | null => {
                     const githubSources = loadedSources ?? []
+                    // GitHub matches repository names case-insensitively, so the path may differ from the source's spelling.
+                    const isScopeRepo = (source: GitHubSourceApi): boolean =>
+                        source.repo.toLowerCase() === scopeRepo?.toLowerCase()
                     if (!sourceId) {
                         // A repo-only scope (?repo with no ?source) resolves across sources — label that
                         // repo. Otherwise prefer the first *synced* repo, matching the repo the backend
                         // resolves by default (it skips still-backfilling repos), else the first entry.
                         return (
-                            (scopeRepo && githubSources.find((source) => source.repo === scopeRepo)) ||
+                            (scopeRepo && githubSources.find(isScopeRepo)) ||
                             githubSources.find((source) => source.synced) ||
                             githubSources[0] ||
                             null
@@ -1160,7 +1163,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     // first synced repo of this source, matching the repo the backend resolves by default —
                     // else the header names an unsynced repo the loaders never read.
                     return (
-                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
+                        (scopeRepo && ofSource.find(isScopeRepo)) ||
                         ofSource.find((source) => source.synced) ||
                         ofSource[0] ||
                         null
