@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -108,9 +109,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         """
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
-    @parameterized.expand([("without_a_paging_destination", False), ("with_a_paging_destination", True)])
-    def test_a_breaching_configuration_fires_and_records_its_own_state(self, _name: str, paged: bool) -> None:
-        configuration = self._configuration()
+    @parameterized.expand(
+        [
+            ("without_a_paging_destination", False, None),
+            ("with_a_paging_destination", True, None),
+            ("copied_from_a_logs_alert", False, UUID("01936a2e-0000-7000-8000-00000000abcd")),
+        ]
+    )
+    def test_a_breaching_configuration_fires_and_records_its_own_state(
+        self, _name: str, paged: bool, legacy_id: UUID | None
+    ) -> None:
+        configuration = self._configuration(legacy_configuration_id=legacy_id)
         if paged:
             self._add_incident_destination(configuration)
 
@@ -123,6 +132,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
         ]
         # The event a PagerDuty destination subscribes to, so the trigger reaches it.
         assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
+        # Only an alert copied from a logs alert has a logs alert page to link to.
+        source_alert_url = evaluation.deliveries[0].source_alert_url
+        assert (source_alert_url.endswith(f"/logs/alerts/{legacy_id}") if source_alert_url else None) == (
+            True if legacy_id else None
+        )
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None

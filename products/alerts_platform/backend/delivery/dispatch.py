@@ -36,6 +36,7 @@ def deliver(
     target: AlertDestinationData,
     announcement: EvaluationAnnouncement,
     incident_action: IncidentAction | None = None,
+    source_alert_url: str | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
     busy = 0
@@ -53,7 +54,13 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
+                message=build_message(
+                    announcement,
+                    transition,
+                    team_id=team_id,
+                    incident_action=incident_action,
+                    source_alert_url=source_alert_url,
+                ),
                 in_reply_to=None,
             )
             continue
@@ -75,7 +82,13 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
+                message=build_message(
+                    announcement,
+                    transition,
+                    team_id=team_id,
+                    incident_action=incident_action,
+                    source_alert_url=source_alert_url,
+                ),
                 in_reply_to=claim.handle,
             )
         except Exception:
