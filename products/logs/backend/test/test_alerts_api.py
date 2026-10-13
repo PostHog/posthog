@@ -677,15 +677,16 @@ class TestLogsAlertAPI(APIBaseTest):
             ("window_change", lambda: {"window_minutes": 10}, True, None),
             ("rename", lambda: {"name": "Renamed"}, True, None),
             ("disable_without_pagerduty", lambda: {"enabled": False}, False, None),
+            ("disable_owned_by_the_platform", lambda: {"enabled": False}, True, None, "platform"),
         ]
     )
     def test_leaving_firing_through_the_api_closes_the_incident(
-        self, _name, make_payload, has_pagerduty, expected_reason
+        self, _name, make_payload, has_pagerduty, expected_reason, owner="source"
     ):
         created = self._create_via_api()
         if has_pagerduty:
             self._add_pagerduty_destination(created["id"])
-        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing", owner=owner)
         payload = make_payload()
 
         with (

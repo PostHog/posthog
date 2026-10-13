@@ -140,13 +140,14 @@ class TestNotifiedAlertCollection(APIBaseTest):
         )
         return _DispatchedAlert(evaluation=evaluation, notification_failed=notification_failed)
 
-    def _make_alert(self) -> LogsAlertConfiguration:
+    def _make_alert(self, owner: str = "source") -> LogsAlertConfiguration:
         return LogsAlertConfiguration.objects.create(
             team=self.team,
             name="Checkout 5xx",
             threshold_count=100,
             window_minutes=5,
             filters={"serviceNames": ["checkout"]},
+            owner=owner,
         )
 
     def test_build_notified_from_saved_includes_fired_notification(self):
@@ -163,13 +164,14 @@ class TestNotifiedAlertCollection(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_notification", NotificationAction.NONE, False),
-            ("not_signalable", NotificationAction.RESOLVE, False),
-            ("notification_failed", NotificationAction.FIRE, True),
+            ("no_notification", NotificationAction.NONE, False, "source"),
+            ("not_signalable", NotificationAction.RESOLVE, False, "source"),
+            ("notification_failed", NotificationAction.FIRE, True, "source"),
+            ("owned_by_the_platform", NotificationAction.FIRE, False, "platform"),
         ]
     )
-    def test_build_notified_from_saved_excludes(self, _name, notification, notification_failed):
-        alert = self._make_alert()
+    def test_build_notified_from_saved_excludes(self, _name, notification, notification_failed, owner):
+        alert = self._make_alert(owner=owner)
 
         notified = _build_notified_from_saved([self._dispatched(alert, notification, notification_failed)])
 
@@ -730,18 +732,19 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_incident_destination", False, ["$logs_alert_firing"]),
-            ("with_incident_destination", True, ["$logs_alert_firing", "$logs_alert_incident_opened"]),
+            ("without_incident_destination", False, "source", ["$logs_alert_firing"]),
+            ("with_incident_destination", True, "source", ["$logs_alert_firing", "$logs_alert_incident_opened"]),
+            ("owned_by_the_platform", True, "platform", []),
         ]
     )
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_alert_internal_event")
     def test_threshold_breached_transitions_to_firing(
-        self, _name, has_incident_destination, expected_events, mock_produce, mock_query_cls
+        self, _name, has_incident_destination, owner, expected_events, mock_produce, mock_query_cls
     ):
         _mock_buckets(mock_query_cls, [50])
-        alert = self._make_alert()
+        alert = self._make_alert(owner=owner)
         if has_incident_destination:
             _add_incident_destination(alert)
         stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
@@ -751,6 +754,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.FIRING
+        assert alert.last_notified_at == now
         assert stats["checked"] == 1
         assert stats["fired"] == 1
         assert _produced_events(mock_produce) == expected_events

@@ -8,6 +8,7 @@ from django.db.models import Q
 
 import structlog
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds as shared_compute_shard_offset_seconds,
@@ -84,10 +85,16 @@ def next_allowed_check_at(
     return retry_candidate.replace(second=0, microsecond=0)
 
 
+# How long the logs stack keeps evaluating an alert after the platform takes it over, so the two
+# stacks' checks can be compared. It sends nothing for the alert in that time.
+PLATFORM_SHADOW = timedelta(days=7)
+
+
 def due_alerts_q(now: datetime, *, broken_state: str, snoozed_state: str) -> Q:
     return (
         Q(enabled=True)
         & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
         & ~Q(state=broken_state)
         & ~Q(state=snoozed_state, snooze_until__gt=now)
+        & ~Q(owner=PlatformAlertOwner.PLATFORM.value, owner_changed_at__lt=now - PLATFORM_SHADOW)
     )
