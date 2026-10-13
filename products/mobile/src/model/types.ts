@@ -103,16 +103,67 @@ export interface Fact {
     tone: 'default' | 'alert' | 'agent'
 }
 
-export interface MetricBar {
-    value: number
-    hot: boolean
+export type MetricChartKind = 'line' | 'bar'
+
+export type MetricInterval = 'hour' | 'day' | 'week' | 'month'
+
+export type MetricValueFormat = 'number' | 'count' | 'percentage' | 'percentage_scaled' | 'duration' | 'currency'
+
+export interface MetricFormat {
+    valueFormat: MetricValueFormat
+    unit: string | null
 }
 
-export interface Metric {
-    label: string
-    range: string
-    max: number
-    bars: MetricBar[]
+/** One dated bucket. `value` is NaN when the bucket has no data. */
+export interface MetricPoint {
+    at: string
+    value: number
+}
+
+export interface MetricSeries {
+    points: MetricPoint[]
+    interval: MetricInterval
+}
+
+/** The saved value the server measured last. `series` holds at most 14 undated trailing buckets. */
+export interface MetricSnapshot {
+    value: number
+    at: string | null
+    series: number[]
+}
+
+/** Where the live number and series come from. `query` runs through the query endpoint; `static` is fixture data; `none` means redacted. */
+export type MetricData =
+    | { kind: 'query'; seriesQuery: unknown; aggregateQuery: unknown }
+    | { kind: 'static'; series: MetricSeries; value: number }
+    | { kind: 'none' }
+
+export interface MetricView {
+    metricId: string
+    role: 'primary' | 'supporting'
+    title: string
+    caption?: string
+    format: MetricFormat
+    chart: MetricChartKind
+    interval: MetricInterval
+    snapshot?: MetricSnapshot
+    data: MetricData
+    /** "Last 14 days", or "Current window" when the query has no relative window. */
+    windowLabel: string
+    filterCount: number
+    openUrl?: string
+}
+
+export interface ReportChartView {
+    chartId: string
+    title: string
+    caption?: string
+    /** Present only for a trends query the app can draw. */
+    data?: Extract<MetricData, { kind: 'query' } | { kind: 'static' }>
+    format: MetricFormat
+    chart: MetricChartKind
+    interval: MetricInterval
+    openUrl?: string
 }
 
 export interface ActivityEvent {
@@ -206,7 +257,9 @@ export interface ReportView {
     lede: string
     evidence: EvidenceBlock[]
     facts: Fact[]
-    metric?: Metric
+    observation?: MetricView
+    supportingMetrics: MetricView[]
+    charts: ReportChartView[]
     activity: ActivityEvent[]
     work: WorkView
     task?: TaskRunView

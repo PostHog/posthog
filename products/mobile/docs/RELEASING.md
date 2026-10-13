@@ -26,6 +26,10 @@ If App Store Connect already has a released `1.0.0`, Apple does not take new bui
 In that case, raise `version` in `app.config.ts` (for example to `1.1.0`) before the first production build.
 The version also sets the runtime version for updates, see [OTA.md](OTA.md#runtime-version).
 
+Version `1.1.0` adds a native module, Skia, for the report charts.
+The runtime version follows the app version, so an update published for `1.1.0` never reaches a `1.0.0` build.
+Every EAS profile (development, preview and production) needs a new native build before it can run `1.1.0` code.
+
 ## Build profiles
 
 Profiles are in `eas.json`. Each profile has its own update channel and EAS environment.

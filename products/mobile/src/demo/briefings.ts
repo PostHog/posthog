@@ -1,5 +1,5 @@
 import { MCP_VIA, POSTHOG_AGENT } from '@/model/agent'
-import type { Accent, Fact, SourceProduct } from '@/model/types'
+import type { Accent, Fact, MetricValueFormat, SourceProduct } from '@/model/types'
 
 export type DemoAgo = { hours: number } | { days: number }
 
@@ -7,6 +7,29 @@ export type DemoKind = 'done' | 'open' | 'decision' | 'pr_ready'
 
 /** `[text with **bold**, when, via?]`. `when` is "Today 9:04 AM" or "Mon 7:21 AM". */
 export type DemoActivity = readonly [text: string, when: string, via?: string]
+
+/** The primary metric. */
+export interface DemoObservation {
+    title: string
+    format: MetricValueFormat
+    unit?: string
+    caption?: string
+    /** Daily values in the metric's own unit, oldest first. */
+    values: readonly number[]
+    filters: number
+}
+
+export type DemoSupportingMetric = readonly [title: string, value: number, format: MetricValueFormat, unit?: string]
+
+export interface DemoChart {
+    id: string
+    title: string
+    caption?: string
+    format?: MetricValueFormat
+    unit?: string
+    /** Daily values, oldest first. A chart without values is one the app only links to. */
+    values?: readonly number[]
+}
 
 export interface DemoBriefing {
     id: string
@@ -23,7 +46,9 @@ export interface DemoBriefing {
     quotes?: readonly (readonly [text: string, who: string])[]
     replay?: { meta: string; count: number }
     facts: readonly (readonly [key: string, title: string, sub: string, tone: Fact['tone']])[]
-    metric: { label: string; range: string; bars: readonly (readonly [value: number, hot: 0 | 1])[] }
+    observation: DemoObservation
+    supporting?: readonly DemoSupportingMetric[]
+    charts?: readonly DemoChart[]
     activity: readonly DemoActivity[]
     contextNote: string
     prompt?: string
@@ -87,25 +112,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '94 guests in 23 orgs', 'All invited viewers. No paid seat was locked out.', 'default'],
             ['Owner', 'Sana', '', 'default'],
         ],
-        metric: {
-            label: 'GUEST 404S',
-            range: 'Sun → now',
-            bars: [
-                [2, 0],
-                [2, 0],
-                [36, 1],
-                [84, 1],
-                [120, 1],
-                [104, 1],
-                [88, 1],
-                [66, 1],
-                [40, 1],
-                [18, 1],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-            ],
+        observation: {
+            title: 'Guest 404s on shared links',
+            format: 'count',
+            values: [20, 20, 360, 840, 1200, 1040, 880, 660, 400, 180, 20, 20, 20, 20],
+            filters: 1,
         },
         activity: [
             ['PostHog created the report', 'Mon 7:21 AM'],
@@ -145,26 +156,30 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '612 users in 51 orgs', 'Acme Corp and Northwind renew this quarter', 'default'],
             ['Owner', 'Nobody assigned', '', 'alert'],
         ],
-        metric: {
-            label: 'ERRORS TODAY',
-            range: '6 AM → now',
-            bars: [
-                [3, 0],
-                [2, 0],
-                [4, 0],
-                [3, 0],
-                [2, 0],
-                [3, 0],
-                [48, 1],
-                [76, 1],
-                [92, 1],
-                [104, 1],
-                [98, 1],
-                [112, 1],
-                [120, 1],
-                [110, 1],
-            ],
+        observation: {
+            title: 'TypeErrors in ChartLegend',
+            format: 'count',
+            caption: 'Since the 8:52 AM deploy',
+            values: [90, 60, 120, 90, 60, 90, 1440, 2280, 2760, 3120, 2940, 3360, 3600, 3300],
+            filters: 1,
         },
+        supporting: [
+            ['Affected users', 612, 'count'],
+            ['Organizations', 51, 'count'],
+            ['Report views with an error', 4.2, 'percentage'],
+        ],
+        charts: [
+            {
+                id: 'error-share-21d',
+                title: 'Report views with an error',
+                format: 'percentage',
+                values: [
+                    0.2, 0.1, 0.3, 0.2, 0.2, 0.1, 0.2, 0.3, 0.2, 0.1, 0.2, 0.2, 0.3, 0.2, 0.1, 0.2, 0.2, 0.3, 0.2, 2.8,
+                    4.2,
+                ],
+            },
+            { id: 'errors-by-release', title: 'Errors by release', caption: 'A SQL table the app links to' },
+        ],
         activity: [
             ['PostHog created the report', 'Today 9:04 AM'],
             [`${DEMO_USER_NAME} handed off to **Claude Code**`, 'Today 9:12 AM'],
@@ -203,26 +218,32 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', 'Every user · 4,800 views a day', 'Worst for Globex, 11 series on average', 'default'],
             ['Owner', 'Claude Code', 'Picked up 9:12 AM', 'agent'],
         ],
-        metric: {
-            label: 'P95 LOAD TIME',
-            range: 'Fri → now',
-            bars: [
-                [50, 0],
-                [52, 0],
-                [48, 0],
-                [54, 0],
-                [50, 0],
-                [52, 0],
-                [49, 0],
-                [96, 1],
-                [110, 1],
-                [104, 1],
-                [118, 1],
-                [112, 1],
-                [120, 1],
-                [116, 1],
-            ],
+        observation: {
+            title: 'p95 report load time',
+            format: 'duration',
+            unit: 'ms',
+            values: [1700, 1768, 1632, 1836, 1700, 1768, 1666, 3264, 3740, 3536, 4012, 3808, 4080, 3944],
+            filters: 0,
         },
+        supporting: [
+            ['Report views a day', 4800, 'count'],
+            ['p50 load time', 1900, 'duration', 'ms'],
+            ['Series per report', 11, 'number'],
+        ],
+        charts: [
+            {
+                id: 'load-time-30d',
+                title: 'p95 load time, last 30 days',
+                caption: 'The step up is the Monday deploy',
+                format: 'duration',
+                unit: 'ms',
+                values: [
+                    1720, 1680, 1750, 1810, 1690, 1740, 1700, 1780, 1730, 1660, 1710, 1800, 1760, 1690, 1740, 1720,
+                    1780, 1750, 1700, 1770, 1730, 1690, 1760, 3260, 3740, 3540, 4010, 3810, 4080, 3940,
+                ],
+            },
+            { id: 'load-time-by-browser', title: 'Load time by browser', caption: 'A breakdown the app links to' },
+        ],
         activity: [
             ['PostHog created the report', 'Mon 3:05 PM'],
             [`${DEMO_USER_NAME} handed off to **Claude Code**`, 'Today 9:12 AM'],
@@ -258,25 +279,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '340 users in 60 orgs', 'Everyone who triages issues', 'default'],
             ['Owner', 'Nobody assigned', '', 'alert'],
         ],
-        metric: {
-            label: 'RESOLVE CLICKS',
-            range: 'Last week → now',
-            bars: [
-                [96, 0],
-                [104, 0],
-                [88, 0],
-                [110, 0],
-                [92, 0],
-                [100, 0],
-                [98, 0],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-            ],
+        observation: {
+            title: 'Resolve clicks',
+            format: 'count',
+            values: [288, 312, 264, 330, 276, 300, 294, 6, 6, 6, 6, 6, 6, 6],
+            filters: 1,
         },
         activity: [
             ['PostHog created the report', 'Mon 2:31 PM'],
@@ -312,25 +319,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '860 recipients in 140 orgs', "Northwind's Monday exec digest goes to 40 people", 'default'],
             ['Owner', 'Nobody assigned', '', 'alert'],
         ],
-        metric: {
-            label: 'EMAILS SENT',
-            range: 'Last week → now',
-            bars: [
-                [88, 0],
-                [92, 0],
-                [90, 0],
-                [94, 0],
-                [86, 0],
-                [96, 0],
-                [90, 0],
-                [92, 0],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-                [2, 1],
-            ],
+        observation: {
+            title: 'Scheduled report emails sent',
+            format: 'count',
+            values: [88, 92, 90, 94, 86, 96, 90, 92, 2, 2, 2, 2, 2, 2],
+            filters: 0,
         },
         activity: [
             ['PostHog created the report', 'Sun 6:14 AM'],
@@ -366,26 +359,17 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '410 users in 38 orgs', 'Acme Corp is 60 of them', 'default'],
             ['Owner', 'Codex', 'PR #4190 opened 9:41 AM', 'agent'],
         ],
-        metric: {
-            label: 'RAGE CLICKS',
-            range: 'Fri → now',
-            bars: [
-                [34, 0],
-                [38, 0],
-                [32, 0],
-                [40, 0],
-                [36, 0],
-                [34, 0],
-                [38, 0],
-                [72, 1],
-                [96, 1],
-                [104, 1],
-                [112, 1],
-                [120, 1],
-                [108, 1],
-                [116, 1],
-            ],
+        observation: {
+            title: 'Rage clicks on Apply filter',
+            format: 'count',
+            caption: 'Mostly Safari 17',
+            values: [340, 380, 320, 400, 360, 340, 380, 720, 960, 1040, 1120, 1200, 1080, 1160],
+            filters: 2,
         },
+        supporting: [
+            ['Affected users', 410, 'count'],
+            ['Share on Safari', 82, 'percentage'],
+        ],
         activity: [
             ['PostHog created the report', 'Mon 2:10 PM'],
             [`${DEMO_USER_NAME} handed off to **Codex**`, 'Today 9:30 AM'],
@@ -425,25 +409,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Workaround', '1,320 screenshot keypresses', 'On report pages last week, up 40%', 'default'],
             ['Owner', 'Unscoped', '', 'agent'],
         ],
-        metric: {
-            label: 'REQUESTS',
-            range: 'Thu → now',
-            bars: [
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [34, 1],
-                [34, 1],
-                [68, 1],
-                [34, 1],
-                [68, 1],
-                [2, 1],
-            ],
+        observation: {
+            title: 'Clipboard requests',
+            format: 'count',
+            values: [0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 3, 2, 3, 0],
+            filters: 0,
         },
         activity: [
             ['PostHog created the report', 'Thu 4:52 PM'],
@@ -471,25 +441,12 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '212 users in 180 orgs', 'All on the free plan, trying to pay', 'default'],
             ['Owner', 'Nobody assigned', '', 'alert'],
         ],
-        metric: {
-            label: 'DEAD CLICKS',
-            range: 'Last week → now',
-            bars: [
-                [6, 0],
-                [4, 0],
-                [8, 0],
-                [6, 0],
-                [4, 0],
-                [6, 0],
-                [5, 0],
-                [7, 0],
-                [64, 1],
-                [92, 1],
-                [80, 1],
-                [104, 1],
-                [120, 1],
-                [96, 1],
-            ],
+        observation: {
+            title: 'Upgrade attempts that end in a dead click',
+            format: 'percentage',
+            caption: 'Screens below 768px',
+            values: [1.9, 1.3, 2.6, 1.9, 1.3, 1.9, 1.6, 2.2, 20.5, 29.4, 25.6, 33.3, 38.4, 30.7],
+            filters: 2,
         },
         activity: [
             ['PostHog created the report', 'Sun 9:02 AM'],
@@ -524,26 +481,26 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '$1,400 a day over budget', 'Answer quality score unchanged at 4.3', 'default'],
             ['Owner', 'Tomás', '', 'default'],
         ],
-        metric: {
-            label: 'DAILY COST',
-            range: 'Two weeks → now',
-            bars: [
-                [30, 0],
-                [28, 0],
-                [31, 0],
-                [29, 0],
-                [30, 0],
-                [27, 0],
-                [30, 0],
-                [29, 0],
-                [31, 0],
-                [76, 1],
-                [112, 1],
-                [104, 1],
-                [116, 1],
-                [120, 1],
-            ],
+        observation: {
+            title: 'Report summary spend',
+            format: 'currency',
+            unit: 'USD',
+            values: [465, 434, 480.5, 449.5, 465, 418.5, 465, 449.5, 480.5, 1178, 1736, 1612, 1798, 1860],
+            filters: 1,
         },
+        supporting: [
+            ['Summary calls a day', 3100, 'count'],
+            ['Cost per call', 0.6, 'currency', 'USD'],
+            ['Answer quality score', 4.3, 'number'],
+        ],
+        charts: [
+            {
+                id: 'tokens-per-call',
+                title: 'Input tokens per summary call',
+                caption: 'The full event list goes in since Thursday',
+                values: [2100, 2080, 2150, 2120, 2090, 2110, 2060, 2130, 2100, 8350, 8420, 8390, 8460, 8410],
+            },
+        ],
         activity: [
             ['PostHog created the report', 'Fri 8:10 AM'],
             [`${DEMO_USER_NAME} changed assignee to **Tomás Ruiz**`, 'Fri 9:25 AM'],
@@ -579,25 +536,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '58 users in 31 orgs', '9 retried more than five times', 'default'],
             ['Owner', 'Marcus', '', 'default'],
         ],
-        metric: {
-            label: 'EXPORT TIMEOUTS',
-            range: 'Mon → now',
-            bars: [
-                [2, 0],
-                [40, 1],
-                [88, 1],
-                [120, 1],
-                [96, 1],
-                [72, 1],
-                [84, 1],
-                [60, 1],
-                [44, 1],
-                [12, 1],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-            ],
+        observation: {
+            title: 'CSV export timeouts',
+            format: 'count',
+            values: [10, 200, 440, 600, 480, 360, 420, 300, 220, 60, 10, 10, 10, 10],
+            filters: 1,
         },
         activity: [
             ['PostHog created the report', 'Mon 11:24 AM'],
@@ -633,25 +576,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Workaround', 'Browser extensions', '4 tickets mention a dark reader plugin', 'default'],
             ['Owner', 'Unscoped', '', 'agent'],
         ],
-        metric: {
-            label: 'REQUESTS',
-            range: 'Two weeks → now',
-            bars: [
-                [2, 0],
-                [20, 1],
-                [2, 0],
-                [2, 0],
-                [20, 1],
-                [2, 0],
-                [40, 1],
-                [2, 0],
-                [2, 0],
-                [20, 1],
-                [40, 1],
-                [2, 0],
-                [60, 1],
-                [20, 1],
-            ],
+        observation: {
+            title: 'Dark mode requests',
+            format: 'count',
+            values: [0, 2, 0, 0, 2, 0, 4, 0, 0, 2, 4, 0, 6, 2],
+            filters: 0,
         },
         activity: [
             ['PostHog created the report', 'Wed 2:18 PM'],
@@ -686,25 +615,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '1,312 alerts late by up to 3 hours', '74 orgs, all on Slack alerts', 'default'],
             ['Owner', 'Marcus', '', 'default'],
         ],
-        metric: {
-            label: 'FAILED DELIVERIES',
-            range: 'Sat → now',
-            bars: [
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [70, 1],
-                [120, 1],
-                [104, 1],
-                [8, 1],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-            ],
+        observation: {
+            title: 'Failed Slack deliveries',
+            format: 'count',
+            values: [12, 12, 12, 12, 420, 720, 624, 48, 12, 12, 12, 12, 12, 12],
+            filters: 1,
         },
         activity: [
             ['PostHog created the report', 'Sat 11:06 PM'],
@@ -741,25 +656,11 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', '96 users in 41 orgs', 'Unsaved changes are lost on crash', 'default'],
             ['Owner', 'Nobody assigned', '', 'alert'],
         ],
-        metric: {
-            label: 'CRASHES',
-            range: 'Thu → now',
-            bars: [
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [2, 0],
-                [30, 1],
-                [56, 1],
-                [40, 1],
-                [24, 1],
-                [36, 1],
-                [80, 1],
-                [104, 1],
-                [96, 1],
-                [120, 1],
-                [88, 1],
-            ],
+        observation: {
+            title: 'Editor crashes on long funnels',
+            format: 'count',
+            values: [2, 2, 2, 2, 30, 56, 40, 24, 36, 80, 104, 96, 120, 88],
+            filters: 2,
         },
         activity: [
             ['PostHog created the report', 'Fri 4:30 PM'],
@@ -788,26 +689,17 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Impact', 'About 300 projects a week', 'Mostly self-serve signups', 'default'],
             ['Owner', 'Ines', '', 'default'],
         ],
-        metric: {
-            label: 'SETUP COMPLETE',
-            range: 'Two weeks → now',
-            bars: [
-                [104, 0],
-                [108, 0],
-                [100, 0],
-                [110, 0],
-                [106, 0],
-                [102, 0],
-                [108, 0],
-                [80, 1],
-                [76, 1],
-                [78, 1],
-                [74, 1],
-                [76, 1],
-                [72, 1],
-                [75, 1],
-            ],
+        observation: {
+            title: 'New projects that finish setup',
+            format: 'percentage',
+            caption: 'Projects that send a first event',
+            values: [62.4, 64.8, 60, 66, 63.6, 61.2, 64.8, 48, 45.6, 46.8, 44.4, 45.6, 43.2, 45],
+            filters: 1,
         },
+        supporting: [
+            ['New projects a week', 300, 'count'],
+            ['Drop-off at Pick your framework', 61, 'percentage'],
+        ],
         activity: [
             ['PostHog created the report', 'Wed 9:30 AM'],
             [`${DEMO_USER_NAME} changed assignee to **Ines Moreau**`, 'Wed 10:12 AM'],

@@ -95,6 +95,27 @@ describe('report view adapter', () => {
                     unit: null,
                     caption: 'Across 51 organizations',
                 },
+                {
+                    metric_id: 'orgs',
+                    title: 'Organizations',
+                    kind: 'custom',
+                    role: 'supporting',
+                    value: 51,
+                    value_at: local(10, 9, 11),
+                    series: null,
+                    value_format: 'count',
+                    unit: null,
+                    caption: null,
+                    query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+                },
+            ],
+            charts: [
+                {
+                    chart_id: 'by-browser',
+                    title: 'Errors by browser',
+                    query: { kind: 'SavedInsightNode', shortId: 'abc123' },
+                    caption: null,
+                },
             ],
         })
         const artefacts = [
@@ -196,8 +217,17 @@ describe('report view adapter', () => {
             canAct: false,
             accent: 'alert',
             webUrl: 'https://us.example.com/project/2/inbox/reports/00000000-0000-0000-0000-0000000000aa',
-            metric: { label: 'AFFECTED USERS', max: 80 },
+            observation: { metricId: 'users', role: 'primary', data: { kind: 'none' } },
+            supportingMetrics: [{ metricId: 'orgs', role: 'supporting', data: { kind: 'query' } }],
+            charts: [
+                {
+                    chartId: 'by-browser',
+                    title: 'Errors by browser',
+                    openUrl: 'https://us.example.com/project/2/insights/abc123',
+                },
+            ],
         })
+        expect(view.charts[0]?.data).toBeUndefined()
     })
 
     test('falls back to signals for evidence when there is no Today page', () => {

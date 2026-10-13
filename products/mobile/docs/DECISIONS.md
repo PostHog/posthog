@@ -24,6 +24,12 @@ Choices the build contract left open, with the reason for each.
 - **Typed routes off.** They need `expo start` to generate types before `tsc` passes. Expo removed
   the generated-type entries from `tsconfig.json#include` on first start for the same reason.
 - **EAS** uses Node 24.13.0, the repo's version.
+- **Charts.** `victory-native` 42.0.1 on `@shopify/react-native-skia` 2.6.2, the Skia version Expo SDK 57 pins.
+  It is the only candidate with line and bar charts and scrubbing on the UI thread (`useChartPressState`).
+  The runner-up, `react-native-gifted-charts`, was rejected because it scrubs on the JS thread.
+  Skia's install script links its prebuilt binaries, so `pnpm-workspace.yaml` allows it in `onlyBuiltDependencies`.
+  On web, `pnpm web` copies CanvasKit to `public/`, and only screens with a chart load it, lazily.
+  Tick labels are React Native `Text`, so the app ships no font file for Skia.
 
 ## Architecture
 

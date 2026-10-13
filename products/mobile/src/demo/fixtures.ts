@@ -1,16 +1,30 @@
+import { dailyBuckets } from '@/lib/dates'
 import type {
     ActivityEvent,
     DecisionQuestion,
     EvidenceBlock,
     InboxItem,
     InboxReason,
+    MetricChartKind,
+    MetricSeries,
+    MetricValueFormat,
+    MetricView,
     Person,
+    ReportChartView,
     ReportView,
     TaskRunView,
     WorkView,
 } from '@/model/types'
 
-import { DEMO_AGENT, DEMO_BRIEFINGS, DEMO_DECISION, type DemoBriefing, type DemoKind } from './briefings'
+import {
+    DEMO_AGENT,
+    DEMO_BRIEFINGS,
+    DEMO_DECISION,
+    type DemoBriefing,
+    type DemoChart,
+    type DemoKind,
+    type DemoSupportingMetric,
+} from './briefings'
 
 export interface DemoFixture {
     item: InboxItem
@@ -201,6 +215,82 @@ function activityFor(briefing: DemoBriefing, anchor: Date): ActivityEvent[] {
     }))
 }
 
+export const DEMO_WINDOW_LABEL = 'Last 14 days'
+
+function dailySeries(values: readonly number[], anchor: Date): MetricSeries {
+    const days = dailyBuckets(anchor, values.length)
+    return { interval: 'day', points: values.map((value, index) => ({ at: days[index] ?? '', value })) }
+}
+
+// The fixtures have no query, so they follow the live rule for counts and leave currency as a sum.
+function demoChartKind(format: MetricValueFormat): MetricChartKind {
+    return format === 'count' || format === 'currency' ? 'bar' : 'line'
+}
+
+/** A count adds up over the window; a rate, a duration or an average reads as its latest bucket. */
+function windowValue(values: readonly number[], format: MetricValueFormat): number {
+    const adds = format === 'count' || format === 'currency'
+    return adds ? values.reduce((sum, value) => sum + value, 0) : (values[values.length - 1] ?? 0)
+}
+
+function observationFor(briefing: DemoBriefing, anchor: Date): MetricView {
+    const { title, format, unit, caption, values, filters } = briefing.observation
+    const value = Math.round(windowValue(values, format) * 10) / 10
+    return {
+        metricId: `${briefing.id}-observation`,
+        role: 'primary',
+        title,
+        ...(caption ? { caption } : {}),
+        format: { valueFormat: format, unit: unit ?? null },
+        chart: demoChartKind(format),
+        interval: 'day',
+        snapshot: { value, at: anchor.toISOString(), series: [...values] },
+        data: { kind: 'static', series: dailySeries(values, anchor), value },
+        windowLabel: DEMO_WINDOW_LABEL,
+        filterCount: filters,
+        openUrl: `https://example.com/insights/${briefing.id}-observation`,
+    }
+}
+
+function supportingFor(briefing: DemoBriefing, anchor: Date): MetricView[] {
+    return (briefing.supporting ?? []).map(([title, value, format, unit]: DemoSupportingMetric, index) => ({
+        metricId: `${briefing.id}-supporting-${index}`,
+        role: 'supporting',
+        title,
+        format: { valueFormat: format, unit: unit ?? null },
+        chart: demoChartKind(format),
+        interval: 'day',
+        snapshot: { value, at: anchor.toISOString(), series: [] },
+        data: { kind: 'static', series: { interval: 'day', points: [] }, value },
+        windowLabel: DEMO_WINDOW_LABEL,
+        filterCount: 0,
+    }))
+}
+
+function chartsFor(briefing: DemoBriefing, anchor: Date): ReportChartView[] {
+    return (briefing.charts ?? []).map((chart: DemoChart) => {
+        const format = chart.format ?? 'number'
+        return {
+            chartId: chart.id,
+            title: chart.title,
+            ...(chart.caption ? { caption: chart.caption } : {}),
+            ...(chart.values
+                ? {
+                      data: {
+                          kind: 'static' as const,
+                          series: dailySeries(chart.values, anchor),
+                          value: windowValue(chart.values, format),
+                      },
+                  }
+                : {}),
+            format: { valueFormat: format, unit: chart.unit ?? null },
+            chart: 'line',
+            interval: 'day',
+            openUrl: `https://example.com/insights/${chart.id}`,
+        }
+    })
+}
+
 function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
     const task = taskFor(briefing)
     return {
@@ -213,12 +303,9 @@ function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
         lede: briefing.lede,
         evidence: evidenceFor(briefing),
         facts: briefing.facts.map(([key, title, sub, tone]) => ({ key, title, tone, ...(sub ? { sub } : {}) })),
-        metric: {
-            label: briefing.metric.label,
-            range: briefing.metric.range,
-            max: 120,
-            bars: briefing.metric.bars.map(([value, hot]) => ({ value, hot: hot === 1 })),
-        },
+        observation: observationFor(briefing, anchor),
+        supportingMetrics: supportingFor(briefing, anchor),
+        charts: chartsFor(briefing, anchor),
         activity: activityFor(briefing, anchor),
         work: workFor(briefing),
         ...(task ? { task } : {}),

@@ -2,6 +2,8 @@ export type AnalyticsEvent =
     | 'mobile_signed_in'
     | 'mobile_inbox_opened'
     | 'mobile_report_opened'
+    | 'mobile_report_chart_scrubbed'
+    | 'mobile_report_insight_opened'
     | 'mobile_report_handed_off'
     | 'mobile_decision_answered'
     | 'mobile_report_snoozed'

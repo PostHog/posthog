@@ -62,3 +62,40 @@ export function formatActivityTime(iso: string, now: Date): string {
     }
     return `${formatMonthDay(date)}, ${formatClock(date)}`
 }
+
+/** The local calendar day as `YYYY-MM-DD`, the form a trends response gives daily buckets. */
+export function isoDay(date: Date): string {
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${date.getFullYear()}-${month}-${day}`
+}
+
+export function dailyBuckets(end: Date, count: number): string[] {
+    return Array.from({ length: count }, (_, index) => {
+        const day = new Date(end.getFullYear(), end.getMonth(), end.getDate() - (count - 1 - index))
+        return isoDay(day)
+    })
+}
+
+const BUCKET_START = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+
+/**
+ * Epoch ms for a trends bucket label. A bare `YYYY-MM-DD` or a `YYYY-MM-DD HH:mm:ss` without an offset is wall-clock
+ * time, so it parses as local time: `Date.parse` reads a bare date as UTC midnight, which is the day before west of
+ * UTC. Anything else, such as a full ISO string with an offset, goes to `Date.parse`. NaN when it cannot be read.
+ */
+export function parseBucketStart(at: string): number {
+    const match = BUCKET_START.exec(at)
+    if (!match) {
+        return Date.parse(at)
+    }
+    const [, year, month, day, hours, minutes, seconds] = match
+    return new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hours ?? 0),
+        Number(minutes ?? 0),
+        Number(seconds ?? 0)
+    ).getTime()
+}

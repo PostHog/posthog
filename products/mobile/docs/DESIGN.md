@@ -10,7 +10,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 - `colors`: every color in the handoff, named by role (`ink`, `muted`, `secondary`, `tertiary`,
   `border`, `hairline`, `rowDivider`, `sunken`, `pressed`, `background`, `orange`, `blue`, ...),
   plus the scrims and the white overlays used on the orange button.
-- `avatarPalette`, `accentColor`, `sparklineHotColor`: keyed by the report `Accent`
+- `avatarPalette`, `accentColor`: keyed by the report `Accent`
   (`alert` orange, `opportunity` blue, `resolved` ink).
 - `type`: the type scale. React Native letter spacing is in points, so `letterSpacing(size, em)`
   converts the handoff's em values per size. Text without an explicit line height uses the
@@ -55,7 +55,10 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `Scrim` | `ui/Scrim.tsx` | Fades with the overlay; optional tap to close |
 | `BottomSheet` | `ui/BottomSheet.tsx` | Grabber, radius 22, slides up 200ms, closes on scrim tap or a downward drag |
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
-| `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
+| `MetricChart` | `ui/chart/MetricChart.tsx` | Line or bar chart on Skia (victory-native). The y axis floats for lines and starts at zero for bars. Hairline gridlines, 11pt mono ticks. Tap or drag to scrub, with a selection haptic and a tooltip that stays after release. 144pt high by default |
+| `ObservationCard` | `features/report/metrics/ObservationCard.tsx` | White card: "Observation" eyebrow, title, caption, 28pt mono value, chart, then the window and filter count with Open insight |
+| `ImpactMetrics` | `features/report/metrics/ImpactMetrics.tsx` | "Impact" eyebrow over a two-column grid of tiles: 20pt mono value, title, and the window or measured time. A tile with a link opens the insight |
+| `ReportCharts` | `features/report/metrics/ReportCharts.tsx` | "Charts" eyebrow over one card per chart: title, caption, the chart when the app can draw it, and Open insight |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
 | `BlurEdge` | `ui/BlurEdge.tsx` | Masked blur of the content under floating top chrome |
@@ -71,8 +74,8 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   Products opens the project's product library in the web app, and is dimmed in demo mode.
   Loading, empty and error states are separate screens.
 - **Nav menu**: project name, Inbox (selected), Settings, Sign out.
-- **Report**: top chrome, headline, lede, evidence (trace, quotes, replay), facts, sparkline,
-  activity, and the action bar.
+- **Report**: top chrome, headline, lede, evidence (trace, quotes, replay), facts, the observation card,
+  impact tiles, charts, activity, and the action bar.
 - **Action bar** (`actionBarStateFor`): `idle` (Hand off to PostHog + chevron),
   `handed` (dark "PostHog is on it" card), `decision` (NEEDS YOUR DECISION card, collapsible),
   `decided` (dark card with the answer and Undo), `pr_ready` (READY FOR REVIEW card with one

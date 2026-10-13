@@ -12,6 +12,7 @@ export function reportFixture(overrides: Partial<SignalReportApi> = {}): SignalR
         created_at: '2026-10-05T07:21:00Z',
         updated_at: '2026-10-09T09:00:00Z',
         metrics: [],
+        charts: [],
         suggested_prompts: [],
         priority: 'P1',
         actionability: 'immediately_actionable',

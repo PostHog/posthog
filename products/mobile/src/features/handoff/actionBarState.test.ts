@@ -16,6 +16,8 @@ function report(work: WorkView, task?: TaskRunView): ReportView {
         lede: '',
         evidence: [],
         facts: [],
+        supportingMetrics: [],
+        charts: [],
         activity: [],
         work,
         ...(task ? { task } : {}),
