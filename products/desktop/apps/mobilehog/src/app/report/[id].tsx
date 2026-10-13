@@ -35,9 +35,11 @@ export default function ReportScreen() {
   const startTask = useStartReportTask();
   const liveTask = useHasLiveImplementationTask(id);
   const markRead = useMarkReportRead();
+  // A report that failed to load or is still loading stays unread.
+  const reportId = report?.id;
   useEffect(() => {
-    if (id) markRead(id);
-  }, [id, markRead]);
+    if (reportId) markRead(reportId);
+  }, [reportId, markRead]);
 
   if (!report) {
     return (
