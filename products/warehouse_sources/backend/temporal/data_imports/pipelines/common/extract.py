@@ -476,14 +476,12 @@ async def setup_row_tracking_with_billing_check(
     logger: FilteringBoundLogger,
     billable: bool | None = True,
 ) -> None:
-    # The limit check adds up these rows for every running sync in the organization. A run that the
-    # check skips (a non-billable job, or a source in its free first week when the run starts) must
-    # stay out of that sum, because its rows would refuse the organization's other syncs until it ends.
+    # The limit check sums these rows over every running sync in the organization. A run the check skips (a
+    # non-billable job, or a source in its free first week at the start) must stay out, or it blocks the others.
     if not resource.rows_to_sync or not billable or is_in_free_historical_window(source.created_at):
         return
 
     await increment_rows(team_id, schema.id, resource.rows_to_sync)
-    # Check billing limits against incoming rows
     if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
         raise BillingLimitsWillBeReachedException(
             f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
