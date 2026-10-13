@@ -130,6 +130,8 @@ class TestNotifyExternalDataSyncFailures:
                         "source_prefix": "",
                         "source_url": source_url,
                         "error": error,
+                        "destination_name": None,
+                        "destination_url": None,
                         "paused": paused,
                         "url": f"{source_url}?schema={name}",
                     }
@@ -788,6 +790,8 @@ def test_failure_digest_summary(
         "source_url": "https://example.com/syncs",
         "url": "https://example.com/syncs?schema=Charge",
         "error": error,
+        "destination_name": None,
+        "destination_url": None,
         "paused": True,
     }
     summary = build_failure_digest_summary([item] * count, omitted_count)
