@@ -1,7 +1,6 @@
+import functools
 from datetime import date
 from typing import Optional, cast
-
-from django.conf import settings
 
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -12,6 +11,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -61,6 +62,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     validate_credentials as validate_shopify_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Rows read through a bulk operation have no `discountApplications` and no `shippingLines`,
+# because a bulk operation cannot export them.
+WAREHOUSE_SHOPIFY_BULK_EXPORT_FLAG = "warehouse-shopify-bulk-export"
+
+
+def _is_bulk_export_enabled(team_id: int, schema_id: str) -> bool:
+    schema = ExternalDataSchema.objects.filter(team_id=team_id, id=schema_id).select_related("source").first()
+    return schema is not None and is_schema_flag_enabled(schema, WAREHOUSE_SHOPIFY_BULK_EXPORT_FLAG)
 
 
 @SourceRegistry.register
@@ -342,5 +352,5 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             row_filters=inputs.row_filters,
-            use_bulk_export=inputs.team_id in settings.DATA_WAREHOUSE_SHOPIFY_BULK_EXPORT_TEAM_IDS,
+            use_bulk_export=functools.partial(_is_bulk_export_enabled, inputs.team_id, inputs.schema_id),
         )

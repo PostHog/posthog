@@ -202,6 +202,7 @@ def _run_orders(
     manager: MagicMock,
     server: _FileServer | None = None,
     api_version: str = SHOPIFY_API_VERSION_2026_07,
+    flag_enabled: bool = True,
 ) -> tuple[list[Any], list[str]]:
     server = server or _FileServer(_jsonl(_LINES))
     with (
@@ -219,7 +220,7 @@ def _run_orders(
             logger=MagicMock(),
             resumable_source_manager=manager,
             api_version=api_version,
-            use_bulk_export=True,
+            use_bulk_export=lambda: flag_enabled,
         )
         batches = list(source.items())
         sent = [call.kwargs["json"]["query"] for call in session_cls.return_value.post.call_args_list]
@@ -264,19 +265,30 @@ class TestShopifyBulkExport:
         assert operations == ["BulkOperation"]
         assert server.requested_offsets == [offset]
 
+    def test_bulk_read_in_progress_continues_after_the_flag_turns_off(self) -> None:
+        resume_state = ShopifyResumeConfig(phase=PHASE_BULK, cursor="", bulk_operation_id=_OPERATION_ID)
+
+        batches, operations = _run_orders(
+            [_operation("COMPLETED", _FILE_URL)], _manager(resume_state), flag_enabled=False
+        )
+
+        assert batches == [_ORDERS]
+        assert operations == ["BulkOperation"]
+
     @pytest.mark.parametrize(
-        "responses, manager, api_version",
+        "responses, manager, api_version, flag_enabled",
         [
-            ([_REJECTED, _PAGE], _manager(), SHOPIFY_API_VERSION_2026_07),
-            ([_PAGE], _manager(ShopifyResumeConfig(phase=PHASE_ALL, cursor="c")), SHOPIFY_API_VERSION_2026_07),
-            ([_PAGE], _manager(), SHOPIFY_API_VERSION_2025_10),
+            ([_REJECTED, _PAGE], _manager(), SHOPIFY_API_VERSION_2026_07, True),
+            ([_PAGE], _manager(ShopifyResumeConfig(phase=PHASE_ALL, cursor="c")), SHOPIFY_API_VERSION_2026_07, True),
+            ([_PAGE], _manager(), SHOPIFY_API_VERSION_2025_10, True),
+            ([_PAGE], _manager(), SHOPIFY_API_VERSION_2026_07, False),
         ],
-        ids=["start_rejected", "paged_read_in_progress", "version_without_bulk_polling"],
+        ids=["start_rejected", "paged_read_in_progress", "version_without_bulk_polling", "flag_off"],
     )
     def test_reads_pages_when_the_bulk_export_cannot_be_used(
-        self, responses: list[MagicMock], manager: MagicMock, api_version: str
+        self, responses: list[MagicMock], manager: MagicMock, api_version: str, flag_enabled: bool
     ) -> None:
-        batches, operations = _run_orders(responses, manager, api_version=api_version)
+        batches, operations = _run_orders(responses, manager, api_version=api_version, flag_enabled=flag_enabled)
 
         assert batches == [[{"id": "paged-1"}]]
         assert operations[-1] == "PaginatedOrders"

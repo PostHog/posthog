@@ -2,7 +2,7 @@ import re
 import json
 import functools
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -716,7 +716,7 @@ def shopify_source(
     should_use_incremental_field: bool = False,
     shopify_access_token: str | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
-    use_bulk_export: bool = False,
+    use_bulk_export: Callable[[], bool] | None = None,
 ):
     store_id = normalize_store_id(shopify_store_id)
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
@@ -762,13 +762,18 @@ def shopify_source(
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
             logger.debug(f"Shopify: iterating all objects from source for {schema_name}")
-            # A paged read that is already in progress keeps its cursor and stays paged.
-            if (
-                use_bulk_export
-                and graphql_object.bulk_query_builder is not None
-                and api_version in SHOPIFY_BULK_EXPORT_API_VERSIONS
-                and (resume_config is None or resume_config.phase == PHASE_BULK)
-            ):
+            # A read that is already in progress stays on the path that started it, because the
+            # cursor of one path means nothing to the other. Only a new read asks the flag.
+            if resume_config is not None:
+                read_in_bulk = resume_config.phase == PHASE_BULK
+            else:
+                read_in_bulk = (
+                    use_bulk_export is not None
+                    and graphql_object.bulk_query_builder is not None
+                    and api_version in SHOPIFY_BULK_EXPORT_API_VERSIONS
+                    and use_bulk_export()
+                )
+            if read_in_bulk and graphql_object.bulk_query_builder is not None:
                 bulk_rows = _bulk_export_rows(
                     api_url,
                     sess,
