@@ -692,8 +692,10 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
         if not is_events_json_document:
-            # A String JSON column holds '' when its producer omits the value. The UDF fails to parse ''.
+            # A String JSON column holds '' when its producer omits the value.
+            # The v12 json_drop_keys_udf binary fails to parse ''. Cloud and CI call it as JSONDropKeys_v12.
             # ClickHouse short-circuits `if`. The UDF therefore receives only the rows that are not empty.
+            # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
             stripped = f"if(empty({field_sql}), '', {stripped})"
         if not mask_stored_feature_flags:
             return stripped
