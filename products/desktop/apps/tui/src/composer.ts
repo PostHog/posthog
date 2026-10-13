@@ -16,7 +16,7 @@ import { inverseCells } from "./highlight";
 import type { RunCommand } from "./models";
 import type { Click } from "./mouse";
 import { wordAt } from "./selection";
-import { orange } from "./theme";
+import { blue, orange } from "./theme";
 
 // Keys the app keeps for itself; everything else typed in a focused pane goes to its composer.
 const APP_KEYS: KeyId[] = [
@@ -154,7 +154,12 @@ export class Composer {
     } as unknown as TUI;
     this.editor = new Editor(host, {
       borderColor: RULE,
-      selectList: getSelectListTheme(),
+      // pi's own accent is purple; the picked suggestion follows PostHog's blue instead.
+      selectList: {
+        ...getSelectListTheme(),
+        selectedPrefix: blue,
+        selectedText: blue,
+      },
     });
     this.setCommands([]);
     this.editor.onSubmit = (text) => {
