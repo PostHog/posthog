@@ -98,7 +98,7 @@ impl MergeEntrance {
         if stats.clamped_numbers > 0 {
             common_metrics::inc(PAYLOAD_NUMBERS_CLAMPED_TOTAL, &[], stats.clamped_numbers);
         }
-        let original = merge_original(&request, &event_set, &event_set_once);
+        let original = merge_original(&request);
 
         // Attach-first: classification below is time-dependent (a retry
         // after the merge committed would re-classify every merged pair as
@@ -566,14 +566,13 @@ fn parse_json_map(bytes: &[u8], field: &str) -> Result<Value, Status> {
 /// be compared against what was originally ASKED, not what was classified —
 /// this is what keeps a legitimate retry from tripping the engine's
 /// request-equality guard after the merge already moved the world.
-fn merge_original(
-    request: &MergePersonsRequest,
-    event_set: &Value,
-    event_set_once: &Value,
-) -> Value {
+fn merge_original(request: &MergePersonsRequest) -> Value {
     // event_uuid and creator_event_uuid are advisory: a retry that
     // regenerated either must still match, and a mismatch here would be
-    // a terminal refusal. Ownership keys on the op id.
+    // a terminal refusal. Ownership keys on the op id. The event payloads
+    // and created_at (MERGE_PARAMETERS) are left out: the comparison
+    // ignores them, and the frozen MergeRequest already carries the
+    // payloads the fold applies.
     serde_json::json!({
         "target_distinct_id": request.target_distinct_id,
         "sources": request
@@ -581,17 +580,15 @@ fn merge_original(
             .iter()
             .map(|s| &s.source_distinct_id)
             .collect::<Vec<_>>(),
-        "event_set": event_set,
-        "event_set_once": event_set_once,
         "allow_identified_sources": request.allow_identified_sources,
         "move_limit": request.move_limit,
-        "created_at": request.created_at,
     })
 }
 
 /// Fields that describe how a merge runs, not which merge it is; they
 /// drift between deliveries, so they are excluded from the comparison
-/// (a replay still delivers them). `move_limit` is folded into the op id.
+/// (a replay still delivers them). Rows frozen before these were dropped
+/// from `original` still carry them. `move_limit` is folded into the op id.
 const MERGE_PARAMETERS: [&str; 3] = ["created_at", "event_set", "event_set_once"];
 
 /// Whether a retry describes the recorded merge; see MERGE_PARAMETERS.
