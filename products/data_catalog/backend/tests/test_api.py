@@ -148,18 +148,25 @@ class TestMetricAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unfiltered", "", ["mine", "unrelated"]),
-            ("search", "activation revenue", ["mine"]),
-            ("natural_language", "what is our activation", ["mine"]),
-            ("stop_words", "what is our", []),
+            ("unfiltered", "", ["mine", "unrelated"], False),
+            ("search", "activation revenue", ["mine"], False),
+            ("natural_language", "what is our activation", ["mine"], False),
+            ("stop_words", "what is our", [], False),
+            ("definition", "what is activation", ["mine"], True),
         ]
     )
-    def test_list_is_team_scoped(self, name: str, search: str, expected: list[str]) -> None:
+    def test_list_is_team_scoped(self, name: str, search: str, expected: list[str], match_definition: bool) -> None:
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
-        self.client.post(self.url, {"name": "mine", "description": "activation"}, format="json")
-        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", description="activation")
+        description = "retention" if match_definition else "activation"
+        definition = {"kind": "MarkdownDefinition", "markdown": "activation"} if match_definition else None
+        self.client.post(
+            self.url, {"name": "mine", "description": description, "definition": definition}, format="json"
+        )
+        Metric.objects.for_team(other_team.id).create(
+            team=other_team, name="theirs", description=description, definition=definition
+        )
 
         self.client.post(self.url, {"name": "unrelated", "description": "retention"}, format="json")
         names = [row["name"] for row in self.client.get(self.url, {"search": search}).json()["results"]]
