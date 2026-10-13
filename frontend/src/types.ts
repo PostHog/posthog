@@ -3774,6 +3774,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     dashboardId?: DashboardType['id']
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
+    /** Reuse recent completed responses when this embedded insight remounts. */
+    retainResponseOnUnmount?: boolean
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
