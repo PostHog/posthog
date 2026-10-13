@@ -4,6 +4,7 @@ from structlog import get_logger
 
 from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.models import User
+from posthog.models.organization_notification_lock import effective_notification_settings, notification_locks_for_users
 from posthog.utils import absolute_uri
 
 from products.notifications.backend.facade.api import (
@@ -37,6 +38,30 @@ def _change_summary(change_request: "ChangeRequest") -> str:
     """Human-readable summary of what is being changed, for notification bodies."""
     description = (change_request.intent_display or {}).get("description")
     return description or change_request.action_key
+
+
+def _recipients_with_email_enabled(recipients: list[User], setting: str, change_request: "ChangeRequest") -> list[User]:
+    """The recipients who still want this email once the change request's organization rules apply.
+
+    Only that organization's rules count, so another organization's admin cannot decide these
+    emails for a member the two organizations share.
+    """
+    locks_by_user = notification_locks_for_users(
+        [recipient.id for recipient in recipients], organization_id=change_request.organization_id
+    )
+    enabled = []
+    for recipient in recipients:
+        settings = effective_notification_settings(recipient, locks=locks_by_user.get(recipient.id, {}))
+        if settings.get(setting, True):
+            enabled.append(recipient)
+        else:
+            logger.info(
+                "notifications.email_skipped.disabled_by_setting",
+                recipient_id=recipient.id,
+                setting=setting,
+                change_request_id=str(change_request.id),
+            )
+    return enabled
 
 
 def _dispatch_realtime_requested(change_request: "ChangeRequest") -> None:
@@ -172,7 +197,9 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
         )
         return
 
-    approvers = User.objects.filter(id__in=approver_ids)
+    approvers = _recipients_with_email_enabled(
+        list(User.objects.filter(id__in=approver_ids)), "approval_requested", change_request
+    )
     requester_name = get_user_display_name(change_request.created_by)
 
     for approver in approvers:
@@ -214,21 +241,22 @@ def send_approval_decision_notification(
     approver_name = get_user_display_name(approval.created_by, fallback="Someone")
     subject = f"{approver_name} approved your change" if is_approved else "Your change request was declined"
 
-    try:
-        _send_approval_email(
-            recipient=change_request.created_by,
-            template_name=template_name,
-            subject=subject,
-            change_request=change_request,
-            extra_context={"approver_name": approver_name},
-        )
-    except Exception as e:
-        logger.exception(
-            "send_approval_decision_notification.error",
-            change_request_id=str(change_request.id),
-            approval_id=str(approval.id),
-            error=str(e),
-        )
+    if _recipients_with_email_enabled([change_request.created_by], "approval_resolved", change_request):
+        try:
+            _send_approval_email(
+                recipient=change_request.created_by,
+                template_name=template_name,
+                subject=subject,
+                change_request=change_request,
+                extra_context={"approver_name": approver_name},
+            )
+        except Exception as e:
+            logger.exception(
+                "send_approval_decision_notification.error",
+                change_request_id=str(change_request.id),
+                approval_id=str(approval.id),
+                error=str(e),
+            )
 
     summary = _change_summary(change_request)
     realtime_body = summary if is_approved else f"Declined by {approver_name} — {summary}"
@@ -246,19 +274,20 @@ def send_approval_expired_notification(change_request: "ChangeRequest") -> None:
         )
         return
 
-    try:
-        _send_approval_email(
-            recipient=change_request.created_by,
-            template_name="approval_expired",
-            subject="Your change request timed out",
-            change_request=change_request,
-        )
-    except Exception as e:
-        logger.exception(
-            "send_approval_expired_notification.error",
-            change_request_id=str(change_request.id),
-            error=str(e),
-        )
+    if _recipients_with_email_enabled([change_request.created_by], "approval_resolved", change_request):
+        try:
+            _send_approval_email(
+                recipient=change_request.created_by,
+                template_name="approval_expired",
+                subject="Your change request timed out",
+                change_request=change_request,
+            )
+        except Exception as e:
+            logger.exception(
+                "send_approval_expired_notification.error",
+                change_request_id=str(change_request.id),
+                error=str(e),
+            )
 
     _dispatch_realtime_resolved(
         change_request,
@@ -278,19 +307,20 @@ def send_approval_applied_notification(change_request: "ChangeRequest") -> None:
         )
         return
 
-    try:
-        _send_approval_email(
-            recipient=change_request.created_by,
-            template_name="approval_applied",
-            subject="Your change is live! 🎉",
-            change_request=change_request,
-        )
-    except Exception as e:
-        logger.exception(
-            "send_approval_applied_notification.error",
-            change_request_id=str(change_request.id),
-            error=str(e),
-        )
+    if _recipients_with_email_enabled([change_request.created_by], "approval_resolved", change_request):
+        try:
+            _send_approval_email(
+                recipient=change_request.created_by,
+                template_name="approval_applied",
+                subject="Your change is live! 🎉",
+                change_request=change_request,
+            )
+        except Exception as e:
+            logger.exception(
+                "send_approval_applied_notification.error",
+                change_request_id=str(change_request.id),
+                error=str(e),
+            )
 
     _dispatch_realtime_resolved(
         change_request,

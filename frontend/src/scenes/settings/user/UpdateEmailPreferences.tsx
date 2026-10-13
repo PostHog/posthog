@@ -23,6 +23,7 @@ enum NotificationBlock {
     WaWeeklyDigest = 'wa-weekly-digest',
     DataCatalogWeeklyDigest = 'data-catalog-weekly-digest',
     CommentMentions = 'comment-mentions',
+    Approvals = 'approvals',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
     AiEvaluationDisabled = 'ai-evaluation-disabled',
@@ -51,6 +52,8 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     materialized_view_sync_failed_immediate: false,
     web_analytics_weekly_digest: true,
     data_catalog_weekly_digest: true,
+    approval_requested: true,
+    approval_resolved: true,
 }
 
 function ProjectDigestSelector({
@@ -564,6 +567,22 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Comment mentions"
                     description="Get notified when someone mentions you in a discussion on any project"
                     dataAttr="discussions_mentioned_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.Approvals]: (
+            <div className="border rounded p-4 space-y-3">
+                <SimpleSwitch
+                    setting="approval_requested"
+                    label="Approval requests"
+                    description="Get an email when a change needs your approval"
+                    dataAttr="approval_requested_enabled"
+                />
+                <SimpleSwitch
+                    setting="approval_resolved"
+                    label="Change request updates"
+                    description="Get an email when your change request is approved, declined, expires, or goes live"
+                    dataAttr="approval_resolved_enabled"
                 />
             </div>
         ),

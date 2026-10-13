@@ -70,6 +70,20 @@ export const NOTIFICATION_CONCEPTS: NotificationConcept[] = [
         note: NO_PROJECT_NOTE,
     },
     {
+        setting: 'approval_requested',
+        label: 'Approval requests',
+        description: 'An email when a change needs their approval.',
+        perProject: false,
+        note: NO_PROJECT_NOTE,
+    },
+    {
+        setting: 'approval_resolved',
+        label: 'Change request updates',
+        description: 'Emails when their change request is approved, declined, expires, or goes live.',
+        perProject: false,
+        note: NO_PROJECT_NOTE,
+    },
+    {
         setting: 'organization_member_join_email_disabled',
         label: 'New member joined',
         description: 'An email when someone joins the organization.',
