@@ -11,6 +11,8 @@ class ShopifyGraphQLObject:
         display_name: str | None = None,
         permissions_query: str | None = None,
         protected_query_builder: Callable[[set[str]], str] | None = None,
+        bulk_query_builder: Callable[[set[str], str | None], str] | None = None,
+        bulk_connections: dict[str, str] | None = None,
     ):
         # shopify graphql responses typically look like this:
         # {
@@ -36,6 +38,11 @@ class ShopifyGraphQLObject:
         # optional: rebuilds `query` from the token's granted scopes so a partially scoped token
         # degrades gracefully instead of hard-failing on a field it can't read (see queries/orders.py)
         self.protected_query_builder: Callable[[set[str]], str] | None = protected_query_builder
+        # optional: builds the query for a bulk operation from the granted scopes and a search query.
+        # `bulk_connections` maps the `__typename` of each nested row in the bulk file to its
+        # connection field (see bulk.py)
+        self.bulk_query_builder: Callable[[set[str], str | None], str] | None = bulk_query_builder
+        self.bulk_connections: dict[str, str] = bulk_connections or {}
 
 
 def unwrap(payload: Any, path: str):
