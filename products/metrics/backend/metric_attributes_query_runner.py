@@ -104,14 +104,22 @@ class MetricAttributeKeysQueryRunner:
                     SELECT attribute_key, uniq(attribute_value) AS value_count
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
+                      AND attribute_key NOT IN ('service_name', 'service.name')
                       AND attribute_key ILIKE {search_pattern}
                     GROUP BY attribute_key
                     UNION ALL
-                    SELECT 'service_name' AS attribute_key, uniq(service_name) AS value_count
-                    FROM posthog.metric_attributes
-                    WHERE time_bucket >= {date_from}
-                      AND ('service_name' ILIKE {search_pattern} OR 'service.name' ILIKE {search_pattern})
-                    HAVING value_count > 0
+                    -- A metric of a service that sends `service.name` lists that key.
+                    -- Other metrics list the synthetic `service_name` key.
+                    SELECT if(has_dotted_service_name, 'service.name', 'service_name') AS attribute_key,
+                        uniq(service) AS value_count
+                    FROM (
+                        SELECT service_name AS service, max(attribute_key = 'service.name') AS has_dotted_service_name
+                        FROM posthog.metric_attributes
+                        WHERE time_bucket >= {date_from}
+                        GROUP BY metric_name, service_name
+                    )
+                    WHERE 'service_name' ILIKE {search_pattern} OR 'service.name' ILIKE {search_pattern}
+                    GROUP BY attribute_key
                 )
                 ORDER BY value_count DESC, attribute_key ASC
                 LIMIT {limit}
