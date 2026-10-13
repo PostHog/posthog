@@ -11,7 +11,7 @@ from posthog.ph_client import get_feature_flag_or_none
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ..facade.contracts import AccessFilter, CheckRequest, Context, Resource, ResourceIds, Subject
-from ..facade.enums import Action
+from ..facade.enums import Action, ResourceType
 from . import (
     authorization,
     filters as filters_logic,
@@ -24,7 +24,12 @@ ROLLOUT_FLAG = "authz-rebac"
 RolloutMode = Literal["v1", "v1-shadow-log", "v2"]
 
 
-def mode(organization_id: UUID) -> RolloutMode:
+V2_RESOURCES = frozenset({ResourceType.DASHBOARD})
+
+
+def mode(organization_id: UUID, resource_type: ResourceType) -> RolloutMode:
+    if resource_type not in V2_RESOURCES:
+        return "v1"
     id = str(organization_id)
     variant = get_feature_flag_or_none(
         ROLLOUT_FLAG,
@@ -43,13 +48,13 @@ def mode(organization_id: UUID) -> RolloutMode:
 
 def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
     authorization.validate_context(context)
-    grouped: dict[UUID, list[tuple[int, CheckRequest]]] = defaultdict(list)
+    grouped: dict[tuple[UUID, ResourceType], list[tuple[int, CheckRequest]]] = defaultdict(list)
     for index, request in enumerate(requests):
         authorization.actor_key(request.subject)
-        grouped[authorization.organization_id(request.resource)].append((index, request))
+        grouped[(authorization.organization_id(request.resource), request.resource.type)].append((index, request))
     decisions = [False] * len(requests)
-    for org_id, entries in grouped.items():
-        rollout_mode = mode(org_id)
+    for (org_id, resource_type), entries in grouped.items():
+        rollout_mode = mode(org_id, resource_type)
         batch = [request for _, request in entries]
         primary = authorization if rollout_mode == "v2" else legacy_authorization
         results = primary.check(batch, context)
@@ -104,7 +109,7 @@ def list_resources(
     authorization.validate_context(context)
     authorization.actor_key(subject)
     org_id = authorization.organization_id(resource)
-    rollout_mode = mode(org_id)
+    rollout_mode = mode(org_id, resource.type)
     primary = authorization if rollout_mode == "v2" else legacy_authorization
     result = primary.list_resources(resource, action, subject, context, limit)
     if rollout_mode == "v1":
@@ -152,30 +157,23 @@ def filters(
     unknown = {pid for pid in (authorization.project_id(r) for r in resources) if pid is not None} - set(projects)
     if unknown:
         projects.update(Team.objects.filter(id__in=unknown).values_list("id", "organization_id"))
-    grouped: dict[UUID, list[tuple[int, Resource]]] = defaultdict(list)
+    grouped: dict[tuple[UUID, ResourceType], list[tuple[int, Resource]]] = defaultdict(list)
     for index, resource in enumerate(resources):
-        grouped[authorization.organization_id(resource, projects=projects)].append((index, resource))
+        org_id = authorization.organization_id(resource, projects=projects)
+        grouped[(org_id, resource.type)].append((index, resource))
     results: list[AccessFilter | None] = [None] * len(resources)
-    for org_id, entries in grouped.items():
-        rollout_mode = mode(org_id)
-        # The OpenFGA model covers some resource types. The legacy rules cover all of them.
-        modelled = [(index, resource) for index, resource in entries if resource.type.value in model_types()]
-        legacy = [(index, resource) for index, resource in entries if resource.type.value not in model_types()]
-        primary_v2 = rollout_mode == "v2"
-        for batch, use_v2 in ((modelled, primary_v2), (legacy, False)):
-            if not batch:
-                continue
-            batch_resources = [resource for _, resource in batch]
-            derived = (
-                filters_logic.filters(batch_resources, action, subject, creator_exempt)
-                if use_v2
-                else legacy_filters.filters(batch_resources, action, subject, creator_exempt, user_access_control)
-            )
-            for (index, _), result in zip(batch, derived, strict=True):
-                results[index] = result
-        if rollout_mode == "v1" or not modelled:
-            continue
-        _log_shadow_filters(org_id, rollout_mode, modelled, results, action, subject, creator_exempt)
+    for (org_id, resource_type), entries in grouped.items():
+        rollout_mode = mode(org_id, resource_type)
+        batch = [resource for _, resource in entries]
+        derived = (
+            filters_logic.filters(batch, action, subject, creator_exempt)
+            if rollout_mode == "v2"
+            else legacy_filters.filters(batch, action, subject, creator_exempt, user_access_control)
+        )
+        for (index, _), result in zip(entries, derived, strict=True):
+            results[index] = result
+        if rollout_mode != "v1":
+            _log_shadow_filters(org_id, rollout_mode, entries, results, action, subject, creator_exempt)
     return [result for result in results if result is not None]
 
 
@@ -215,7 +213,3 @@ def _log_shadow_filters(
             v2_kind=str(v2.kind) if v2 is not None else None,
             matches=result == shadow if shadow is not None else None,
         )
-
-
-def model_types() -> frozenset[str]:
-    return frozenset(authorization.model_relations())

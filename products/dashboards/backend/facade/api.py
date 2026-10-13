@@ -21,11 +21,12 @@ from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.authz import check_object_access
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.facade.enums import PrivilegeLevel
+from products.authz.backend.facade.enums import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -178,9 +179,7 @@ def restore_tiles_for_insights(insight_ids: Collection[int], *, user_permissions
         insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
     ).select_related("dashboard")
     restorable_tile_ids = [
-        tile.id
-        for tile in candidate_tiles
-        if user_permissions.dashboard(tile.dashboard).effective_privilege_level == PrivilegeLevel.CAN_EDIT
+        tile.id for tile in candidate_tiles if check_object_access(user_permissions.user, tile.dashboard, Action.EDIT)
     ]
     if restorable_tile_ids:
         DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(deleted=False)
@@ -231,7 +230,7 @@ def plan_insight_tile_placement(
     for dashboard in dashboards:
         # Adding a tile is an edit of the dashboard, so a restricted dashboard the requester
         # can't edit must not be writable here either.
-        if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
+        if not check_object_access(user, dashboard, Action.EDIT):
             raise CannotAddToDashboard(dashboard.id)
         if dashboard.team_id != team_id:
             raise DashboardNotFound
@@ -279,7 +278,7 @@ def update_insight_dashboard_membership(
     for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
         # Does the requester have permission to add to this dashboard? If it is restricted, the
         # patch would otherwise make the insight restricted too.
-        if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
+        if not check_object_access(user, dashboard, Action.EDIT):
             raise CannotAddToDashboard(dashboard.id)
 
         if dashboard.team != insight.team:
@@ -299,7 +298,7 @@ def update_insight_dashboard_membership(
     if ids_to_remove:
         # nosemgrep: idor-lookup-without-team (team check after lookup)
         for dashboard in Dashboard.objects.filter(id__in=ids_to_remove):
-            if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
+            if not check_object_access(user, dashboard, Action.EDIT):
                 raise CannotRemoveFromDashboard(dashboard.id)
 
         # Capture the still-active tiles before soft-deleting so the caller can report one

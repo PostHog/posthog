@@ -28,6 +28,7 @@ from posthog.auth import (
     TeamSecretTokenAuthentication,
     is_mcp_request,
 )
+from posthog.authz import RESOURCE_ACTIONS, check_dashboard_category_access, check_object_access
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
@@ -51,8 +52,10 @@ from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
+    model_to_resource,
     ordered_access_levels,
 )
+from products.authz.backend.facade.enums import Action
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -1130,6 +1133,15 @@ class AccessControlPermission(ScopeBasePermission):
         if is_service_auth(request):
             return True
 
+        resource = object.resource if isinstance(object, ObjectAccessRef) else model_to_resource(object)
+        if resource == "dashboard":
+            if isinstance(object, ObjectAccessRef) and object.team_id != view.team.pk:
+                return False
+            if view.action == "access_controls" and request.method not in SAFE_METHODS:
+                return check_object_access(request.user, object, Action.MANAGE_ACCESS)
+            required_level = self._get_required_access_level(request, view)
+            return not required_level or check_object_access(request.user, object, RESOURCE_ACTIONS[required_level])
+
         # NOTE: If the object is a Team then we shortcircuit here and create a UAC
         # Reason being that there is a loop from view.user_access_control -> view.team -> view.user_access_control
         if isinstance(object, Team):
@@ -1177,7 +1189,6 @@ class AccessControlPermission(ScopeBasePermission):
                         "account has none. Open PostHog, select a project, then try again."
                     )
 
-        uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)
         required_level = self._get_required_access_level(request, view)
 
@@ -1190,8 +1201,24 @@ class AccessControlPermission(ScopeBasePermission):
             # TODO: Does this means its okay because there is no team level thing?
             return True
 
+        if scope_object == "dashboard":
+            if not check_object_access(request.user, team, Action.VIEW):
+                return False
+            if not required_level:
+                return True
+            # Object-level grants must work even when the resource category denies access.
+            if view.kwargs.get("pk") is not None and not getattr(view, "requires_resource_level_access", False):
+                return True
+            return check_dashboard_category_access(
+                request.user,
+                team,
+                Action.CREATE if view.action == "create" else RESOURCE_ACTIONS[required_level],
+                require_category=getattr(view, "requires_resource_level_access", False) or view.action == "create",
+            )
+
         # NOTE: This isn't perfect as it will only optimize for endpoints where the pk matches the obj.id
         # We can't load the actual object as get_object in turn calls the permissions check
+        uac = self._get_user_access_control(request, view)
         pk = view.kwargs.get("pk")
         uac.preload_access_levels(team=team, resource=cast(APIScopeObject, scope_object), resource_id=pk)
 

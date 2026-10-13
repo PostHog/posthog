@@ -1,5 +1,6 @@
 from django.db.models import QuerySet
 
+from posthog.authz import filter_dashboard_queryset
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -45,15 +46,16 @@ class AnchoredDashboardsSource:
     ) -> QuerySet[Insight]:
         dashboard_ids = (config.anchors.get("dashboards") if config else None) or []
         if dashboard_ids:
-            dashboards: QuerySet[Dashboard] = user_access_control.filter_queryset_by_access_level(
-                Dashboard.objects.filter(team=team, deleted=False, id__in=dashboard_ids)
+            dashboards: QuerySet[Dashboard] = filter_dashboard_queryset(
+                user_access_control.user, Dashboard.objects.filter(team=team, deleted=False, id__in=dashboard_ids)
             )
         elif config is None:
             # Zero-config default brief only: the team's most recently accessed dashboards. A saved
             # config that anchors no dashboards gathers nothing here — its other anchors (e.g.
             # insights) are their own source's job, so the fallback would just duplicate them.
-            dashboards = user_access_control.filter_queryset_by_access_level(
-                Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False)
+            dashboards = filter_dashboard_queryset(
+                user_access_control.user,
+                Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False),
             ).order_by("-last_accessed_at")[: settings.fallback_dashboard_count]
         else:
             return Insight.objects.none()

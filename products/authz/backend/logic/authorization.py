@@ -8,10 +8,12 @@ from openfga_sdk.client.models import ClientCheckRequest, ClientListObjectsReque
 
 from posthog.models import Team
 
+from products.dashboards.backend.facade.authorization import active_authorization_dashboard_ids
+
 from ..client import get_openfga_client
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, Level, ResourceType
-from . import sync_state
+from . import request_context, sync_state
 
 
 def ready_state(organization_id: UUID) -> bytes | None:
@@ -45,6 +47,13 @@ def organization_id(resource: Resource, *, projects: Mapping[int, UUID] | None =
         return org_id
     team_id = project_id(resource)
     if team_id is not None:
+        cached_projects = request_context.project_organizations.get() if projects is None else None
+        if cached_projects is not None:
+            if team_id not in cached_projects:
+                cached_org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+                if cached_org_id is not None:
+                    cached_projects[team_id] = cached_org_id
+            projects = cached_projects
         org_id = (
             projects.get(team_id)
             if projects is not None
@@ -175,12 +184,17 @@ def list_resources(
                 if result.object.startswith(prefix):
                     ids.add(result.object.removeprefix(prefix))
                     if limit is not None and len(ids) > limit:
-                        return ResourceIds(ids=frozenset(), complete=False)
+                        ids = set(active_authorization_dashboard_ids(resource.project_id, ids))
+                        if len(ids) > limit:
+                            return ResourceIds(ids=frozenset(), complete=False)
         finally:
             stream.close()
+        active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+        if limit is not None and len(active_ids) > limit:
+            return ResourceIds(ids=frozenset(), complete=False)
         if ready_state(org_id) != revision:
             return ResourceIds(ids=frozenset(), complete=False)
-        return ResourceIds(ids=frozenset(ids), complete=True)
+        return ResourceIds(ids=active_ids, complete=True)
     finally:
         client.close()
 

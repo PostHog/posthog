@@ -14,8 +14,14 @@ from products.authz.backend.facade.enums import Action, ResourceType
 
 class TestAuthorizationRollout(SimpleTestCase):
     def setUp(self) -> None:
-        self.resource = Resource(type=ResourceType.ORGANIZATION, id=str(uuid4()))
+        self.resource = Resource(type=ResourceType.DASHBOARD, project_id=1, organization_id=uuid4())
         self.subject = Subject(user_id=1)
+        organization = patch(
+            "products.authz.backend.logic.authorization.organization_id",
+            side_effect=lambda resource: resource.organization_id,
+        )
+        organization.start()
+        self.addCleanup(organization.stop)
 
     @parameterized.expand(
         [
@@ -49,7 +55,7 @@ class TestAuthorizationRollout(SimpleTestCase):
             assert logs[0]["matches"] is (v1 == v2)
 
     def test_batch_preserves_order_and_routes_each_organization_separately(self) -> None:
-        other = Resource(type=ResourceType.ORGANIZATION, id=str(uuid4()))
+        other = Resource(type=ResourceType.DASHBOARD, project_id=2, organization_id=uuid4())
         requests = [
             CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject),
             CheckRequest(resource=other, action=Action.EDIT, subject=self.subject),
@@ -101,6 +107,33 @@ class TestAuthorizationRollout(SimpleTestCase):
         ):
             with self.assertRaises(RuntimeError):
                 api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
+
+    @parameterized.expand([("shadow", "v1-shadow-log"), ("v2", "v2")])
+    def test_mixed_batch_keeps_non_allowlisted_resources_on_v1(self, _name: str, variant: str) -> None:
+        other = Resource(type=ResourceType.PROJECT, id="1", organization_id=self.resource.organization_id)
+        requests = [
+            CheckRequest(resource=other, action=Action.VIEW, subject=self.subject),
+            CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject),
+            CheckRequest(resource=other, action=Action.EDIT, subject=self.subject),
+        ]
+        with (
+            patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value=variant),
+            patch(
+                "products.authz.backend.logic.legacy_authorization.check",
+                side_effect=lambda batch, context: [True for request in batch],
+            ),
+            patch(
+                "products.authz.backend.logic.authorization.check",
+                side_effect=lambda batch, context: [
+                    False
+                    if request.resource.type == ResourceType.DASHBOARD
+                    else self.fail("Non-allowlisted resource reached v2")
+                    for request in batch
+                ],
+            ),
+        ):
+            assert api.check(requests) == [True, variant != "v2", True]
+            assert api.permissions(resource=other, subject=self.subject)
 
     def test_permissions_use_the_routed_decisions(self) -> None:
         with (

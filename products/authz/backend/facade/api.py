@@ -9,15 +9,21 @@ dataclasses. Never return ORM instances or import DRF.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
-from ..logic import authorization, openfga_status, rollout, synchronization
+from ..logic import authorization, openfga_status, request_context, rollout, synchronization
 from . import contracts
 from .enums import Action, Level, SubjectType
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+
+def authorization_session() -> AbstractContextManager[None]:
+    """Reuse legacy lookups within one request without caching OpenFGA decisions."""
+    return request_context.authorization_session()
 
 
 def synchronize_organization(organization_id: UUID) -> None:

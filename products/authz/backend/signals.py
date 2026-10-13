@@ -4,7 +4,11 @@ from django.dispatch import receiver
 
 from posthog.models import Organization, OrganizationMembership, Team
 
-from products.authz.backend.facade.synchronization import schedule_organization_sync, synchronization_enabled
+from products.authz.backend.facade.synchronization import (
+    invalidate_authorization_session,
+    schedule_organization_sync,
+    synchronization_enabled,
+)
 
 
 @receiver(pre_save, sender=Team)
@@ -36,6 +40,7 @@ def synchronize_membership(
     raw: bool = False,
     **kwargs: object,
 ) -> None:
+    invalidate_authorization_session()
     if raw or not synchronization_enabled():
         return
     organization_id = instance.pk if isinstance(instance, Organization) else instance.organization_id

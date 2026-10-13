@@ -41,7 +41,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -58,6 +57,7 @@ from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_das
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.authz import check_object_access
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.dataclasses import frozen
@@ -106,6 +106,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.authz.backend.facade.enums import Action
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
@@ -901,15 +902,6 @@ class UpdateDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer
     )
 
 
-class CanEditDashboard(BasePermission):
-    message = "You don't have edit permissions for this dashboard."
-
-    def has_object_permission(self, request: Request, view, dashboard) -> bool:
-        if request.method in SAFE_METHODS:
-            return True
-        return view.user_permissions.dashboard(dashboard).can_edit
-
-
 def _hide_extra_details(context: dict[str, Any], representation: dict[str, Any]) -> None:
     """Drop authorship details, which carry the name and email of a teammate, when the caller
     can't see them anyway — a shared dashboard, or `hideExtraDetails` on the sharing config."""
@@ -1291,7 +1283,11 @@ class DashboardBasicSerializer(
     def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.dashboard(dashboard).effective_privilege_level
+        return (
+            PrivilegeLevel.CAN_EDIT
+            if check_object_access(self.user_permissions.user, dashboard, Action.EDIT)
+            else PrivilegeLevel.CAN_VIEW
+        )
 
     def get_access_control_version(self, dashboard: Dashboard) -> str:
         # This effectively means that the dashboard they are using the old dashboard permissions
@@ -1808,7 +1804,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             # Duplicating a dashboard reads and copies all of its content (filters, variables, tiles, insights),
             # so the caller must have at least viewer access to the source — mirrors the copy_tile/move_tile checks.
-            if not user_access_control.check_access_level_for_object(existing_dashboard, "viewer"):
+            if not check_object_access(request.user, existing_dashboard, Action.VIEW):
                 raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
 
         request_filters = request.data.get("filters")
@@ -2058,7 +2054,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         previous_layout_compaction = _effective_layout_compaction(instance.customization)
-        can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
+        can_user_restrict = check_object_access(self.user_permissions.user, instance, Action.MANAGE_ACCESS)
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -2827,7 +2823,6 @@ class DashboardsViewSet(
     # Record a tags change per dashboard when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Dashboard"
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name", "id")
-    permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     TEMPLATE_MAP = {
@@ -2927,8 +2922,7 @@ class DashboardsViewSet(
 
         # subscribe_nudge only reads the dashboard's pk and name, so skip the detail prefetch
         # cascade (tiles → insights → their dashboards) and the folder/last-viewed annotations.
-        # Team scoping is preserved by the filter above; the CanEditDashboard object permission
-        # still gates the write.
+        # Team scoping is preserved by the filter above; AccessControlPermission still gates the write.
         if self.action == "subscribe_nudge":
             return queryset.exclude(deleted=True)
 
@@ -3221,8 +3215,6 @@ class DashboardsViewSet(
         )
         to_dashboard_obj = get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
         self.check_object_permissions(request, to_dashboard_obj)
-        if not self.user_permissions.dashboard(to_dashboard_obj).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for the destination dashboard.")
         if tile.widget_id is not None:
             request_user = cast(User, request.user)
             if not dashboard_widgets_enabled(team=self.team, user=request_user):
@@ -3273,7 +3265,7 @@ class DashboardsViewSet(
 
         source_dashboard = get_object_or_404(Dashboard, id=from_dashboard_id, team__project_id=self.team.project_id)
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
-        if not user_access_control.check_access_level_for_object(source_dashboard, "viewer"):
+        if not check_object_access(request.user, source_dashboard, Action.VIEW):
             raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
 
         tile = get_object_or_404(
@@ -3389,9 +3381,6 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
-
         serializer = CreateTextTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
@@ -3427,9 +3416,6 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
-
         serializer = UpdateTextTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
@@ -3483,9 +3469,6 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
-
         serializer = DeleteTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         tile_id = serializer.validated_data["tile_id"]
@@ -3878,9 +3861,6 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
-
         serializer = UpdateDashboardWidgetsBatchRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         widget_payloads = cast(builtins.list[dict[str, Any]], serializer.validated_data["widgets"])

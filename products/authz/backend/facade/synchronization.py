@@ -3,7 +3,12 @@ from uuid import UUID
 
 from django.db import transaction
 
+from products.authz.backend.logic import request_context
 from products.authz.backend.logic.sync_state import mark_pending
+
+
+def invalidate_authorization_session() -> None:
+    request_context.invalidate()
 
 
 def synchronization_enabled() -> bool:

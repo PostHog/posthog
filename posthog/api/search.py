@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from typing import Any, Literal, TypedDict, cast
 
 from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, QuerySet, Subquery, Value
@@ -13,6 +14,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.authz import filter_dashboard_queryset, object_access_level
 from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models import EventDefinition, PropertyDefinition
 
@@ -310,9 +312,20 @@ def _annotate_user_access_levels(
                 result["user_access_level"] = None
             continue
 
-        levels = user_access_control.bulk_object_access_levels(
-            resource, [(result["_pk"], result["_created_by_id"]) for result in entity_results]
-        )
+        levels: Mapping[str, str | None]
+        if resource == "dashboard":
+            assert user_access_control.team is not None
+            levels = {
+                str(dashboard.pk): object_access_level(user_access_control.user, dashboard)
+                for dashboard in Dashboard.objects.filter(
+                    team__project_id=user_access_control.team.project_id,
+                    id__in=[result["_pk"] for result in entity_results],
+                )
+            }
+        else:
+            levels = user_access_control.bulk_object_access_levels(
+                resource, [(result["_pk"], result["_created_by_id"]) for result in entity_results]
+            )
         for result in entity_results:
             result["user_access_level"] = levels.get(result["_pk"])
 
@@ -334,7 +347,11 @@ def class_queryset(
     values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
     qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
-    qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
+    qs = (
+        filter_dashboard_queryset(view.user_access_control.user, qs)
+        if klass is Dashboard
+        else view.user_access_control.filter_queryset_by_access_level(qs)
+    )
 
     if annotations:
         qs = qs.annotate(**annotations)

@@ -329,6 +329,7 @@ class TestSearch(APIBaseTest):
 
     def test_search_query_count_with_and_without_counts(self):
         mock_view = Mock()
+        mock_view.user_access_control.user = self.user
         mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
 
         with CaptureQueriesContext(connection) as ctx_with:
@@ -352,8 +353,8 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        # One query for the unioned entities, one for the workflows merged in through the facade.
-        assert len(ctx_without) == 2
+        # Dashboard authorization adds fixed lookups even when the caller omits entity counts.
+        assert len(ctx_without) == 11
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

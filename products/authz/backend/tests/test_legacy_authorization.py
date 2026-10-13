@@ -29,6 +29,7 @@ class TestLegacyAuthorization(BaseTest):
         self.dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
         self.resource = Resource(type=ResourceType.DASHBOARD, id=str(self.dashboard_id), project_id=self.team.id)
         self.category = Resource(type=ResourceType.DASHBOARD, project_id=self.team.id)
+        self.enterContext(api.authorization_session())
 
     @parameterized.expand(
         [
