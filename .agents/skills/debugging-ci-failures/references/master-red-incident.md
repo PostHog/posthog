@@ -130,14 +130,20 @@ Name a commit as the candidate regression only when its diff changes the file or
 A candidate satisfies the attribution part of the real-regression gate.
 
 When no commit in that directory qualifies, or the tests have no Trunk record, the cause can be outside the directory: a dependency, an image version, or a CI change.
-Compare the newest green run with the first failing run after it, and read every commit in the range:
+Search by what the error implicates.
+When a service or a dependency behaves differently, run the command from step 2 with the file that sets its version as the path, for example `docker-compose.base.yml` for ClickHouse, Postgres, and Kafka.
+
+Then compare the newest green run with the first failing run after it, and read every commit in the range:
 
 ```bash
 gh api "repos/PostHog/posthog/compare/<green sha>...<first failing sha>" \
   --jq '.commits[] | {sha, message: (.commit.message | split("\n")[0])}'
 ```
 
-When neither search finds a candidate, report the failing tests with no attribution.
+A quarantined test fails inside a green run, so the first red run can come long after the onset.
+When the newest green run already shows the failure, the change is older than that range.
+
+When no search finds a candidate, report the failing tests with no attribution.
 
 Choose any further lookup from the verdict evidence you still need:
 
