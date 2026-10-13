@@ -41,12 +41,19 @@ describe('matching tests', () => {
     const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
     const files = modified([
       'products/posthog_ai/frontend/logics/runStreamLogic.ts',
+      'products/cdp/frontend/emptyState/WebScriptPreview.scss',
+      'products/cdp/frontend/emptyState/preview.svg',
       'packages/agent/packages/agent-contracts/src/acp-conversation.ts',
+      'frontend/src/logics/example.test.ts',
+      'frontend/src/logics/example.spec.tsx',
+      'products/cdp/frontend/emptyState/WebScriptPreview.stories.tsx',
+      'products/cdp/frontend/emptyState/WebScriptPreview.test.tsx',
+      'products/cdp/frontend/emptyState/WebScriptPreview.spec.tsx',
       'products/desktop/src/App.tsx',
       'posthog/api/example.py'
     ])
 
-    expect(new Filter(filtersYaml).match(files).build_inputs).toEqual(files.slice(0, 2))
+    expect(new Filter(filtersYaml).match(files).build_inputs).toEqual(files.slice(0, 4))
   })
 
   test('runs frontend consumer tests when replay-shared source changes', () => {

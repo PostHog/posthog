@@ -96,6 +96,7 @@ jobs:
                         - tsconfig.json
                         - turbo.json
                         - frontend/**
+                        - products/**/frontend/**
                         - products/**/*.ts
                         - products/**/*.tsx
                         - products/**/*.json
@@ -108,6 +109,12 @@ jobs:
                         - packages/llm-normalizer/**
                         - packages/agent/packages/agent-contracts/src/**
                         - docs/onboarding/**
+                        - '!products/**/*.test.*'
+                        - '!products/**/*.spec.*'
+                        - '!products/**/*.stories.*'
+                        - '!frontend/src/**/*.test.*'
+                        - '!frontend/src/**/*.spec.*'
+                        - '!frontend/src/**/*.stories.*'
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:
