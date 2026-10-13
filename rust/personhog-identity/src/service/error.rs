@@ -1,4 +1,4 @@
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, db_timeout_status};
 use tonic::Status;
 use tracing::error;
 
@@ -12,6 +12,7 @@ pub fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Sta
         storage::StorageError::Connection(_) => "connection",
         storage::StorageError::PoolExhausted => "pool_exhausted",
         storage::StorageError::Query(_) => "query",
+        storage::StorageError::Timeout { kind, .. } => kind.as_str(),
         storage::StorageError::NotFound(_) => "not_found",
         storage::StorageError::FailedPrecondition(_) => "failed_precondition",
     };
@@ -36,6 +37,10 @@ pub fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Sta
         storage::StorageError::Query(msg) => {
             error!(operation, error = %msg, "Database query error");
             Status::internal(format!("Database error: {msg}"))
+        }
+        storage::StorageError::Timeout { kind, .. } => {
+            error!(operation, error = %err, "Database timeout");
+            db_timeout_status(err.to_string(), kind)
         }
         storage::StorageError::NotFound(msg) => Status::not_found(msg),
         storage::StorageError::FailedPrecondition(msg) => Status::failed_precondition(msg),

@@ -5,7 +5,7 @@
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum StorageError {
     /// Connection-level errors (network, TLS, authentication)
     #[error("Database connection error: {0}")]
@@ -14,6 +14,11 @@ pub enum StorageError {
     /// Query execution errors (SQL errors, constraint violations)
     #[error("Database query error: {0}")]
     Query(String),
+
+    /// Postgres cancelled a statement because a timeout fired. That
+    /// statement's transaction rolled back.
+    #[error("Database {}: {message}", .kind.as_str())]
+    Timeout { kind: TimeoutKind, message: String },
 
     /// Connection pool exhausted or closed
     #[error("Database pool exhausted")]
@@ -28,14 +33,27 @@ pub enum StorageError {
     FailedPrecondition(String),
 }
 
-impl Clone for StorageError {
-    fn clone(&self) -> Self {
+#[derive(Clone, Copy, Debug)]
+pub enum TimeoutKind {
+    Statement,
+    Lock,
+}
+
+impl TimeoutKind {
+    /// SQLSTATE 57014 also covers a `pg_cancel_backend` call, which this
+    /// reports as a statement timeout.
+    fn from_sqlstate(code: Option<&str>) -> Option<Self> {
+        match code {
+            Some("57014") => Some(Self::Statement),
+            Some("55P03") => Some(Self::Lock),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
         match self {
-            Self::Connection(msg) => Self::Connection(msg.clone()),
-            Self::Query(msg) => Self::Query(msg.clone()),
-            Self::PoolExhausted => Self::PoolExhausted,
-            Self::NotFound(msg) => Self::NotFound(msg.clone()),
-            Self::FailedPrecondition(msg) => Self::FailedPrecondition(msg.clone()),
+            Self::Statement => "statement_timeout",
+            Self::Lock => "lock_timeout",
         }
     }
 }
@@ -46,6 +64,14 @@ impl From<sqlx::Error> for StorageError {
             sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => StorageError::PoolExhausted,
 
             sqlx::Error::Io(_) | sqlx::Error::Tls(_) => StorageError::Connection(err.to_string()),
+
+            sqlx::Error::Database(db) => match TimeoutKind::from_sqlstate(db.code().as_deref()) {
+                Some(kind) => StorageError::Timeout {
+                    kind,
+                    message: err.to_string(),
+                },
+                None => StorageError::Query(err.to_string()),
+            },
 
             _ => StorageError::Query(err.to_string()),
         }
