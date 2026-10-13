@@ -46,10 +46,9 @@ const UNPIN_SLACK = 1.5
 
 /**
  * True when the offset moved after the last scroll event `onScroll` handled or the last software write
- * (`lastSeenTop`), which is a reader scroll whose event has not reached `onScroll` yet. Timers, commits, and
- * the layout effects in the virtualizer's synchronous scroll re-render all run before `onScroll` does. A
- * software write there erases the reader's scroll, and `onScroll` then takes the late event for the write's
- * echo. The virtualizer core's own writes do not check this. A hidden scroller reads 0 and fires no event.
+ * (`lastSeenTop`). The browser dispatches scroll events once per frame, so a timer can run after a reader's
+ * scroll and before its event. A timer write there erases the reader's scroll, and `onScroll` then takes the
+ * late event for the write's echo. A hidden scroller reads 0 and fires no event, so it never reports a move.
  */
 function hasUnseenScroll(el: HTMLElement, lastSeenTop: number): boolean {
     return el.clientHeight > 0 && Math.abs(el.scrollTop - lastSeenTop) > UNPIN_SLACK
@@ -794,8 +793,7 @@ function Root<T>({
             // An event that lands where software recently wrote is a write echoing back, not the reader
             // (see `programmaticScrollsRef`) — adopt the position and decide nothing from it. A reader
             // gesture racing this window still lands on a different offset (or came in as a wheel/touch
-            // event, which unpins before any scroll event fires), because this component's writes skip
-            // their turn while a reader scroll is pending (see `hasUnseenScroll`).
+            // event, which unpins before any scroll event fires).
             const now = performance.now()
             const writes = programmaticScrollsRef.current
             while (writes.length > 0 && now - writes[0].at >= PROGRAMMATIC_SCROLL_MATCH_MS) {
@@ -833,12 +831,16 @@ function Root<T>({
         el.addEventListener('wheel', onWheel, { passive: true })
         el.addEventListener('touchstart', onTouchStart, { passive: true })
         el.addEventListener('touchmove', onTouchMove, { passive: true })
-        el.addEventListener('scroll', onScroll, { passive: true })
+        // Capture phase, so this listener runs before the virtualizer's own scroll listener on the same
+        // element. That listener re-renders this component synchronously when the reader's scroll changes the
+        // rendered range, and the follow effect in that re-render would write the bottom back while the
+        // thread still counts as pinned.
+        el.addEventListener('scroll', onScroll, { passive: true, capture: true })
         return () => {
             el.removeEventListener('wheel', onWheel)
             el.removeEventListener('touchstart', onTouchStart)
             el.removeEventListener('touchmove', onTouchMove)
-            el.removeEventListener('scroll', onScroll)
+            el.removeEventListener('scroll', onScroll, { capture: true })
         }
         // Deliberately not keyed on the pinned state: re-subscribing mid-gesture would reset the peak
         // baseline, which is the one thing that has to survive a gesture.
@@ -874,11 +876,7 @@ function Root<T>({
             return
         }
         const el = scrollRef.current
-        if (
-            el &&
-            !hasUnseenScroll(el, lastSeenTopRef.current) &&
-            el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_EPSILON
-        ) {
+        if (el && el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_EPSILON) {
             el.scrollTop = el.scrollHeight
             noteProgrammaticScroll()
         }
