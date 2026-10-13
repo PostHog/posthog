@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
+    HogQLQueryModifiers,
     PropertyMathType,
     PropertyOperator,
     TrendsFilter,
@@ -75,6 +76,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
+        if self.modifiers.useNewEventsCluster:
+            for query in (self.prepared_count_query, self.prepared_exposure_query):
+                query.modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy(
+                    update={"useNewEventsCluster": True, "useNewEventsSchema": True}
+                )
 
         # The two runners run on separate threads and HogQLTimings is not thread safe, so each one
         # gets its own clone. _calculate merges them back once both threads have joined.

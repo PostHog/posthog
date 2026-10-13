@@ -323,9 +323,6 @@ CLICKHOUSE_CA: str | None = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE: bool = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
 CLICKHOUSE_VERIFY: bool = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
 CLICKHOUSE_NATIVE_EVENTS_HOST: str | None = os.getenv("CLICKHOUSE_NATIVE_EVENTS_HOST")
-CLICKHOUSE_NATIVE_EVENTS_VERIFY: bool = get_from_env(
-    "CLICKHOUSE_NATIVE_EVENTS_VERIFY", CLICKHOUSE_VERIFY, type_cast=str_to_bool
-)
 CLICKHOUSE_ENABLE_STORAGE_POLICY: bool = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool)
 CLICKHOUSE_SINGLE_SHARD_CLUSTER: str = os.getenv("CLICKHOUSE_SINGLE_SHARD_CLUSTER", "posthog_single_shard")
 CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "posthog_writable")

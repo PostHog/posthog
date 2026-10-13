@@ -24,6 +24,7 @@ from posthog.schema import (
     SessionPropertyFilter,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
@@ -39,6 +40,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     TtlSchedule,
 )
+from products.web_analytics.backend.hogql_queries.page_url_search_query_runner import PageUrlSearchQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -142,9 +144,11 @@ class TestChannelModifiersShapeKey(BaseTest):
         override_key = channel_rules_shape_key(self._runner(HogQLQueryModifiers(bounceRateDurationSeconds=42)))
         assert override_key != default_key
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([("overview", False), ("overview", True), ("url_search", False)])
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_force_blocking_native_overview_scans_events_with_precompute_enabled(self, use_aggregates: bool) -> None:
+    def test_force_blocking_native_web_queries_scan_events_with_precompute_enabled(
+        self, kind: str, use_aggregates: bool
+    ) -> None:
         query = WebOverviewQuery(properties=[], dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07"))
         with (
             override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
@@ -167,7 +171,16 @@ class TestChannelModifiersShapeKey(BaseTest):
             query.modifiers = HogQLQueryModifiers(
                 useNewEventsCluster=True, useWebAnalyticsPreAggregatedTables=use_aggregates
             )
-            runner = WebOverviewQueryRunner(team=self.team, query=query, user=self.user)
+            if kind == "overview":
+                runner: WebOverviewQueryRunner | PageUrlSearchQueryRunner = WebOverviewQueryRunner(
+                    team=self.team, query=query, user=self.user
+                )
+            else:
+                runner = PageUrlSearchQueryRunner(
+                    team=self.team,
+                    query=WebPageURLSearchQuery(properties=[], dateRange=query.dateRange, modifiers=query.modifiers),
+                    user=self.user,
+                )
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
         insert.assert_not_called()
         aggregate.assert_not_called()

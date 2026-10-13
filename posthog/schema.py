@@ -6278,10 +6278,15 @@ class HogQLQueryModifiers(BaseModel):
     useNewEventsCluster: bool | None = Field(
         default=None,
         description=(
-            "Opt this query into the native events cluster and schema. Requires a"
-            " configured host and server-side project eligibility. Unset or false"
-            " preserves the existing connection. This option is never inherited from"
-            " project defaults."
+            "Read this query from the native events cluster and native JSON events"
+            " table (`true`), or keep its existing connection (`false` or unset). This"
+            " is an internal rollout switch and is never inherited from project"
+            " defaults. Requires `CLICKHOUSE_NATIVE_EVENTS_HOST` and project"
+            " eligibility: PostHog staff PATCH"
+            " `/api/instance_settings/CLICKHOUSE_NATIVE_EVENTS_TEAMS/` with a `value`"
+            " array of project IDs, then set this modifier in"
+            " `/api/projects/{project_id}/query/` requests. Eligibility permits"
+            " per-query opt-in; it does not switch all project reads."
         ),
     )
     useNewEventsSchema: bool | None = Field(

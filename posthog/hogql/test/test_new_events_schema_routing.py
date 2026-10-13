@@ -299,6 +299,57 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertIn("events_json", execute.call_args.args[0])
             self.assertEqual(execute.call_args.kwargs["workload"], Workload.NATIVE_EVENTS)
 
+    @parameterized.expand(
+        [
+            (True, False, "SELECT count() FROM events WHERE event = '$pageview'"),
+            (
+                False,
+                True,
+                "SELECT toStartOfDay(timestamp), uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                True,
+                True,
+                "SELECT toStartOfDay(timestamp), uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' GROUP BY toStartOfDay(timestamp)",
+            ),
+        ]
+    )
+    def test_native_sql_bypasses_aggregate_optimizers(self, tables: bool, intermediate: bool, sql: str) -> None:
+        with (
+            patch(
+                "posthog.models.event.new_events_schema.get_instance_setting",
+                side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+            ),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as insert,
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/query/",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": sql,
+                        "modifiers": {
+                            "useNewEventsCluster": True,
+                            "usePreaggregatedTableTransforms": tables,
+                            "usePreaggregatedIntermediateResults": intermediate,
+                        },
+                    },
+                    "refresh": "force_blocking",
+                    "async": False,
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, 200, response.json())
+        insert.assert_not_called()
+        self.assertIn("events_json", execute.call_args.args[0])
+        self.assertNotIn("pre_aggregated", execute.call_args.args[0])
+        self.assertNotIn("preaggregation_results", execute.call_args.args[0])
+        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NATIVE_EVENTS)
+
     def test_nonstaff_cannot_enable_pilot_eligibility(self) -> None:
         response = self.client.patch(
             "/api/instance_settings/CLICKHOUSE_NATIVE_EVENTS_TEAMS", {"value": [self.team.id]}, format="json"
