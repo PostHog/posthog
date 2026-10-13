@@ -1,3 +1,5 @@
+jest.unmock('lib/utils/concurrencyController')
+
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
@@ -6,6 +8,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 
 import { ensureJsdom } from '@posthog/quill-charts/testing'
 
+import { promiseResolveReject } from 'lib/utils/async'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,7 +43,7 @@ describe('HomeTabDefault query reuse', () => {
             results: [
                 {
                     ...trendsNumber.result[0],
-                    aggregated_value: isInsightQueryNode(query) && query.dateRange?.date_from === '-30d' ? 20 : 10,
+                    aggregated_value: isInsightQueryNode(query) && query.dateRange?.date_from !== '-7d' ? 20 : 10,
                 },
             ],
         }))
@@ -51,7 +54,10 @@ describe('HomeTabDefault query reuse', () => {
         savedInsightsLogic.unmount()
     })
 
-    it('reuses loaded queries on return and fetches new results when the range changes', async () => {
+    it.each([
+        ['-30d', 28],
+        ['-24h', 29],
+    ] as const)('reuses loaded queries on return before and after changing to %s', async (dateFrom, queryCount) => {
         const { rerender } = render(<HomeTabDefault />)
         const collection = dataNodeCollectionLogic({ key: homeTabDataCollectionId(teamLogic.values.currentTeamId) })
 
@@ -70,18 +76,52 @@ describe('HomeTabDefault query reuse', () => {
             within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
         ).toBeInTheDocument()
 
-        await act(async () => homeTabDefaultLogic.actions.setDates('-30d', null))
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(28))
+        await act(async () => homeTabDefaultLogic.actions.setDates(dateFrom, null))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(queryCount))
         await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
 
         expect(
             mockedQuery.mock.calls
                 .slice(14)
-                .every(([query]) => isInsightQueryNode(query) && query.dateRange?.date_from === '-30d')
+                .every(([query]) => isInsightQueryNode(query) && query.dateRange?.date_from === dateFrom)
         ).toBe(true)
         expect(
             within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('20')
         ).toBeInTheDocument()
+        await act(async () => rerender(<div>Another tab</div>))
+        await act(async () => rerender(<HomeTabDefault />))
+        expect(mockedQuery).toHaveBeenCalledTimes(queryCount)
+        await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
+    })
+
+    it('loads totals and full charts before standalone trends', async () => {
+        const response = { results: [{ ...trendsNumber.result[0], aggregated_value: 10 }] }
+        const pendingTrend = promiseResolveReject<typeof response>()
+        mockedQuery.mockImplementation(async (query) => {
+            if (isTrendsQuery(query) && query.compareFilter?.compare === false && !query.trendsFilter) {
+                return pendingTrend.promise
+            }
+            return response
+        })
+        const { container } = render(<HomeTabDefault />)
+        const collection = dataNodeCollectionLogic({ key: homeTabDataCollectionId(teamLogic.values.currentTeamId) })
+        try {
+            await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(12))
+            for (const tile of container.querySelectorAll('[data-attr^="home-tab-metric-"]')) {
+                expect(tile).toHaveAttribute('aria-busy', 'false')
+            }
+            expect(
+                mockedQuery.mock.calls
+                    .slice(0, 11)
+                    .some(
+                        ([query]) =>
+                            isTrendsQuery(query) && query.compareFilter?.compare === false && !query.trendsFilter
+                    )
+            ).toBe(false)
+        } finally {
+            pendingTrend.resolve(response)
+            await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
+        }
     })
 
     it('hides old trend values when the new total loads before the new trend', async () => {

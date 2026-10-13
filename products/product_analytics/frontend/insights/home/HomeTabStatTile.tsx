@@ -29,12 +29,14 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
     const key = homeTabStatKey(currentTeamId, stat.key)
     const logic = dataNodeLogic({
         query: stat.query,
+        loadPriority: 0,
         key,
         dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
     })
     useAttachedLogic(logic, homeTabDefaultLogic)
     const trendLogic = dataNodeLogic({
         query: stat.trendQuery ?? stat.query,
+        loadPriority: stat.trendQuery && !stat.trendKey ? 1 : 0,
         key: homeTabStatTrendKey(currentTeamId, stat),
         dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
     })
