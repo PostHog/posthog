@@ -1,7 +1,7 @@
 import json
 import time
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Container, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -281,7 +281,7 @@ def _element_to_value(element: Element) -> Any:
     return result
 
 
-def _element_to_row(element: Element, skip_tags: set[str] | None = None) -> dict[str, Any]:
+def _element_to_row(element: Element, skip_tags: Container[str] | None = None) -> dict[str, Any]:
     """Convert one record element to a flat row dict.
 
     Scalar children become string columns. Nested children (CVE_LIST, DNS_DATA, TAGS, ...) are
@@ -310,7 +310,7 @@ def _extract_rows(root: Element, config: QualysVmdrEndpointConfig) -> Iterator[d
             continue
 
         if not config.flatten_host_detections:
-            yield _element_to_row(item, skip_tags=set(config.drop_tags))
+            yield _element_to_row(item, skip_tags=config.drop_tags)
             continue
 
         # One row per (host, detection): host scalars prefixed host_* merged with the

@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -15,7 +17,7 @@ QUALYS_VMDR_SUPPORTED_VERSIONS = (QUALYS_VMDR_API_VERSION_2_0, QUALYS_VMDR_API_V
 QUALYS_VMDR_DEFAULT_VERSION = QUALYS_VMDR_API_VERSION_4_0
 
 
-@dataclass
+@frozen
 class QualysVmdrEndpointConfig:
     name: str
     path: str  # version-independent request path, e.g. "/api/2.0/fo/asset/host/"
