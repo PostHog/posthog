@@ -39,14 +39,13 @@ describe('resolve', () => {
         const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']), MOUNTED)
 
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).toMatchObject({ state: 'steady', value: 'ga-id' })
-        // `previous` is the deprecated alias of `incoming` and must carry the same value until it is removed.
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']).toMatchObject({
             state: 'rotating',
             value: 'ga-live',
             incoming: 'ga-staged',
-            previous: 'ga-staged',
         })
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).not.toHaveProperty('incoming')
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']).not.toHaveProperty('previous')
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).not.toHaveProperty('previous')
     })
 

@@ -294,9 +294,7 @@ class CredentialsServiceClient:
             resolved[key] = SecretValue(
                 state=payload.get("state", "steady"),
                 value=payload.get("value"),
-                # Older service pods send the staged value only as `previous`, a deprecated alias
-                # of `incoming`. Django and the service deploy separately, so accept either name.
-                incoming=payload.get("incoming", payload.get("previous")),
+                incoming=payload.get("incoming"),
             )
             CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="ok").inc()
 

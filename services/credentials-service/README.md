@@ -57,7 +57,6 @@ one call needed:
       "state": "rotating",
       "value": "…",
       "incoming": "…",
-      "previous": "…", // deprecated alias of incoming, removed in a later release
       "version_id": "…",
       "fetched_at": "…",
     },

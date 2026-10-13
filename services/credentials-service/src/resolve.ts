@@ -20,12 +20,6 @@ export interface WireSecret {
     value?: string
     /** The staged value that a rotation has accepted but not yet made live. */
     incoming?: string
-    /**
-     * @deprecated Same value as `incoming`. The old name was wrong, because the value is the
-     * incoming one, not the outgoing one. Older clients still read it, so the service sends both
-     * for one release. A follow-up change removes this field.
-     */
-    previous?: string
     version_id: string
     fetched_at: string
 }
@@ -59,7 +53,6 @@ export function resolveKeys(identity: CallerIdentity, mounted: MountedSecrets): 
         }
         if (secret.incoming !== undefined) {
             wire.incoming = secret.incoming
-            wire.previous = secret.incoming
             previousVersionServedTotal.labels({ key }).inc()
         }
         secrets[key] = wire
