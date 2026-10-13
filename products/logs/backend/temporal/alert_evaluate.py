@@ -112,8 +112,7 @@ def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatch
 @activity.defn
 async def emit_platform_alert_signals_activity(inputs: PlatformSignalInputs) -> int:
     """Emits the Self-driving signals for alerts the platform owns. Never raises."""
-    # In the body for the same reason as the import in the activity above: the module loads the
-    # Django models, which the workflow's sandbox refuses.
+    # In the body, like the import above, because the workflow's sandbox refuses Django models.
     from products.logs.backend.temporal.activities import emit_notified_alert_signals  # noqa: PLC0415
 
     notified = await database_sync_to_async_pool(notified_alerts_for_platform)(inputs.team_id, inputs.signals)
@@ -167,8 +166,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
             except ActivityError:
-                # A lost signal is never worth failing an evaluation that already recorded and
-                # delivered, which is how the logs stack treats it too.
+                # A lost signal never fails an evaluation that already recorded and delivered.
                 workflow.logger.warning("Failed to emit platform logs alert signals")
 
         return started

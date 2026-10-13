@@ -428,10 +428,8 @@ class TestPlatformAlertSignals(SimpleTestCase):
     @parameterized.expand(
         [
             ("a_platform_owned_firing", AlertEventKind.FIRING, True, True, True, [("firing", 500, 0)]),
-            # An auto-disable announces without moving last_notified_at, so it reads as not notified.
             ("a_platform_owned_auto_disable", AlertEventKind.BROKEN, False, True, True, [("broken", None, 5)]),
             ("a_firing_the_logs_stack_still_owns", AlertEventKind.FIRING, True, False, True, []),
-            # A broken filter config is recorded without a message, and the logs stack sends no signal for it.
             ("a_broken_config_held_back", AlertEventKind.BROKEN, False, True, False, []),
             ("a_resolve", AlertEventKind.RESOLVED, True, True, True, []),
         ]
