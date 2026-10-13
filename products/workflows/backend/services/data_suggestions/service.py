@@ -1,12 +1,12 @@
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from django.core.cache import cache
 
 import structlog
-import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import InternalCHQueryError
@@ -14,6 +14,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
 from posthog.ph_client import get_client
+from posthog.utils import get_instance_region
 
 from products.workflows.backend.facade.contracts import (
     BuiltSuggestion,
@@ -111,14 +112,8 @@ def run_data_suggestions(*, team_id: int, user_id: int) -> None:
         team = Team.objects.select_related("organization").get(id=team_id)
         user = User.objects.get(id=user_id)
         previous = _read_cache(team)
-        # A Celery task cannot rely on the process-wide client's background flush, so it gets its own. Only cloud
-        # reports to PostHog's analytics project, like ph_scoped_capture.
-        analytics_client = get_client() if is_cloud() else None
-        try:
+        with _analytics_client() as analytics_client:
             result = _generate(team=team, user=user, analytics_client=analytics_client)
-        finally:
-            if analytics_client is not None:
-                analytics_client.shutdown()
         # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
         if result.status != "ready" and previous is not None and previous.status == "ready":
             return
@@ -157,19 +152,20 @@ def build_data_suggestion(
     step_templates = tuple(list_step_templates(team))
     channels = team_context.channels(team)
     events = team_context.recent_event_names(team, exclude=set())[:_PROMPT_EVENTS_LIMIT]
-    plan = plan_steps(
-        team=team,
-        user=user,
-        context=StepsContext(
-            idea=idea,
-            email_templates=email_templates,
-            step_templates=step_templates,
-            events=tuple(events),
-            channels=channels,
-            has_slack=slack_integration_id is not None,
-        ),
-        analytics_client=_request_analytics_client(),
-    )
+    with _analytics_client() as analytics_client:
+        plan = plan_steps(
+            team=team,
+            user=user,
+            context=StepsContext(
+                idea=idea,
+                email_templates=email_templates,
+                step_templates=step_templates,
+                events=tuple(events),
+                channels=channels,
+                has_slack=slack_integration_id is not None,
+            ),
+            analytics_client=analytics_client,
+        )
     if plan is None:
         raise DataSuggestionBuildFailed()
 
@@ -242,9 +238,17 @@ def _cached_suggestion(team: Team, suggestion_id: str) -> DataSuggestion | None:
     return next((item for item in cached.suggestions if item.id == suggestion_id), None)
 
 
-def _request_analytics_client() -> Any:
-    # In a web request the process-wide client flushes in the background. A Celery task makes its own instead.
-    return posthoganalytics.default_client
+@contextmanager
+def _analytics_client() -> Iterator[Any]:
+    # The traces hold project event names and model output, so they go to the deployment's own region rather than
+    # the process-wide client, which reports to the US project. Only cloud reports, like ph_scoped_capture. The
+    # client flushes on exit, because a Celery task cannot rely on a background flush.
+    client = get_client(get_instance_region() or "US") if is_cloud() else None
+    try:
+        yield client
+    finally:
+        if client is not None:
+            client.shutdown()
 
 
 def _generate(*, team: Team, user: User, analytics_client: Any) -> DataSuggestionsResult:
