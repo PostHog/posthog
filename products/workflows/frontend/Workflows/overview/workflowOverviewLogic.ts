@@ -3,14 +3,15 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
 import {
+    AppMetricsCommonParams,
     AppMetricsTotalsRequest,
     appMetricsLogic,
     loadAppMetricsTotals,
 } from 'lib/components/AppMetrics/appMetricsLogic'
+import type { Dayjs } from 'lib/dayjs'
 
-import type { AppMetricsCommonParams } from '../../../../../frontend/src/lib/components/AppMetrics/appMetricsLogic'
-import type { Dayjs } from '../../../../../frontend/src/lib/dayjs'
-import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
+import type { TeamPublicType, TeamType } from '~/types'
+
 import { hogFlowsInFlightRetrieve } from '../../generated/api'
 import type { HogFlowInFlightApi } from '../../generated/api.schemas'
 import type { HogFlow, HogFlowAction } from '../hogflows/types'
