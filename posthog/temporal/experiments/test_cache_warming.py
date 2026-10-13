@@ -8,17 +8,23 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import CachedExperimentQueryResponse, EventsNode, ExperimentMeanMetric, ExperimentQuery
 
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import PropertyDefinition
+from posthog.models.organization import OrganizationMembership
 from posthog.temporal.experiments.activities import (
     _calculate_experiment_regular_metric_sync,
     _calculate_experiment_saved_metric_sync,
 )
 from posthog.temporal.experiments.models import TIMESERIES_METRIC_MAX_ATTEMPTS
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.experiments.backend.facade.timeseries import metric_calculation_keys
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
@@ -101,22 +107,39 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
 
+    @parameterized.expand([("creator_is_member", True), ("creator_left_organization", False)])
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_temporal_activity_warms_query_cache(self):
+    def test_temporal_activity_warms_query_cache(self, _name: str, creator_is_member: bool):
         """
         After the daily Temporal recalc activity runs, a frontend /query
         request for the same experiment+metric should be served from cache
-        instead of recomputing.
+        instead of recomputing. The activity has no request user, so it must
+        also succeed once the experiment's creator has left the organization.
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
             start_date=datetime(2020, 1, 1, 0, 0, 0),
         )
+        if not creator_is_member:
+            # Property access control only resolves the user's membership once the org has a rule.
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.create(
+                    team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+                ),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
 
         metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
         metric_dict = metric.model_dump(mode="json")
         experiment.metrics = [metric_dict]
+        experiment.created_by = self.user
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"

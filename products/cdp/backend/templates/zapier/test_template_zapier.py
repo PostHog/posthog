@@ -1,5 +1,5 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
+from products.cdp.backend.templates.zapier.template_zapier import template as template_zapier
 
 
 class TestTemplateZapier(BaseHogFunctionTemplateTest):

@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
@@ -19,7 +19,7 @@ WIDGET_LIMIT_BOUNDS = {
 }
 
 
-class TestWidgetConfigSchemaParity(BaseTest):
+class TestWidgetConfigSchemaParity(SimpleTestCase):
     def test_catalog_config_schema_matches_pydantic_models(self) -> None:
         for widget_type, entry in WIDGET_CATALOG.items():
             spec = WIDGET_SPECS[widget_type]

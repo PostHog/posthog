@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -12,7 +12,7 @@ from products.dashboards.backend.widgets.widget_filters import (
 )
 
 
-class TestWidgetFilters(TestCase):
+class TestWidgetFilters(SimpleTestCase):
     @parameterized.expand(
         [
             ("string", "nope"),
