@@ -21,7 +21,7 @@ describe('demo fixtures', () => {
 
     test('every inbox row opens a report with a complete detail view', () => {
         const fixtures = buildDemoFixtures(ANCHORS[0] as Date)
-        expect(fixtures.list).toHaveLength(7)
+        expect(fixtures.list).toHaveLength(14)
         for (const { item, report } of fixtures.list) {
             expect(fixtures.byId[item.reportId]?.report).toBe(report)
             expect(report.title).toBe(item.title)
