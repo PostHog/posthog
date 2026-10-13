@@ -342,7 +342,7 @@ def example_moments(
     return pd.concat(frames, ignore_index=True)
 
 
-def _team_ids(state: pd.DataFrame, ids: pd.Index) -> pd.arrays.IntegerArray:
+def _team_ids(state: pd.DataFrame, ids: pd.Index) -> pd.api.extensions.ExtensionArray:
     if "report_team_id" not in state:
         return pd.array([None] * len(ids), dtype="Int64")
     return pd.to_numeric(state.loc[ids, "report_team_id"], errors="coerce").astype("Int64").array
