@@ -3,7 +3,7 @@
 A facade must not hand out DRF classes, so these cross through presentation instead.
 """
 
-from posthog.cdp.validation import (
+from products.cdp.backend.validation import (
     HogFunctionFiltersSerializer as HogFunctionFiltersSerializer,
     InputsSchemaSerializer as InputsSchemaSerializer,
     InputsSerializer as InputsSerializer,

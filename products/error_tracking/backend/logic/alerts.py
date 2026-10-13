@@ -8,13 +8,13 @@ from django.db.models import QuerySet
 
 import structlog
 
-from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.integration import Integration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.cdp.backend.filters import compile_filters_bytecode
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
 logger = structlog.get_logger(__name__)

@@ -7,7 +7,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.cdp.migrations import coerce_input_value, migrate_legacy_plugins
 from posthog.cdp.templates._siteapps.template_notification_bar import template as notification_bar
 from posthog.cdp.templates._siteapps.template_pineapple_mode import template as pineapple_mode
 from posthog.cdp.templates.helpers import mock_transpile
@@ -15,6 +14,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
+from products.cdp.backend.plugin_migrations import coerce_input_value, migrate_legacy_plugins
 
 
 class TestCoerceInputValue(SimpleTestCase):
@@ -78,7 +78,7 @@ class TestMigrateSiteApps(BaseTest):
             web_token=f"token-{name}",
         )
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_migrates_site_app_plugin_to_hog_function(self, mock_transpile_fn):
         migrate_legacy_plugins(dry_run=False, test_mode=False, kind="site_app")
 
@@ -99,7 +99,7 @@ class TestMigrateSiteApps(BaseTest):
         self.plugin_config.refresh_from_db()
         assert not self.plugin_config.enabled
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_migrates_notification_bar_custom_css(self, mock_transpile_fn):
         css = ".notification-bar { font-size: 16px }"
         notification_bar_config = self._create_site_app(
@@ -118,7 +118,7 @@ class TestMigrateSiteApps(BaseTest):
         notification_bar_config.refresh_from_db()
         assert not notification_bar_config.enabled
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_leaves_a_site_app_with_no_template_enabled(self, mock_transpile_fn):
         # Disabling one of these would take it off the customer's site with nothing to replace it
         unsupported = self._create_site_app(
@@ -136,7 +136,7 @@ class TestMigrateSiteApps(BaseTest):
         self.plugin_config.refresh_from_db()
         assert not self.plugin_config.enabled
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_disables_a_second_config_of_an_app_already_covered(self, mock_transpile_fn):
         # Teams do run the same site app twice. The second one is replaced by the hog function the
         # first produced, so leaving it enabled would render the app twice.
@@ -157,7 +157,7 @@ class TestMigrateSiteApps(BaseTest):
         assert not second.enabled
         assert not self.plugin_config.enabled
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_migration_is_idempotent(self, mock_transpile_fn):
         migrate_legacy_plugins(dry_run=False, test_mode=False, kind="site_app")
         PluginConfig.objects.filter(id=self.plugin_config.id).update(enabled=True)
