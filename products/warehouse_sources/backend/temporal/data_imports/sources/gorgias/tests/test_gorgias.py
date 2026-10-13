@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.se
     ENDPOINTS,
     GORGIAS_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.source import GorgiasSource
 
 GORGIAS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.gorgias"
 
@@ -264,6 +265,22 @@ class TestCustomerFieldValues:
         with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
             with pytest.raises(requests.HTTPError):
                 list(get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), _FakeManager()))
+
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    def test_exhausted_throttling_is_classified_retryable(self, _name: str, status_code: int) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(status_code=status_code, ok=False)
+        with (
+            patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session),
+            patch(f"{GORGIAS_MODULE}.wait_exponential_jitter", return_value=lambda _state: 0),
+        ):
+            with pytest.raises(Exception) as exc_info:
+                list(get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), _FakeManager()))
+
+        error = str(exc_info.value)
+        source = GorgiasSource()
+        assert any(key in error for key in source.get_retryable_errors())
+        assert not any(key in error for key in source.get_non_retryable_errors())
 
     def test_stages_parent_cursor_and_reaches_safe_point_on_pages_without_values(self) -> None:
         session = MagicMock()

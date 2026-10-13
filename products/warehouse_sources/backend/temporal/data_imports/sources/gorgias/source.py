@@ -54,6 +54,19 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
             "403 Client Error: Forbidden for url": "Your Gorgias API key does not have access to this resource. Check the integration's permissions.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `fetch` raises this only after its own backoff on a 429/5xx runs out. Temporal retries the
+        # activity from the saved cursor, so the failure recovers on its own and is not a bug.
+        return {"Gorgias API error (retryable)"}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Gorgias API error (retryable)": (
+                "Gorgias kept returning temporary errors, such as rate limits, so this sync run did "
+                "not finish. This usually clears on its own and the next sync runs on schedule."
+            ),
+        }
+
     def get_schemas(
         self,
         config: GorgiasSourceConfig,
