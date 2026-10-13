@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -13,8 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb 
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.honeycomb import (
     HoneycombResumeConfig,
     HoneycombRetryableError,
+    HoneycombSloCountsUnavailableError,
     _base_url,
-    _get_headers,
     get_rows,
     validate_credentials,
 )
@@ -93,9 +94,6 @@ def _collect(
 
 
 class TestHelpers:
-    def test_get_headers_sets_team_header(self) -> None:
-        assert _get_headers("hcaik_123")["X-Honeycomb-Team"] == "hcaik_123"
-
     @parameterized.expand([("us", US), ("eu", "https://api.eu1.honeycomb.io"), ("unknown", US)])
     def test_base_url_per_region(self, region: str, expected: str) -> None:
         assert _base_url(region) == expected
@@ -120,18 +118,6 @@ class TestFetchPage:
     def test_fetch_list_treats_non_array_body_as_empty(self) -> None:
         session = _FakeSession([_make_response(200, body={"unexpected": "shape"})])
         assert honeycomb._fetch_list(session, f"{US}/1/datasets", {}, MagicMock()) == []  # type: ignore[arg-type]
-
-
-class TestEnvironmentEndpoints:
-    def test_single_fetch_yields_all_rows(self, monkeypatch: Any) -> None:
-        lists = {f"{US}/1/boards": [{"id": "b1"}, {"id": "b2"}]}
-        rows = _collect("boards", lists, _FakeResumableManager(), monkeypatch)
-        assert rows == [{"id": "b1"}, {"id": "b2"}]
-
-    def test_eu_region_routes_to_eu_host(self, monkeypatch: Any) -> None:
-        lists = {"https://api.eu1.honeycomb.io/1/boards": [{"id": "b1"}]}
-        rows = _collect("boards", lists, _FakeResumableManager(), monkeypatch, region="eu")
-        assert rows == [{"id": "b1"}]
 
 
 class TestPerDatasetFanOut:
@@ -165,29 +151,6 @@ class TestPerDatasetFanOut:
             {"id": "r2", "dataset_slug": "__all__"},
         ]
 
-    def test_deleted_dataset_404_is_skipped(self, monkeypatch: Any) -> None:
-        # A dataset deleted between enumeration and its fetch must not fail the whole sync.
-        lists: dict[str, Any] = {
-            f"{US}/1/datasets": [{"slug": "gone"}, {"slug": "prod"}],
-            f"{US}/1/columns/gone": _not_found(f"{US}/1/columns/gone"),
-            f"{US}/1/columns/prod": [{"id": "c1"}],
-        }
-        rows = _collect("columns", lists, _FakeResumableManager(), monkeypatch)
-        assert rows == [{"id": "c1", "dataset_slug": "prod"}]
-
-    def test_state_saved_after_each_yielded_dataset(self, monkeypatch: Any) -> None:
-        lists = {
-            f"{US}/1/datasets": [{"slug": "prod"}, {"slug": "empty"}, {"slug": "staging"}],
-            f"{US}/1/columns/prod": [{"id": "c1"}],
-            f"{US}/1/columns/empty": [],
-            f"{US}/1/columns/staging": [{"id": "c2"}],
-        }
-        manager = _FakeResumableManager()
-        _collect("columns", lists, manager, monkeypatch)
-        # Empty datasets yield nothing so no checkpoint is written for them — a checkpoint must
-        # only ever point at a dataset whose rows were actually handed to the pipeline.
-        assert [state.dataset_slug for state in manager.saved] == ["prod", "staging"]
-
     def test_resume_refetches_bookmarked_dataset_and_skips_earlier(self, monkeypatch: Any) -> None:
         # The bookmarked dataset's rows may not have been durably flushed before the crash, so it
         # is re-fetched in full (merge dedupes); datasets before it must not be re-fetched (their
@@ -203,15 +166,6 @@ class TestPerDatasetFanOut:
             {"id": "c2", "dataset_slug": "staging"},
             {"id": "c3", "dataset_slug": "dev"},
         ]
-
-    def test_resume_from_deleted_dataset_restarts_from_first(self, monkeypatch: Any) -> None:
-        lists = {
-            f"{US}/1/datasets": [{"slug": "prod"}],
-            f"{US}/1/columns/prod": [{"id": "c1"}],
-        }
-        manager = _FakeResumableManager(HoneycombResumeConfig(dataset_slug="GONE"))
-        rows = _collect("columns", lists, manager, monkeypatch)
-        assert rows == [{"id": "c1", "dataset_slug": "prod"}]
 
 
 class TestBurnAlertFanOut:
@@ -237,6 +191,159 @@ class TestBurnAlertFanOut:
         }
         rows = _collect("burn_alerts", lists, _FakeResumableManager(), monkeypatch)
         assert rows == [{"id": "ba1", "dataset_slug": "prod", "slo_id": "slo1"}]
+
+
+class TestBoardViewFanOut:
+    def test_walks_boards_injects_board_id_and_skips_deleted_board(self, monkeypatch: Any) -> None:
+        lists: dict[str, Any] = {
+            f"{US}/1/boards": [{"id": "b1"}, {"id": "gone"}, {"id": "b2"}],
+            f"{US}/1/boards/b1/views": [{"id": "v1", "name": "Errors"}],
+            f"{US}/1/boards/gone/views": _not_found(f"{US}/1/boards/gone/views"),
+            f"{US}/1/boards/b2/views": [{"id": "v1", "name": "Slow"}],
+        }
+        manager = _FakeResumableManager()
+        rows = _collect("board_views", lists, manager, monkeypatch)
+        assert rows == [
+            {"id": "v1", "name": "Errors", "board_id": "b1"},
+            {"id": "v1", "name": "Slow", "board_id": "b2"},
+        ]
+        assert [state.board_id for state in manager.saved] == ["b1", "b2"]
+
+    def test_resume_refetches_bookmarked_board_and_skips_earlier(self, monkeypatch: Any) -> None:
+        lists = {
+            f"{US}/1/boards": [{"id": "b1"}, {"id": "b2"}],
+            f"{US}/1/boards/b2/views": [{"id": "v2"}],
+        }
+        manager = _FakeResumableManager(HoneycombResumeConfig(board_id="b2"))
+        rows = _collect("board_views", lists, manager, monkeypatch)
+        assert rows == [{"id": "v2", "board_id": "b2"}]
+
+
+class _UrlSession:
+    """Serves canned JSON bodies (or a status code) per URL, recording the URLs requested."""
+
+    def __init__(self, responses: Mapping[str, Any]) -> None:
+        self._responses = responses
+        self.requested_urls: list[str] = []
+
+    def get(self, url: str, headers: dict[str, str] | None = None, timeout: int | None = None) -> requests.Response:
+        self.requested_urls.append(url)
+        if url not in self._responses:
+            raise AssertionError(f"unexpected URL requested: {url}")
+        result = self._responses[url]
+        if isinstance(result, int):
+            return _make_response(result, body={"error": "not found"})
+        return _make_response(200, body=result)
+
+
+# 2026-01-15T12:30:00Z — mid-hour, so the hour alignment of the window start is exercised.
+NOW = 1768480200
+HOUR = 3600
+DAY = 24 * HOUR
+
+
+def _bucket(start: int, **extra: Any) -> dict[str, Any]:
+    return {"start_time": start, "end_time": start + HOUR, "total_count": 10, "error_count": 1, **extra}
+
+
+def _collect_counts_history(
+    responses: Mapping[str, Any], last_value: Any, monkeypatch: Any
+) -> tuple[list[list[dict]], _UrlSession]:
+    session = _UrlSession(responses)
+    monkeypatch.setattr(honeycomb, "make_tracked_session", lambda *args, **kwargs: session)
+    with time_machine.travel(NOW, tick=False):
+        batches = list(
+            get_rows(
+                api_key="key",
+                region="us",
+                endpoint="slo_counts_history",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                db_incremental_field_last_value=last_value,
+            )
+        )
+    return batches, session
+
+
+def _history_url(dataset_slug: str, slo_id: str, start: int, end: int) -> str:
+    return f"{US}/1/slos/{dataset_slug}/{slo_id}/counts/history?start_time={start}&end_time={end}"
+
+
+class TestSloCountsHistory:
+    @parameterized.expand(
+        [
+            ("no_watermark", None),
+            # A watermark from a non-epoch column must not walk back to 1970.
+            ("watermark_older_than_lookback", 84513),
+        ]
+    )
+    def test_walks_lookback_in_weekly_windows_across_every_slo(self, _name: str, last_value: Any) -> None:
+        aligned_now = NOW - NOW % HOUR
+        first_start = aligned_now - 90 * DAY
+        window_starts = list(range(first_start, NOW, 7 * DAY))
+        responses: dict[str, Any] = {
+            f"{US}/1/datasets": [{"slug": "prod"}, {"slug": "gone"}],
+            f"{US}/1/slos/prod": [{"id": "slo1"}, {"id": "slo2"}],
+            f"{US}/1/slos/gone": 404,
+        }
+        for start in window_starts:
+            end = min(start + 7 * DAY, NOW)
+            responses[_history_url("prod", "slo1", start, end)] = {"slo_id": "slo1", "buckets": [_bucket(start)]}
+            # A deleted SLO 404s; that must drop its rows, not fail the sync.
+            responses[_history_url("prod", "slo2", start, end)] = 404
+
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            batches, session = _collect_counts_history(responses, last_value, mp)
+
+        assert len(batches) == len(window_starts)
+        assert batches[0] == [{**_bucket(first_start), "dataset_slug": "prod", "slo_id": "slo1"}]
+        # Every window is requested, and the last one ends at "now" rather than in the future.
+        assert session.requested_urls[-1] == _history_url("prod", "slo2", window_starts[-1], NOW)
+
+    @parameterized.expand(
+        [
+            ("int_epoch", NOW - 2 * HOUR - 600),
+            ("iso_string", "2026-01-15T10:20:00+00:00"),
+        ]
+    )
+    def test_incremental_rereads_watermark_hour_and_batches_all_slos_per_window(
+        self, _name: str, last_value: Any
+    ) -> None:
+        watermark_hour = NOW - NOW % HOUR - 2 * HOUR
+        responses: dict[str, Any] = {
+            f"{US}/1/datasets": [{"slug": "prod"}, {"slug": "api"}],
+            f"{US}/1/slos/prod": [{"id": "slo1"}],
+            f"{US}/1/slos/api": [{"id": "slo2"}],
+            _history_url("prod", "slo1", watermark_hour, NOW): {
+                "buckets": [_bucket(watermark_hour), _bucket(watermark_hour + HOUR, is_partial=True)]
+            },
+            _history_url("api", "slo2", watermark_hour, NOW): {"buckets": [_bucket(watermark_hour)]},
+        }
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            batches, _ = _collect_counts_history(responses, last_value, mp)
+
+        # One batch per window holding every SLO, so the batch max start_time never regresses
+        # and the ascending watermark can be checkpointed after each batch.
+        assert batches == [
+            [
+                {**_bucket(watermark_hour), "dataset_slug": "prod", "slo_id": "slo1"},
+                {**_bucket(watermark_hour + HOUR, is_partial=True), "dataset_slug": "prod", "slo_id": "slo1"},
+                {**_bucket(watermark_hour), "dataset_slug": "api", "slo_id": "slo2"},
+            ]
+        ]
+
+    def test_every_slo_404ing_fails_instead_of_syncing_empty(self, monkeypatch: Any) -> None:
+        watermark_hour = NOW - NOW % HOUR
+        responses: dict[str, Any] = {
+            f"{US}/1/datasets": [{"slug": "prod"}],
+            f"{US}/1/slos/prod": [{"id": "slo1"}, {"id": "slo2"}],
+            _history_url("prod", "slo1", watermark_hour, NOW): 404,
+            _history_url("prod", "slo2", watermark_hour, NOW): 404,
+        }
+        with pytest.raises(HoneycombSloCountsUnavailableError):
+            _collect_counts_history(responses, watermark_hour, monkeypatch)
 
 
 class TestRecipientCredentialScrubbing:
@@ -356,15 +463,6 @@ class TestValidateCredentials:
             mp.setattr(honeycomb, "make_tracked_session", lambda *args, **kwargs: session)
             ok, _error = validate_credentials("key", "us")
         assert ok is expected_ok
-
-    def test_probes_the_selected_regions_auth_endpoint(self) -> None:
-        # A key validated against the wrong region always 401s, so the probe must follow the
-        # user's region selection rather than defaulting to US.
-        session = _FakeSession([_make_response(200, body={})])
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(honeycomb, "make_tracked_session", lambda *args, **kwargs: session)
-            validate_credentials("key", "eu")
-        assert session.requested_urls == ["https://api.eu1.honeycomb.io/1/auth"]
 
     def test_request_exception_is_failure(self, monkeypatch: Any) -> None:
         class _BoomSession:

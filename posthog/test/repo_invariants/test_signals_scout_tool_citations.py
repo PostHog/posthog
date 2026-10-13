@@ -29,14 +29,14 @@ Regenerate the baseline (after confirming a rename, or when a body cites a new t
 """
 
 import re
-import json
 from pathlib import Path
 
 import pytest
 
+from posthog.mcp_tool_definitions import get_mcp_tool_definitions
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "signals_scout_tool_citations_baseline.txt"
-CATALOG_PATH = REPO_ROOT / "services" / "mcp" / "schema" / "tool-definitions-all.json"
 
 TOOL_NAME_VERBS = frozenset(
     {
@@ -70,7 +70,7 @@ def has_tool_shape(name: str) -> bool:
 
 
 def catalog_names() -> set[str]:
-    return set(json.loads(CATALOG_PATH.read_text(encoding="utf-8")))
+    return set(get_mcp_tool_definitions())
 
 
 def _canonical_sources() -> list[tuple[str, str]]:
@@ -135,7 +135,7 @@ def test_invocation_pattern_reads_a_tool_named_on_its_own_line(text: str, expect
 
 def test_tool_shaped_citations_resolve_against_the_catalog() -> None:
     catalog = catalog_names()
-    assert catalog, f"empty MCP tool catalog at {CATALOG_PATH}"
+    assert catalog, "empty MCP tool catalog"
     backticked, invoked = cited_names()
     unresolvable: dict[str, set[str]] = {
         name: sources for name, sources in backticked.items() if has_tool_shape(name) and name not in catalog

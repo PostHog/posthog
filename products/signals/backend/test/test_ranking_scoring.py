@@ -22,18 +22,20 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import model_store, scorer
 from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
-    REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
-    TABULAR_FEATURE_SET,
     TITLE_EMBEDDINGS_FEATURE_SET,
     FeatureSet,
 )
 from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
+from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.scorer import NO_VECTOR, score_reports
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
+    MANIFEST_SERVED_ROLE,
     METADATA_FILE,
+    PINNED_ROLE,
+    SERVED_OVERRIDE_ROLE,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
@@ -48,7 +50,6 @@ from products.signals.backend.report_embedding_reader import (
     latest_report_vectors,
 )
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
-from products.signals.dags.inbox_ranking.training.unseen import UnseenModel, score_pool
 
 PREFIX = "inbox_ranking_test"
 VERSION = "2026-09-01"
@@ -171,7 +172,7 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("booster_on_other_features", {"booster_feature_names": TABULAR_FEATURE_SET.feature_names}, "booster"),
+            ("booster_on_other_features", {"booster_feature_names": ("age_hours",)}, "booster"),
             ("missing_head_file", {"missing_heads": ["thumbs_up"]}, "thumbs_up.ubj"),
             ("unknown_model_kind", {"model_kind": "torch"}, "torch"),
         ]
@@ -183,7 +184,7 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("booster_on_other_features", {"booster_feature_names": TABULAR_FEATURE_SET.feature_names}, "booster"),
+            ("booster_on_other_features", {"booster_feature_names": ("age_hours",)}, "booster"),
             ("missing_head_file", {"missing_heads": ["thumbs_up"]}, "thumbs_up.ubj"),
             ("unknown_model_kind", {"model_kind": "torch"}, "torch"),
         ]
@@ -199,6 +200,60 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
         assert serving.served.entry.key == served.key
         assert serving.others == []
         assert reason in serving.skipped[challenger.key]
+
+    @parameterized.expand(
+        [
+            ("not_in_the_manifest", None, "is not in the serving manifest"),
+            ("files_missing", {"missing_heads": ["thumbs_up"]}, "did not load"),
+            ("missing_a_served_head", {"heads": ["open"]}, "has no head for ['thumbs_up']"),
+        ]
+    )
+    def test_a_served_override_that_cannot_apply_keeps_the_manifest_served_model(
+        self, _name: str, override_kwargs: dict | None, reason: str
+    ) -> None:
+        served = self._served()
+        entries = [served]
+        override_key = model_key("report_embeddings", OLDER_VERSION)
+        if override_kwargs is not None:
+            heads = override_kwargs.pop("heads", None)
+            pinned = self.store.publish_model(
+                "report_embeddings",
+                REPORT_EMBEDDINGS_FEATURE_SET,
+                version=OLDER_VERSION,
+                roles=[PINNED_ROLE],
+                **override_kwargs,
+            )
+            entries.append(pinned.model_copy(update={"heads": heads}) if heads else pinned)
+        self.store.publish_manifest(entries)
+
+        with patch.object(model_store, "logger") as logger:
+            serving = load_serving_set(RankingOverrides(served=override_key))
+
+        assert serving is not None
+        assert serving.served.entry.key == served.key
+        assert serving.served_override is None
+        [warning] = [
+            call for call in logger.warning.call_args_list if call.args[0] == "inbox_ranking_override_rejected"
+        ]
+        assert reason in warning.kwargs["reason"]
+
+    def test_a_served_override_moves_the_served_role_and_keeps_scoring_the_manifest_served_model(self) -> None:
+        served = self._served()
+        pinned = self.store.publish_model(
+            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[PINNED_ROLE]
+        )
+        self.store.publish_manifest([served, pinned])
+        overrides = RankingOverrides(served=pinned.key)
+
+        serving = load_serving_set(overrides)
+
+        assert serving is not None
+        assert serving.served_override == overrides
+        assert serving.manifest.served.key == pinned.key
+        assert serving.served.entry.roles == [SERVED_ROLE, SERVED_OVERRIDE_ROLE, PINNED_ROLE]
+        assert [(model.entry.key, model.entry.roles) for model in serving.others] == [
+            (served.key, [MANIFEST_SERVED_ROLE])
+        ]
 
     def test_a_loaded_key_is_not_read_again_but_takes_the_new_roles(self) -> None:
         served = self._served()
@@ -265,51 +320,6 @@ class _ScorerTestMixin(_StoreTestMixin):
 
 
 class TestScorer(_ScorerTestMixin, SimpleTestCase):
-    def test_a_served_score_equals_the_dags_unseen_score_for_the_same_model_and_vector(self) -> None:
-        served = self._served()
-        self.store.publish_manifest([served])
-        vector = _vector(1)
-
-        (outcome,), _, _ = self._score(
-            ["r1"],
-            {EMBEDDING_RENDERING_TITLE_SUMMARY: {"r1": ReportVector(embedding=vector, inserted_at=LANDED)}},
-            persist=False,
-        )
-
-        pool = pd.DataFrame(
-            {
-                "report_created_at": [pd.Timestamp(LANDED)],
-                "report_age_hours": [3.0],
-                "signal_count": [2],
-            },
-            index=pd.Index(["r1"], name="report_id"),
-        )
-        extras = {
-            REPORT_EMBEDDINGS_EXTRA: pd.DataFrame(
-                {"embedding_small": [list(vector)], "embedding_inserted_at": [LANDED]},
-                index=pd.Index(["r1"], name="report_id"),
-            )
-        }
-        booster = self.store.objects[f"{served.prefix}/open.ubj"]
-        dag_scores = score_pool(
-            pool,
-            pd.DataFrame({"open_count": [0], "impression_unit_count": [1]}, index=pool.index),
-            [
-                UnseenModel(
-                    model_name=served.model_name,
-                    model_version=served.model_version,
-                    model_role="champion",
-                    feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
-                    boosters={"open": booster},
-                )
-            ],
-            snapshot_date=LANDED.date(),
-            extras=extras,
-        )
-
-        assert outcome.score is not None
-        assert outcome.score.results[served.key].scores["open"] == float(dag_scores["score"].iloc[0])
-
     def test_a_missing_served_vector_is_no_score(self) -> None:
         self.store.publish_manifest([self._served()])
 
@@ -329,11 +339,10 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
 
         assert sorted(fake_vectors.calls) == sorted([EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE])
 
-    def test_challengers_without_a_vector_or_a_served_feature_set_are_skipped_results(self) -> None:
+    def test_a_challenger_without_a_vector_is_a_skipped_result(self) -> None:
         served = self._served(thresholds={"open": 0.25})
         title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
-        tabular = self._challenger("tabular_xgb", TABULAR_FEATURE_SET)
-        manifest = self.store.publish_manifest([served, title, tabular])
+        manifest = self.store.publish_manifest([served, title])
 
         (outcome,), _, captured = self._score(
             ["r1"],
@@ -348,10 +357,6 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert results[served.key].lifts == {"open": results[served.key].scores["open"] / 0.25}
         assert results[title.key].lifts == {}
         assert (results[title.key].status, results[title.key].skip_reason) == ("skipped", NO_VECTOR)
-        assert (results[tabular.key].status, results[tabular.key].skip_reason) == (
-            "skipped",
-            "feature set tabular is not served yet",
-        )
         assert outcome.score.served_key == manifest.served.key
         assert outcome.score.embedding_inserted_at == LANDED
         assert captured.events == []

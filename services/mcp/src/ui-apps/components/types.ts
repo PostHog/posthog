@@ -14,6 +14,8 @@ export type ChartDisplayType =
     | 'ActionsAreaGraph'
     | 'BoldNumber'
     | 'ActionsPie'
+    | 'ActionsDonut'
+    | 'ActionsProportionBar'
     | 'ActionsTable'
     | 'WorldMap'
     | 'SlopeGraph'
@@ -98,6 +100,7 @@ export interface TrendsResultItem {
     days?: string[]
     count?: number
     aggregated_value?: number
+    compare_label?: string
     /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
      * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
     incomplete_end?: boolean
@@ -148,12 +151,20 @@ export interface HogQLResult {
     results?: unknown[][]
 }
 
+export interface WebOverviewItem {
+    key: string
+    kind: 'unit' | 'duration_s' | 'percentage' | 'currency'
+    value?: number | null
+    changeFromPreviousPct?: number | null
+}
+
 export type RetentionAggregationType = 'count' | 'sum' | 'avg'
 export type RetentionReference = 'total' | 'previous'
 export type RetentionPeriod = 'Hour' | 'Day' | 'Week' | 'Month'
 
 export interface RetentionFilter {
     aggregationType?: RetentionAggregationType | null
+    display?: ChartDisplayType | null
     period?: RetentionPeriod | null
     retentionReference?: RetentionReference | null
     showTrendLines?: boolean | null

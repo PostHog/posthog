@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/agent-contracts/rich-output-prompt";
+import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/agent-contracts/rich-output-prompt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPiEnrichmentExtension } from "./extension";
 
@@ -82,7 +82,7 @@ describe("createPiEnrichmentExtension", () => {
       expect(
         beforeAgentStartHandler?.({
           systemPrompt: "Base system prompt",
-        }).systemPrompt.includes(RICH_OUTPUT_TAGS_PROMPT),
+        }).systemPrompt.includes(RICH_OUTPUT_PROMPT_LEAD),
       ).toBe(richOutput);
 
       const result = await handler?.(

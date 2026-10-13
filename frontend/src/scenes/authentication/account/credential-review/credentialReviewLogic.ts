@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 import { urls } from 'scenes/urls'
@@ -47,7 +48,8 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
             // the post-login redirect from userLogic.loadUserSuccess.
             userLogic.actions.credentialReviewDismissed()
             userLogic.actions.loadUser()
-            router.actions.push(urls.projectHomepage())
+            const nextPath = getRelativeNextPath(router.values.searchParams['next'], location)
+            router.actions.push(nextPath ?? urls.projectHomepage())
         },
     }),
     afterMount(({ actions }) => {

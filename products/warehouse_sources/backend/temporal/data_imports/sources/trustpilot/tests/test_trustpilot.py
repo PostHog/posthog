@@ -1,5 +1,6 @@
-import json
+import base64
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
@@ -7,13 +8,20 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import (
-    MAX_PAGES,
-    PER_PAGE,
-    TOKEN_URL,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trustpilot import (
+    TrustPilotSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import MAX_PAGES, TOKEN_URL
+from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.source import TrustPilotSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot import (
     TrustpilotAuthError,
     TrustpilotBusinessUnitError,
@@ -24,15 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot
     mint_access_token,
     normalize_business_unit,
     resolve_business_unit_id,
-    trustpilot_source,
     validate_credentials,
 )
 
-# resolve_business_unit_id, mint_access_token and the sync client all build their tracked
-# session in the trustpilot module.
-TRUSTPILOT_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot.make_tracked_session"
-)
 RESOLVE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot.resolve_business_unit_id"
 )
@@ -40,53 +42,42 @@ RESOLVE_PATCH = (
 BUSINESS_UNIT_ID = "507f191e810c19729de860ea"
 
 
-def _response(payload: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(payload).encode()
-    return resp
+def _json(payload: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=payload)
 
 
-def _reviews_response(items: list[dict[str, Any]], key: str = "reviews") -> Response:
-    return _response({key: items, "links": []})
+def _reviews_response(items: list[dict[str, Any]], key: str = "reviews") -> dict[str, Any]:
+    return {key: items, "links": []}
 
 
-def _make_manager(resume_state: TrustpilotResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _serve(*review_pages: dict[str, Any]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Answer the business unit lookup and the token mint, then each review page in order."""
+    pages = list(review_pages)
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/business-units/find"):
+            return _json({"id": BUSINESS_UNIT_ID})
+        if request.path.endswith("/accesstoken"):
+            return _json({"access_token": "tok", "expires_in": 3600})
+        if not pages:
+            raise UnexpectedRequest(f"no page left for {request.url}")
+        return _json(pages.pop(0))
+
+    return respond
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    # request.params is one dict mutated in place across pages, so snapshot a copy at send time.
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
+def _run(
+    script: Callable[[RecordedRequest], ScriptedResponse],
+    endpoint: str = "service_reviews",
+    resume_state: TrustpilotResumeConfig | None = None,
+    **kwargs: Any,
+) -> DriveResult:
+    config = TrustPilotSourceConfig(api_key="key", api_secret="secret", business_unit="example.com")
+    return SourceDriver(TrustPilotSource(), config).run(endpoint, script, resume_state=resume_state, **kwargs)
 
 
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(manager: mock.MagicMock, endpoint: str = "service_reviews", **kwargs: Any):
-    return trustpilot_source(
-        api_key="key",
-        api_secret="secret",
-        business_unit="example.com",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
+def _review_requests(result: DriveResult) -> list[RecordedRequest]:
+    return [request for request in result.requests if request.path.endswith(("/reviews", f"/{BUSINESS_UNIT_ID}"))]
 
 
 class TestNormalizeBusinessUnit:
@@ -162,97 +153,63 @@ class TestBuildAuth:
 
 
 class TestResolveBusinessUnit:
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_domain_resolves_via_find(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _response({"id": BUSINESS_UNIT_ID, "displayName": "Example"})
+    def test_www_domain_falls_back_to_bare_domain(self) -> None:
+        with scripted_network(
+            [_json({"details": "not found"}, status=404), _json({"id": BUSINESS_UNIT_ID})]
+        ) as network:
+            assert resolve_business_unit_id("key", "www.example.com") == BUSINESS_UNIT_ID
 
-        assert resolve_business_unit_id("key", "example.com") == BUSINESS_UNIT_ID
-        args, kwargs = session.get.call_args
-        assert args[0].endswith("/business-units/find")
-        assert kwargs["params"] == {"name": "example.com"}
-        assert kwargs["headers"] == {"apikey": "key"}
+        assert [request.param("name") for request in network.requests_log] == ["www.example.com", "example.com"]
 
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_www_domain_falls_back_to_bare_domain(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response({"details": "not found"}, status_code=404),
-            _response({"id": BUSINESS_UNIT_ID}),
-        ]
+    def test_unknown_domain_raises_business_unit_error(self) -> None:
+        with scripted_network([_json({"details": "not found"}, status=404)]):
+            with pytest.raises(TrustpilotBusinessUnitError):
+                resolve_business_unit_id("key", "example.com")
 
-        assert resolve_business_unit_id("key", "www.example.com") == BUSINESS_UNIT_ID
-        names = [call.kwargs["params"]["name"] for call in session.get.call_args_list]
-        assert names == ["www.example.com", "example.com"]
-
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_unknown_domain_raises_business_unit_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _response({"details": "not found"}, status_code=404)
-
-        with pytest.raises(TrustpilotBusinessUnitError):
-            resolve_business_unit_id("key", "example.com")
-
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_lookup_response_without_id_fails_loud(self, MockSession) -> None:
+    def test_lookup_response_without_id_fails_loud(self) -> None:
         # A 200 without an id is a broken response contract; it must not read as "not found",
         # which would tell the user to fix a business unit value that is actually fine.
-        session = MockSession.return_value
-        session.get.return_value = _response({"displayName": "Example"})
+        with scripted_network([_json({"displayName": "Example"})]):
+            with pytest.raises(TrustpilotBusinessUnitError, match="unexpected"):
+                resolve_business_unit_id("key", "example.com")
 
-        with pytest.raises(TrustpilotBusinessUnitError, match="unexpected"):
-            resolve_business_unit_id("key", "example.com")
+    def test_rejected_api_key_raises_auth_error(self) -> None:
+        with scripted_network([_json({"details": "unauthorized"}, status=401)]):
+            with pytest.raises(TrustpilotAuthError):
+                resolve_business_unit_id("key", "example.com")
 
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_rejected_api_key_raises_auth_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _response({"details": "unauthorized"}, status_code=401)
+    def test_raw_id_verified_via_business_unit_endpoint(self) -> None:
+        with scripted_network([_json({"id": BUSINESS_UNIT_ID})]) as network:
+            assert resolve_business_unit_id("key", BUSINESS_UNIT_ID) == BUSINESS_UNIT_ID
 
-        with pytest.raises(TrustpilotAuthError):
-            resolve_business_unit_id("key", "example.com")
+        assert network.requests_log[0].path.endswith(f"/business-units/{BUSINESS_UNIT_ID}")
 
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_raw_id_verified_via_business_unit_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _response({"id": BUSINESS_UNIT_ID})
-
-        assert resolve_business_unit_id("key", BUSINESS_UNIT_ID) == BUSINESS_UNIT_ID
-        args, _kwargs = session.get.call_args
-        assert args[0].endswith(f"/business-units/{BUSINESS_UNIT_ID}")
-
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_unknown_raw_id_raises_business_unit_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _response({"details": "not found"}, status_code=404)
-
-        with pytest.raises(TrustpilotBusinessUnitError):
-            resolve_business_unit_id("key", BUSINESS_UNIT_ID)
+    def test_unknown_raw_id_raises_business_unit_error(self) -> None:
+        with scripted_network([_json({"details": "not found"}, status=404)]):
+            with pytest.raises(TrustpilotBusinessUnitError):
+                resolve_business_unit_id("key", BUSINESS_UNIT_ID)
 
 
 class TestMintAccessToken:
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_returns_token_on_success(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _response({"access_token": "tok", "expires_in": "359999"})
+    def test_returns_token_on_success(self) -> None:
+        with scripted_network([_json({"access_token": "tok", "expires_in": "359999"})]) as network:
+            assert mint_access_token("key", "secret") == "tok"
 
-        assert mint_access_token("key", "secret") == "tok"
-        _args, kwargs = session.post.call_args
-        assert kwargs["auth"] == ("key", "secret")
-        assert kwargs["data"] == {"grant_type": "client_credentials"}
+        request = network.requests_log[0]
+        assert request.origin + request.path == TOKEN_URL
+        assert request.headers["authorization"] == "Basic " + base64.b64encode(b"key:secret").decode()
+        assert request.body == b"grant_type=client_credentials"
 
     @parameterized.expand(
         [
-            ("rejected", _response({"reason": "unauthorized"}, status_code=401)),
-            ("no_token_in_body", _response({"unexpected": "shape"})),
+            ("rejected", _json({"reason": "unauthorized"}, status=401)),
+            ("no_token_in_body", _json({"unexpected": "shape"})),
         ]
     )
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_failures_raise_auth_error(self, _name: str, response: Response, MockSession) -> None:
-        session = MockSession.return_value
-        session.post.return_value = response
-
-        with pytest.raises(TrustpilotAuthError):
-            mint_access_token("key", "secret")
+    def test_failures_raise_auth_error(self, _name: str, response: ScriptedResponse) -> None:
+        with scripted_network([response]):
+            with pytest.raises(TrustpilotAuthError):
+                mint_access_token("key", "secret")
 
 
 class TestValidateCredentials:
@@ -291,133 +248,47 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_pages_until_empty_page(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _reviews_response([{"id": "r1"}, {"id": "r2"}]),
-                _reviews_response([{"id": "r3"}]),
-                _reviews_response([]),
-            ],
+    def test_checkpoints_next_page_with_query_window(self) -> None:
+        result = _run(
+            _serve(_reviews_response([{"id": "r1"}]), _reviews_response([])),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 2, 1, tzinfo=UTC),
         )
 
-        manager = _make_manager()
-        rows = _rows(_source(manager))
+        assert result.saved_states == [TrustpilotResumeConfig(page=2, start_date_time="2026-02-01T00:00:00")]
 
-        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
-        assert params[0]["page"] == 1
-        assert params[0]["perPage"] == PER_PAGE
-        assert params[0]["orderBy"] == "createdat.asc"
-        assert params[1]["page"] == 2
-        assert params[2]["page"] == 3
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_checkpoints_next_page_with_query_window(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        _wire(session, [_reviews_response([{"id": "r1"}]), _reviews_response([])])
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 2, 1, tzinfo=UTC),
-            )
-        )
-
-        manager.save_state.assert_called_once_with(
-            TrustpilotResumeConfig(page=2, start_date_time="2026-02-01T00:00:00")
-        )
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_resume_reissues_saved_query_window(self, MockSession, _mock_resolve) -> None:
+    def test_resume_reissues_saved_query_window(self) -> None:
         # A resumed run must re-issue the interrupted run's startDateTime: the watermark advanced
         # per batch mid-run, so re-deriving it would shift the query window and page 5 would point
         # at different rows.
-        session = MockSession.return_value
-        params = _wire(session, [_reviews_response([{"id": "r9"}]), _reviews_response([])])
-
-        manager = _make_manager(TrustpilotResumeConfig(page=5, start_date_time="2026-01-01T00:00:00"))
-        rows = _rows(
-            _source(
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 2, 1, tzinfo=UTC),
-            )
+        result = _run(
+            _serve(_reviews_response([{"id": "r9"}]), _reviews_response([])),
+            resume_state=TrustpilotResumeConfig(page=5, start_date_time="2026-01-01T00:00:00"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 2, 1, tzinfo=UTC),
         )
 
-        assert [r["id"] for r in rows] == ["r9"]
-        assert params[0]["page"] == 5
-        assert params[0]["startDateTime"] == "2026-01-01T00:00:00"
+        assert [r["id"] for r in result.rows] == ["r9"]
+        first = _review_requests(result)[0]
+        assert first.param("page") == "5"
+        assert first.param("startDateTime") == "2026-01-01T00:00:00"
 
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_incremental_filter_added_to_request(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_reviews_response([{"id": "r1"}]), _reviews_response([])])
-
-        _rows(
-            _source(
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-        assert params[0]["startDateTime"] == "2026-03-04T02:58:14"
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_full_refresh_endpoint_never_filters(self, MockSession, _mock_resolve) -> None:
+    def test_full_refresh_endpoint_never_filters(self) -> None:
         # product_reviews has no server-side time filter; a cursor value must not leak into the request.
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [_reviews_response([{"id": "p1"}], key="productReviews"), _reviews_response([], key="productReviews")],
+        result = _run(
+            _serve(
+                _reviews_response([{"id": "p1"}], key="productReviews"),
+                _reviews_response([], key="productReviews"),
+            ),
+            endpoint="product_reviews",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
-        rows = _rows(
-            _source(
-                _make_manager(),
-                endpoint="product_reviews",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-        assert [r["id"] for r in rows] == ["p1"]
-        assert "startDateTime" not in params[0]
-        assert "orderBy" not in params[0]
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_business_unit_returns_single_row(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session, [_response({"id": BUSINESS_UNIT_ID, "displayName": "Example", "score": {"trustScore": 4.6}})]
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint="business_unit"))
-
-        assert len(rows) == 1
-        assert rows[0]["id"] == BUSINESS_UNIT_ID
-        assert "perPage" not in params[0]
-        assert "page" not in params[0]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_no_checkpoint_after_final_page(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        _wire(session, [_reviews_response([])])
-
-        manager = _make_manager()
-        assert _rows(_source(manager)) == []
-        manager.save_state.assert_not_called()
+        assert [r["id"] for r in result.rows] == ["p1"]
+        first = _review_requests(result)[0]
+        assert first.param("startDateTime") is None
+        assert first.param("orderBy") is None
 
 
 class TestPaginatorQueryCap:
@@ -430,12 +301,3 @@ class TestPaginatorQueryCap:
 
         assert paginator.has_next_page is False
         assert any("query cap" in record.message for record in caplog.records)
-
-    def test_empty_page_stop_does_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
-        paginator = TrustpilotPaginator()
-
-        with caplog.at_level(logging.WARNING):
-            paginator.update_state(mock.MagicMock(), data=[])
-
-        assert paginator.has_next_page is False
-        assert not caplog.records

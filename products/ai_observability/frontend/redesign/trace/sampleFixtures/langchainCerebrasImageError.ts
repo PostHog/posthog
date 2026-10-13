@@ -1,4 +1,5 @@
-import { MessagePart, NodeProperties, ThreadMessage, TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { MessagePart, NodeProperties, ThreadMessage } from '../types'
 import { SampleTraceFixture, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '3030b60b-110e-7653-675c-235b05cc9a77'
@@ -62,7 +63,7 @@ function labelMessages(sourceNodeId: string): ThreadMessage[] {
 
 export const cerebrasLabelMessages: ThreadMessage[] = labelMessages(GENERATION_ID)
 
-const tree: TraceTreeNode[] = [
+const tree: TraceNodeApi[] = [
     {
         id: TRACE_ID,
         kind: 'trace',

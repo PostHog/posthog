@@ -62,6 +62,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
+ * * `cross_project_dashboard` - cross_project_dashboard
  * * `customer_analytics` - customer_analytics
  * * `customer_task` - customer_task
  * * `customer_journey` - customer_journey
@@ -181,6 +182,7 @@ export const ScopeObjectEnumApi = {
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
+    CrossProjectDashboard: 'cross_project_dashboard',
     CustomerAnalytics: 'customer_analytics',
     CustomerTask: 'customer_task',
     CustomerJourney: 'customer_journey',
@@ -323,6 +325,7 @@ export interface ProjectAccessSourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -485,6 +488,7 @@ export interface AccessControlObjectRuleApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -626,6 +630,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `action` - action
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
+ * * `business_knowledge` - business_knowledge
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
  * * `customer_task` - customer_task
@@ -683,6 +688,7 @@ export const RuleResourceEnumApi = {
     Action: 'action',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
+    BusinessKnowledge: 'business_knowledge',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
     CustomerTask: 'customer_task',
@@ -745,6 +751,7 @@ export interface AccessControlRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -869,6 +876,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -1002,6 +1010,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1133,6 +1142,7 @@ export interface ResolvedAccessApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -1310,6 +1320,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task

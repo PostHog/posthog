@@ -85,14 +85,20 @@ def default_branch_name(repo: Repo) -> str | None:
 
 
 def default_branch_head_sha(repo: Repo) -> str | None:
-    """The commit the repo's default branch points at, or None when GitHub cannot say."""
+    """The commit the repo's default branch points at, or None when GitHub cannot say.
+
+    Raises `GitHubIntegrationNotFoundError` and `GitHubRateLimitError`, because a retry does not help
+    the first and has to wait for the second.
+    """
+    github = get_github_integration_for_repo(repo)
     try:
-        github = get_github_integration_for_repo(repo)
         # Not `_get_default_branch`: its fallback name can point at a branch that is not the default,
         # and a commit from that branch would scope the lift wrongly.
         branch = github.get_default_branch(repo.repo_full_name)
         # One path segment, so a branch name with a slash does not split the ref.
         response = github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
+    except GitHubRateLimitError:
+        raise
     except Exception:
         logger.warning("visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id))
         return None

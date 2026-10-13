@@ -13,7 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment, FilterType } from '~/types'
 
-import { SelectableCard } from '../components/SelectableCard'
+import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
+
 import {
     EXPERIMENT_EXPOSURE_EVENT,
     EXPOSURE_DEFAULT_EVENT,

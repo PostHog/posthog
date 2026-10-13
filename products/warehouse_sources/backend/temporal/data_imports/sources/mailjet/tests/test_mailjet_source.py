@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MailjetSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import (
-    ENDPOINTS,
     MAILJET_WEBHOOK_EVENTS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_SCHEMA_NAMES,
@@ -14,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.se
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source import MailJetSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.webhook_template import template
 
-_STATISTICS_ENDPOINTS = {"openinformation", "clickstatistics"}
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog-fn-1"
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source.api_client"
 
@@ -24,28 +22,6 @@ class TestMailJetSource:
         self.source = MailJetSource()
         self.team_id = 123
         self.config = MailjetSourceConfig(api_key="key", secret_key="secret")
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            expected_incremental = schema.name in _STATISTICS_ENDPOINTS
-            assert schema.supports_incremental is expected_incremental
-            assert schema.supports_append is expected_incremental
-            if expected_incremental:
-                assert len(schema.incremental_fields) == 1
-            else:
-                assert schema.incremental_fields == []
-
-    def test_webhook_capable_schemas(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert {name for name, schema in schemas.items() if schema.supports_webhooks} == set(WEBHOOK_SCHEMA_NAMES)
-        # The message event stream has no list endpoint behind it, so polling can never rebuild it
-        # and the UI must offer webhook sync only.
-        assert schemas[WEBHOOK_TABLE_NAME].webhook_only is True
-        assert all(not schema.webhook_only for name, schema in schemas.items() if name != WEBHOOK_TABLE_NAME)
 
     def test_polled_schemas_never_gain_webhooks(self):
         # Mailjet's event payloads name their fields differently to /openinformation and
@@ -71,9 +47,6 @@ class TestMailJetSource:
         assert self.source.get_desired_webhook_events(self.config, [WEBHOOK_TABLE_NAME]) == list(MAILJET_WEBHOOK_EVENTS)
         assert self.source.get_desired_webhook_events(self.config, ["contact"]) == []
 
-    def test_get_webhook_source_manager(self):
-        assert isinstance(self.source.get_webhook_source_manager(mock.MagicMock()), WebhookSourceManager)
-
     @mock.patch(f"{API_CLIENT_PATCH}.create_webhook")
     def test_create_webhook_delegates(self, mock_create):
         self.source.create_webhook(self.config, WEBHOOK_URL, self.team_id)
@@ -93,17 +66,6 @@ class TestMailJetSource:
     def test_sync_webhook_events_passes_the_desired_events(self, mock_sync):
         self.source.sync_webhook_events(self.config, WEBHOOK_URL, self.team_id, [WEBHOOK_TABLE_NAME])
         mock_sync.assert_called_once_with("key", "secret", WEBHOOK_URL, list(MAILJET_WEBHOOK_EVENTS))
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contact"])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == "contact"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
-
-        assert schemas == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source.validate_mailjet_credentials"

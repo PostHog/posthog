@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
@@ -20,6 +21,7 @@ import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { LIMIT_REACHED_TOOLTIP } from '../replay_scanners/scannerCopy'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { currentReturnPath } from '../utils/breadcrumbs'
 import {
     BUILT_IN_SUMMARY_LABEL,
     dockObservations,
@@ -36,7 +38,12 @@ const DEFAULT_EXPANDED_HEIGHT = 480
 const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
 
-export function ObservationsDock(): JSX.Element | null {
+export function ObservationsDock({
+    extraActions,
+}: {
+    /** Recording actions the host places beside the summarize button. */
+    extraActions?: React.ReactNode
+}): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     // The dock is a sibling of the player frame, so it kept its summarize button on screen even when
     // the frame had swapped itself for the "Recording not found" or "deleted" screen — a control that
@@ -46,7 +53,7 @@ export function ObservationsDock(): JSX.Element | null {
     if (!sessionRecordingId || isNotFound || isRecordingDeleted) {
         return null
     }
-    return <ObservationsDockContent sessionId={sessionRecordingId} />
+    return <ObservationsDockContent sessionId={sessionRecordingId} extraActions={extraActions} />
 }
 
 /**
@@ -229,7 +236,13 @@ function SummarizeExplainer(): JSX.Element {
     )
 }
 
-function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
+function ObservationsDockContent({
+    sessionId,
+    extraActions,
+}: {
+    sessionId: string
+    extraActions?: React.ReactNode
+}): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen, retryingObservationIds, defaultSummarizer, summarizePending } =
         useValues(logic)
@@ -237,6 +250,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const returnPath = currentReturnPath(useValues(router).location)
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
@@ -278,6 +292,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <SummarizeButton sessionId={sessionId} scanBlock={scanBlock} />
                 <SummarizeExplainer />
+                {extraActions}
                 {summarizeBlockedReason &&
                     !hasContent && (
                         // Collapsed with nothing to expand, the disabled button's tooltip is the only place
@@ -338,6 +353,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                                 onSeek={seekToTime}
                                 onRetry={() => retryObservation(observation.id)}
                                 retrying={retryingObservationIds.includes(observation.id)}
+                                returnPath={returnPath}
                             />
                         ))
                     )}

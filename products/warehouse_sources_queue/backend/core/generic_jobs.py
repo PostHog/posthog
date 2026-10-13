@@ -626,16 +626,36 @@ class JobsTable:
         lane: str,
         group_keys: list[str],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None:
-        """Hand groups back when their work finishes (drop this owner's leases)."""
+        """Hand groups back when their work finishes (drop this owner's leases).
+
+        ``skip_locked`` leaves a lease row that another statement holds in place
+        (it expires after its TTL) instead of waiting on it.
+        """
         if not group_keys:
+            return
+        params = {"lane": lane, "group_keys": group_keys, "owner": owner_token}
+        if skip_locked:
+            await conn.execute(
+                f"""
+                DELETE FROM {JOB_LEASE_TABLE}
+                WHERE id IN (
+                    SELECT id FROM {JOB_LEASE_TABLE}
+                    WHERE lane = %(lane)s AND group_key = ANY(%(group_keys)s) AND owner_token = %(owner)s
+                    ORDER BY group_key
+                    FOR UPDATE SKIP LOCKED
+                )
+                """,
+                params,
+            )
             return
         await conn.execute(
             f"""
             DELETE FROM {JOB_LEASE_TABLE}
             WHERE lane = %(lane)s AND group_key = ANY(%(group_keys)s) AND owner_token = %(owner)s
             """,
-            {"lane": lane, "group_keys": group_keys, "owner": owner_token},
+            params,
         )
 
     @staticmethod
@@ -649,6 +669,41 @@ class JobsTable:
             f"DELETE FROM {JOB_LEASE_TABLE} WHERE owner_token = %(owner)s",
             {"owner": owner_token},
         )
+
+    @staticmethod
+    async def try_acquire_sentinel_slot(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        lane: str,
+        group_key: str,
+        owner_token: str,
+        ttl_seconds: float,
+    ) -> bool:
+        """Claim a fleet-wide single-flight slot; True means this pod runs the work.
+
+        A sentinel row in the job-lease table, CAS-acquired only when expired,
+        transplanted from ``BatchQueue.try_acquire_reconcile_sweep_slot``. There
+        is deliberately no release and no same-owner re-entrancy clause: the TTL
+        *is* the fleet-wide cadence, so at most one winner starts per TTL no
+        matter how many pods race for it, and a crashed winner's slot frees
+        itself at expiry.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                INSERT INTO {JOB_LEASE_TABLE} (lane, group_key, owner_token, expires_at, acquired_at, updated_at)
+                VALUES (%(lane)s, %(group_key)s, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now())
+                ON CONFLICT (lane, group_key) DO UPDATE
+                    SET owner_token = excluded.owner_token,
+                        expires_at = excluded.expires_at,
+                        acquired_at = now(),
+                        updated_at = now()
+                    WHERE {JOB_LEASE_TABLE}.expires_at <= now()
+                RETURNING id
+                """,
+                {"lane": lane, "group_key": group_key, "owner": owner_token, "ttl": ttl_seconds},
+            )
+            return await cur.fetchone() is not None
 
     # -- sweeps and gauges -------------------------------------------------------
 

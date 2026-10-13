@@ -508,6 +508,8 @@ export interface AllowedModelsPin {
 
 function modelNames(entry: Record<string, unknown>): string[] {
   const names = typeof entry.id === "string" ? [entry.id] : [];
+  // The mint echoes the pin in canonical spelling (`anthropic/claude-opus-4.8`).
+  if (typeof entry.canonical === "string") names.push(entry.canonical);
   if (Array.isArray(entry.aliases)) {
     for (const alias of entry.aliases) {
       if (typeof alias === "string") names.push(alias);

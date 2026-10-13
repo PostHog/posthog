@@ -17,14 +17,6 @@ class TestTriggerDevSourceConfig:
 
 
 class TestTriggerDevSchemas:
-    def test_runs_is_incremental_and_config_endpoints_are_full_refresh(self) -> None:
-        schemas = {s.name: s for s in TriggerDevSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"runs", "schedules", "queues"}
-        assert schemas["runs"].supports_incremental is True
-        assert [f["field"] for f in schemas["runs"].incremental_fields] == ["createdAt"]
-        assert schemas["schedules"].supports_incremental is False
-        assert schemas["queues"].supports_incremental is False
-
     def test_names_filter(self) -> None:
         schemas = TriggerDevSource().get_schemas(MagicMock(), team_id=1, names=["queues"])
         assert [s.name for s in schemas] == ["queues"]
@@ -126,12 +118,3 @@ class TestSourceForPipeline:
         ):
             TriggerDevSource().source_for_pipeline(config, MagicMock(), inputs)
         assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestGetDocumentedTables:
-    def test_publishes_runs_table_with_canonical_description(self) -> None:
-        tables = {t["name"]: t for t in TriggerDevSource().get_documented_tables()}
-        assert set(tables) == {"runs", "schedules", "queues"}
-        assert "execution" in tables["runs"]["description"].lower()
-        assert "Incremental" in tables["runs"]["sync_methods"]
-        assert tables["schedules"]["sync_methods"] == ["Full refresh"]

@@ -23,6 +23,7 @@ import { CanvasBrowsedCanvas } from '../history/CanvasBrowsedCanvas'
 import { CanvasHistoryConfirmDialog } from '../history/CanvasHistoryConfirmDialog'
 import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
 import { canvasCommentsLogic } from '../sidePanel/comments/canvasCommentsLogic'
+import { CanvasCommentThreadPopover } from '../sidePanel/comments/CanvasCommentThreadPopover'
 import { CanvasSelectionCommentAction } from '../sidePanel/comments/CanvasSelectionCommentAction'
 import { CanvasEmptyBody } from './CanvasEmptyBody'
 import { CanvasFullscreenExit } from './CanvasFullscreenExit'
@@ -160,6 +161,7 @@ function CanvasMain(): JSX.Element {
             )}
         >
             <CanvasBody />
+            <CanvasCommentThreadPopover />
             <CanvasFullscreenExit />
         </main>
     )

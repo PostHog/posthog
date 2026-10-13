@@ -1091,9 +1091,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     actions.abortAnyRunningQuery()
                     actions.setPollResponse(null)
                     const abortController = new AbortController()
-                    cache.abortController = abortController
+                    cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
                     const methodOptions: ApiMethodOptions = {
-                        signal: cache.abortController.signal,
+                        signal: abortController.signal,
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
@@ -1341,6 +1341,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => false,
                 loadData: () => false,
                 cancelQuery: () => true,
+                clearResponse: () => false,
             },
         ],
         pollResponse: [
@@ -2096,10 +2097,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
+            cache.disposables.dispose('query')
         },
         abortQuery: async ({ queryId }) => {
             try {
@@ -2238,10 +2236,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
-        if (values.dataLoading) {
-            actions.abortAnyRunningQuery()
-        }
-
         actions.unmountDataNode(props.key)
         // Disposables plugin handles timer cleanup automatically
     }),

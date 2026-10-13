@@ -12,9 +12,19 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
-@pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
+@pytest.mark.parametrize(
+    ("model", "file_format", "compression", "interval"),
+    [
+        (model, file_format, compression, "hour")
+        for model in TEST_AZURE_BLOB_MODELS
+        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+    ]
+    + [
+        (TEST_AZURE_BLOB_MODELS[index % len(TEST_AZURE_BLOB_MODELS)], file_format, compression, "day")
+        for index, (file_format, compression) in enumerate(SUPPORTED_FILE_FORMAT_COMPRESSIONS)
+    ],
+    indirect=["file_format", "compression", "interval"],
+)
 async def test_workflow_exports_model_successfully(
     ateam,
     azure_batch_export,

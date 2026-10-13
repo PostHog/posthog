@@ -17,10 +17,7 @@ from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
-from products.alerts.backend.facade.contracts import AlertDelivery
-from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
@@ -29,14 +26,7 @@ from products.alerts.backend.facade.destinations import (
     produce_alert_internal_event,
     serialize_deliveries,
 )
-from products.alerts.backend.facade.email import send_alert_email
-from products.alerts.backend.facade.scheduling import (
-    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
-    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
-    is_weekend,
-    next_calendar_check_time,
-    to_calendar_interval,
-)
+from products.alerts.backend.facade.email import alert_email_recipients, send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
     apply_outcome,
@@ -44,6 +34,15 @@ from products.alerts.backend.insight_alert_state_machine import (
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts_platform.backend.facade.scheduling import (
+    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
+    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
+    is_weekend,
+    next_calendar_check_time,
+    to_calendar_interval,
+)
 from products.exports.backend.facade import api as exports
 
 logger = structlog.get_logger(__name__)
@@ -72,12 +71,18 @@ class AlertEvaluationResult:
     skipped_reason: str | None = None
 
 
-WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+WRAPPER_NODE_KINDS = [
+    NodeKind.DATA_TABLE_NODE,
+    NodeKind.DATA_VISUALIZATION_NODE,
+    NodeKind.BI_VISUALIZATION_NODE,
+    NodeKind.INSIGHT_VIZ_NODE,
+]
 
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
     ChartDisplayType.ACTIONS_PIE,
     ChartDisplayType.ACTIONS_DONUT,
+    ChartDisplayType.ACTIONS_PROPORTION_BAR,
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
@@ -340,16 +345,7 @@ def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
 
 
 def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
-    candidates = (
-        alert.team.all_users_with_access()
-        .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
-        .only("id", "email")
-    )
-    return [
-        (user.id, user.email)
-        for user in candidates
-        if UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
-    ]
+    return alert_email_recipients(team_id=alert.team_id, alert_id=alert.id)
 
 
 def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:

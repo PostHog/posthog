@@ -1,7 +1,12 @@
+from datetime import datetime
+
 from django.core.validators import URLValidator
 from django.db import models
+from django.utils import timezone
 
 from rest_framework import serializers
+
+from products.web_analytics.backend.weekly_digest import DigestDataStatus
 
 
 class LlmsTxtFetchRequestSerializer(serializers.Serializer):
@@ -69,6 +74,40 @@ class GoalSerializer(serializers.Serializer):
     )
 
 
+class ProjectTimezoneDateTimeField(serializers.DateTimeField):
+    def enforce_timezone(self, value: datetime) -> datetime:
+        # DRF converts aware values to the active timezone, which is UTC, so the project offset is lost.
+        if timezone.is_aware(value):
+            return value
+        return super().enforce_timezone(value)
+
+
+class DigestMetadataSerializer(serializers.Serializer):
+    data_status = serializers.ChoiceField(
+        choices=DigestDataStatus.choices,
+        help_text=(
+            "How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. "
+            "'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them "
+            "contain a $pageview or $screen event from a non-test account. Query the sessions table directly to "
+            "count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, "
+            "and the check for other sessions in the period failed. Query the sessions table directly to count them."
+        ),
+    )
+    date_from = ProjectTimezoneDateTimeField(help_text="Start of the current period, in the project timezone.")
+    date_to = ProjectTimezoneDateTimeField(help_text="End of the current period, in the project timezone.")
+    timezone = serializers.CharField(help_text="Project timezone for the period boundaries.")
+    filter_test_accounts = serializers.BooleanField(
+        help_text=(
+            "True when the headline metrics, top pages and top sources exclude events from test accounts. "
+            "Goal conversions include them."
+        )
+    )
+    notes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Metric definitions to use when you compare the digest with a direct query.",
+    )
+
+
 class WeeklyDigestResponseSerializer(serializers.Serializer):
     visitors = NumericMetricSerializer(help_text="Unique visitors.")
     pageviews = NumericMetricSerializer(help_text="Total pageviews.")
@@ -78,6 +117,9 @@ class WeeklyDigestResponseSerializer(serializers.Serializer):
     top_pages = TopPageSerializer(many=True, help_text="Top 5 pages by unique visitors.")
     top_sources = TopSourceSerializer(many=True, help_text="Top 5 traffic sources by unique visitors.")
     goals = GoalSerializer(many=True, help_text="Goal conversions.")
+    metadata = DigestMetadataSerializer(
+        help_text="Period, filters and metric definitions behind the numbers, and a status that explains a zero."
+    )
     dashboard_url = serializers.URLField(help_text="Link to the Web analytics dashboard for this project.")
 
 

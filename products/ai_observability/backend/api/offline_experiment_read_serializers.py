@@ -377,6 +377,18 @@ class OfflineScorerSummarySerializer(serializers.Serializer):
     true_rate = serializers.FloatField(
         allow_null=True, help_text="Boolean true fraction among successes; null with no successes or for other kinds."
     )
+    pass_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.",
+    )
+    fail_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.",
+    )
+    pass_rate = serializers.FloatField(
+        allow_null=True,
+        help_text="Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.",
+    )
     categories = OfflineCategorySummarySerializer(
         many=True, help_text="Pinned categorical distribution; multiselect rates may sum above one."
     )

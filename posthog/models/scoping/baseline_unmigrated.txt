@@ -131,6 +131,8 @@ ProjectSecretAPIKey
 PropertyAccessControl
 QueryTabState
 QueueJob
+QueueSchedulerDecision
+QueueSchedulerState
 QuickFilter
 QuickFilterContext
 Reminder
@@ -138,7 +140,6 @@ ReplayObservation
 ReplayObservationLabel
 ReplayObservationUsage
 ReplayScanner
-ReplayScannerPromptSuggestion
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem

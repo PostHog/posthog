@@ -1,8 +1,10 @@
-import dataclasses
+import datetime as dt
 from collections.abc import Callable
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -13,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -22,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.set
     HEROKU_BASE_URL,
     HEROKU_ENDPOINTS,
     MAX_PAGES_PER_LIST,
+    TEAM_USAGE_LOOKBACK_MONTHS,
     HerokuEndpointConfig,
 )
 
@@ -30,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.set
 HEROKU_API_ACCEPT = "application/vnd.heroku+json; version=3"
 
 
-@dataclasses.dataclass
+@frozen
 class HerokuResumeConfig:
     # Verbatim `Next-Range` header value to resume a top-level list from. None means "start at
     # the first page".
@@ -130,8 +136,16 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
-def _paginator(config: HerokuEndpointConfig) -> RangeHeaderPaginator:
+def _paginator(config: HerokuEndpointConfig) -> BasePaginator:
+    if not config.paginated:
+        return SinglePagePaginator()
     return RangeHeaderPaginator(config.range_attribute, DEFAULT_PAGE_SIZE, MAX_PAGES_PER_LIST)
+
+
+def _month_window(today: dt.date) -> dict[str, str]:
+    start_index = today.year * 12 + today.month - TEAM_USAGE_LOOKBACK_MONTHS
+    start_year, start_month = divmod(start_index, 12)
+    return {"start": f"{start_year:04d}-{start_month + 1:02d}", "end": f"{today.year:04d}-{today.month:02d}"}
 
 
 def _flat_source(
@@ -186,15 +200,20 @@ def _fanout_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[HerokuResumeConfig],
 ) -> Any:
-    apps_config = HEROKU_ENDPOINTS["apps"]
+    assert config.fan_out_parent is not None
+    parent_config = HEROKU_ENDPOINTS[config.fan_out_parent]
+
+    params: dict[str, Any] = {"parent_id": {"type": "resolve", "resource": parent_config.name, "field": "id"}}
+    if config.month_window:
+        params.update(_month_window(dt.datetime.now(dt.UTC).date()))
 
     child_endpoint: Endpoint = {
         "path": config.path,
-        "params": {"app_id": {"type": "resolve", "resource": "apps", "field": "id"}},
+        "params": params,
         "paginator": _paginator(config),
         "data_selector_required": True,
-        # An app deleted between enumeration and this fetch 404s; treat it as an empty page and stop
-        # this app rather than failing the whole sync — the data is genuinely gone. A 401/403 still
+        # A parent deleted between enumeration and this fetch 404s; treat it as an empty page and stop
+        # this parent rather than failing the whole sync — the data is genuinely gone. A 401/403 still
         # falls through to raise_for_status.
         "response_actions": [{"status_code": 404, "action": "ignore"}],
     }
@@ -210,12 +229,12 @@ def _fanout_source(
         "client": _client_config(api_key),
         "resources": [
             {
-                "name": "apps",
-                # Rows already embed the parent as a nested `app` object, so nothing is injected from
-                # the parent; Heroku ids are globally unique UUIDs, so `id` stays a table-wide key.
+                "name": parent_config.name,
+                # Rows already embed the parent (a nested `app` object, or the team's own `id` on usage),
+                # so nothing is injected from the parent; Heroku ids are globally unique UUIDs.
                 "endpoint": {
-                    "path": apps_config.path,
-                    "paginator": _paginator(apps_config),
+                    "path": parent_config.path,
+                    "paginator": _paginator(parent_config),
                     "data_selector_required": True,
                 },
             },
@@ -243,7 +262,10 @@ def _fanout_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    return next(resource for resource in resources if getattr(resource, "name", None) == config.name)
+    by_name = {getattr(resource, "name", None): resource for resource in resources}
+    if config.parent_filter is not None:
+        by_name[parent_config.name].add_filter(config.parent_filter)
+    return by_name[config.name]
 
 
 def heroku_source(
@@ -255,7 +277,7 @@ def heroku_source(
 ) -> SourceResponse:
     config = HEROKU_ENDPOINTS[endpoint]
 
-    if config.fan_out_over_apps:
+    if config.fan_out_parent:
         resource = _fanout_source(api_key, config, team_id, job_id, resumable_source_manager)
     else:
         resource = _flat_source(api_key, config, team_id, job_id, resumable_source_manager)

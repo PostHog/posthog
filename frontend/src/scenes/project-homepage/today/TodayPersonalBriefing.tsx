@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -8,6 +8,7 @@ import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import type { BriefingSegmentApi } from 'products/today/frontend/generated/api.schemas'
 
+import { WALK_THROUGH_QUESTION } from './todayAskPrompt'
 import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
@@ -22,11 +23,10 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
     }
     const href = itemHref(item)
     const link = (
-        <Link
+        <LinkPrimitive
             to={href}
             target={isExternalHref(href) ? '_blank' : undefined}
-            subtle
-            className="TodayReportLink"
+            className="TodayInlineLink"
             data-active={hoveredItemKey === item.key}
             data-state={item.state}
             data-attr="today-briefing-item"
@@ -35,7 +35,7 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
             onMouseLeave={() => setHoveredItemKey(null)}
         >
             {segment.text}
-        </Link>
+        </LinkPrimitive>
     )
     const preview = reportPreviews.briefing[item.key]
     const linkWithCard = preview ? (
@@ -86,9 +86,9 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                         Reports that wait for you, that you claimed or review, and urgent reports nobody owns show up
                         here. Your briefing updates every morning at 8:00.{' '}
                     </span>
-                    <Link to={urls.inbox()} data-attr="today-empty-briefing-inbox">
+                    <LinkPrimitive to={urls.inbox()} className="TodayInboxLink" data-attr="today-empty-briefing-inbox">
                         Open the Inbox
-                    </Link>
+                    </LinkPrimitive>
                     <span> to see every report.</span>
                 </p>
             </>
@@ -115,19 +115,20 @@ export function TodayPersonalBriefing(): JSX.Element | null {
             <p className="TodayHome__foot">
                 {inboxMore && (
                     <>
-                        <Link to={urls.inbox()} data-attr="today-briefing-inbox">
+                        <LinkPrimitive to={urls.inbox()} className="TodayInboxLink" data-attr="today-briefing-inbox">
                             {inboxMore.scope === 'for_you'
                                 ? `${inboxMore.count} more for you in the Inbox`
                                 : `${inboxMore.count} other open ${pluralize(inboxMore.count, 'report', undefined, false)} in the Inbox`}
-                        </Link>
+                        </LinkPrimitive>
                         <span>. </span>
                     </>
                 )}
                 <span>Or </span>
                 <button
                     type="button"
+                    className="TodayInlineAction"
                     data-attr="today-ask-about-edition"
-                    onClick={() => askAi('Walk me through what changed in my product today.')}
+                    onClick={() => askAi(WALK_THROUGH_QUESTION, 'walk_through')}
                 >
                     ask PostHog AI to walk you through it
                 </button>

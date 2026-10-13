@@ -527,7 +527,7 @@ export function buildSandboxDocument(
           if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
             event.preventDefault();
             event.stopPropagation();
-            post({ type: "comment-activate", id: item.id });
+            post({ type: "comment-activate", id: item.id, rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left } });
             return;
           }
         }

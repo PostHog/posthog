@@ -52,6 +52,23 @@ LINK_EXISTING_REQUIRED_CONTEXT_FIELDS: dict[str, dict[str, type]] = {
 }
 
 
+def _validate_github_assignee(integration: Integration, repository: str, login: str) -> None:
+    # GitHub creates the issue and silently drops a login it cannot assign, so check before creating.
+    # Enterprise Managed User logins add an underscore and a shortcode, so allow "_" and a longer login.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", login):
+        raise ErrorTrackingExternalReferenceValidationError("GitHub assignee must be a GitHub login.")
+    result = GitHubIntegration(integration).is_assignable(repository.strip(), login)
+    if not result.get("success"):
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Could not check whether {login} can be assigned issues in {repository.strip()}. "
+            "Try again, or create the issue without an assignee."
+        )
+    if not result.get("assignable"):
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"GitHub user {login} cannot be assigned issues in {repository.strip()}."
+        )
+
+
 def _validate_external_reference_config(integration: Integration, config: Any) -> None:
     if not isinstance(config, dict):
         raise ErrorTrackingExternalReferenceValidationError("External reference config must be an object.")
@@ -79,6 +96,22 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
         raise ErrorTrackingExternalReferenceValidationError(
             f"Config fields for {integration.kind} cannot be blank: {', '.join(blank_fields)}."
         )
+
+    assignee = config.get("assignee")
+    if assignee is not None and not isinstance(assignee, str):
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Config field assignee for {integration.kind} must be a string."
+        )
+    if (
+        assignee
+        and assignee.strip()
+        and integration.kind == Integration.IntegrationKind.GITLAB
+        and not re.fullmatch(r"[0-9]{1,20}", assignee.strip())
+    ):
+        raise ErrorTrackingExternalReferenceValidationError("GitLab assignee must be a numeric user ID.")
+
+    if assignee and assignee.strip() and integration.kind == Integration.IntegrationKind.GITHUB:
+        _validate_github_assignee(integration, config["repository"], assignee.strip())
 
     if integration.kind == Integration.IntegrationKind.LINEAR:
         team_id = config["team_id"]
@@ -229,6 +262,9 @@ def create_external_reference(
     provider_config = dict(config or {})
     title = provider_config["title"].strip()
     provider_config["title"] = title
+    assignee = (provider_config.pop("assignee", None) or "").strip()
+    if assignee:
+        provider_config["assignee"] = assignee
 
     if integration.kind == Integration.IntegrationKind.GITHUB:
         created_context = GitHubIntegration(integration).create_issue(provider_config)

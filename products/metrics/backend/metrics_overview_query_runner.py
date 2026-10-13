@@ -1,4 +1,4 @@
-"""No FINAL: `uniqExact` and `max(last_seen)` give the same result on unmerged duplicate rows."""
+"""No FINAL: the distinct counts and `max(last_seen)` give the same result on unmerged duplicate rows."""
 
 import datetime as dt
 import contextvars
@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from opentelemetry import trace
 from opentelemetry.trace import Span
 
-from posthog.schema import HogQLQueryResponse
+from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -112,18 +112,20 @@ class MetricsOverviewQueryRunner:
     def _run_services(self) -> _ServicesRollup:
         with tracer.start_as_current_span("metrics.overview.services") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Each series has one service, so the sum of the service counts is exact.
+            # The services_by_hour projection answers this query only while it filters on time_bucket, uses uniq,
+            # and aggregates the bare last_seen column. The time zone conversion stays outside max() for that reason.
+            # Each series has one service, so the sum of the service counts counts each series once.
             query = parse_select(
                 """
                     SELECT
                         service_name,
                         uniqExact(metric_name) AS metric_names,
-                        uniqExact(series_fingerprint) AS series,
-                        max(last_seen) AS last_seen_at,
-                        sum(uniqExact(series_fingerprint)) OVER () AS total_series,
-                        max(max(last_seen)) OVER () AS total_last_seen_at
+                        uniq(series_fingerprint) AS series,
+                        toTimeZone(max(last_seen), 'UTC') AS last_seen_at,
+                        sum(uniq(series_fingerprint)) OVER () AS total_series,
+                        toTimeZone(max(max(last_seen)) OVER (), 'UTC') AS total_last_seen_at
                     FROM posthog.metric_series
-                    WHERE last_seen > now() - {lookback}
+                    WHERE time_bucket >= toStartOfHour(toTimeZone(now() - {lookback}, 'UTC'))
                     GROUP BY service_name
                     ORDER BY series DESC, service_name ASC
                     LIMIT {limit}
@@ -138,6 +140,7 @@ class MetricsOverviewQueryRunner:
                 team=self.team,
                 workload=Workload.LOGS,
                 settings=_QUERY_SETTINGS,
+                modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
             )
             _set_query_timing_attributes(span, response)
             span.set_attribute("services.count", len(response.results))

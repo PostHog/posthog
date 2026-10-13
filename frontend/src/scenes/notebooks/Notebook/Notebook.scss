@@ -695,6 +695,10 @@ body[theme='dark'].has-markdown-v2-notebook .main-content-container > main {
         background: var(--notebook-markdown-v2-page-background);
     }
 
+    .Notebook__markdown-v2.MarkdownNotebook--jupyter .MarkdownNotebook__canvas {
+        background: var(--jupyter-paper-background);
+    }
+
     .Notebook__markdown-v2 {
         --markdown-notebook-component-background: var(--color-bg-surface-primary);
 

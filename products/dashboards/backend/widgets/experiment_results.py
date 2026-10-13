@@ -63,7 +63,7 @@ def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]],
     The saved-metric link set is read once and split here so a widget render issues a single query for it.
     """
     from products.experiments.backend.facade.timeseries import (  # noqa: PLC0415 — circular import
-        resolve_saved_metric_definition,
+        apply_saved_metric_overrides,
     )
 
     primary: list[dict[str, Any]] = [dict(metric) for metric in (experiment.metrics or [])]
@@ -74,7 +74,7 @@ def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]],
         if not saved_query:
             continue
         metric_dict = {
-            **resolve_saved_metric_definition(saved_query, link.metadata),
+            **apply_saved_metric_overrides(saved_query, link.metadata),
             "name": saved_query.get("name") or link.saved_metric.name,
         }
         # Links default to primary when untyped; an unrecognized type belongs to neither section.

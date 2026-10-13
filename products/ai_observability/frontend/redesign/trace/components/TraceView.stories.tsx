@@ -1,16 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { anthropicMessagesThinkingToolUse } from '../sampleFixtures/anthropicMessagesThinkingToolUse'
 import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSession'
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
 import { FIXTURE_TRACE, withWidth } from '../storyFixtures'
-import { NodeDetailTab, TraceMode, TraceTreeNode } from '../types'
+import { NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
-function findNode(nodes: TraceTreeNode[], id: string): TraceTreeNode | null {
+function findNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | null {
     for (const node of nodes) {
         if (node.id === id) {
             return node
@@ -25,7 +26,7 @@ function findNode(nodes: TraceTreeNode[], id: string): TraceTreeNode | null {
 
 const ERRORED_NODE_IDS = new Set(['trace-1', 'gen-answer'])
 
-function markErrors(nodes: TraceTreeNode[]): TraceTreeNode[] {
+function markErrors(nodes: TraceNodeApi[]): TraceNodeApi[] {
     return nodes.map((node) => ({
         ...node,
         hasError: ERRORED_NODE_IDS.has(node.id),

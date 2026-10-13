@@ -26,7 +26,12 @@ pytestmark = [pytest.mark.asyncio]
 # A pseudo signal for ``_run_relay``: skip this many seconds, so the relay flushes what it has.
 WAIT = "__wait__"
 
+# A turn's gateway trace id in the W3C form that the turn-complete event carries.
+TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
 SLACK_CTX = {"integration_id": 1, "channel": "C1", "thread_ts": "1.0", "mentioning_slack_user_id": "U1"}
+
+CHECKING = [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:Execute SQL query"})]
 
 
 class _SlackCalls:
@@ -83,6 +88,7 @@ async def _run_relay(
     setup_title: str | None = None,
     cancel: bool = False,
     stream_closed: bool = False,
+    turn_trace_id: str | None = TRACE_ID,
 ) -> _SlackCalls:
     calls = _SlackCalls(stream_closed=stream_closed)
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -111,7 +117,7 @@ async def _run_relay(
                 with pytest.raises(WorkflowFailureError):
                     await handle.result()
             else:
-                await handle.signal("complete_turn", "trace-1")
+                await handle.signal("complete_turn", turn_trace_id)
                 await handle.result()
     return calls
 
@@ -143,18 +149,64 @@ class TestSlackAgentDesignRelay:
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
 
     @pytest.mark.parametrize(
-        "tail",
+        "signals, expected_answer",
         [
-            [("agent_text_delta", "Answer.")],
+            ([*CHECKING, ("agent_text_delta", "Answer.")], "Answer."),
             # A trailing hidden tool, such as a summary update, must not cost the answer.
-            [("agent_text_delta", "Answer."), ("agent_status_update", {"phase": None})],
+            ([*CHECKING, ("agent_text_delta", "Answer."), ("agent_status_update", {"phase": None})], "Answer."),
+            # The agent server's final text can land while the last deltas of the same answer are still buffered.
+            (
+                [
+                    *CHECKING,
+                    ("agent_text_delta", "The answer is "),
+                    # The relay endpoint sends the trace id as a hyphenated UUID.
+                    ("agent_final_text", {"text": "The answer is 42.", "trace_id": str(uuid.UUID(TRACE_ID))}),
+                ],
+                "The answer is 42.",
+            ),
+            (
+                [
+                    *CHECKING,
+                    ("agent_final_text", {"text": "An earlier turn's answer.", "trace_id": str(uuid.uuid4())}),
+                    ("agent_text_delta", "Answer."),
+                ],
+                "Answer.",
+            ),
+            # The previous turn's final text, without a trace id, reaches the relay before this turn starts.
+            (
+                [
+                    ("agent_final_text", {"text": "The previous turn's answer.", "trace_id": None}),
+                    *CHECKING,
+                    ("agent_text_delta", "Answer."),
+                ],
+                "Answer.",
+            ),
         ],
-        ids=["answer_after_last_tool", "answer_before_hidden_tool"],
+        ids=[
+            "answer_after_last_tool",
+            "answer_before_hidden_tool",
+            "final_text_before_the_last_delta",
+            "final_text_of_another_turn",
+            "final_text_before_the_turn_starts",
+        ],
     )
     @pytest.mark.timeout(60, func_only=True)
-    async def test_last_prose_burst_is_the_answer(self, tail: list[tuple[str, Any]]) -> None:
+    async def test_last_prose_burst_is_the_answer(self, signals: list[tuple[str, Any]], expected_answer: str) -> None:
+        calls = await _run_relay(signals)
+
+        assert calls.answer() == expected_answer
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_a_background_turn_keeps_its_streamed_answer_over_a_late_final_text(self) -> None:
+        # The agent server sends the previous turn's final text after that turn ends, so it can land
+        # in the relay of a background turn, which completes with no trace id.
         calls = await _run_relay(
-            [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:Execute SQL query"}), *tail]
+            [
+                *CHECKING,
+                ("agent_final_text", {"text": "The previous turn's answer.", "trace_id": str(uuid.UUID(TRACE_ID))}),
+                ("agent_text_delta", "Answer."),
+            ],
+            turn_trace_id=None,
         )
 
         assert calls.answer() == "Answer."

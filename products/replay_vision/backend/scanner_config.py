@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from pydantic import ValidationError as PydanticValidationError
 
+from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.models.user import User
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
@@ -60,6 +61,9 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
         balance_variants = scanner_config.get("balance_variants")
         if balance_variants is not None and not isinstance(balance_variants, bool):
             return "balance_variants must be true or false."
+        start_on_launch = scanner_config.get("start_on_launch")
+        if start_on_launch is not None and not isinstance(start_on_launch, bool):
+            return "start_on_launch must be true or false."
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):
@@ -89,3 +93,15 @@ def acting_user(context: dict[str, Any]) -> User:
     """
     request = context.get("request")
     return cast(User, context.get("user") or (request.user if request is not None else None))
+
+
+def analytics_source_kwargs(context: dict[str, Any]) -> dict[str, Any]:
+    """`report_user_action` kwarg that stamps `source`: the request, else the declared `event_source`."""
+    request = context.get("request")
+    if request is not None:
+        return {"request": request}
+    event_source: EventSource | None = context.get("event_source")
+    if event_source is not None:
+        analytics_props: AnalyticsProps = {"source": event_source}
+        return {"analytics_props": analytics_props}
+    return {}

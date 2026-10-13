@@ -30,6 +30,7 @@ class InvoiceNinjaEndpointConfig:
 # filter. Client and vendor contacts arrive embedded in their parent objects (Invoice Ninja nests a
 # `contacts` array on each client/vendor), so they are captured without a dedicated fan-out endpoint.
 INVOICENINJA_ENDPOINTS: dict[str, InvoiceNinjaEndpointConfig] = {
+    "bank_transactions": InvoiceNinjaEndpointConfig(name="bank_transactions", path="/bank_transactions"),
     "clients": InvoiceNinjaEndpointConfig(name="clients", path="/clients"),
     "credits": InvoiceNinjaEndpointConfig(name="credits", path="/credits"),
     "expense_categories": InvoiceNinjaEndpointConfig(name="expense_categories", path="/expense_categories"),
@@ -43,7 +44,9 @@ INVOICENINJA_ENDPOINTS: dict[str, InvoiceNinjaEndpointConfig] = {
     "quotes": InvoiceNinjaEndpointConfig(name="quotes", path="/quotes"),
     "recurring_invoices": InvoiceNinjaEndpointConfig(name="recurring_invoices", path="/recurring_invoices"),
     "tasks": InvoiceNinjaEndpointConfig(name="tasks", path="/tasks"),
+    "task_statuses": InvoiceNinjaEndpointConfig(name="task_statuses", path="/task_statuses"),
     "tax_rates": InvoiceNinjaEndpointConfig(name="tax_rates", path="/tax_rates"),
+    "users": InvoiceNinjaEndpointConfig(name="users", path="/users"),
     "vendors": InvoiceNinjaEndpointConfig(name="vendors", path="/vendors"),
 }
 

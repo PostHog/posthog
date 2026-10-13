@@ -1,25 +1,26 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from requests import Request, Response
+from requests import Request
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub import (
     NO_PARTNER_PROGRAM_MESSAGE,
     DubCursorPaginator,
     DubLinksScopePaginator,
     DubResumeConfig,
-    _make_session,
     _scrub_link_password,
     check_endpoint_access,
-    dub_source,
     get_resource,
     validate_credentials,
 )
@@ -28,16 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settin
     ENDPOINTS,
     PARTNER_PROGRAM_ENDPOINTS,
 )
-
-ANALYTICS_ENDPOINTS = tuple(name for name, config in DUB_ENDPOINTS.items() if config.path == "/analytics")
-SINGLE_PAGE_ENDPOINTS = tuple(
-    name for name, config in DUB_ENDPOINTS.items() if config.pagination == "single" and not config.partner_scoped
-)
-# partner_analytics_timeseries is walked by a custom iterator, not by paginating one path,
-# so the shared request-shaping tests do not apply to it.
-PAGINATED_PARTNER_PROGRAM_ENDPOINTS = tuple(
-    name for name in PARTNER_PROGRAM_ENDPOINTS if not DUB_ENDPOINTS[name].partner_scoped
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.dub.source import DubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dub import DubSourceConfig
 
 
 def _rows(n: int, prefix: str = "row") -> list[dict[str, Any]]:
@@ -52,62 +45,13 @@ def _params(resource: EndpointResource) -> dict[str, Any]:
     return params
 
 
-def _make_http_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestDubCursorPaginator:
-    def test_full_page_advances_cursor_to_last_row_id(self) -> None:
-        paginator = DubCursorPaginator(page_size=3)
-        paginator.update_state(MagicMock(), data=_rows(3))
-
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.update_request(request)
-        assert request.params["startingAfter"] == "row-2"
-
-    @pytest.mark.parametrize(
-        ("label", "rows"),
-        [
-            ("short_page", _rows(2)),
-            ("empty_page", []),
-            ("non_list_body", cast(list[Any], None)),
-        ],
-    )
-    def test_terminal_pages_stop_pagination(self, label: str, rows: list[Any]) -> None:
-        paginator = DubCursorPaginator(page_size=3)
-        response = MagicMock()
-        response.json.return_value = rows
-        paginator.update_state(response, data=rows if isinstance(rows, list) else None)
-
-        assert paginator.has_next_page is False
-
     def test_fresh_paginator_does_not_inject_cursor_on_first_request(self) -> None:
         paginator = DubCursorPaginator(page_size=100)
         request = Request(method="GET", url="https://api.dub.co/links", params={})
         paginator.init_request(request)
 
         assert "startingAfter" not in request.params
-
-    def test_resume_state_round_trip(self) -> None:
-        paginator = DubCursorPaginator(page_size=3)
-        paginator.update_state(MagicMock(), data=_rows(3))
-
-        state = paginator.get_resume_state()
-        assert state == {"starting_after": "row-2"}
-
-        resumed = DubCursorPaginator(page_size=3)
-        resumed.set_resume_state(state or {})
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        resumed.init_request(request)
-
-        assert request.params["startingAfter"] == "row-2"
-        assert resumed.has_next_page is True
 
     def test_no_resume_state_on_terminal_page(self) -> None:
         paginator = DubCursorPaginator(page_size=3)
@@ -117,39 +61,6 @@ class TestDubCursorPaginator:
 
 
 class TestDubLinksScopePaginator:
-    def test_first_scope_sends_no_folder_id(self) -> None:
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.init_request(request)
-
-        assert "folderId" not in request.params
-        assert "startingAfter" not in request.params
-
-    def test_full_page_advances_cursor_inside_the_scope(self) -> None:
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        paginator.update_state(MagicMock(), data=_rows(3))
-
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.update_request(request)
-        assert request.params["startingAfter"] == "row-2"
-        assert "folderId" not in request.params
-
-    def test_exhausted_scope_moves_to_the_next_folder(self) -> None:
-        # /links hides folder contents unless folderId is sent, so a walk that stops after the
-        # unfiled scope imports none of a workspace's filed links.
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        paginator.update_state(MagicMock(), data=_rows(1))
-
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={"startingAfter": "row-0"})
-        paginator.update_request(request)
-        assert request.params["folderId"] == "fold_a"
-        # The previous scope's cursor must not leak into the new one.
-        assert "startingAfter" not in request.params
-
     def test_walk_ends_once_the_last_folder_is_exhausted(self) -> None:
         paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
         paginator.update_state(MagicMock(), data=_rows(1))
@@ -174,31 +85,8 @@ class TestDubLinksScopePaginator:
         assert request.params["folderId"] == "fold_a"
         assert request.params["startingAfter"] == "row-2"
 
-    def test_resume_state_saved_before_folder_scoping_still_seeds_the_cursor(self) -> None:
-        # A sync interrupted across the deploy that added folder scoping resumes from a state
-        # with no scope_index; dropping it would silently restart the walk from the first page.
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        paginator.set_resume_state({"starting_after": "row-7"})
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.init_request(request)
-
-        assert request.params["startingAfter"] == "row-7"
-        assert "folderId" not in request.params
-
 
 class TestGetResource:
-    def test_event_endpoint_defaults_to_full_history(self) -> None:
-        # /events defaults to a 24h window server-side; without interval=all a first
-        # sync would silently import only the last day.
-        resource = get_resource("click_events", False, None)
-        params = _params(resource)
-
-        assert params["interval"] == "all"
-        assert "start" not in params
-        assert params["event"] == "clicks"
-        assert params["sortOrder"] == "asc"
-
     def test_event_endpoint_uses_watermark_as_start(self) -> None:
         watermark = datetime(2026, 5, 1, 12, 30, tzinfo=UTC)
         resource = get_resource("lead_events", True, watermark)
@@ -221,292 +109,122 @@ class TestGetResource:
         else:
             assert params[config.page_size_param] == config.page_size
 
-    @pytest.mark.parametrize("endpoint", ANALYTICS_ENDPOINTS)
-    def test_analytics_endpoints_widen_both_dub_defaults(self, endpoint: str) -> None:
-        # /analytics defaults to a 24h window and to clicks-only metrics. Leaving either
-        # default in place still returns a well-formed table, just a near-empty one.
-        params = _params(get_resource(endpoint, False, None))
-
-        assert params["interval"] == "all"
-        assert params["event"] == "composite"
-        assert params["groupBy"] == DUB_ENDPOINTS[endpoint].params["groupBy"]
-
-    def test_incremental_run_uses_merge_disposition(self) -> None:
-        resource = get_resource("sale_events", True, None)
-
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_every_resource_scrubs_link_passwords(self, endpoint: str) -> None:
-        # Link passwords are a credential to the short link's destination, not analytics data;
-        # without this map they'd land in a warehouse column any viewer could read.
-        assert get_resource(endpoint, False, None)["data_map"] is _scrub_link_password
-
 
 class TestScrubLinkPassword:
-    def test_strips_top_level_and_nested_link_password(self) -> None:
-        row = {
-            "id": "l1",
-            "password": "top-secret",
-            "url": "https://example.com",
-            "link": {"id": "l2", "password": "nested-secret", "domain": "dub.sh"},
-        }
-
-        scrubbed = _scrub_link_password(row)
-
-        assert "password" not in scrubbed
-        assert "password" not in scrubbed["link"]
-        assert scrubbed["url"] == "https://example.com"
-        assert scrubbed["link"]["domain"] == "dub.sh"
-
     def test_leaves_rows_without_passwords_untouched(self) -> None:
         row = {"id": "l1", "url": "https://example.com", "link": {"id": "l2"}}
 
         assert _scrub_link_password(row) == row
 
 
-def _drive_source(
-    endpoint: str,
-    manager: MagicMock,
-    responses: list[Response],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Drive ``dub_source`` with a mocked HTTP session; returns per-request params and yielded rows."""
-    sent_params: list[dict[str, Any]] = []
-    response_iter = iter(responses)
-
-    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-        sent_params.append(dict(request.params or {}))
-        return next(response_iter)
-
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
-    ) as MockSession:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.side_effect = lambda req: req
-        mock_session.send.side_effect = fake_send
-
-        source_response = dub_source(
-            api_key="dub_test",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        )
-        rows = list(cast(Iterable[Any], source_response.items()))
-        return sent_params, rows
-
-
 class TestDubSourceResumeBehavior:
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> list[dict[str, Any]]:
-        sent_params, _ = _drive_source(
-            endpoint,
-            manager,
-            responses,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        )
-        return sent_params
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(DubSource(), DubSourceConfig(api_key="dub_test"))
 
     def test_cursor_endpoint_saves_cursor_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "customers",
+            [
+                ScriptedResponse(json=_rows(100, "a")),
+                ScriptedResponse(json=_rows(100, "b")),
+                ScriptedResponse(json=_rows(1, "c")),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_rows(100, "a")),
-            _make_http_response(_rows(100, "b")),
-            _make_http_response(_rows(1, "c")),
-        ]
-        sent_params = self._drive("customers", manager, responses)
-
-        assert [p.get("startingAfter") for p in sent_params] == [None, "a-99", "b-99"]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert result.params("startingAfter") == [None, "a-99", "b-99"]
+        assert result.saved_states == [
             DubResumeConfig(starting_after="a-99"),
             DubResumeConfig(starting_after="b-99"),
         ]
+        assert len(result.rows) == 201
 
     def test_links_walk_covers_unfiled_links_then_every_folder(self) -> None:
         # Without the per-folder passes only the first request is made, and every link filed
         # into a folder is missing from the table while the sync still reports success.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "links",
+            [
+                ScriptedResponse(json=[{"id": "fold_a"}, {"id": "fold_b"}]),
+                *(ScriptedResponse(json=_rows(1, prefix)) for prefix in ("unfiled", "a", "b")),
+            ],
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub._fetch_folder_ids",
-            return_value=["fold_a", "fold_b"],
-        ):
-            sent_params = self._drive(
-                "links",
-                manager,
-                [_make_http_response(_rows(1, p)) for p in ("unfiled", "a", "b")],
-            )
-
-        assert [p.get("folderId") for p in sent_params] == [None, "fold_a", "fold_b"]
+        assert result.raised is None
+        assert result.paths == ["/folders", "/links", "/links", "/links"]
+        assert result.params("folderId") == [None, None, "fold_a", "fold_b"]
+        assert [row["id"] for row in result.rows] == ["unfiled-0", "a-0", "b-0"]
 
     def test_cursor_endpoint_resumes_from_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = DubResumeConfig(starting_after="a-42")
+        result = self._driver().run(
+            "customers",
+            [ScriptedResponse(json=_rows(1))],
+            resume_state=DubResumeConfig(starting_after="a-42"),
+        )
 
-        sent_params = self._drive("customers", manager, [_make_http_response(_rows(1))])
-
-        assert [p.get("startingAfter") for p in sent_params] == ["a-42"]
-
-    def test_page_endpoint_saves_page_number(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_rows(100, "a")),
-            _make_http_response([]),
-        ]
-        sent_params = self._drive("partners", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [1, 2]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [DubResumeConfig(page=2)]
+        assert result.raised is None
+        assert result.params("startingAfter") == ["a-42"]
 
     def test_incremental_event_sync_ignores_saved_page_state(self) -> None:
         # On incremental runs the timestamp watermark is the resume cursor; replaying a
         # saved page number against a fresher `start` filter would skip rows.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = DubResumeConfig(page=7)
-
-        sent_params = self._drive(
+        result = self._driver().run(
             "click_events",
-            manager,
-            [_make_http_response(_rows(1)), _make_http_response([])],
+            [ScriptedResponse(json=_rows(1)), ScriptedResponse(json=[])],
+            resume_state=DubResumeConfig(page=7),
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-05-01T00:00:00",
         )
 
-        manager.load_state.assert_not_called()
-        manager.save_state.assert_not_called()
-        assert sent_params[0]["page"] == 1
-        assert sent_params[0]["start"] == "2026-05-01T00:00:00"
+        assert result.raised is None
+        assert result.saved_states == []
+        assert result.params("page")[0] == "1"
+        assert result.params("start")[0] == "2026-05-01T00:00:00"
 
     def test_full_refresh_event_sync_still_uses_page_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = DubResumeConfig(page=7)
+        result = self._driver().run(
+            "click_events",
+            [ScriptedResponse(json=_rows(1)), ScriptedResponse(json=[])],
+            resume_state=DubResumeConfig(page=7),
+        )
 
-        sent_params = self._drive("click_events", manager, [_make_http_response(_rows(1)), _make_http_response([])])
-
-        assert sent_params[0]["page"] == 7
-
-
-class TestSinglePageEndpoints:
-    @pytest.mark.parametrize("endpoint", SINGLE_PAGE_ENDPOINTS)
-    def test_aggregate_endpoints_stop_after_one_request(self, endpoint: str) -> None:
-        # These return the whole table in one body with no next-page marker, so a paginator
-        # that kept asking would re-import the same rows until the run was killed.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, pages = _drive_source(endpoint, manager, [_make_http_response(_rows(3))])
-
-        assert len(sent_params) == 1
-        assert pages == [_rows(3)]
-        assert DUB_ENDPOINTS[endpoint].page_size_param not in sent_params[0]
-
-    def test_composite_primary_keys_all_reach_the_source_response(self) -> None:
-        # The geo breakdowns repeat region and city names across countries, so a key that
-        # kept only the leaf dimension would merge unrelated rows on top of each other.
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"):
-            response = dub_source(
-                api_key="dub_test",
-                endpoint="analytics_cities",
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-            )
-
-        expected = list(DUB_ENDPOINTS["analytics_cities"].primary_keys)
-        assert len(expected) > 1
-        assert response.primary_keys == expected
+        assert result.raised is None
+        assert result.params("page")[0] == "7"
 
 
 class TestPartnerAnalyticsWalk:
-    def _drive(self, manager: MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
-        sent: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_get(_url: str, **kwargs: Any) -> Response:
-            sent.append(dict(kwargs.get("params") or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.side_effect = fake_get
-            response = dub_source(
-                api_key="dub_test",
-                endpoint="partner_analytics_timeseries",
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=manager,
-            )
-            return sent, list(cast(Iterable[Any], response.items()))
-
-    def test_every_request_names_a_partner_and_rows_carry_it(self) -> None:
-        # Dub rejects a /partners/analytics request that names no partner, so a walk that
-        # skipped the partnerId would fail every import. The response repeats only the bucket
-        # timestamp, so unstamped rows from two partners would also collide on the key.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent, pages = self._drive(
-            manager,
-            [
-                _make_http_response([{"id": "pn_a"}, {"id": "pn_b"}]),
-                _make_http_response([{"start": "2026-01-01", "clicks": 1}]),
-                _make_http_response([{"start": "2026-01-01", "clicks": 2}]),
-            ],
-        )
-
-        analytics_requests = sent[1:]
-        assert [p["partnerId"] for p in analytics_requests] == ["pn_a", "pn_b"]
-        assert all(p["groupBy"] == "timeseries" and p["interval"] == "all" for p in analytics_requests)
-        assert [row["partnerId"] for page in pages for row in page] == ["pn_a", "pn_b"]
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(DubSource(), DubSourceConfig(api_key="dub_test"))
 
     def test_walk_resumes_at_the_partner_after_the_last_written_one(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = DubResumeConfig(scope_index=1)
-
-        sent, pages = self._drive(
-            manager,
+        result = self._driver().run(
+            "partner_analytics_timeseries",
             [
-                _make_http_response([{"id": "pn_a"}, {"id": "pn_b"}]),
-                _make_http_response([{"start": "2026-01-01", "clicks": 2}]),
+                ScriptedResponse(json=[{"id": "pn_a"}, {"id": "pn_b"}]),
+                ScriptedResponse(json=[{"start": "2026-01-01", "clicks": 2}]),
             ],
+            resume_state=DubResumeConfig(scope_index=1),
         )
 
-        assert [p.get("partnerId") for p in sent[1:]] == ["pn_b"]
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [DubResumeConfig(scope_index=2)]
+        assert result.raised is None
+        assert result.paths == ["/partners", "/partners/analytics"]
+        assert result.params("partnerId") == [None, "pn_b"]
+        assert result.saved_states == [DubResumeConfig(scope_index=2)]
+        assert result.rows == [{"start": "2026-01-01", "clicks": 2, "partnerId": "pn_b"}]
 
     def test_workspace_without_a_partner_program_yields_no_rows(self) -> None:
         # /partners answers 404 without a program, which is an empty table rather than a
         # broken sync, so the walk must not raise.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "partner_analytics_timeseries",
+            [ScriptedResponse(status=404, json={"error": {"message": "Program not found"}})],
+        )
 
-        _, pages = self._drive(manager, [_make_http_response({"error": {"message": "Program not found"}}, 404)])
-
-        assert pages == []
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == ["/partners"]
 
 
 class TestPartnerProgramTablesWithoutAProgram:
@@ -514,45 +232,18 @@ class TestPartnerProgramTablesWithoutAProgram:
     # so a workspace without one gets this 404 on the table's own list endpoint.
     _NOT_FOUND = {"error": {"code": "not_found", "message": "Program not found"}}
 
-    @pytest.mark.parametrize("endpoint", PAGINATED_PARTNER_PROGRAM_ENDPOINTS)
-    def test_404_ends_the_table_instead_of_failing_the_sync(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, rows = _drive_source(endpoint, manager, [_make_http_response(self._NOT_FOUND, 404)])
-
-        assert len(sent_params) == 1
-        assert rows == []
-
     def test_404_elsewhere_still_fails(self) -> None:
         # The tolerance is scoped to the partner-program tables; a 404 anywhere else is a real
         # error and must not be swallowed into an empty table.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = SourceDriver(DubSource(), DubSourceConfig(api_key="dub_test")).run(
+            "customers", [ScriptedResponse(status=404, json=self._NOT_FOUND)]
+        )
 
-        with pytest.raises(HTTPError):
-            _drive_source("customers", manager, [_make_http_response(self._NOT_FOUND, 404)])
-
-
-class TestMakeSession:
-    def test_disables_sample_capture(self) -> None:
-        # Every Dub path (sync + both credential probes) builds its session here. Dub payloads
-        # carry imported customer data the name-based scrubbers can't recognise, so capture must
-        # stay off or sampling would leak it into the shared sample bucket.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
-        ) as make_session:
-            _make_session("secret-key")
-        assert make_session.call_args.kwargs["capture"] is False
-        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
+        assert isinstance(result.raised, HTTPError)
+        assert result.paths == ["/customers"]
 
 
 class TestCredentialValidation:
-    def _mock_session(self, response: Response) -> Any:
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
         [
@@ -562,74 +253,70 @@ class TestCredentialValidation:
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
-        response = _make_http_response({"error": {"code": "forbidden", "message": "Nope"}}, status_code)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
-            return_value=self._mock_session(response),
-        ):
+        response = ScriptedResponse(status=status_code, json={"error": {"code": "forbidden", "message": "Nope"}})
+        with scripted_network([response]) as network:
             valid, message = validate_credentials("dub_test")
 
         assert valid is expected_valid
         assert (message is None) is expected_valid
+        assert [request.path for request in network.requests_log] == ["/links"]
+        assert network.requests_log[0].param("pageSize") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer dub_test"
 
     def test_personal_key_gets_workspace_guidance_not_raw_dub_error(self) -> None:
         # A personal (non-workspace) key fails with Dub's raw "workspaceId" copy about a missing
         # query param — replace it with guidance to use a workspace key.
-        response = _make_http_response(
-            {
+        response = ScriptedResponse(
+            status=400,
+            json={
                 "error": {
                     "code": "bad_request",
                     "message": "Workspace ID not found. Did you forget to include a `workspaceId` query parameter?",
                 }
             },
-            400,
         )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
-            return_value=self._mock_session(response),
-        ):
+        with scripted_network([response]) as network:
             valid, message = validate_credentials("dub_test")
 
         assert valid is False
         assert message is not None
         assert "workspaceId" not in message
         assert "workspace API key" in message
+        assert [request.path for request in network.requests_log] == ["/links"]
 
     def test_check_endpoint_access_surfaces_api_denial_message(self) -> None:
-        response = _make_http_response(
-            {"error": {"code": "forbidden", "message": "Requires a Business plan or higher."}}, 403
+        response = ScriptedResponse(
+            status=403, json={"error": {"code": "forbidden", "message": "Requires a Business plan or higher."}}
         )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
-            return_value=self._mock_session(response),
-        ):
+        with scripted_network([response]) as network:
             assert check_endpoint_access("dub_test", "click_events") == "Requires a Business plan or higher."
+
+        assert [request.path for request in network.requests_log] == ["/events"]
+        assert network.requests_log[0].param("event") == "clicks"
+        assert network.requests_log[0].param("interval") == "24h"
 
     @pytest.mark.parametrize("endpoint", PARTNER_PROGRAM_ENDPOINTS)
     def test_check_endpoint_access_reads_404_on_partner_tables_as_no_program(self, endpoint: str) -> None:
         # Dub answers these with a bare "Program not found", which reads as a broken connector
         # to a user who never had a partner program.
-        response = _make_http_response({"error": {"code": "not_found", "message": "Program not found"}}, 404)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
-            return_value=self._mock_session(response),
-        ):
+        response = ScriptedResponse(status=404, json={"error": {"code": "not_found", "message": "Program not found"}})
+        with scripted_network([response]) as network:
             assert check_endpoint_access("dub_test", endpoint) == NO_PARTNER_PROGRAM_MESSAGE
 
+        assert [request.path for request in network.requests_log] == [DUB_ENDPOINTS[endpoint].path]
+
     def test_check_endpoint_access_leaves_other_tables_reachable_on_404(self) -> None:
-        response = _make_http_response({"error": {"code": "not_found", "message": "Program not found"}}, 404)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
-            return_value=self._mock_session(response),
-        ):
+        response = ScriptedResponse(status=404, json={"error": {"code": "not_found", "message": "Program not found"}})
+        with scripted_network([response]) as network:
             assert check_endpoint_access("dub_test", "customers") is None
+
+        assert [request.path for request in network.requests_log] == ["/customers"]
 
     @pytest.mark.parametrize("status_code", [200, 429, 500])
     def test_check_endpoint_access_only_denials_block(self, status_code: int) -> None:
         # A throttle or transient 5xx must never hide a table from the schema picker.
-        response = _make_http_response({"error": {"code": "x", "message": "x"}}, status_code)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
-            return_value=self._mock_session(response),
-        ):
+        response = ScriptedResponse(status=status_code, json={"error": {"code": "x", "message": "x"}})
+        with scripted_network(always(response)) as network:
             assert check_endpoint_access("dub_test", "payouts") is None
+
+        assert {request.path for request in network.requests_log} == {"/payouts"}

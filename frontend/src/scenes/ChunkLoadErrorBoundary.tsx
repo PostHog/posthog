@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from 'react'
 
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { isStableChunkBuild, reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 
 const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
 const RELOAD_GUARD_WINDOW_MS = 20_000
@@ -14,7 +15,8 @@ interface State {
  * Catches chunk-load failures from `React.lazy(() => import(...))` boundaries.
  * On a stale-deploy chunk-hash mismatch we reload once; if a reload was already
  * attempted in the last 20s we render `fallback` when given, or else let the error
- * bubble to the outer ErrorBoundary rather than spinning forever. Non-chunk errors
+ * bubble to the outer ErrorBoundary rather than spinning forever. On the stable chunk
+ * build we always reload on the default build, which cannot loop. Non-chunk errors
  * are re-thrown so the regular error UI still renders.
  */
 interface ChunkLoadErrorBoundaryProps {
@@ -40,7 +42,7 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         } catch {
             // localStorage may be unavailable (e.g. Safari private mode) - treat as no prior reload
         }
-        if (lastReload && Date.now() - lastReload < RELOAD_GUARD_WINDOW_MS) {
+        if (lastReload && Date.now() - lastReload < RELOAD_GUARD_WINDOW_MS && !isStableChunkBuild()) {
             console.error('[ChunkLoadErrorBoundary] Recently reloaded; surfacing error instead of looping.')
             this.setState({ surface: true })
             return
@@ -56,7 +58,7 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (this.props.reload) {
             this.props.reload()
         } else {
-            window.location.reload()
+            reloadAfterChunkLoadError()
         }
     }
 

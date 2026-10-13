@@ -6,6 +6,7 @@ import {
     ReactNode,
     memo,
     useCallback,
+    useEffect,
     useMemo,
     useRef,
     useState,
@@ -22,12 +23,15 @@ import {
     IconHide,
     IconList,
     IconPeople,
+    IconPlus,
     IconTrash,
 } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { findMountedCodeEditorWithin, subscribeToMountedCodeEditors } from 'lib/monaco/mountedCodeEditors'
 
 import { ComponentPanelContext } from './componentPanelContext'
 import {
@@ -46,6 +50,8 @@ import {
 } from './componentToolbarExtras'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
+import { installNotebookJupyterEditorKeys } from './jupyterEditorKeys'
+import { resolveNotebookJupyterKey, useNotebookJupyterCommands, useNotebookJupyterStoreValue } from './jupyterMode'
 import { getMarkdownNotebookComponentDefinition } from './registry'
 import {
     NotebookBlockNode,
@@ -56,6 +62,9 @@ import {
     NotebookMode,
 } from './types'
 import { getNodeFingerprint } from './utils'
+
+const EDIT_FOCUS_TIMEOUT_MS = 10_000
+const EDIT_FOCUS_RETRY_MS = 50
 
 export type ComponentTitleTone = 'default' | 'insight' | 'sql' | 'data' | 'media' | 'experiment' | 'code' | 'posthog'
 
@@ -351,7 +360,158 @@ export function NotebookComponentShell({
         return true
     }
 
+    const jupyter = useNotebookJupyterCommands()
+    const isJupyterCell = !!jupyter && jupyter.config.cellTagNames.includes(node.tagName)
+    const jupyterStore = isJupyterCell ? jupyter.store : null
+    const isJupyterActive = useNotebookJupyterStoreValue((state) => !!jupyter && state.activeCellId === node.id)
+    const isJupyterSelected = useNotebookJupyterStoreValue(
+        (state) => !!jupyter && state.selectedCellIds.size > 1 && state.selectedCellIds.has(node.id)
+    )
+    const isJupyterEditFocusRequested = useNotebookJupyterStoreValue(
+        (state) => isJupyterCell && state.editFocusRequestNodeId === node.id
+    )
+    const shellRef = useRef<HTMLDivElement | null>(null)
+    const nodeRef = useRef(node)
+    nodeRef.current = node
+
+    useEffect(() => {
+        if (!jupyterStore) {
+            return
+        }
+        jupyterStore.setRunHandler(node.id, runHandler)
+        return () => jupyterStore.setRunHandler(node.id, null)
+    }, [jupyterStore, node.id, runHandler])
+
+    // A cell added in edit mode mounts its code editor some time after the cell itself, and
+    // Monaco ignores focus until it has finished setting up, so the request retries until the
+    // caret has actually landed in the editor. Timers rather than animation frames, because a
+    // hidden tab never runs a frame.
+    useEffect(() => {
+        if (!jupyterStore || !isJupyterEditFocusRequested) {
+            return
+        }
+        const deadline = Date.now() + EDIT_FOCUS_TIMEOUT_MS
+        let timer = 0
+        const tryFocus = (): void => {
+            const shell = shellRef.current
+            if (shell) {
+                focusCellEditor(shell)
+            }
+            const activeElement = document.activeElement
+            const hasEditorFocus =
+                !!shell && !!activeElement?.closest('.monaco-editor') && shell.contains(activeElement)
+            // Focus that moved elsewhere in the meantime was the user's choice; do not pull it back.
+            const userMovedOn =
+                !!shell && !!activeElement && activeElement !== document.body && !shell.contains(activeElement)
+            if (hasEditorFocus || userMovedOn || Date.now() > deadline) {
+                jupyterStore.requestEditFocus(null)
+                return
+            }
+            timer = window.setTimeout(tryFocus, EDIT_FOCUS_RETRY_MS)
+        }
+        tryFocus()
+        return () => window.clearTimeout(timer)
+        // oxlint-disable-next-line exhaustive-deps
+    }, [jupyterStore, isJupyterEditFocusRequested])
+
+    // Jupyter's edit-mode keys live on the cell's code editor. The editor mounts after the cell and
+    // can be replaced, so the bindings follow whichever editor sits inside the cell right now.
+    useEffect(() => {
+        if (!isJupyterCell || !jupyter || mode !== 'edit') {
+            return
+        }
+        const { completeCode, inspectCode } = jupyter.config
+        let boundEditor: unknown = null
+        let unbind: (() => void) | null = null
+        const bind = (): void => {
+            const mounted = findMountedCodeEditorWithin(shellRef.current)
+            if ((mounted?.editor ?? null) === boundEditor) {
+                return
+            }
+            unbind?.()
+            unbind = null
+            boundEditor = mounted?.editor ?? null
+            if (mounted) {
+                unbind = installNotebookJupyterEditorKeys(mounted, {
+                    onSplit: (offset) => jupyter.splitCell(node.id, offset),
+                    onLeaveCell: (direction) => jupyter.moveEditFocus(node.id, direction),
+                    onDeleteEmptyCell: () => jupyter.deleteEmptyCell(node.id),
+                    complete: completeCode
+                        ? (code, cursorPos) => completeCode(nodeRef.current, code, cursorPos)
+                        : undefined,
+                    inspect: inspectCode
+                        ? (code, cursorPos) => inspectCode(nodeRef.current, code, cursorPos)
+                        : undefined,
+                })
+            }
+        }
+        bind()
+        // Each cell hears about every editor in the page, so it checks only the one that changed.
+        const unsubscribe = subscribeToMountedCodeEditors((entry, change) => {
+            const isOwnEditor =
+                change === 'unmounted'
+                    ? entry.editor === boundEditor
+                    : !boundEditor && !!shellRef.current?.contains(entry.editor.getContainerDomNode())
+            if (isOwnEditor) {
+                bind()
+            }
+        })
+        return () => {
+            unsubscribe()
+            unbind?.()
+        }
+    }, [isJupyterCell, jupyter, mode, node.id])
+
+    const handleJupyterKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
+        if (!jupyter || mode !== 'edit' || event.defaultPrevented) {
+            return false
+        }
+        if (event.target instanceof Node && !event.currentTarget.contains(event.target)) {
+            return false
+        }
+        const inEditor = event.target !== event.currentTarget
+        // Only a code cell has an edit mode the cell drives; inside any other block, keys belong to it.
+        if (inEditor && (!isJupyterCell || isPlainInputTarget(event.target))) {
+            return false
+        }
+        const { command, pending } = resolveNotebookJupyterKey(
+            {
+                key: event.key,
+                shiftKey: event.shiftKey,
+                altKey: event.altKey,
+                metaKey: event.metaKey,
+                ctrlKey: event.ctrlKey,
+                inEditor,
+            },
+            jupyter.store.pendingKey,
+            Date.now()
+        )
+        jupyter.store.pendingKey = pending
+        // A split from inside the editor carries a cursor offset, so the editor binding handles it.
+        // A block other than a code cell has no edit mode, so Enter keeps its usual meaning there.
+        if ((!command && !pending) || command === 'split' || (command === 'enter-edit-mode' && !isJupyterCell)) {
+            return false
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        if (command) {
+            jupyter.executeCommand(command, node.id)
+        }
+        return true
+    }
+
+    const selectJupyterCell = (): void => {
+        // Focus that a Shift+Up/Down selection itself moved here must not collapse the selection.
+        if (jupyter && jupyter.store.getState().activeCellId !== node.id) {
+            jupyter.store.setActiveCell(node.id)
+        }
+    }
+
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (handleJupyterKeyDown(event)) {
+            return
+        }
+
         // A handler closer to the key already claimed it, such as Monaco's own Cmd+Enter.
         if (mode !== 'edit' || event.defaultPrevented) {
             return
@@ -442,18 +602,175 @@ export function NotebookComponentShell({
         event.stopPropagation()
     }
 
+    const setShellRef = useCallback(
+        (element: HTMLDivElement | null): void => {
+            shellRef.current = element
+            setBlockRef(element)
+        },
+        [setBlockRef]
+    )
+
+    if (isJupyterCell && jupyter) {
+        const isRunning = !!runHandler?.isRunning
+        const executionCount = runHandler?.executionCount ?? null
+        const canEditCells = mode === 'edit'
+        return (
+            <div
+                className={clsx(
+                    'MarkdownNotebook__component-shell',
+                    'MarkdownNotebook__jupyter-cell',
+                    isJupyterActive && 'MarkdownNotebook__jupyter-cell--active',
+                    isJupyterSelected && 'MarkdownNotebook__jupyter-cell--selected',
+                    isRunning && 'MarkdownNotebook__jupyter-cell--running',
+                    isSelected && 'MarkdownNotebook__component-shell--selected',
+                    errors.length && 'MarkdownNotebook__component-shell--error'
+                )}
+                ref={setShellRef}
+                contentEditable={false}
+                tabIndex={canEditCells ? 0 : undefined}
+                onKeyDown={handleKeyDown}
+                onFocus={selectJupyterCell}
+                onMouseDown={() => jupyter.store.setActiveCell(node.id)}
+                data-attr="notebook-jupyter-cell"
+            >
+                {ToolbarComponent ? (
+                    // Kept mounted but out of sight: the control publishes the run handler that the
+                    // prompt and the cell keys read.
+                    <div hidden>
+                        <NotebookComponentToolbarErrorBoundary node={node}>
+                            <NotebookComponentRunHandlerContext.Provider value={setRunHandler}>
+                                <ToolbarComponent node={node} notebookMode={mode} updateProps={updateProps} />
+                            </NotebookComponentRunHandlerContext.Provider>
+                        </NotebookComponentToolbarErrorBoundary>
+                    </div>
+                ) : null}
+                <div className="MarkdownNotebook__jupyter-collapser" aria-hidden />
+                {canEditCells ? (
+                    // Covers the prompts and the bar beside them, so the cell drags from anywhere
+                    // left of its source and output, the way JupyterLab cells move.
+                    <div
+                        className="MarkdownNotebook__jupyter-drag-area"
+                        draggable
+                        role="button"
+                        aria-label="Drag to move cell"
+                        data-attr="notebook-jupyter-cell-drag"
+                        onDragStart={(event) => jupyter.startCellDrag(event, node.id)}
+                        onDragEnd={() => jupyter.endCellDrag()}
+                    />
+                ) : null}
+                <NotebookComponentToolbarExtrasContext.Provider value={setToolbarExtras}>
+                    <ComponentPanelContext.Provider value={componentPanelState}>
+                        <div className="MarkdownNotebook__jupyter-input">
+                            <div
+                                className="MarkdownNotebook__jupyter-prompt MarkdownNotebook__jupyter-prompt--input"
+                                title={isRunning ? 'Running' : undefined}
+                            >
+                                {formatJupyterInputPrompt(isRunning, executionCount)}
+                            </div>
+                            <div className="MarkdownNotebook__jupyter-input-area">
+                                {errors.length ? (
+                                    <div className="MarkdownNotebook__component-errors">
+                                        {errors.map((error) => (
+                                            <div key={error}>{error}</div>
+                                        ))}
+                                    </div>
+                                ) : null}
+                                {EditComponent ? (
+                                    <NotebookComponentPanelErrorBoundary node={node} panel="filters">
+                                        <EditComponent
+                                            node={node}
+                                            mode={canEditCells ? 'edit' : 'view'}
+                                            notebookMode={mode}
+                                            updateProps={updateProps}
+                                            deleteNode={deleteNode}
+                                        />
+                                    </NotebookComponentPanelErrorBoundary>
+                                ) : null}
+                            </div>
+                        </div>
+                        {componentPanels.results || !canToggleComponentPanels ? (
+                            <div className="MarkdownNotebook__jupyter-output">
+                                {ViewComponent ? (
+                                    <NotebookComponentPanelErrorBoundary node={node} panel="results">
+                                        <ViewComponent
+                                            node={node}
+                                            mode="view"
+                                            notebookMode={mode}
+                                            updateProps={updateProps}
+                                            deleteNode={deleteNode}
+                                        />
+                                    </NotebookComponentPanelErrorBoundary>
+                                ) : (
+                                    <UnknownComponentView node={node} />
+                                )}
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                className="MarkdownNotebook__jupyter-output-collapsed"
+                                aria-label="Show output"
+                                title="Show output (O)"
+                                onClick={() => toggleComponentPanel('results')}
+                            >
+                                …
+                            </button>
+                        )}
+                    </ComponentPanelContext.Provider>
+                </NotebookComponentToolbarExtrasContext.Provider>
+                {canEditCells ? (
+                    <div
+                        className="MarkdownNotebook__jupyter-cell-actions"
+                        onMouseDown={(event) => event.preventDefault()}
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconArrowUp />}
+                            tooltip="Move this cell up"
+                            aria-label="Move this cell up"
+                            onClick={() => jupyter.executeCommand('move-up', node.id)}
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconArrowDown />}
+                            tooltip="Move this cell down"
+                            aria-label="Move this cell down"
+                            onClick={() => jupyter.executeCommand('move-down', node.id)}
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconPlus />}
+                            tooltip="Insert a cell below (B)"
+                            aria-label="Insert a cell below"
+                            onClick={() => jupyter.insertCell(node.id, 'below', { edit: true })}
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconTrash />}
+                            tooltip="Delete this cell (D, D)"
+                            aria-label="Delete this cell"
+                            onClick={() => jupyter.executeCommand('delete', node.id)}
+                        />
+                    </div>
+                ) : null}
+            </div>
+        )
+    }
+
     return (
         <div
             className={clsx(
                 'MarkdownNotebook__component-shell',
                 `MarkdownNotebook__component-shell--status-${runStatus}`,
                 isSelected && 'MarkdownNotebook__component-shell--selected',
+                isJupyterActive && 'MarkdownNotebook__component-shell--jupyter-active',
+                isJupyterSelected && 'MarkdownNotebook__component-shell--jupyter-selected',
                 errors.length && 'MarkdownNotebook__component-shell--error'
             )}
-            ref={setBlockRef}
+            ref={setShellRef}
             contentEditable={false}
             tabIndex={mode === 'edit' ? 0 : undefined}
             onKeyDown={handleKeyDown}
+            onFocus={jupyter ? selectJupyterCell : undefined}
         >
             <div
                 className="MarkdownNotebook__component-toolbar"
@@ -636,6 +953,18 @@ export function NotebookComponentShell({
                 </ComponentPanelContext.Provider>
             </NotebookComponentToolbarExtrasContext.Provider>
         </div>
+    )
+}
+
+export function formatJupyterInputPrompt(isRunning: boolean, executionCount: number | null): string {
+    return `In [${isRunning ? '*' : (executionCount ?? ' ')}]:`
+}
+
+function isPlainInputTarget(target: EventTarget | null): boolean {
+    return (
+        target instanceof HTMLElement &&
+        !target.closest('.monaco-editor') &&
+        (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable)
     )
 }
 

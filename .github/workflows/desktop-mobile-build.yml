@@ -66,7 +66,7 @@ jobs:
                   cache-dependency-path: products/desktop/pnpm-lock.yaml
 
             - name: Setup EAS
-              uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # v9.0.0
+              uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # 9.0.0
               with:
                   eas-version: latest
                   token: ${{ secrets.EXPO_TOKEN }}
