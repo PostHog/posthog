@@ -60,23 +60,24 @@ export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_ma
         return 'Every time the trigger fires'
     }
     const label = option?.label ?? 'Limited by a custom rule'
-    if (option?.fixedTtl) {
-        return label
-    }
     const ttlSeconds = workflow.trigger_masking?.ttl ?? null
     const ttl = ttlSeconds === null ? null : TTL_OPTIONS.find((o) => o.value === ttlSeconds)
-    return ttl ? `${label} per ${ttl.label}` : label
+    const base = option?.fixedTtl || !ttl ? label : `${label} per ${ttl.label}`
+    // With a threshold of N, the 1st, (N + 1)th, (2N + 1)th... matching events start a run.
+    const threshold = workflow.trigger_masking?.threshold ?? null
+    return threshold && threshold > 1 ? `${base}, then again every ${threshold} matching events` : base
 }
 
-const WINDOW_UNITS: Record<string, string> = { m: 'minute', h: 'hour', d: 'day', w: 'week' }
+const WINDOW_UNITS: Record<string, string> = { s: 'second', m: 'minute', h: 'hour', d: 'day', w: 'week' }
 
 export function conversionWindowLabel(window: string | undefined): string | null {
-    const match = /^(\d+)([mhdw])$/.exec(window ?? '')
+    // The workflow duration grammar, plus weeks, which older conversion goals use.
+    const match = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)([smhdw])$/.exec(window ?? '')
     if (!match) {
         return null
     }
     const amount = Number(match[1])
-    return `${amount} ${WINDOW_UNITS[match[2]]}${amount === 1 ? '' : 's'}`
+    return `${match[1]} ${WINDOW_UNITS[match[2]]}${amount === 1 ? '' : 's'}`
 }
 
 type GoalEntity = { name?: string | null; id?: string | number | null }

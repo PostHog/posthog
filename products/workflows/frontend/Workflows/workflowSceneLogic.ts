@@ -115,7 +115,8 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                         String(ApiConfig.getCurrentTeamId()),
                         props.id
                     )
-                    return response.has_been_active
+                    // The workflow may have been enabled while the request was in flight.
+                    return values.hasBeenActive || response.has_been_active
                 },
                 markHasBeenActive: () => true,
             },

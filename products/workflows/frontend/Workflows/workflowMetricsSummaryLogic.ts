@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 
@@ -547,6 +547,7 @@ export interface workflowMetricsSummaryLogicValues {
     inProgressTotal: number
     inProgressTotalLoading: boolean
     loading: boolean
+    messageTotalsFailed: boolean
     messagingChannels: {
         hasEmail: boolean
         hasPush: boolean
@@ -714,9 +715,9 @@ export interface workflowMetricsSummaryLogicActions {
 export interface workflowMetricsSummaryLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        sourceWorkflow: (workflow: HogFlow, originalWorkflow: any, arg: boolean | undefined) => HogFlow
+        sourceWorkflow: (workflow: HogFlow, originalWorkflow: HogFlow | null, arg: boolean | undefined) => HogFlow
         loading: (appMetricsTrendsLoading: boolean, completedLoading: boolean) => boolean
-        emailActions: (sourceWorkflow: any) => ({
+        emailActions: (sourceWorkflow: HogFlow) => ({
             config: {
                 inputs: Record<
                     string,
@@ -774,7 +775,7 @@ export interface workflowMetricsSummaryLogicMeta {
             type: 'function_email'
             updated_at?: number | undefined
         } & Record<string, unknown>)[]
-        pushActions: (sourceWorkflow: any) => ({
+        pushActions: (sourceWorkflow: HogFlow) => ({
             config: {
                 inputs: Record<
                     string,
@@ -823,7 +824,7 @@ export interface workflowMetricsSummaryLogicMeta {
             updated_at?: number | undefined
         } & Record<string, unknown>)[]
         messagingChannels: (
-            sourceWorkflow: any,
+            sourceWorkflow: HogFlow,
             appMetricsTrends: AppMetricsTimeSeriesResponse | null
         ) => {
             hasEmail: boolean
@@ -834,7 +835,7 @@ export interface workflowMetricsSummaryLogicMeta {
             appMetricsTrends: AppMetricsTimeSeriesResponse | null
         ) => Record<WorkflowSummaryMetric, string>
         conversionRate: (conversionStats: { conversions: number; started: number }) => number
-        hasConversionGoal: (sourceWorkflow: any) => boolean
+        hasConversionGoal: (sourceWorkflow: HogFlow) => boolean
         convertedUsersUrl: (
             getDateRangeAbsolute: () => {
                 dateFrom: Dayjs
@@ -1148,6 +1149,17 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             },
         ],
     })),
+    reducers({
+        messageTotalsFailed: [
+            false,
+            {
+                loadEmailTotalsFailure: () => true,
+                loadPushTotalsFailure: () => true,
+                loadEmailTotals: () => false,
+                loadPushTotals: () => false,
+            },
+        ],
+    }),
     selectors({
         sourceWorkflow: [
             (s) => [s.workflow, s.originalWorkflow, (_, p: WorkflowMetricsSummaryLogicProps) => p.overview],

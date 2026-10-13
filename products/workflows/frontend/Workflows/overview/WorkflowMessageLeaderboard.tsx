@@ -1,8 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconLetter, IconNotification } from '@posthog/icons'
-import { LemonSegmentedButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
@@ -30,8 +30,16 @@ const METRIC_OPTIONS: { value: LeaderboardMetric; label: string }[] = [
 ]
 
 export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const { emailMetricsRows, pushMetricsRows, emailTotalsByActionIdLoading, pushTotalsByActionIdLoading, params } =
-        useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
+    const summaryLogic = workflowMetricsSummaryLogic({ logicKey, id, overview: true })
+    const {
+        emailMetricsRows,
+        pushMetricsRows,
+        emailTotalsByActionIdLoading,
+        pushTotalsByActionIdLoading,
+        params,
+        messageTotalsFailed,
+    } = useValues(summaryLogic)
+    const { loadEmailTotals, loadPushTotals } = useActions(summaryLogic)
     const [metric, setMetric] = useState<LeaderboardMetric>('sent')
 
     const rows = useMemo<LeaderboardRow[]>(() => {
@@ -88,11 +96,10 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
                 const value = row[metric] ?? 0
                 return (
                     <span className="whitespace-nowrap">
-                        {humanFriendlyNumber(value)}
+                        <span translate="no">{humanFriendlyNumber(value)}</span>
                         {metric !== 'sent' ? (
-                            <span className="text-muted">
-                                {' '}
-                                ({row.engagementBase > 0 ? percentage(value / row.engagementBase, 1) : '-'})
+                            <span className="text-muted" translate="no">
+                                {` (${row.engagementBase > 0 ? percentage(value / row.engagementBase, 1) : '-'})`}
                             </span>
                         ) : null}
                     </span>
@@ -121,7 +128,22 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
                     />
                 ) : null}
             </div>
-            {!loading && !hasMessages ? (
+            {messageTotalsFailed ? (
+                <span className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                    Couldn't load message counts.
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => {
+                            loadEmailTotals({})
+                            loadPushTotals({})
+                        }}
+                        data-attr="workflow-overview-leaderboard-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </span>
+            ) : !loading && !hasMessages ? (
                 <span className="text-sm text-muted">This workflow has no email or push steps yet.</span>
             ) : (
                 <LemonTable
