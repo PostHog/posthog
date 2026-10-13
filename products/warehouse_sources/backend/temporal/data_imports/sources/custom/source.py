@@ -434,7 +434,7 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
             raise ManifestValidationError(
                 f'Resource {resource.get("name")!r}: endpoint.incremental.param_location must be "query" or "json"'
             )
-        if param_location == "json" and _has_resolve_param(endpoint):
+        if param_location == "json" and isinstance(endpoint, dict) and _has_resolve_param(endpoint):
             raise ManifestValidationError(
                 f"Resource {resource.get('name')!r}: a child resource sends no request body, so "
                 'endpoint.incremental.param_location can\'t be "json"'

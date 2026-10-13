@@ -415,7 +415,10 @@ class TestJsonBodyPagination:
                 }
             ],
         }
-        pages = [{"data": {"items": [{"id": 1, "updated_at": "2024-02-01"}]}}, {"data": {"items": []}}]
+        pages: list[dict[str, Any]] = [
+            {"data": {"items": [{"id": 1, "updated_at": "2024-02-01"}]}},
+            {"data": {"items": []}},
+        ]
         sent: list[tuple[str, Any]] = []
 
         def fake_send(_client: RESTClient, prepared: PreparedRequest) -> Response:
