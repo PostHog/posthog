@@ -5,7 +5,9 @@ import json
 import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
+from threading import get_ident
 from typing import Any, Literal
 
 import pytest
@@ -17,6 +19,8 @@ from botocore.exceptions import ClientError
 from clickhouse_driver.errors import ErrorCodes, NetworkError, ServerException
 from psycopg import OperationalError as PsycopgOperationalError
 from psycopg.errors import AdminShutdown, InvalidPassword
+
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.posthog_ai.eval_harness import base
 from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
@@ -383,10 +387,50 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
         pytest.param("clone", NetworkError("Temporary connection failure"), 1, 2, True, id="clone_recovers"),
         pytest.param("seed", NetworkError("Temporary connection failure"), 2, 2, True, id="seed_recovers"),
         pytest.param("seed", AdminShutdown("Database restart"), 1, 2, True, id="postgres_restart"),
+        pytest.param("clone", AdminShutdown("Database restart"), 1, 2, True, id="postgres_clone_restart"),
+        pytest.param(
+            "clone", PsycopgOperationalError("connection failed: Connection refused"), 1, 2, True, id="postgres_refused"
+        ),
+        pytest.param(
+            "seed",
+            PsycopgOperationalError("server closed the connection unexpectedly"),
+            1,
+            2,
+            True,
+            id="postgres_socket_closed",
+        ),
+        pytest.param("seed", PsycopgOperationalError("timeout expired"), 1, 2, True, id="postgres_timeout"),
+        pytest.param(
+            "seed",
+            PsycopgOperationalError('FATAL: password authentication failed for user "example"'),
+            1,
+            2,
+            False,
+            id="postgres_authentication_without_sqlstate",
+        ),
+        pytest.param(
+            "seed",
+            PsycopgOperationalError('invalid sslmode value: "example"'),
+            1,
+            2,
+            False,
+            id="postgres_configuration_without_sqlstate",
+        ),
+        pytest.param(
+            "seed",
+            PsycopgOperationalError('Connection refused\nFATAL: database "example" does not exist'),
+            1,
+            2,
+            False,
+            id="postgres_mixed_permanent_failure",
+        ),
         pytest.param("seed", InvalidPassword("Invalid test credentials"), 1, 2, False, id="postgres_authentication"),
         pytest.param(
             "seed", ServerException("Busy", code=ErrorCodes.MEMORY_LIMIT_EXCEEDED), 1, 2, True, id="clickhouse_busy"
         ),
+        pytest.param("clone", ClickHouseAtCapacity(), 1, 2, True, id="clickhouse_wrapped_capacity"),
+        pytest.param("seed", ClickHouseQueryTimeOut(), 1, 2, True, id="clickhouse_wrapped_timeout"),
+        pytest.param("seed", ClickHouseQueryMemoryLimitExceeded(), 1, 2, True, id="clickhouse_wrapped_memory"),
         pytest.param(
             "seed",
             ClientError({"ResponseMetadata": {"HTTPStatusCode": 503}}, "GetObject"),
@@ -442,11 +486,29 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
     ctx.provider_strategy.keeps_sandboxes.return_value = False
     contexts = [CustomPromptSandboxContext(team_id=team, user_id=1) for team in range(1, retries + 2)]
     failure = error
-    if isinstance(error, (AdminShutdown, InvalidPassword)):
+    if isinstance(error, PsycopgOperationalError) and stage == "seed":
         failure = OperationalError("Synthetic database failure")
         failure.__cause__ = error
-    ctx.demo_data.make_context.side_effect = ([failure] * failures if stage == "clone" else []) + contexts
-    seed = MagicMock(side_effect=([failure] * failures if stage == "seed" else []) + [{}])
+    broken_workers: set[int] = set()
+
+    def setup_step[Result](results: Iterator[Result | Exception], *_args: object, **_kwargs: object) -> Result:
+        if get_ident() in broken_workers:
+            raise PsycopgOperationalError("the connection is closed")
+        result = next(results)
+        if isinstance(result, Exception):
+            if isinstance(error, PsycopgOperationalError):
+                broken_workers.add(get_ident())
+            raise result
+        return result
+
+    def close_worker_connections() -> None:
+        broken_workers.discard(get_ident())
+
+    monkeypatch.setattr(base, "close_old_connections", close_worker_connections)
+    ctx.demo_data.make_context.side_effect = partial(
+        setup_step, iter(([failure] * failures if stage == "clone" else []) + contexts)
+    )
+    seed = MagicMock(side_effect=partial(setup_step, iter(([failure] * failures if stage == "seed" else []) + [{}])))
     case = SandboxedEvalCase(name="case", prompt="Run the task", setup=seed)
     run = base._SandboxedEvalRun(
         experiment_name="setup-retries",
@@ -491,3 +553,4 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
     assert output.count("CASE DONE" if recovers else "CASE ERROR") == 1
     assert reporter.has_case_errors() is (not recovers)
     assert ctx.sandbox_slots._value == ctx.team_setup_slots._value == 1
+    assert not broken_workers

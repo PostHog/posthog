@@ -89,7 +89,9 @@ Case timeouts and low scores affect the exit status only through `--fail-under`.
 
 Temporary case setup failures and support-service readiness timeouts receive two retries by default.
 The default delays are 1 second and 2 seconds.
-Setup retries cover connection failures, temporary PostgreSQL failures, ClickHouse overload or query timeouts, and object-storage server errors.
+Setup retries cover connection failures, temporary PostgreSQL failures, ClickHouse overload, query timeouts or memory limits, and object-storage server errors.
+Known PostgreSQL transport failures can retry without a SQLSTATE.
+Failed setup steps close unusable Django connections in the same worker thread before a retry.
 Each case setup retry creates fresh test data before the agent starts.
 The runner releases the team setup permit during the delay and stops the previous service process before a readiness retry.
 `CASE RETRY` and `STARTUP RETRY` messages show the next attempt and delay.

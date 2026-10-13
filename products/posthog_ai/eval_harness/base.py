@@ -5,13 +5,16 @@ import time
 import uuid
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from django.db import OperationalError as DjangoOperationalError
+from django.db import (
+    OperationalError as DjangoOperationalError,
+    close_old_connections,
+)
 
 import orjson
 from botocore.exceptions import ClientError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError
@@ -19,6 +22,7 @@ from clickhouse_driver.errors import ErrorCodes, NetworkError, ServerException, 
 from psycopg import OperationalError as PsycopgOperationalError
 
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext
 
@@ -418,6 +422,9 @@ def _retryable_setup_error(error: Exception) -> bool:
             EndpointConnectionError,
             ConnectionClosedError,
             ReadTimeoutError,
+            ClickHouseAtCapacity,
+            ClickHouseQueryTimeOut,
+            ClickHouseQueryMemoryLimitExceeded,
         ),
     ):
         return True
@@ -432,10 +439,37 @@ def _retryable_setup_error(error: Exception) -> bool:
     cause = error.__cause__ if isinstance(error, DjangoOperationalError) else error
     if isinstance(cause, PsycopgOperationalError):
         code = cause.sqlstate
-        return code is not None and (
-            code.startswith("08") or code in {"40001", "40P01", "53300", "57P01", "57P02", "57P03"}
+        if code is not None:
+            return code.startswith("08") or code in {"40001", "40P01", "53300", "57P01", "57P02", "57P03"}
+        message = str(cause).lower()
+        if "fatal:" in message:
+            return False
+        return any(
+            transport_error in message
+            for transport_error in (
+                "connection refused",
+                "connection reset by peer",
+                "connection timed out",
+                "timeout expired",
+                "server closed the connection unexpectedly",
+                "ssl syscall error: eof detected",
+                "ssl connection has been closed unexpectedly",
+                "could not receive data from server",
+                "could not send data to server",
+                "network is unreachable",
+                "no route to host",
+                "temporary failure in name resolution",
+            )
         )
     return False
+
+
+def _run_setup_step[Result](step: Callable[[], Result]) -> Result:
+    try:
+        return step()
+    except Exception:
+        close_old_connections()
+        raise
 
 
 @frozen
@@ -504,11 +538,14 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     # guard rejects sync ORM calls from async contexts, so run it
                     # in a worker thread.
                     sandbox_context = await asyncio.to_thread(
-                        self._demo_data.make_context,
-                        eval_case.name,
-                        disable_bundled_skills=(
-                            self.ctx.skill_delivery == "exec"
-                            or bool(original_case and original_case.disable_bundled_skills)
+                        _run_setup_step,
+                        partial(
+                            self._demo_data.make_context,
+                            eval_case.name,
+                            disable_bundled_skills=(
+                                self.ctx.skill_delivery == "exec"
+                                or bool(original_case and original_case.disable_bundled_skills)
+                            ),
                         ),
                     )
                     if original_case is not None and original_case.interaction_origin:
@@ -516,7 +553,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
                     seed = (
-                        await asyncio.to_thread(original_case.setup, sandbox_context)
+                        await asyncio.to_thread(_run_setup_step, partial(original_case.setup, sandbox_context))
                         if original_case is not None and original_case.setup is not None
                         else {}
                     )
