@@ -21,11 +21,12 @@ BASE_URL = "https://api.hubapi.com/"
 def _is_retryable_status(status_code: int) -> bool:
     """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
 
-    429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the non-standard 477
-    HubSpot's edge has been observed returning during brief incidents) aren't actionable client
-    errors, so treat any unknown 4xx as transient too instead of crashing the import on it.
+    408, 429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the
+    non-standard 477 HubSpot's edge has been observed returning during brief incidents) aren't
+    actionable client errors, so treat any unknown 4xx as transient too instead of crashing the
+    import on it.
     """
-    if status_code == 429 or status_code >= 500:
+    if status_code in (408, 429) or status_code >= 500:
         return True
     if 400 <= status_code < 500:
         try:

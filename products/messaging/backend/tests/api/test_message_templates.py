@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -56,6 +59,24 @@ class TestMessageTemplatesAPI(APIBaseTest):
             "email": {"subject": "Test Subject", "text": "Test Body"},
         }
         assert template["type"] == "email"
+
+    def test_list_pages_templates_with_equal_created_at_by_descending_id(self):
+        ids = [UUID(int=n) for n in (1, 2, 3)]
+        for template_id in ids:
+            MessageTemplate.objects.create(id=template_id, team=self.team, name=str(template_id), type="email")
+        MessageTemplate.objects.filter(id__in=ids).update(created_at=datetime(2100, 1, 1, tzinfo=UTC))
+
+        pages = [
+            [
+                row["id"]
+                for row in self.client.get(
+                    f"/api/environments/{self.team.id}/messaging_templates/?limit=2&offset={offset}"
+                ).json()["results"]
+            ]
+            for offset in (0, 2)
+        ]
+
+        assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0]), str(self.message_template.id)]]
 
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
@@ -343,18 +364,34 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{self.other_team_template.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_can_bind_template_to_own_teams_message_category(self):
-        own_category = MessageCategory.objects.create(team=self.team, key="own-key", name="Own")
+    @parameterized.expand([("other_own_category",), ("empty_string",), ("null",)])
+    def test_patch_sets_or_clears_own_teams_message_category(self, sent: str):
+        current = MessageCategory.objects.create(team=self.team, key="current-key", name="Current")
+        other = MessageCategory.objects.create(team=self.team, key="own-key", name="Own")
+        self.message_template.message_category = current
+        self.message_template.save()
+        value, expected = {
+            "other_own_category": (str(other.id), other.id),
+            "empty_string": ("", None),
+            "null": (None, None),
+        }[sent]
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/",
-            data={"message_category": str(own_category.id)},
+            data={"message_category": value},
             format="json",
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["message_category"] == (str(expected) if expected else None)
         self.message_template.refresh_from_db()
-        assert self.message_template.message_category_id == own_category.id
+        assert self.message_template.message_category_id == expected
+
+    def test_detail_options_describes_writable_fields(self):
+        response = self.client.options(f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "message_category" in response.json()["actions"]["PUT"]
 
     def _design_with_text(self) -> dict:
         return {

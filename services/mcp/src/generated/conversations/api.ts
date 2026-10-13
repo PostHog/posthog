@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -214,6 +214,38 @@ export const ConversationsTicketsMessagesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
+
+/**
+ * Add a private note to a ticket.
+ *
+ * The note is visible to your team only. The request has no privacy field, so this
+ * endpoint never sends anything to the customer.
+ */
+export const ConversationsTicketsNotesCreateParams = () => zod.object({
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const conversationsTicketsNotesCreateBodyMessageMax = 5000
+
+export const ConversationsTicketsNotesCreateBody = () => zod
+    .object({
+        message: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyMessageMax)
+            .describe(
+                'Note content in markdown. The note is visible to your team only and is never sent to the customer.'
+            ),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+    })
+    .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
 
 /**
  * Update a private note on a ticket.

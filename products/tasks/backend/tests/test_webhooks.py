@@ -54,6 +54,9 @@ def _sample_value(name: str, labels: dict[str, str]) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
+_INSTALLATION_ID = 424242
+
+
 def generate_github_signature(payload: bytes, secret: str) -> str:
     """Generate a GitHub-style HMAC-SHA256 signature."""
     return (
@@ -93,13 +96,16 @@ class TestGitHubPRWebhook(TestCase):
             state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
+        Integration.objects.create(team=cls.team, kind="github", integration_id=str(_INSTALLATION_ID), config={})
 
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
 
-    def _make_webhook_request(self, payload: dict, event_type: str = "pull_request"):
+    def _make_webhook_request(self, payload: dict, event_type: str = "pull_request", *, with_installation: bool = True):
         """Helper to make a webhook request with proper signature."""
+        if with_installation:
+            payload = {"installation": {"id": _INSTALLATION_ID}, **payload}
         payload_bytes = json.dumps(payload).encode("utf-8")
         signature = generate_github_signature(payload_bytes, self.webhook_secret)
 
@@ -288,9 +294,7 @@ class TestGitHubPRWebhook(TestCase):
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_delivery_without_installation_falls_back_to_unscoped_lookup(self, mock_capture, mock_get_secret):
-        # Deliveries carrying no installation block keep the legacy full-table lookup, so the
-        # match must not regress. The counter is how we see how much of that traffic is left.
+    def test_delivery_without_installation_matches_no_run(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         labels = {"scoped": "false"}
         before = _sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels)
@@ -300,10 +304,13 @@ class TestGitHubPRWebhook(TestCase):
             "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123", "merged": True},
         }
 
-        response = self._make_webhook_request(payload)
+        response = self._make_webhook_request(payload, with_installation=False)
 
         self.assertEqual(response.status_code, 202)
-        self.assertEqual(mock_capture.call_args[1]["properties"]["run_id"], str(self.task_run.id))
+        mock_capture.assert_not_called()
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertNotIn("pr_merged", self.task_run.output)
         self.assertEqual(_sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels), before + 1)
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
@@ -1080,7 +1087,7 @@ class TestGitHubPRWebhook(TestCase):
             },
         }
 
-        response = self._make_webhook_request(payload)
+        response = self._make_webhook_request(payload, with_installation=False)
 
         self.assertEqual(response.status_code, 202)
         mock_capture.assert_not_called()
@@ -1162,7 +1169,7 @@ class TestGitHubPRWebhook(TestCase):
         response = self._make_webhook_request(payload)
 
         self.assertEqual(response.status_code, 202)
-        mock_capture.assert_not_called()
+        self.assertEqual(mock_capture.call_args[1]["properties"]["pr_source"], "external")
 
 
 class TestGitHubPRReviewWebhook(TestCase):
@@ -1192,6 +1199,7 @@ class TestGitHubPRReviewWebhook(TestCase):
             state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
+        Integration.objects.create(team=cls.team, kind="github", integration_id=str(_INSTALLATION_ID), config={})
 
     def setUp(self):
         self.client = APIClient()
@@ -1210,6 +1218,7 @@ class TestGitHubPRReviewWebhook(TestCase):
     def _review_payload(self, reviewer: dict, action: str = "submitted", state: str = "approved") -> dict:
         return {
             "action": action,
+            "installation": {"id": _INSTALLATION_ID},
             "review": {"id": 99, "state": state, "user": reviewer},
             "pull_request": {
                 "html_url": "https://github.com/posthog/posthog/pull/123",
@@ -1967,7 +1976,7 @@ class TestFindTaskRun(TestCase):
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
             state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
         )
-        result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
+        result = find_task_run(team_ids=[self.team.id], pr_url="https://github.com/posthog/posthog/pull/123")
         self.assertEqual(result, task_run)
 
     def test_pr_url_prefers_active_run_over_terminal(self):
@@ -1989,7 +1998,7 @@ class TestFindTaskRun(TestCase):
             output={"pr_url": pr_url},
             state={"verified_pr_urls": [pr_url]},
         )
-        self.assertEqual(find_task_run(pr_url=pr_url), active_run)
+        self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), active_run)
 
     def test_pr_url_match_ignores_stale_reviewhog_claim(self):
         # A ReviewHog run only holds a verified_pr_urls claim when an earlier branch match
@@ -2021,7 +2030,7 @@ class TestFindTaskRun(TestCase):
             output={"pr_url": pr_url},
         )
 
-        result = find_task_run(pr_url=pr_url, branch=head_branch, repository="posthog/posthog")
+        result = find_task_run(team_ids=[self.team.id], pr_url=pr_url, branch=head_branch, repository="posthog/posthog")
 
         self.assertEqual(result, implementation_run)
 
@@ -2055,7 +2064,7 @@ class TestFindTaskRun(TestCase):
             output={"pr_url": pr_url},
             state={"verified_pr_urls": [pr_url]},
         )
-        self.assertIsNone(find_task_run(pr_url=pr_url, repository="acme/other"))
+        self.assertIsNone(find_task_run(team_ids=[self.team.id], pr_url=pr_url, repository="acme/other"))
 
     @parameterized.expand([("active", TaskRun.Status.IN_PROGRESS), ("completed", TaskRun.Status.COMPLETED)])
     def test_checkout_branch_does_not_claim_a_pull_request(self, _name: str, status: str) -> None:
@@ -2066,7 +2075,7 @@ class TestFindTaskRun(TestCase):
             branch="feature/my-branch",
             output={"head_branch": "feature/my-branch"},
         )
-        result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
+        result = find_task_run(team_ids=[self.team.id], branch="feature/my-branch", repository="posthog/posthog")
         self.assertIsNone(result)
 
     @parameterized.expand([("self_driving_head_branch", False), ("signed_head_branch", True)])
@@ -2100,7 +2109,7 @@ class TestFindTaskRun(TestCase):
             **branch_fields,
         )
 
-        result = find_task_run(branch="feature/shared-branch", repository="posthog/posthog")
+        result = find_task_run(team_ids=[self.team.id], branch="feature/shared-branch", repository="posthog/posthog")
 
         self.assertEqual(result, newest_run)
 
@@ -2136,7 +2145,7 @@ class TestFindTaskRun(TestCase):
             **branch_fields,
         )
 
-        result = find_task_run(branch="feature/shared-branch", repository="posthog/posthog")
+        result = find_task_run(team_ids=[self.team.id], branch="feature/shared-branch", repository="posthog/posthog")
 
         self.assertEqual(result, implementation_run)
 
@@ -2163,7 +2172,7 @@ class TestFindTaskRun(TestCase):
             **branch_fields,
         )
 
-        result = find_task_run(branch="feature/shared-branch", repository="posthog/posthog")
+        result = find_task_run(team_ids=[self.team.id], branch="feature/shared-branch", repository="posthog/posthog")
 
         self.assertEqual(result, newest_run)
 
@@ -2178,7 +2187,7 @@ class TestFindTaskRun(TestCase):
                 "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
             },
         )
-        result = find_task_run(branch="posthog-code/feature", repository="posthog/posthog")
+        result = find_task_run(team_ids=[self.team.id], branch="posthog-code/feature", repository="posthog/posthog")
         self.assertEqual(result, task_run)
 
     def test_signed_commit_head_branch_requires_matching_repository(self):
@@ -2191,7 +2200,9 @@ class TestFindTaskRun(TestCase):
                 "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
             },
         )
-        self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="acme/other"))
+        self.assertIsNone(
+            find_task_run(team_ids=[self.team.id], branch="posthog-code/feature", repository="acme/other")
+        )
 
     def test_signed_commit_head_branch_requires_repository_pair(self):
         TaskRun.objects.create(
@@ -2202,7 +2213,9 @@ class TestFindTaskRun(TestCase):
                 "head_branches": [{"repository": "posthog/code", "branch": "posthog-code/feature"}],
             },
         )
-        self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="posthog/posthog"))
+        self.assertIsNone(
+            find_task_run(team_ids=[self.team.id], branch="posthog-code/feature", repository="posthog/posthog")
+        )
 
     def test_finds_multi_repository_run_from_snapshot(self):
         self.task.repositories = ["posthog/posthog", "posthog/code"]
@@ -2214,6 +2227,7 @@ class TestFindTaskRun(TestCase):
 
         self.assertEqual(
             find_task_run(
+                team_ids=[self.team.id],
                 pr_url="https://github.com/posthog/code/pull/123",
                 repository="posthog/code",
             ),
@@ -2237,6 +2251,7 @@ class TestFindTaskRun(TestCase):
             output={"head_branches": [{"repository": "posthog/posthog", "branch": "feature/my-branch"}]},
         )
         result = find_task_run(
+            team_ids=[self.team.id],
             pr_url="https://github.com/posthog/posthog/pull/123",
             branch="feature/my-branch",
             repository="posthog/posthog",
@@ -2280,7 +2295,10 @@ class TestFindTaskRun(TestCase):
 
         self.assertIsNone(
             find_task_run(
-                pr_url=f"https://github.com/posthog/posthog/pull/{pr_number}", branch=branch, repository=repository
+                team_ids=[self.team.id],
+                pr_url=f"https://github.com/posthog/posthog/pull/{pr_number}",
+                branch=branch,
+                repository=repository,
             )
         )
 
@@ -2293,6 +2311,7 @@ class TestFindTaskRun(TestCase):
             output={"head_branches": [{"repository": "posthog/posthog", "branch": "feature/my-branch"}]},
         )
         result = find_task_run(
+            team_ids=[self.team.id],
             pr_url="https://github.com/posthog/posthog/pull/999",
             branch="feature/my-branch",
             repository="posthog/posthog",
@@ -2310,13 +2329,17 @@ class TestFindTaskRun(TestCase):
             branch="main",
             state={"wizard_head_branch": "posthog/instrumentation-ab12cd"},
         )
-        result = find_task_run(branch="posthog/instrumentation-ab12cd", repository="posthog/posthog")
+        result = find_task_run(
+            team_ids=[self.team.id], branch="posthog/instrumentation-ab12cd", repository="posthog/posthog"
+        )
         self.assertEqual(result, wizard_run)
         # Same branch name from a foreign repository must not be attributed to this run.
-        self.assertIsNone(find_task_run(branch="posthog/instrumentation-ab12cd", repository="acme/other"))
+        self.assertIsNone(
+            find_task_run(team_ids=[self.team.id], branch="posthog/instrumentation-ab12cd", repository="acme/other")
+        )
         # The run's `branch` column holds the checkout base, so a same-repo PR whose head
         # ref equals it must not claim the wizard run through the plain branch leg.
-        self.assertIsNone(find_task_run(branch="main", repository="posthog/posthog"))
+        self.assertIsNone(find_task_run(team_ids=[self.team.id], branch="main", repository="posthog/posthog"))
 
     def test_wizard_head_branch_leg_ignores_terminal_runs(self):
         # A reopened/re-PR'd wizard branch months later must not fire events on a dead run.
@@ -2326,14 +2349,18 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.COMPLETED,
             state={"wizard_head_branch": "posthog/instrumentation-dead00"},
         )
-        self.assertIsNone(find_task_run(branch="posthog/instrumentation-dead00", repository="posthog/posthog"))
+        self.assertIsNone(
+            find_task_run(
+                team_ids=[self.team.id], branch="posthog/instrumentation-dead00", repository="posthog/posthog"
+            )
+        )
 
     def test_returns_none_when_no_match(self):
-        result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")
+        result = find_task_run(team_ids=[self.team.id], pr_url="https://github.com/posthog/posthog/pull/999")
         self.assertIsNone(result)
 
     def test_returns_none_with_no_args(self):
-        result = find_task_run()
+        result = find_task_run(team_ids=[self.team.id])
         self.assertIsNone(result)
 
     def test_branch_fallback_requires_repository(self):
@@ -2346,7 +2373,7 @@ class TestFindTaskRun(TestCase):
         )
         # Without a repository the branch fallback must not match — bare branch
         # names like "main" collide across every team in the database.
-        self.assertIsNone(find_task_run(branch="main"))
+        self.assertIsNone(find_task_run(team_ids=[self.team.id], branch="main"))
 
     def test_branch_fallback_does_not_match_other_repositories(self):
         # The task's repository is "posthog/posthog"; a webhook from a foreign
@@ -2358,7 +2385,7 @@ class TestFindTaskRun(TestCase):
             branch="main",
             output={"head_branches": [{"repository": "posthog/posthog", "branch": "main"}]},
         )
-        result = find_task_run(branch="main", repository="ArkeroAI/arkero2")
+        result = find_task_run(team_ids=[self.team.id], branch="main", repository="ArkeroAI/arkero2")
         self.assertIsNone(result)
 
     def test_branch_fallback_matches_repository_case_insensitively(self):
@@ -2369,7 +2396,7 @@ class TestFindTaskRun(TestCase):
             branch="feature/my-branch",
             output={"head_branches": [{"repository": "posthog/posthog", "branch": "feature/my-branch"}]},
         )
-        result = find_task_run(branch="feature/my-branch", repository="PostHog/PostHog")
+        result = find_task_run(team_ids=[self.team.id], branch="feature/my-branch", repository="PostHog/PostHog")
         self.assertEqual(result, task_run)
 
     def test_branch_fallback_rejects_empty_repository(self):
@@ -2381,7 +2408,7 @@ class TestFindTaskRun(TestCase):
             output={"head_branches": [{"repository": "posthog/posthog", "branch": "main"}]},
         )
         for value in ("", "   ", "\t"):
-            self.assertIsNone(find_task_run(branch="main", repository=value))
+            self.assertIsNone(find_task_run(team_ids=[self.team.id], branch="main", repository=value))
 
 
 class TestGitHubWebhookFanout(TestCase):
@@ -2535,6 +2562,7 @@ class TestGitHubWebhookFanout(TestCase):
 
         payload = {
             "action": "closed",
+            "installation": {"id": 77777},
             "pull_request": {
                 "html_url": "https://github.com/myorg/myrepo/pull/99",
                 "merged": True,

@@ -17,6 +17,7 @@ const EXPECTED_RECORDING_PROPERTIES = [
             $os: 'Windows',
             $os_name: 'Windows 10',
             $entry_referring_domain: 'google.com',
+            $ip: '192.0.2.1',
         },
     },
     {
@@ -40,6 +41,7 @@ const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
         $os: 'Windows',
         $os_name: 'Windows 10',
         $entry_referring_domain: 'google.com',
+        $ip: '192.0.2.1',
     },
     s2: {
         $browser: 'Safari',
@@ -83,8 +85,20 @@ const mockSessons: SessionRecordingType[] = [
 ]
 
 // matches the order of the base columns in the properties query, after the leading session_id
-const S1_BASE_ROW = ['s1', 'AU', 'Chrome', 'Desktop', 'Windows', 'Windows 10', 'google.com', null, null, null]
-const S2_BASE_ROW = ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com', null, null, null]
+const S1_BASE_ROW = [
+    's1',
+    'AU',
+    'Chrome',
+    'Desktop',
+    'Windows',
+    'Windows 10',
+    'google.com',
+    null,
+    null,
+    null,
+    '192.0.2.1',
+]
+const S2_BASE_ROW = ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com', null, null, null, null]
 
 // mock the query endpoint with a per-request handler that receives the HogQL query string
 const useQueryMocks = (handler: (query: string) => unknown): void => {

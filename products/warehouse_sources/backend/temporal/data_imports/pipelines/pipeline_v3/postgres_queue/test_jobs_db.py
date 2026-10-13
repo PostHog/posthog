@@ -648,6 +648,34 @@ class TestLeaseLockOrder:
         # touched. Plan order would leave an arbitrary subset locked instead.
         assert locked == [index <= self.BLOCKED_INDEX for index in range(len(self.GROUPS))]
 
+    @pytest.mark.asyncio
+    async def test_skip_locked_unlock_releases_free_groups_without_waiting(self, conn, conn_b, _db_url):
+        for team_id, schema_id in self.GROUPS:
+            await _insert_batch(
+                conn, team_id=team_id, schema_id=schema_id, job_id=f"job-{team_id}", run_uuid=f"run-{team_id}"
+            )
+        batches = await _claim(conn, owner=OWNER_A, limit=50)
+
+        blocked_team_id, blocked_schema_id = self.GROUPS[self.BLOCKED_INDEX]
+        blocker = await psycopg.AsyncConnection.connect(_db_url)
+        try:
+            await blocker.execute(
+                f"SELECT 1 FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s FOR UPDATE",
+                (blocked_team_id, blocked_schema_id),
+            )
+            await asyncio.wait_for(
+                BatchQueue.unlock_for_batches(conn_b, batches=batches, owner_token=OWNER_A, skip_locked=True),
+                timeout=10.0,
+            )
+        finally:
+            await blocker.rollback()
+            await blocker.close()
+
+        remaining = [
+            await _lease_count(conn, team_id=team_id, schema_id=schema_id) for team_id, schema_id in self.GROUPS
+        ]
+        assert remaining == [int(index == self.BLOCKED_INDEX) for index in range(len(self.GROUPS))]
+
 
 @pytest.mark.django_db(transaction=True)
 class TestVerifyGroupLeaseSync:
@@ -695,7 +723,13 @@ class TestVerifyGroupLeaseSync:
                 )
 
         connect.assert_called_once()
-        assert _sync_connection_pool(_db_url, 5).idle_count == 1
+        pool = _sync_connection_pool(_db_url, 5)
+        assert pool.idle_count == 1
+        # The queue DB sits behind a transaction pooler: psycopg's default prepare_threshold
+        # would server-prepare a statement after 5 identical executions on this long-lived
+        # pooled connection, and a later Bind can land on a backend that never parsed it
+        # ("unable to bind ... cannot get parse message").
+        assert pool._idle[0].prepare_threshold is None
 
     @pytest.mark.asyncio
     async def test_a_dropped_pooled_connection_is_replaced_not_reported_as_a_lost_lease(self, conn, _db_url):

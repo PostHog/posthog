@@ -1,95 +1,35 @@
-import json
 from datetime import date, datetime
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openfda import (
+    OpenFDASourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.openfda import (
-    OPENFDA_BASE_URL,
     PAGE_SIZE,
     OpenFDAResumeConfig,
     _build_params,
     _format_date_value,
-    openfda_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.settings import OPENFDA_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the openfda module.
-OPENFDA_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.openfda.openfda.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
 
 
-def _response(
-    status: int,
-    *,
-    results: list[dict[str, Any]] | None = None,
-    body: Any = None,
-    next_url: str | None = None,
-    url: str = f"{OPENFDA_BASE_URL}/drug/enforcement.json",
-    reason: str = "OK",
-) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = url
-    resp.reason = reason
-    if body is not None:
-        resp._content = json.dumps(body).encode()
-    elif results is not None:
-        resp._content = json.dumps({"meta": {}, "results": results}).encode()
-    else:
-        resp._content = b"{}"
-    if next_url:
-        resp.headers["Link"] = f'<{next_url}>; rel="next"'
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(OpenFDASource(), OpenFDASourceConfig())
 
 
-def _make_manager(resume_state: OpenFDAResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so a copy is snapshotted when each
-    request is prepared rather than inspected after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(manager: mock.MagicMock, endpoint: str = "drug_enforcement", **kwargs: Any) -> Any:
-    return openfda_source(
-        api_key=kwargs.pop("api_key", None),
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _page(results: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+    return ScriptedResponse(json={"meta": {}, "results": results}, headers=headers)
 
 
 class TestFormatDateValue:
@@ -123,60 +63,57 @@ class TestBuildParams:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_link_cursor_across_pages(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_follows_link_cursor_across_pages(self) -> None:
+        result = _driver().run(
+            "drug_enforcement",
             [
-                _response(200, results=[{"recall_number": "D-1"}], next_url="https://api.fda.gov/p2"),
-                _response(200, results=[{"recall_number": "D-2"}]),
+                _page([{"recall_number": "D-1"}], next_url="https://api.fda.gov/p2"),
+                _page([{"recall_number": "D-2"}]),
             ],
         )
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"recall_number": "D-1"}, {"recall_number": "D-2"}]
+        assert result.raised is None
+        assert result.rows == [{"recall_number": "D-1"}, {"recall_number": "D-2"}]
         # The first request carries the page size; the second follows the self-contained next link.
-        assert params[0]["limit"] == PAGE_SIZE
+        assert result.paths == ["/drug/enforcement.json", "/p2"]
+        assert result.params("limit") == [str(PAGE_SIZE), None]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response(200, results=[{"recall_number": "D-2"}])])
-        manager = _make_manager(OpenFDAResumeConfig(next_url="https://api.fda.gov/p2"))
-        rows = _rows(_source(manager))
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "drug_enforcement",
+            [_page([{"recall_number": "D-2"}])],
+            resume_state=OpenFDAResumeConfig(next_url="https://api.fda.gov/p2"),
+        )
         # Resume must start at the saved cursor, not rebuild the initial URL (which would re-pull page
         # 1) — so the seeded next-page URL replaces the initial params entirely.
-        assert rows == [{"recall_number": "D-2"}]
-        assert params[0] == {}
+        assert result.raised is None
+        assert result.rows == [{"recall_number": "D-2"}]
+        assert result.paths == ["/p2"]
+        assert result.queries == [{}]
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried(self, _name: str, status: int, MockSession: Any) -> None:
-        RESTClient._send_request.retry.sleep = lambda *_: None  # type: ignore[attr-defined]
-        session = MockSession.return_value
-        _wire(session, [_response(status), _response(200, results=[{"recall_number": "D-1"}])])
+    def test_retryable_status_is_retried(self, _name: str, status: int) -> None:
+        result = _driver().run(
+            "drug_enforcement",
+            [ScriptedResponse(status=status), _page([{"recall_number": "D-1"}])],
+        )
         # 429 / 5xx are transient — the client backs off and retries rather than failing the sync.
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"recall_number": "D-1"}]
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert result.rows == [{"recall_number": "D-1"}]
+        assert result.paths == ["/drug/enforcement.json", "/drug/enforcement.json"]
 
-    @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_error_raises(self, _name: str, status: int, reason: str, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(status, reason=reason, body={"error": {}})])
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_auth_error_raises(self, _name: str, status: int) -> None:
+        result = _driver().run("drug_enforcement", [ScriptedResponse(status=status, json={"error": {}})])
         # 401/403 (bad or over-quota key) can never be fixed by retrying — they surface as an error.
-        with pytest.raises(HTTPError):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, HTTPError)
+        assert result.paths == ["/drug/enforcement.json"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_results_key_raises_loudly(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(200, body={"meta": {}})])
+    def test_missing_results_key_raises_loudly(self) -> None:
+        result = _driver().run("drug_enforcement", [ScriptedResponse(json={"meta": {}})])
         # openFDA guarantees `results` on a 200; an unexpected shape must surface, not silently look
         # like an empty page.
-        with pytest.raises(ValueError, match="matched nothing"):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "matched nothing" in str(result.raised)
 
     @parameterized.expand(
         [
@@ -185,23 +122,20 @@ class TestPagination:
             ("subdomain_spoof", "https://api.fda.gov.evil.example.com/next"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_host_next_cursor_is_rejected(self, _name: str, next_url: str, MockSession: Any) -> None:
+    def test_off_host_next_cursor_is_rejected(self, _name: str, next_url: str) -> None:
         # A poisoned `Link` header would send the API key (Basic auth) off-host or hit an internal
         # address. Following it must fail loudly, not be saved and requested.
-        session = MockSession.return_value
-        _wire(session, [_response(200, results=[], next_url=next_url)])
-        with pytest.raises(ValueError):
-            _rows(_source(_make_manager()))
+        result = _driver().run("drug_enforcement", [_page([], next_url=next_url)])
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/drug/enforcement.json"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_host_resume_cursor_is_rejected(self, MockSession: Any) -> None:
+    def test_off_host_resume_cursor_is_rejected(self) -> None:
         # Poisoned resume state must not be followed — it would leak the API key off-host.
-        session = MockSession.return_value
-        _wire(session, [])
-        manager = _make_manager(OpenFDAResumeConfig(next_url="https://evil.example.com/p2"))
-        with pytest.raises(ValueError):
-            _rows(_source(manager))
+        result = _driver().run(
+            "drug_enforcement", [], resume_state=OpenFDAResumeConfig(next_url="https://evil.example.com/p2")
+        )
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
 
 class TestOpenfdaSource:
@@ -212,11 +146,13 @@ class TestOpenfdaSource:
             ("device_510k", ["k_number"], "decision_date"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_carries_endpoint_config(
-        self, endpoint: str, primary_keys: list[str], partition_key: str | None, MockSession: Any
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None
     ) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         if partition_key is None:
@@ -232,7 +168,7 @@ class TestOpenfdaSource:
 
 
 class TestValidateCredentials:
-    @mock.patch(OPENFDA_SESSION_PATCH)
-    def test_failure(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("key") is False
+    def test_failure(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            assert validate_credentials("key") is False
+        assert [request.path for request in network.requests_log] == ["/drug/enforcement.json"]

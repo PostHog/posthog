@@ -605,6 +605,65 @@ const visionQuotaSpendSeriesGet = (): ToolBase<
     },
 })
 
+const VisionRequestsCreateSchema = () => {
+    const VisionRequestsCreateBody = orvalSchemas.VisionRequestsCreateBody()
+    return VisionRequestsCreateBody
+}
+
+const visionRequestsCreate = (): ToolBase<
+    ReturnType<typeof VisionRequestsCreateSchema>,
+    Schemas.ObservationRequest
+> => ({
+    name: 'vision-requests-create',
+    schema: VisionRequestsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionRequestsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_ids !== undefined) {
+            body['session_ids'] = params.session_ids
+        }
+        if (params.scanner_id !== undefined) {
+            body['scanner_id'] = params.scanner_id
+        }
+        if (params.inline !== undefined) {
+            body['inline'] = params.inline
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
+        if (params.reference !== undefined) {
+            body['reference'] = params.reference
+        }
+        if (params.wait_for_session_end !== undefined) {
+            body['wait_for_session_end'] = params.wait_for_session_end
+        }
+        const result = await context.api.request<Schemas.ObservationRequest>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/requests/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisionRequestsGetSchema = () => {
+    const VisionRequestsRetrieveParams = orvalSchemas.VisionRequestsRetrieveParams()
+    return VisionRequestsRetrieveParams.omit({ project_id: true })
+}
+
+const visionRequestsGet = (): ToolBase<ReturnType<typeof VisionRequestsGetSchema>, Schemas.ObservationRequest> => ({
+    name: 'vision-requests-get',
+    schema: VisionRequestsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionRequestsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ObservationRequest>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/requests/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const VisionScannersAffectedCohortCreateSchema = () => {
     const VisionScannersAffectedCohortCreateBody = orvalSchemas.VisionScannersAffectedCohortCreateBody()
     const VisionScannersAffectedCohortCreateParams = orvalSchemas.VisionScannersAffectedCohortCreateParams()
@@ -902,6 +961,27 @@ const visionScannersCreate = (): ToolBase<
     },
 })
 
+const VisionScannersDashboardCreateSchema = () => {
+    const VisionScannersCreateDashboardCreateParams = orvalSchemas.VisionScannersCreateDashboardCreateParams()
+    return VisionScannersCreateDashboardCreateParams.omit({ project_id: true })
+}
+
+const visionScannersDashboardCreate = (): ToolBase<
+    ReturnType<typeof VisionScannersDashboardCreateSchema>,
+    Schemas.ScannerDashboardResponse
+> => ({
+    name: 'vision-scanners-dashboard-create',
+    schema: VisionScannersDashboardCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersDashboardCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScannerDashboardResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/create_dashboard/`,
+        })
+        return result
+    },
+})
+
 const VisionScannersDeleteSchema = () => {
     const VisionScannersDestroyParams = orvalSchemas.VisionScannersDestroyParams()
     return VisionScannersDestroyParams.omit({ project_id: true })
@@ -1075,9 +1155,6 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
         handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
-            if (params.session_ids !== undefined) {
-                body['session_ids'] = params.session_ids
-            }
             if (params.prompt !== undefined) {
                 body['prompt'] = params.prompt
             }
@@ -1089,6 +1166,9 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
             }
             if (params.model !== undefined) {
                 body['model'] = params.model
+            }
+            if (params.session_ids !== undefined) {
+                body['session_ids'] = params.session_ids
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
@@ -1638,6 +1718,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-observations-signal-reports-list': visionObservationsSignalReportsList,
     'vision-quota-get': visionQuotaGet,
     'vision-quota-spend-series-get': visionQuotaSpendSeriesGet,
+    'vision-requests-create': visionRequestsCreate,
+    'vision-requests-get': visionRequestsGet,
     'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
     'vision-scanners-backfills-cancel': visionScannersBackfillsCancel,
     'vision-scanners-backfills-create': visionScannersBackfillsCreate,
@@ -1647,6 +1729,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-backfills-resume': visionScannersBackfillsResume,
     'vision-scanners-counts': visionScannersCounts,
     'vision-scanners-create': visionScannersCreate,
+    'vision-scanners-dashboard-create': visionScannersDashboardCreate,
     'vision-scanners-delete': visionScannersDelete,
     'vision-scanners-draft': visionScannersDraft,
     'vision-scanners-duplicate': visionScannersDuplicate,

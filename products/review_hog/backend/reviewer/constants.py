@@ -112,14 +112,14 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 # Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
-    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 3),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-3`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
@@ -149,6 +149,16 @@ SINGLE_AGENT_FLASH_ARM = ReviewArm(
 SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
+# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
+# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
+# HTML-comment style as the review-body and status markers, invisible in rendered markdown.
+REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
+
+# A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
+# reviewers already raised, and counts the rest.
+ALREADY_RAISED_SHOWN = 10
 
 # The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
 # PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
@@ -199,6 +209,10 @@ FLASH_LENSES: dict[str, FlashLens] = {
         source="flash-lens-contracts-security",
     ),
 }
+
+# One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
+# at once by default, so a larger PR would lose the lenses past that.
+COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
 
 
 def is_single_agent_pass(pass_number: int) -> bool:
@@ -587,6 +601,11 @@ OUTCOME_MAX_REPORTS_PER_SWEEP = 50
 # whole report is decided, the retry and every later sweep would replay the same calls and never
 # finish it. Candidates past this ceiling settle without a judge call so the report always completes.
 OUTCOME_MAX_JUDGE_CALLS_PER_REPORT = 30
+# Ceiling on reaction reads for one report: each finding comment with a reaction costs one GitHub read
+# to see who left it. Outcomes persist only once the whole report is decided, so a report that spends
+# the installation's budget stops the team's sweep and replays the same reads on every retry. Comments
+# past the ceiling go to the line check and judge, which under-counts `reacted` rather than inventing it.
+OUTCOME_MAX_REACTION_READS_PER_REPORT = 30
 # A judge call that fails settles its finding as `judge_failed` rather than throwing away the whole
 # report's completed judgments and replaying them next sweep. These two bound that tolerance, because
 # an outcome is written once and never re-decided: recording a report's worth of `judge_failed` during

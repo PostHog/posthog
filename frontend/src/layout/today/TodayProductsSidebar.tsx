@@ -16,8 +16,9 @@ import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-ge
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
-import { matchesPaneQuery } from './todayPaneSearch'
+import { matchesPaneQuery, viewTypesForPaneSearch } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { TodayProductsViewsHint } from './TodayProductsViewsHint'
 import { todayToolsLogic } from './todayToolsLogic'
 
 /** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
@@ -35,12 +36,14 @@ export function TodayProductsSidebar(): JSX.Element {
         [type.pluralLabel, ...libraryRowProductLabels(type.value)].some((label) => matchesPaneQuery(label, search))
     )
     const showLibrary = showAllObjects || libraryTypes.length > 0
+    const searchedViewTypes = viewTypesForPaneSearch(search)
     const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
     const categorySections = toolGroups.map((group) => ({
         key: group.category,
         label: group.category,
         tools: group.tools,
     }))
+    const hasProducts = !!recentSection || showLibrary || categorySections.length > 0
     // A tool can show in Recently viewed and in its own group, so the group keeps the two rows apart on the keyboard path.
     const optionValue = (groupKey: string, tool: FileSystemImport): string => `${groupKey}:${tool.href ?? ''}`
 
@@ -72,49 +75,46 @@ export function TodayProductsSidebar(): JSX.Element {
                 searchLabel="Search products"
                 dataAttr="today-products-search"
             >
-                {!recentSection && !showLibrary && !categorySections.length ? (
+                {!hasProducts && !searchedViewTypes.length && (
                     <Text size="xs" variant="muted" className="block px-2 py-1">
                         No products match that search.
                     </Text>
-                ) : (
-                    <>
-                        {recentSection && renderToolSection(recentSection, true)}
-                        {showLibrary && (
-                            <div>
-                                <TodayPaneGroupLabel first={!recentSection}>Library</TodayPaneGroupLabel>
-                                {showAllObjects && (
-                                    <TodayPaneRow
-                                        value="library:all"
-                                        label="All objects"
-                                        icon={<IconFolder />}
-                                        to={urls.library()}
-                                        active={path === urls.library()}
-                                        dataAttr="today-library-all"
-                                    />
-                                )}
-                                {libraryTypes.map((type) => (
-                                    <TodayPaneRow
-                                        key={type.value}
-                                        value={`library:${type.value}`}
-                                        label={type.pluralLabel}
-                                        icon={iconForType(type.value as FileSystemIconType)}
-                                        to={libraryListHref(type.value) ?? urls.library(type.value)}
-                                        // A product page can share a scene with a Library list. The product's own row then takes the highlight.
-                                        active={
-                                            path === urls.library(type.value) ||
-                                            (objectPageType === type.value && !activeHref)
-                                        }
-                                        action={<LibraryCreateButton objectType={type.value} />}
-                                        dataAttr="today-library-type"
-                                    />
-                                ))}
-                            </div>
-                        )}
-                        {categorySections.map((section, index) =>
-                            renderToolSection(section, !recentSection && !showLibrary && index === 0)
-                        )}
-                    </>
                 )}
+                {recentSection && renderToolSection(recentSection, true)}
+                {showLibrary && (
+                    <div>
+                        <TodayPaneGroupLabel first={!recentSection}>Library</TodayPaneGroupLabel>
+                        {showAllObjects && (
+                            <TodayPaneRow
+                                value="library:all"
+                                label="All objects"
+                                icon={<IconFolder />}
+                                to={urls.library()}
+                                active={path === urls.library()}
+                                dataAttr="today-library-all"
+                            />
+                        )}
+                        {libraryTypes.map((type) => (
+                            <TodayPaneRow
+                                key={type.value}
+                                value={`library:${type.value}`}
+                                label={type.pluralLabel}
+                                icon={iconForType(type.value as FileSystemIconType)}
+                                to={libraryListHref(type.value) ?? urls.library(type.value)}
+                                // A product page can share a scene with a Library list. The product's own row then takes the highlight.
+                                active={
+                                    path === urls.library(type.value) || (objectPageType === type.value && !activeHref)
+                                }
+                                action={<LibraryCreateButton objectType={type.value} />}
+                                dataAttr="today-library-type"
+                            />
+                        ))}
+                    </div>
+                )}
+                {categorySections.map((section, index) =>
+                    renderToolSection(section, !recentSection && !showLibrary && index === 0)
+                )}
+                {searchedViewTypes.length > 0 && <TodayProductsViewsHint viewTypes={searchedViewTypes} />}
             </TodayPaneSearchList>
         </div>
     )

@@ -106,15 +106,40 @@ The same value goes into that deployment's own secret as `INTEGRATION_SERVICE_JW
 Flat and uppercase because the `PostHog/secrets` CLI and UI only manage `[A-Z0-9_]+` keys with
 plain string values.
 
-External Secrets Operator syncs that secret into a Kubernetes Secret, and kubelet mounts it as a
-directory of one file per key. Kubelet rewrites the mount in place and swaps the `..data` symlink
-atomically, so a rotation reaches the pod without a restart and a read never sees a half-written
-set. The service re-reads on a timer (`src/mount.ts`), every
-`INTEGRATION_SERVICE_RELOAD_SECONDS`, and holds the parsed set in memory.
+External Secrets Operator syncs that secret into a Kubernetes Secret.
+The service reads it from one of two sources, set by `INTEGRATION_SERVICE_SECRET_SOURCE` (`src/source.ts`):
 
-A pod holding no credentials fails its readiness probe rather than exiting, so an empty mount
-recovers on its own once ESO syncs instead of crash-looping. A mount that stops being readable
-keeps what is already held, with `integration_secret_serving_stale_seconds` as the only sign.
+- **`kubernetes`**: the service lists the Secret through the API server, then watches it (`src/kubernetes.ts`).
+  Every replica gets an edit within about a second of ESO writing it.
+- **`directory`** (the default): kubelet mounts the Secret as a directory of one file per key, and the service re-reads it on a timer.
+  Kubelet refreshes the mount on each node on its own schedule, about 60-90s.
+  So for a minute or more after an edit, different replicas can serve different versions.
+  Use this source for local development and tests.
+
+Each source yields the whole Secret at one version.
+The service applies that one snapshot to the signing keys first and then to the credentials.
+So a revocation and a rotation in one edit land together, and a revoked caller never reads the new values.
+
+The kubernetes source:
+
+- Lists with `fieldSelector=metadata.name=<name>` at boot, then watches from the listed `resourceVersion` with bookmarks.
+- After a normal close, it watches again from the last `resourceVersion` it saw.
+- After `410 Gone`, it lists again and watches from the new `resourceVersion`.
+- After an error, it reconnects with capped exponential backoff.
+- Every `INTEGRATION_SERVICE_RELOAD_SECONDS`, it lists the Secret again as a safety check.
+  If the list finds a change that the watch did not deliver, the service applies it and replaces the watch.
+- Reads the service account token again for each request, because the projected token rotates.
+- Connects straight to `KUBERNETES_SERVICE_HOST:KUBERNETES_SERVICE_PORT`.
+  It ignores `HTTP_PROXY` and `HTTPS_PROXY`, so the egress proxy never sees API server traffic.
+
+It needs a Role with `get`, `list` and `watch` on `secrets`, restricted by `resourceNames` to this one Secret.
+With `resourceNames`, RBAC allows a list or watch only when it carries the field selector above.
+
+A pod holding no credentials fails its readiness probe rather than exiting.
+So an empty mount, or an API server it cannot reach at boot, recovers on its own instead of crash-looping.
+A source that stops being readable keeps what is already held, with `integration_secret_serving_stale_seconds` as the only sign.
+A deleted Secret also keeps what is held: an empty set would answer every resolve all-missing, which callers treat as deleted credentials.
+`integration_secret_watch_restarts_total{reason}` counts watch restarts by why the previous watch ended.
 
 ```text
 integration-service-secrets
@@ -180,7 +205,8 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `integration_secret_last_resolved_timestamp{key}`                        | which credentials nothing reads any more                      |
 | `integration_secret_previous_version_served_total{key}`                  | how much traffic is reading a key mid-rotation                |
 | `integration_secret_serving_stale_seconds`                               | how long this pod has served credentials it could not refresh |
-| `integration_secret_store_errors_total`                                  | mount reads that returned nothing                             |
+| `integration_secret_store_errors_total`                                  | source reads that returned nothing                            |
+| `integration_secret_watch_restarts_total{reason}`                        | Kubernetes watch restarts, by why the previous watch ended    |
 | `integration_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod       |
 | `integration_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                        |
 | `integration_service_auth_failures_total{reason}`                        | rejected tokens, by why                                       |
@@ -223,17 +249,21 @@ mount.
 
 ## Configuration
 
-| Variable                             | Default                    | Notes                                                   |
-| ------------------------------------ | -------------------------- | ------------------------------------------------------- |
-| `INTEGRATION_SERVICE_ENV`            | `dev`                      | Logical env, recorded on every startup log line         |
-| `INTEGRATION_SERVICE_SECRETS_DIR`    | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                  |
-| `INTEGRATION_SERVICE_RELOAD_SECONDS` | `30`                       | How often to re-read the mount                          |
-| `INTEGRATION_SERVICE_METRICS_PORT`   | `9090`                     | Dedicated `/metrics` listener, kept off the ingress     |
-| `INTEGRATION_SERVICE_LOG_LEVEL`      | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                      |
-| `PORT`                               | `8004`                     |                                                         |
-| `HOST`                               | `0.0.0.0`                  |                                                         |
-| `SHUTDOWN_PRESTOP_DELAY_MS`          | `5000`                     | Wait before draining, for the Kubernetes prestop window |
+| Variable                               | Default                       | Notes                                                   |
+| -------------------------------------- | ----------------------------- | ------------------------------------------------------- |
+| `INTEGRATION_SERVICE_ENV`              | `dev`                         | Logical env, recorded on every startup log line         |
+| `INTEGRATION_SERVICE_SECRET_SOURCE`    | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
+| `INTEGRATION_SERVICE_SECRETS_DIR`      | `/etc/integration-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
+| `INTEGRATION_SERVICE_SECRET_NAME`      | `integration-service-secrets` | The Secret to watch (`kubernetes`)                      |
+| `INTEGRATION_SERVICE_SECRET_NAMESPACE` | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
+| `INTEGRATION_SERVICE_RELOAD_SECONDS`   | `30`                          | Re-read interval; a safety re-list next to the watch    |
+| `INTEGRATION_SERVICE_METRICS_PORT`     | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
+| `INTEGRATION_SERVICE_LOG_LEVEL`        | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
+| `PORT`                                 | `8004`                        |                                                         |
+| `HOST`                                 | `0.0.0.0`                     |                                                         |
+| `SHUTDOWN_PRESTOP_DELAY_MS`            | `5000`                        | Wait before draining, for the Kubernetes prestop window |
 
-The service exits at boot rather than starting degraded: a missing production variable, or a
-numeric variable that does not parse. An empty secret mount does not exit; the pod fails its
+The service exits at boot rather than starting degraded: a missing production variable, a
+numeric variable that does not parse, or a `kubernetes` source without `KUBERNETES_SERVICE_HOST`
+or a namespace. An empty secret mount does not exit; the pod fails its
 readiness probe and recovers on its own once External Secrets Operator syncs.

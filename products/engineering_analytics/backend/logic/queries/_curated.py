@@ -45,11 +45,12 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
+from products.engineering_analytics.backend.facade.contracts import CIDataFreshness, QueryWorkLimitExceededError
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     TrunkQuarantineSource,
+    resolve_ci_data_freshness,
     resolve_depot_job_attempts_tables,
     resolve_github_tables,
     resolve_trunk_merge_queue_table,
@@ -250,17 +251,20 @@ class CuratedGitHubSource:
         )
         return f"({query})"
 
-    def jobs_source(self, *, created_floor: bool = False) -> str | None:
+    def jobs_source(self, *, created_floor: bool = False, include_steps: bool = False) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it.
+
+        ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run."""
         if not self._tables.workflow_jobs:
             return None
-        return (
-            f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
+        query = workflow_jobs.build_query(
+            self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor, include_steps=include_steps
         )
+        return f"({query})"
 
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
@@ -278,6 +282,35 @@ class CuratedGitHubSource:
             self._depot_job_attempts(),
             self._tables.pull_requests,
             self._tables.workflow_jobs,
+            optional_columns=self._tables.workflow_runs_optional_columns,
+        )
+
+    def ci_read_scope(self) -> str:
+        """Names the tables a CI read of this handle uses, for a cache key.
+
+        The Depot table is part of the answer only for a caller who may read the Depot source. A cache key
+        without it would serve an answer built from Depot rows to a caller who has no access to them.
+        """
+        depot = self._depot_job_attempts()
+        return f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
+
+    def may_read_ci_tables(self) -> bool:
+        """Whether this reader's catalog grants every table a CI read uses.
+
+        A cached CI answer skips the query that would have applied the table permissions, so a caller must
+        ask this before it serves one.
+        """
+        depot = self._depot_job_attempts()
+        tables = [self._tables.pull_requests, self._tables.workflow_runs, self._tables.workflow_jobs]
+        if depot is not None:
+            tables.append(depot.table)
+        catalog = self._catalog()
+        return all(catalog.has_table(table) and not catalog.is_table_access_denied(table) for table in tables if table)
+
+    def ci_data_freshness(self) -> CIDataFreshness:
+        """When the runs and jobs this handle reads were last synced from their sources."""
+        return resolve_ci_data_freshness(
+            team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
 
     def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:

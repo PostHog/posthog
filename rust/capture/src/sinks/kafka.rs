@@ -2301,7 +2301,7 @@ mod tests {
         #[tokio::test]
         async fn ai_events_redirect_to_topic_wins() {
             // A restriction-driven redirect beats the AI lane, matching v1
-            // where Destination::Custom overwrites Destination::AiEvents.
+            // where Destination::Custom overwrites Destination::AiMain.
             assert_routing(
                 EventInput {
                     data_type: DataType::AiEvents,

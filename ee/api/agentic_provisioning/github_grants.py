@@ -26,6 +26,7 @@ import structlog
 from cryptography.fernet import InvalidToken
 
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.oauth import OAuthApplication
@@ -178,6 +179,7 @@ def fetch_primary_email(access_token: str) -> str | None:
         headers={"Authorization": f"Bearer {access_token}"},
         params={"per_page": 100},
         timeout=10,
+        priority=Priority.CRITICAL,
     )
     if response.status_code >= 500:
         raise requests.RequestException(f"Unexpected status {response.status_code} listing user emails")
@@ -216,6 +218,7 @@ def list_installations_and_repositories(access_token: str) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {access_token}"},
         params={"per_page": 100},
         timeout=10,
+        priority=Priority.CRITICAL,
     )
     if response.status_code != 200:
         logger.warning("github_grant.list_installations_failed", status_code=response.status_code)
@@ -253,6 +256,7 @@ def _list_installation_repositories(access_token: str, installation_id: str) -> 
             headers={"Authorization": f"Bearer {access_token}"},
             params={"per_page": _REPOSITORY_PAGE_SIZE, "page": page},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if response.status_code != 200:
             logger.warning(

@@ -24,6 +24,7 @@ import {
 import {
     cycleMode,
     getModesForRuntimeAdapter,
+    type PermissionMode,
     resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
@@ -55,9 +56,20 @@ export interface TaskComposerProps {
     focusRequest?: number
     /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
     autoFocus?: boolean
+    prefillRequest?: ComposerPrefillRequest | null
 }
 
-export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
+export interface ComposerPrefillRequest {
+    prompt: string
+    mode?: PermissionMode
+}
+
+export function TaskComposer({
+    variant = 'page',
+    focusRequest = 0,
+    autoFocus = true,
+    prefillRequest,
+}: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const {
         submitNewTask,
@@ -65,6 +77,7 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
         pickPermissionMode,
         setActiveSuggestionGroup,
         applySuggestion,
+        applyPrefill,
         clearConsentBlock,
     } = useActions(taskTrackerSceneLogic)
     const {
@@ -118,6 +131,16 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
             textAreaRef.current?.focus()
         }
     }
+
+    const appliedPrefill = useRef<ComposerPrefillRequest | null>(null)
+    useEffect(() => {
+        if (!prefillRequest || prefillRequest === appliedPrefill.current) {
+            return
+        }
+        appliedPrefill.current = prefillRequest
+        applyPrefill(prefillRequest.prompt, prefillRequest.mode)
+        textAreaRef.current?.focus()
+    }, [prefillRequest, applyPrefill])
 
     const field = (
         <Composer.Field>
@@ -274,8 +297,7 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                             {skin === 'lemon' && withConsent(<Composer.Submit data-attr="task-composer-send" />)}
                         </Composer.Root>
                     </div>
-
-                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
+                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}{' '}
                 </Suggestions.Root>
             </div>
         </div>
