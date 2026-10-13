@@ -294,7 +294,7 @@ class Command(BaseCommand):
             floors = self._source_floors(dag) if dag.sync_frequency_interval is not None else {}
             for node in schedulable_nodes(dag).select_related("saved_query"):
                 saved_query = node.saved_query
-                if saved_query is None:
+                if saved_query is None or saved_query.managed_viewset_id is not None:
                     continue
                 sq_id = str(saved_query.id)
                 # Query-interval intent survives the move on the saved query itself, and a moved
