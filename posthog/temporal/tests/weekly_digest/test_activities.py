@@ -264,6 +264,14 @@ def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str
     return [f"issue {index}" for index in range(1, NEW_ERROR_ISSUES_PER_TEAM_LIMIT + 1)]
 
 
+def _error_issue_lookup_from_postgres(input: GenerateDigestDataBatchInput) -> None:
+    # A failed error tracking query keeps the issues the Postgres lookup found, which this test checks.
+    with patch(
+        "posthog.temporal.weekly_digest.activities._query_new_issues_for_team", side_effect=RuntimeError("down")
+    ):
+        run_sync(generate_error_issue_lookup, input)
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "activity_fn,key_kind,payload_field,make_rows",
@@ -280,7 +288,7 @@ def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str
         ),
         (generate_feature_flag_lookup, TeamDataKey.FEATURE_FLAGS, "name", _make_feature_flags),
         (generate_survey_lookup, TeamDataKey.SURVEYS_LAUNCHED, "name", _make_surveys),
-        (generate_error_issue_lookup, TeamDataKey.ERROR_ISSUES, "name", _make_error_issues),
+        (_error_issue_lookup_from_postgres, TeamDataKey.ERROR_ISSUES, "name", _make_error_issues),
     ],
 )
 def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
@@ -308,10 +316,61 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
     assert redis_servers.digest.keys(f"{digest.key}-{key_kind}-*") == [key]
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "error_tracking_result,expected",
+    [
+        (
+            [
+                {
+                    "id": str(uuid4()),
+                    "name": "Error",
+                    "description": "busy",
+                    "occurrence_count": 12,
+                    "sparkline": [{"height_percent": 100}],
+                }
+            ],
+            [("busy", 12, [{"height_percent": 100}])],
+        ),
+        (RuntimeError("ClickHouse is down"), [("quiet", None, []), ("busy", None, [])]),
+        ([], None),
+    ],
+)
+def test_generate_error_issue_lookup_takes_new_issues_from_error_tracking(
+    error_tracking_result, expected, team, redis_servers, common_input, digest
+):
+    create_issue(
+        team_id=team.id, name="TypeError", description="quiet", created_at=digest.period_end - timedelta(hours=1)
+    )
+    create_issue(team_id=team.id, name="Error", description="busy", created_at=digest.period_start + timedelta(hours=1))
+    mock_kwargs = (
+        {"side_effect": error_tracking_result}
+        if isinstance(error_tracking_result, Exception)
+        else {"return_value": error_tracking_result}
+    )
+
+    with patch("posthog.temporal.weekly_digest.activities._query_new_issues_for_team", **mock_kwargs):
+        run_sync(generate_error_issue_lookup, batch_input(team, digest, common_input))
+
+    stored = redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.ERROR_ISSUES, team.id))
+    if expected is None:
+        assert stored is None
+    else:
+        assert [
+            (issue["description"], issue["occurrence_count"], issue["sparkline"]) for issue in json.loads(stored)
+        ] == expected
+
+
 def _run_lookup(activity_fn: Callable[..., Any]) -> Callable[[TeamIdRange, Digest, CommonInput], None]:
     return lambda team_range, digest, common: run_sync(
         activity_fn, GenerateDigestDataBatchInput(team_id_range=team_range, digest=digest, common=common)
     )
+
+
+def _run_error_issue_lookup_without_occurrences(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
+    # Error tracking runs one HogQL query per team with new issues, like usage trends.
+    with patch("posthog.temporal.weekly_digest.activities._query_new_issues_for_team", return_value=[]):
+        _run_lookup(generate_error_issue_lookup)(team_range, digest, common)
 
 
 def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
@@ -326,7 +385,7 @@ def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, comm
     "run_activity,make_row",
     [
         (_run_lookup(generate_dashboard_lookup), lambda team: Dashboard.objects.create(team=team, name="Dashboard")),
-        (_run_lookup(generate_error_issue_lookup), lambda team: create_issue(team_id=team.id, name="issue")),
+        (_run_error_issue_lookup_without_occurrences, lambda team: create_issue(team_id=team.id, name="issue")),
         (
             _run_lookup(generate_filter_lookup),
             lambda team: SessionRecordingPlaylist.objects.create(team=team, name="Filter", type="filters"),
@@ -797,6 +856,8 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
 
     # test_account_filters are phrased to KEEP real accounts, so "is_not localhost" drops the test event below.
     team.test_account_filters = [{"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"}]
+    # A project timezone away from UTC would shift calendar-day buckets by one.
+    team.timezone = "America/Los_Angeles"
     team.save()
     # Test-account traffic in the current window must not inflate the numbers.
     _create_event(
@@ -815,6 +876,8 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
     events, users = result.metrics
     assert (events.label, events.current, events.previous) == ("Events", 3, 1)
     assert (users.label, users.current, users.previous) == ("Active users", 2, 1)
+    assert events.daily == [0, 0, 1, 1, 1, 0, 0]
+    assert users.daily == [0, 0, 1, 1, 1, 0, 0]
 
 
 @pytest.mark.django_db
@@ -856,7 +919,10 @@ def test_generate_usage_trends_lookup_waits_out_a_busy_clickhouse(team, redis_se
         ),
         patch(
             "posthog.temporal.weekly_digest.activities.execute_hogql_query",
-            side_effect=[ClickHouseAtCapacity(), HogQLQueryResponse(results=[[5, 4, 2, 2]])],
+            side_effect=[
+                ClickHouseAtCapacity(),
+                HogQLQueryResponse(results=[[5, 4, 2, 2, [5, 0, 0, 0, 0, 0, 0], [2, 0, 0, 0, 0, 0, 0]]]),
+            ],
         ),
         patch("posthog.temporal.common.utils.time.sleep"),
     ):
