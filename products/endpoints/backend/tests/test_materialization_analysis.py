@@ -812,3 +812,61 @@ class TestCTEVariableAnalysis(SimpleTestCase):
         assert can_materialize is True
         assert len(var_infos) == 1
         assert var_infos[0].cte_name is None
+
+
+class TestNestedVariableRejection(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "outer_where_and_subquery",
+                "SELECT count() FROM events WHERE timestamp >= {variables.start_date} "
+                "AND distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})",
+            ),
+            (
+                "subquery_in_from",
+                "SELECT count() FROM (SELECT event FROM events WHERE timestamp >= {variables.start_date}) "
+                "WHERE event = '$pageview'",
+            ),
+            (
+                "union_member_in_join",
+                "SELECT count() FROM events AS e JOIN ("
+                "SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date} "
+                "UNION ALL SELECT distinct_id FROM persons"
+                ") AS s ON e.distinct_id = s.distinct_id WHERE e.event = '$pageview'",
+            ),
+            (
+                "cte_body_and_its_subquery",
+                "WITH recent AS (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date} "
+                "AND distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})) "
+                "SELECT count() FROM recent",
+            ),
+        ]
+    )
+    def test_variable_in_a_subquery_is_rejected(self, _name: str, query_str: str):
+        query = {
+            "kind": "HogQLQuery",
+            "query": query_str,
+            "variables": {"var-1": {"code_name": "start_date", "value": "2024-01-01"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert reason == "Variable used inside a subquery is not yet supported for materialization"
+        assert var_infos == []
+
+    def test_variable_in_a_union_cte_body_is_accepted(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event FROM events WHERE event = {variables.event_name} "
+                "UNION ALL SELECT event FROM events WHERE event = {variables.event_name}) "
+                "SELECT count() FROM base"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True, reason
+        assert var_infos[0].cte_name == "base"

@@ -298,6 +298,12 @@ def analyze_variables_for_materialization(
     if not finder.variable_placeholders:
         return False, "No variables found", []
 
+    # Runs before the per-variable analysis. That analysis reads only the WHERE clause of a
+    # context root, so it reports a variable nested in a subquery as unused.
+    rejection = _nested_variable_rejection(ast_node)
+    if rejection is not None:
+        return False, rejection, []
+
     result_vars, reason = _collect_materializable_variables(
         ast_node, finder.variable_placeholders, hogql_query.get("variables", {})
     )
@@ -441,6 +447,15 @@ def _context_rejection(cte_names: set[Optional[str]]) -> Optional[str]:
     if None in cte_names:
         return "Variable used in both CTE and top-level query is not yet supported"
     return "Variable used in multiple CTEs is not yet supported"
+
+
+def _nested_variable_rejection(ast_node: ast.SelectQuery | ast.SelectSetQuery) -> Optional[str]:
+    """Reject a variable inside a subquery. The transform leaves it in place as a placeholder."""
+    finder = _NestedVariableFinder()
+    finder.visit(ast_node)
+    if finder.found:
+        return "Variable used inside a subquery is not yet supported for materialization"
+    return None
 
 
 def _reaggregation_rejection(
@@ -1052,6 +1067,41 @@ class VariablePlaceholderFinder(TraversingVisitor):
     def visit_placeholder(self, node: ast.Placeholder):
         if node.chain and node.chain[0] == "variables":
             self.variable_placeholders.append(node)
+
+
+class _NestedVariableFinder(TraversingVisitor):
+    """Find a variable placeholder in a SELECT that is not a materialization context root.
+
+    Mirrors the context-root rule in ``MaterializationTransformer.visit_select_query``. The
+    transform skips a nested SELECT, so a variable in one stays as a placeholder and printing
+    the materialized query fails on it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+        self._select_depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if self._select_depth > 0:
+            finder = VariablePlaceholderFinder()
+            finder.visit(node)
+            self.found = self.found or bool(finder.variable_placeholders)
+            return
+
+        if node.ctes:
+            for cte in node.ctes.values():
+                self.visit(cte.expr)
+
+        # Detach the CTEs so the loop above is their only visit. A second visit here would count them as nested.
+        original_ctes = node.ctes
+        node.ctes = None
+        self._select_depth += 1
+        try:
+            super().visit_select_query(node)
+        finally:
+            self._select_depth -= 1
+            node.ctes = original_ctes
 
 
 def _contains_placeholder(node: ast.Expr) -> bool:
