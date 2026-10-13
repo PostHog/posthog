@@ -27,8 +27,9 @@ class GridlyRetryableError(Exception):
 
 @dataclasses.dataclass
 class GridlyResumeConfig:
-    # Offset of the next records page to fetch. Records is the only paginated endpoint; the columns
-    # endpoint is a single request and never resumes.
+    # Position to resume from. For `records` it is the offset of the next records page. For
+    # `record_histories` and `automation_executions` it is the index of the next parent (record or
+    # automation) to fan out over. The other endpoints never resume.
     offset: int = 0
 
 
@@ -158,6 +159,95 @@ def _iter_columns(
         yield columns
 
 
+def _iter_dependencies(
+    session: requests.Session,
+    view_id: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    dependencies = _fetch(session, f"{GRIDLY_BASE_URL}/views/{view_id}/dependencies", {}, headers, logger).json()
+    if dependencies:
+        yield dependencies
+
+
+def _iter_automation_executions(
+    session: requests.Session,
+    view_id: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[GridlyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the executions of every automation of the view, one request per automation.
+
+    The API reference documents no pagination for automations or their executions, so each list is
+    read in a single request.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start = resume.offset if resume is not None else 0
+
+    automations = _fetch(session, f"{GRIDLY_BASE_URL}/automations", {"viewId": view_id}, headers, logger).json()
+
+    for index, automation in enumerate(automations[start:], start=start):
+        automation_id = automation["id"]
+        url = f"{GRIDLY_BASE_URL}/automations/{automation_id}/executions"
+        executions = _fetch(session, url, {}, headers, logger).json()
+
+        resumable_source_manager.save_state(GridlyResumeConfig(offset=index + 1))
+        if executions:
+            yield [{**execution, "automationId": automation_id} for execution in executions]
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _iter_record_histories(
+    session: requests.Session,
+    view_id: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[GridlyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the history entries of every record of the view, one paginated walk per record.
+
+    A history entry carries no record id, so each row gets the `recordId` of the record it belongs to.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    record_offset = resume.offset if resume is not None else 0
+    if record_offset:
+        logger.debug(f"Gridly: resuming record histories from record offset={record_offset}")
+
+    records_url = f"{GRIDLY_BASE_URL}/views/{view_id}/records"
+
+    while True:
+        records_page = json.dumps({"offset": record_offset, "limit": PAGE_SIZE}, separators=(",", ":"))
+        records = _fetch(session, records_url, {"page": records_page}, headers, logger).json()
+
+        for record in records:
+            record_id = record["id"]
+            record_offset += 1
+            url = f"{records_url}/{record_id}/histories"
+            history_offset = 0
+
+            while True:
+                page = json.dumps({"offset": history_offset, "limit": PAGE_SIZE}, separators=(",", ":"))
+                histories = _fetch(session, url, {"page": page}, headers, logger).json()
+                history_offset += len(histories)
+                is_last_page = len(histories) < PAGE_SIZE
+
+                # The cursor moves past this record only with the record's last page. An earlier
+                # page would let a resume skip the pages that follow it.
+                if is_last_page:
+                    resumable_source_manager.save_state(GridlyResumeConfig(offset=record_offset))
+                if histories:
+                    yield [{**history, "recordId": record_id} for history in histories]
+                else:
+                    resumable_source_manager.safe_point()
+                if is_last_page:
+                    break
+
+        if len(records) < PAGE_SIZE:
+            break
+
+
 def _iter_hierarchy(
     session: requests.Session,
     endpoint: str,
@@ -202,8 +292,14 @@ def get_rows(
         yield from _iter_columns(session, view_id, headers, logger)
     elif endpoint == "records":
         yield from _iter_records(session, view_id, headers, logger, resumable_source_manager)
-    elif endpoint in ("projects", "databases", "grids", "views"):
+    elif endpoint in ("projects", "databases", "grids", "views", "branches"):
         yield from _iter_hierarchy(session, endpoint, headers, logger)
+    elif endpoint == "dependencies":
+        yield from _iter_dependencies(session, view_id, headers, logger)
+    elif endpoint == "automation_executions":
+        yield from _iter_automation_executions(session, view_id, headers, logger, resumable_source_manager)
+    elif endpoint == "record_histories":
+        yield from _iter_record_histories(session, view_id, headers, logger, resumable_source_manager)
     else:
         raise ValueError(f"Unknown Gridly endpoint: {endpoint!r}")
 
