@@ -67,6 +67,16 @@ export function freeCreditsLeft(quota: VisionQuotaApi | null): number | null {
     return Math.max(0, Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity) - quota.credits_used)
 }
 
+/** A free-only scanner's monthly rate, capped so its share of the days left fits in the free credits left. */
+export function freeOnlyMonthlyRate(quota: VisionQuotaApi | null, monthlyCredits: number): number {
+    const left = freeCreditsLeft(quota)
+    if (!quota || left === null) {
+        return monthlyCredits
+    }
+    const daysRemaining = Math.max(dayjs.utc(quota.period_end).diff(dayjs(), 'day', true), 0)
+    return daysRemaining > 0 ? Math.min(monthlyCredits, (left * ESTIMATE_MONTH_DAYS) / daysRemaining) : monthlyCredits
+}
+
 /**
  * True when the org's whole limit is the free allocation, so it is on the free plan rather than
  * capped by choice. A zero limit is excluded: that is a deliberate spend cap, not a free plan.

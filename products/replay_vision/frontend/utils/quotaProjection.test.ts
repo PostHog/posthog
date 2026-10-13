@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { daysUntilCapReached, hasBillableSpend, projectQuota, quotaUx } from './quotaProjection'
+import { daysUntilCapReached, freeOnlyMonthlyRate, hasBillableSpend, projectQuota, quotaUx } from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
 
 describe('hasBillableSpend', () => {
@@ -119,6 +119,19 @@ describe('projectQuota', () => {
         // 8,000 used + 30,000/month × 20 days = 20,000 more → 280% of the 10,000 cap.
         const proj = projectQuota(makeQuota({ credits_used: 8_000, scanners_monthly_credits: 30_000 }))
         expect(proj.projectedPct).toBeCloseTo(200, 0)
+    })
+})
+
+describe('freeOnlyMonthlyRate', () => {
+    it.each([
+        ['no quota leaves the rate alone', null, 3_000],
+        // 20 days left: 2,500 free credits cover a 3,750/month rate.
+        ['enough free credits left', makeQuota({}), 3_000],
+        ['few free credits left', makeQuota({ credits_used: 2_000 }), 750],
+        ['free credits used up', makeQuota({ credits_used: 3_000 }), 0],
+        ['org limit below the free credits', makeQuota({ credit_limit: 1_000, remaining: 1_000 }), 1_500],
+    ])('%s', (_name, quota, expected) => {
+        expect(freeOnlyMonthlyRate(quota, 3_000)).toBeCloseTo(expected, 0)
     })
 })
 
