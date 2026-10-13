@@ -514,6 +514,37 @@ class TestProposeIncrementalConfig(SimpleTestCase):
             ),
             ("column_types_unknown", GROUPED, {}, None),
             (
+                "grouping_repeats_the_expression",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY toStartOfDay(timestamp)",
+                {"day": "DateTime", "c": "UInt64"},
+                DAY_KEY,
+            ),
+            (
+                "key_from_a_nondeterministic_function",
+                "SELECT today() AS day, event, count() AS c FROM events GROUP BY day, event",
+                {**DAILY_EVENT_TYPES, "day": "Date"},
+                None,
+            ),
+            (
+                "moving_window_filter",
+                f"{GROUPED.replace(' GROUP BY', ' WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY')}",
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "grouped_by_a_source_column_the_output_transforms",
+                "SELECT toStartOfDay(timestamp) AS day, lower(e.event) AS event, count() AS c "
+                "FROM events AS e GROUP BY day, e.event",
+                DAILY_EVENT_TYPES,
+                None,
+            ),
+            (
+                "group_by_all_with_a_mixed_aggregate",
+                "SELECT toStartOfDay(timestamp) AS day, concat(event, toString(count())) AS c FROM events GROUP BY ALL",
+                {"day": "DateTime", "c": "String"},
+                None,
+            ),
+            (
                 "union_branches_can_repeat_a_key",
                 f"{GROUPED} UNION ALL {GROUPED}",
                 {"day": "DateTime", "c": "UInt64"},

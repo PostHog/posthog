@@ -202,9 +202,12 @@ def propose_incremental_config(
         node = parse_select(query)
     except (ExposedHogQLError, ValueError):
         return None
-    if not isinstance(node, ast.SelectQuery) or not _groups_only_by_output_columns(node):
+    if not isinstance(node, ast.SelectQuery) or _is_nondeterministic(node):
         return None
-    unique_key = sorted(_grouping_key_names(node))
+    grouped_names = _grouped_output_names(node)
+    if grouped_names is None:
+        return None
+    unique_key = sorted(set(grouped_names))
     time_keys = [name for name in unique_key if _is_time_type(column_types.get(name))]
     if len(time_keys) != 1:
         return None
@@ -213,14 +216,32 @@ def propose_incremental_config(
     return config if result.eligible else None
 
 
-def _groups_only_by_output_columns(select: ast.SelectQuery) -> bool:
-    if select.group_by_mode == "all" and not select.group_by:
-        return all(
-            _output_name(item) is not None
-            for item in select.select
-            if not has_aggregation(item.expr if isinstance(item, ast.Alias) else item)
-        )
-    return bool(select.group_by) and len(_grouping_key_names(select)) == len(select.group_by or [])
+def _is_nondeterministic(node: ast.SelectQuery) -> bool:
+    warnings: list[str] = []
+    _check_determinism(node, warnings)
+    return bool(warnings)
+
+
+def _grouped_output_names(select: ast.SelectQuery) -> Optional[list[str]]:
+    """The output column of each GROUP BY entry, or None when an entry is not an output column as written."""
+    if not select.group_by:
+        return None
+    aliases = {item.alias for item in select.select if isinstance(item, ast.Alias)}
+    name_by_expression = {
+        repr(clear_locations(item.expr if isinstance(item, ast.Alias) else item)): name
+        for item in select.select
+        if (name := _output_name(item)) is not None
+    }
+    names = []
+    for entry in select.group_by:
+        if isinstance(entry, ast.Field) and len(entry.chain) == 1 and str(entry.chain[0]) in aliases:
+            names.append(str(entry.chain[0]))
+            continue
+        name = name_by_expression.get(repr(clear_locations(entry)))
+        if name is None:
+            return None
+        names.append(name)
+    return names
 
 
 def _is_time_type(clickhouse_type: Optional[str]) -> bool:

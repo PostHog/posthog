@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 import structlog
 
@@ -43,7 +43,7 @@ LINEAGE_CHANGED_REFUSAL = "This view's lineage changed while we were setting it 
 MATERIALIZATION_FAILED_MESSAGE = "Materialization failed. Please try again or contact support."
 MATERIALIZATION_ENABLED_ACTIVITY = "materialization_enabled"
 SAVED_QUERY_ACTIVITY_SCOPE = "DataWarehouseSavedQuery"
-QUERY_CHANGED_REFUSAL = "This view's query changed while we were setting it up. Try again."
+VIEW_CHANGED_REFUSAL = "This view changed while we were setting it up. Try again."
 
 
 class KeepIncrementalConfig(Enum):
@@ -166,21 +166,23 @@ def _refuse_a_cadence_the_lineage_forbids(
 def _store_incremental_config(
     saved_query: DataWarehouseSavedQuery, incremental_config: IncrementalConfig | None, user: User
 ) -> None:
-    stored = None if incremental_config is None else _stored_incremental_config(incremental_config)
-    unchanged_row = DataWarehouseSavedQuery.objects.filter(pk=saved_query.pk)
     if incremental_config is not None:
         _refuse_an_incremental_config_the_query_forbids(saved_query, incremental_config, user)
-        unchanged_row = unchanged_row.filter(query=saved_query.query)
-    if not unchanged_row.update(incremental_config=stored):
-        raise IncrementalConfigRefusedError(QUERY_CHANGED_REFUSAL)
+    stored = None if incremental_config is None else _stored_incremental_config(incremental_config)
+    if not _unchanged_since_read(saved_query).update(incremental_config=stored):
+        raise IncrementalConfigRefusedError(VIEW_CHANGED_REFUSAL)
     saved_query.incremental_config = stored
 
 
 def _restore_incremental_config(saved_query: DataWarehouseSavedQuery, previous: dict[str, Any] | None) -> None:
-    written = saved_query.incremental_config
-    still_written = Q(incremental_config__isnull=True) if written is None else Q(incremental_config=written)
-    DataWarehouseSavedQuery.objects.filter(still_written, pk=saved_query.pk).update(incremental_config=previous)
+    _unchanged_since_read(saved_query).update(incremental_config=previous)
     saved_query.incremental_config = previous
+
+
+def _unchanged_since_read(saved_query: DataWarehouseSavedQuery) -> "QuerySet[DataWarehouseSavedQuery]":
+    config = saved_query.incremental_config
+    same_config = Q(incremental_config__isnull=True) if config is None else Q(incremental_config=config)
+    return DataWarehouseSavedQuery.objects.filter(same_config, pk=saved_query.pk, query=saved_query.query)
 
 
 def _refuse_an_incremental_config_the_query_forbids(

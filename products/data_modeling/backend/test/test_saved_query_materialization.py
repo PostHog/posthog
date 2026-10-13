@@ -21,6 +21,7 @@ from products.data_modeling.backend.test.helpers import warehouse_source_node
 
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+READ_ACCESS_CHECK = "products.data_modeling.backend.logic.saved_query_materialization.assert_user_can_read_query"
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 NODE_MATERIALIZATION_SYNC_CONNECT = "products.data_modeling.backend.logic.node_materialization.sync_connect"
@@ -184,6 +185,28 @@ class TestEnableSavedQueryMaterialization(BaseTest):
             self._enable(timedelta(hours=1), incremental_config=incremental_config)
 
         assert configs_seen_by_the_first_run == [expected]
+
+    @parameterized.expand([("incremental", DAY_KEY), ("full_refresh", None)])
+    def test_a_config_edited_after_the_view_was_read_is_not_overwritten(
+        self, _name: str, incremental_config: IncrementalConfig | None
+    ) -> None:
+        self.saved_query.query = {"kind": "HogQLQuery", "query": DAILY_COUNTS}
+        self.saved_query.save(update_fields=["query"])
+        edited_config = {**STORED_DAY_KEY, "lookback_seconds": 3600}
+
+        def edit_config_concurrently(*_args: object, **_kwargs: object) -> None:
+            DataWarehouseSavedQuery.objects.filter(id=self.saved_query.id).update(incremental_config=edited_config)
+
+        with (
+            patch(READ_ACCESS_CHECK, side_effect=edit_config_concurrently),
+            patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization,
+            self.assertRaises(api.IncrementalConfigRefusedError),
+        ):
+            self._enable(timedelta(hours=1), incremental_config=incremental_config)
+
+        self.saved_query.refresh_from_db()
+        schedule_materialization.assert_not_called()
+        assert self.saved_query.incremental_config == edited_config
 
     @parameterized.expand(
         [
