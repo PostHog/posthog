@@ -1,54 +1,23 @@
-import json
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.fly_io import (
     _sanitize_config_field,
-    fly_io_source,
     validate_credentials,
 )
-
-# RESTClient builds its own tracked session here when no custom session is passed (apps, volumes).
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# The machines stream builds a capture-disabled session in the fly_io module; validate_credentials
-# builds its probe session here too.
-FLY_IO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.fly_io.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.source import FlyIoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
 
 
-def _response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver(org_slug: str = "acme") -> SourceDriver:
+    return SourceDriver(FlyIoSource(), FlyIoSourceConfig(api_token="tok", organization_slug=org_slug))
 
 
 class TestPaginationAndUrls:
@@ -59,42 +28,29 @@ class TestPaginationAndUrls:
             ("volumes", "https://api.machines.dev/v1/orgs/acme/volumes", {"limit": 1000}),
         ]
     )
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_org_scoped_endpoint_puts_org_in_path(
-        self, endpoint: str, expected_url: str, expected_params: dict, MockClientSession, MockFlyIoSession
+        self, endpoint: str, expected_url: str, expected_params: dict[str, int]
     ) -> None:
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        snaps = _wire(session, [_response({endpoint: [{"id": "x"}], "next_cursor": None})])
+        result = _driver().run(endpoint, [ScriptedResponse(json={endpoint: [{"id": "x"}], "next_cursor": None})])
 
-        _rows(fly_io_source("tok", endpoint, "acme", team_id=1, job_id="j"))
-
-        assert snaps[0]["url"] == expected_url
-        assert snaps[0]["params"] == expected_params
+        assert result.raised is None
+        assert [url.split("?", 1)[0] for url in result.urls] == [expected_url]
+        assert result.queries == [{key: (str(value),) for key, value in expected_params.items()}]
 
     @parameterized.expand([("machines",), ("volumes",)])
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reserved_char_in_slug_is_encoded_in_path(self, endpoint: str, MockClientSession, MockFlyIoSession) -> None:
+    def test_reserved_char_in_slug_is_encoded_in_path(self, endpoint: str) -> None:
         # A slug carrying a path-reserved char must be percent-encoded, otherwise it could retarget
         # the request to a different API path than the one credential validation checked.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        snaps = _wire(session, [_response({endpoint: [], "next_cursor": None})])
+        result = _driver("ac/me").run(endpoint, [ScriptedResponse(json={endpoint: [], "next_cursor": None})])
 
-        _rows(fly_io_source("tok", endpoint, "ac/me", team_id=1, job_id="j"))
+        assert result.raised is None
+        assert result.paths == [f"/v1/orgs/ac%2Fme/{endpoint}"]
 
-        assert snaps[0]["url"] == f"https://api.machines.dev/v1/orgs/ac%2Fme/{endpoint}"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_response_shape_raises(self, MockClientSession) -> None:
+    def test_unexpected_response_shape_raises(self) -> None:
         # A bare list where an object wrapper is expected must fail loudly, not silently sync zero rows.
-        session = MockClientSession.return_value
-        _wire(session, [_response([{"id": "x"}])])
+        result = _driver().run("apps", [ScriptedResponse(json=[{"id": "x"}])])
 
-        with pytest.raises(ValueError):
-            _rows(fly_io_source("tok", "apps", "acme", team_id=1, job_id="j"))
+        assert isinstance(result.raised, ValueError)
 
 
 class TestFanout:
@@ -126,8 +82,6 @@ class TestFanout:
             ),
         ]
     )
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_child_path_binds_to_its_parent_row_and_carries_its_columns(
         self,
         endpoint: str,
@@ -136,104 +90,81 @@ class TestFanout:
         child_rows: list[dict[str, Any]],
         expected_child_url: str,
         expected_parent_columns: dict[str, str],
-        MockClientSession,
-        MockFlyIoSession,
     ) -> None:
         # The child path needs BOTH the app name and the resource id from the same parent row, and
         # each row has to carry them as flat columns — the composite primary key is built from them.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        snaps = _wire(session, [_response({parent: [parent_row], "next_cursor": None}), _response(child_rows)])
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={parent: [parent_row], "next_cursor": None}), ScriptedResponse(json=child_rows)],
+        )
 
-        rows = _rows(fly_io_source("tok", endpoint, "acme", team_id=1, job_id="j"))
-
-        assert snaps[1]["url"] == expected_child_url
-        assert len(rows) == len(child_rows)
-        for row in rows:
+        assert result.raised is None
+        assert result.urls[1].split("?", 1)[0] == expected_child_url
+        assert result.requests[1].param("limit") == ("50" if endpoint == "machine_events" else None)
+        assert len(result.rows) == len(child_rows)
+        for row in result.rows:
             for column, value in expected_parent_columns.items():
                 assert row[column] == value
             # The raw `_<parent>_<field>` keys the fan-out injects must not survive into the table.
             assert not any(key.startswith(f"_{parent}_") for key in row)
 
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_machine_versions_sanitizes_its_user_config(self, MockClientSession, MockFlyIoSession) -> None:
+    def test_machine_versions_sanitizes_its_user_config(self) -> None:
         # A version row carries the whole machine config under `user_config`, so it needs the same
         # redaction as the machines stream — otherwise deploy secrets land in the warehouse.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        _wire(
-            session,
+        result = _driver().run(
+            "machine_versions",
             [
-                _response({"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": None}),
-                _response([{"version": "v1", "user_config": {"image": "app", "env": {"SECRET": "x"}}}]),
+                ScriptedResponse(json={"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": None}),
+                ScriptedResponse(json=[{"version": "v1", "user_config": {"image": "app", "env": {"SECRET": "x"}}}]),
             ],
         )
 
-        rows = _rows(fly_io_source("tok", "machine_versions", "acme", team_id=1, job_id="j"))
-
-        assert rows == [{"version": "v1", "user_config": {"image": "app"}, "machine_id": "m1", "app_name": "app1"}]
+        assert result.raised is None
+        assert result.rows == [
+            {"version": "v1", "user_config": {"image": "app"}, "machine_id": "m1", "app_name": "app1"}
+        ]
 
     @parameterized.expand([("machine_events",), ("machine_versions",)])
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_machine_parented_streams_disable_sample_capture(
-        self, endpoint: str, MockClientSession, MockFlyIoSession
-    ) -> None:
+    def test_machine_parented_streams_disable_sample_capture(self, endpoint: str) -> None:
         # The machines listing that drives these fan-outs returns machine configs, so their traffic
         # can carry secrets even where the child rows cannot.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        _wire(session, [_response({"machines": [], "next_cursor": None})])
+        result = _driver().run(endpoint, [ScriptedResponse(json={"machines": [], "next_cursor": None})])
 
-        _rows(fly_io_source("tok", endpoint, "acme", team_id=1, job_id="j"))
-
-        MockFlyIoSession.assert_called_once_with(capture=False, redact_values=("tok",))
+        assert result.raised is None
+        assert result.session_options == [{"capture": False, "redact_values": ("tok",)}]
 
 
 class TestSampleCaptureAndRedaction:
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_machines_stream_sanitizes_rows_and_disables_sample_capture(
-        self, MockClientSession, MockFlyIoSession
-    ) -> None:
+    def test_machines_stream_sanitizes_rows_and_disables_sample_capture(self) -> None:
         # End-to-end wiring: the machines stream must both redact secrets from every yielded row and
         # opt out of HTTP sample capture, so secrets reach neither the warehouse nor the sample pipeline.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        _wire(
-            session,
+        result = _driver().run(
+            "machines",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "machines": [{"id": "m1", "config": {"image": "app", "env": {"SECRET": "x"}}}],
                         "next_cursor": None,
-                    }
+                    },
                 )
             ],
         )
 
-        rows = _rows(fly_io_source("tok", "machines", "acme", team_id=1, job_id="j"))
-
-        assert rows == [{"id": "m1", "config": {"image": "app"}}]
+        assert result.raised is None
+        assert result.rows == [{"id": "m1", "config": {"image": "app"}}]
         # The machines session is built with sample capture disabled and the token masked.
-        MockFlyIoSession.assert_called_once_with(capture=False, redact_values=("tok",))
+        assert result.session_options == [{"capture": False, "redact_values": ("tok",)}]
 
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_secret_stream_keeps_sample_capture_and_rows_verbatim(
-        self, MockClientSession, MockFlyIoSession
-    ) -> None:
+    def test_non_secret_stream_keeps_sample_capture_and_rows_verbatim(self) -> None:
         # Volumes carry no secrets, so no capture-disabled session is built and rows pass through unchanged.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        _wire(session, [_response({"volumes": [{"id": "v1", "encrypted": True}], "next_cursor": None})])
+        result = _driver().run(
+            "volumes", [ScriptedResponse(json={"volumes": [{"id": "v1", "encrypted": True}], "next_cursor": None})]
+        )
 
-        rows = _rows(fly_io_source("tok", "volumes", "acme", team_id=1, job_id="j"))
-
-        assert rows == [{"id": "v1", "encrypted": True}]
+        assert result.raised is None
+        assert result.rows == [{"id": "v1", "encrypted": True}]
         # No custom session is built for a non-secret stream; RESTClient builds the (capturing) one.
-        MockFlyIoSession.assert_not_called()
+        assert result.session_options == [{"redact_values": ("tok",)}]
 
 
 _sanitize_machine = _sanitize_config_field("config")
@@ -327,19 +258,23 @@ class TestValidateCredentials:
             (500, False),
         ]
     )
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    def test_status_maps_to_validity(self, status_code: int, expected_valid: bool, MockFlyIoSession) -> None:
-        MockFlyIoSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        valid, error = validate_credentials("tok", "acme")
+    def test_status_maps_to_validity(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            valid, error = validate_credentials("tok", "acme")
+
         assert valid is expected_valid
         assert (error is None) is expected_valid
+        assert network.requests_log[0].path == "/v1/apps"
+        assert network.requests_log[0].param("org_slug") == "acme"
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
 
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    def test_network_error_is_not_valid(self, MockFlyIoSession) -> None:
-        MockFlyIoSession.return_value.get.side_effect = Exception("no route")
-        valid, error = validate_credentials("tok", "acme")
+    def test_network_error_is_not_valid(self) -> None:
+        with scripted_network(always(ConnectionError("no route"))) as network:
+            valid, error = validate_credentials("tok", "acme")
+
         assert valid is False
         assert error is not None
+        assert {request.path for request in network.requests_log} == {"/v1/apps"}
 
 
 class TestFlyIoSourceResponse:
@@ -350,25 +285,24 @@ class TestFlyIoSourceResponse:
             ("volume_snapshots", "created_at"),
         ]
     )
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_timestamped_endpoints_partition_on_created_at(
-        self, endpoint: str, partition_key: str, MockClientSession, MockFlyIoSession
-    ) -> None:
-        MockFlyIoSession.return_value = MockClientSession.return_value
-        response = fly_io_source("tok", endpoint, "acme", team_id=1, job_id="j")
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
+    def test_timestamped_endpoints_partition_on_created_at(self, endpoint: str, partition_key: str) -> None:
+        parent = "volumes" if endpoint == "volume_snapshots" else endpoint
+        result = _driver().run(endpoint, [ScriptedResponse(json={parent: [], "next_cursor": None})])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == [partition_key]
 
     @parameterized.expand([("apps",), ("regions",), ("machine_events",), ("machine_versions",)])
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_timestampless_endpoints_have_no_partitioning(
-        self, endpoint: str, MockClientSession, MockFlyIoSession
-    ) -> None:
+    def test_timestampless_endpoints_have_no_partitioning(self, endpoint: str) -> None:
         # These rows carry no RFC 3339 timestamp (machine events only carry epoch milliseconds), so
         # partitioning on one would break the sync.
-        MockFlyIoSession.return_value = MockClientSession.return_value
-        response = fly_io_source("tok", endpoint, "acme", team_id=1, job_id="j")
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        parent = "machines" if endpoint in ("machine_events", "machine_versions") else endpoint
+        wrapper = "Regions" if endpoint == "regions" else parent
+        result = _driver().run(endpoint, [ScriptedResponse(json={wrapper: [], "next_cursor": None})])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.partition_mode is None
+        assert result.response.partition_keys is None

@@ -1,17 +1,21 @@
-import json
+import base64
 from datetime import UTC, date, datetime
-from typing import Any, cast
-
-from unittest import mock
+from typing import Any
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ownerrez import (
+    OwnerrezSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.ownerrez import (
     OwnerRezResumeConfig,
     _build_params,
     _format_since_utc,
-    ownerrez_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.settings import (
@@ -19,13 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.s
     OWNERREZ_ENDPOINTS,
     PAGE_LIMIT,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the ownerrez module.
-OWNERREZ_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.ownerrez.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.source import OwnerrezSource
 
 
 class TestFormatSinceUtc:
@@ -61,129 +59,63 @@ class TestBuildParams:
         assert params == {"limit": PAGE_LIMIT}
 
 
-def _response(items: list[dict[str, Any]] | None, *, next_page_url: str | None = None) -> Response:
-    body: dict[str, Any] = {"items": items or [], "limit": PAGE_LIMIT, "offset": 0, "next_page_url": next_page_url}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(OwnerrezSource(), OwnerrezSourceConfig(email="host@example.com", api_key="pt_key"))
 
 
-def _make_manager(resume_state: OwnerRezResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append(
-            {
-                "url": request.url,
-                "params": dict(request.params or {}),
-                "auth": request.auth,
-                "headers": dict(request.headers or {}),
-            }
-        )
-        # RESTClient checks the *prepared* request's URL against allowed_hosts before sending
-        # (rest_client._check_allowed_host), so the stand-in prepared request needs a real URL
-        # string here, not an auto-generated Mock attribute.
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return ownerrez_source(
-        email="host@example.com",
-        api_key="pt_key",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        db_incremental_field_last_value=None,
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in cast(Any, source_response.items()) for row in page]
+def _page(items: list[dict[str, Any]], *, next_page_url: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"items": items, "limit": PAGE_LIMIT, "offset": 0, "next_page_url": next_page_url})
 
 
 class TestOwnerrezSourceTransport:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_page_url_until_null(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_follows_next_page_url_until_null(self) -> None:
+        result = _driver().run(
+            "Properties",
             [
-                _response([{"id": 1}, {"id": 2}], next_page_url="https://api.ownerrez.com/v2/properties?offset=2"),
-                _response([{"id": 3}], next_page_url=None),
+                _page([{"id": 1}, {"id": 2}], next_page_url="https://api.ownerrez.com/v2/properties?offset=2"),
+                _page([{"id": 3}]),
             ],
         )
 
-        rows = _rows(_source("Properties", _make_manager()))
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert session.send.call_count == 2
-        assert snapshots[0]["url"] == "https://api.ownerrez.com/v2/properties"
-        assert snapshots[0]["params"] == {"limit": PAGE_LIMIT}
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.paths == ["/v2/properties", "/v2/properties"]
+        assert result.requests[0].origin == "https://api.ownerrez.com"
+        assert result.requests[0].param("limit") == str(PAGE_LIMIT)
         # The second request follows the opaque next_page_url verbatim, with no re-appended params.
-        assert snapshots[1]["url"] == "https://api.ownerrez.com/v2/properties?offset=2"
-        assert snapshots[1]["params"] == {}
+        assert result.urls[1] == "https://api.ownerrez.com/v2/properties?offset=2"
+        assert result.queries[1] == {"offset": ("2",)}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bookings_incremental_cursor_added_to_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            ownerrez_source(
-                email="host@example.com",
-                api_key="pt_key",
-                endpoint="Bookings",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
+    def test_bookings_incremental_cursor_added_to_request(self) -> None:
+        result = _driver().run(
+            "Bookings",
+            [_page([{"id": 1}])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
 
-        assert snapshots[0]["params"]["since_utc"] == "2026-03-04T02:58:14Z"
+        assert result.raised is None
+        assert result.requests[0].param("since_utc") == "2026-03-04T02:58:14Z"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 2}], next_page_url=None)])
-
-        rows = _rows(
-            _source(
-                "Properties",
-                _make_manager(OwnerRezResumeConfig(next_url="https://api.ownerrez.com/v2/properties?offset=1")),
-            )
+    def test_resumes_from_saved_next_url(self) -> None:
+        result = _driver().run(
+            "Properties",
+            [_page([{"id": 2}])],
+            resume_state=OwnerRezResumeConfig(next_url="https://api.ownerrez.com/v2/properties?offset=1"),
         )
 
-        assert [r["id"] for r in rows] == [2]
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"] == "https://api.ownerrez.com/v2/properties?offset=1"
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [2]
+        assert result.urls == ["https://api.ownerrez.com/v2/properties?offset=1"]
 
 
 class TestValidateCredentials:
-    @mock.patch(OWNERREZ_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("host@example.com", "pt_key") == (True, 200)
+    def test_ok(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            result = validate_credentials("host@example.com", "pt_key")
+
+        assert result == (True, 200)
+        assert [request.path for request in network.requests_log] == ["/v2/properties"]
+        assert network.requests_log[0].param("limit") == "1"
+        encoded = base64.b64encode(b"host@example.com:pt_key").decode()
+        assert network.requests_log[0].headers["authorization"] == f"Basic {encoded}"

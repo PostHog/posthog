@@ -2,6 +2,10 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
     BraintreeSourceConfig,
 )
@@ -69,13 +73,16 @@ class TestBraintreeSource:
             (None, "2026-10-06"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.braintree_source")
-    def test_source_for_pipeline_dispatches_resolved_version(self, mock_bt_source, pinned, expected):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "transactions"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pinned
+    def test_source_for_pipeline_dispatches_resolved_version(self, pinned: str | None, expected: str) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "transactions",
+            [
+                ScriptedResponse(
+                    json={"data": {"search": {"transactions": {"pageInfo": {"hasNextPage": False}, "edges": []}}}}
+                )
+            ],
+            api_version=pinned,
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_bt_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.requests[0].headers["braintree-version"] == expected

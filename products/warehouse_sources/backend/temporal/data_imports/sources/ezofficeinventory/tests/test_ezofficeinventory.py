@@ -1,139 +1,66 @@
-import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
     EZOfficeInventoryResumeConfig,
-    ezofficeinventory_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
     EZOFFICEINVENTORY_API_VERSION_V1,
     EZOFFICEINVENTORY_API_VERSION_V2,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the ezofficeinventory module.
-EZO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory."
-    "make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source import (
+    EZOfficeInventorySource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
+    EZOfficeInventorySourceConfig,
 )
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    resp.url = "https://acme.ezofficeinventory.com/assets.api"
-    return resp
-
-
-def _make_manager(resume_state: EZOfficeInventoryResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared instead of inspecting the final state after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = "https://acme.ezofficeinventory.com/assets.api"
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[str]:
-    """Wire a mock session and capture each request's URL at send time.
-
-    Fan-out binds the parent id into the child path, so the URL — not the params — is what
-    proves the right parent was requested.
-    """
-    session.headers = {}
-    urls: list[str] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        urls.append(request.url)
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return urls
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, api_version: str = EZOFFICEINVENTORY_API_VERSION_V1):
-    return ezofficeinventory_source(
-        api_key="tok",
-        subdomain="acme",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job",
-        resumable_source_manager=manager,
-        api_version=api_version,
-    )
+def _driver() -> SourceDriver:
+    config = cast(EZOfficeInventorySourceConfig, EZOfficeInventorySourceConfig(subdomain="acme", api_key="tok"))
+    return SourceDriver(EZOfficeInventorySource(), config)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_total_pages(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_paginates_until_total_pages(self) -> None:
+        result = _driver().run(
+            "assets",
             [
-                _response({"assets": [{"identifier": 1}], "total_pages": 2}),
-                _response({"assets": [{"identifier": 2}], "total_pages": 2}),
+                ScriptedResponse(json={"assets": [{"identifier": 1}], "total_pages": 2}),
+                ScriptedResponse(json={"assets": [{"identifier": 2}], "total_pages": 2}),
             ],
+            api_version=EZOFFICEINVENTORY_API_VERSION_V1,
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("assets", manager))
-
-        assert rows == [{"identifier": 1}, {"identifier": 2}]
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
+        assert result.raised is None
+        assert result.rows == [{"identifier": 1}, {"identifier": 2}]
+        assert result.params("page") == ["1", "2"]
         # State saved once (after page 1), pointing at page 2 — never after the terminal page.
-        manager.save_state.assert_called_once_with(EZOfficeInventoryResumeConfig(next_page=2))
+        assert result.saved_states == [EZOfficeInventoryResumeConfig(next_page=2)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"assets": [{"identifier": 30}], "total_pages": 3})])
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "assets",
+            [ScriptedResponse(json={"assets": [{"identifier": 30}], "total_pages": 3})],
+            resume_state=EZOfficeInventoryResumeConfig(next_page=3),
+            api_version=EZOFFICEINVENTORY_API_VERSION_V1,
+        )
 
-        manager = _make_manager(EZOfficeInventoryResumeConfig(next_page=3))
-        rows = _rows(_source("assets", manager))
-
-        assert rows == [{"identifier": 30}]
+        assert result.raised is None
+        assert result.rows == [{"identifier": 30}]
         # Picks up at page 3 (the saved cursor), not page 1.
-        assert params[0]["page"] == 3
-        manager.save_state.assert_not_called()
+        assert result.params("page") == ["3"]
+        assert result.saved_states == []
 
 
 class TestUnwrap:
-    @mock.patch(CLIENT_SESSION_PATCH)
     @pytest.mark.parametrize(
         ("endpoint", "body", "expected"),
         [
@@ -148,42 +75,43 @@ class TestUnwrap:
         ],
     )
     def test_unwraps_single_key_items(
-        self, MockSession, endpoint: str, body: dict[str, Any], expected: list[dict]
+        self, endpoint: str, body: dict[str, Any], expected: list[dict[str, Any]]
     ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)], api_version=EZOFFICEINVENTORY_API_VERSION_V1)
 
-        rows = _rows(_source(endpoint, _make_manager()))
-        assert rows == expected
+        assert result.raised is None
+        assert result.rows == expected
 
 
 class TestRetryableFetch:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_fails_loud(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "unauthorized"}, status_code=401)])
+    def test_client_error_fails_loud(self) -> None:
+        result = _driver().run(
+            "assets",
+            [ScriptedResponse(status=401, json={"error": "unauthorized"})],
+            api_version=EZOFFICEINVENTORY_API_VERSION_V1,
+        )
 
-        with pytest.raises(Exception):
-            _rows(_source("assets", _make_manager()))
+        assert isinstance(result.raised, Exception)
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("bad_subdomain", ["", "has space", "bad/slash", "a.b", "http://x"])
     def test_rejects_unsafe_subdomain_without_network(self, bad_subdomain: str) -> None:
-        with mock.patch(EZO_SESSION_PATCH) as mocked:
+        with scripted_network([]) as network:
             assert validate_credentials("tok", bad_subdomain, EZOFFICEINVENTORY_API_VERSION_V1) == (False, None)
-            mocked.assert_not_called()
+
+        assert network.requests_log == []
+        assert network.session_options == []
 
     @pytest.mark.parametrize(
         ("status_code", "expected"),
         [(200, True), (401, False), (403, False), (500, False)],
     )
     def test_maps_status_code(self, status_code: int, expected: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response({}, status_code=status_code)
-        with mock.patch(EZO_SESSION_PATCH, return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code, json={})]):
             is_valid, _ = validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
-            assert is_valid is expected
+
+        assert is_valid is expected
 
     @pytest.mark.parametrize(
         ("api_version", "expected_url", "expected_header"),
@@ -205,119 +133,104 @@ class TestValidateCredentials:
     ) -> None:
         # A passing probe must exercise the same base path and auth scheme the sync will use for
         # that version — otherwise the probe validates a path the pinned sync never calls.
-        session = mock.MagicMock()
-        session.get.return_value = _response({}, status_code=200)
-        with mock.patch(EZO_SESSION_PATCH, return_value=session):
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
             is_valid, _ = validate_credentials("tok", "acme", api_version)
+
         assert is_valid is True
-        assert session.get.call_args.args[0] == expected_url
+        assert network.requests_log[0].url == expected_url
         header_name, header_value = expected_header
-        assert session.get.call_args.kwargs["headers"][header_name] == header_value
+        assert network.requests_log[0].headers[header_name.lower()] == header_value
 
     def test_rate_limit_returns_specific_message(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response({}, status_code=429)
-        with mock.patch(EZO_SESSION_PATCH, return_value=session):
+        with scripted_network([ScriptedResponse(status=429, json={})]):
             is_valid, error = validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
-            assert is_valid is False
-            assert error is not None
-            assert "rate limit" in error.lower()
+
+        assert is_valid is False
+        assert error is not None
+        assert "rate limit" in error.lower()
 
     def test_validation_session_disables_redirects_and_urllib3_retries(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response({}, status_code=200)
-        with mock.patch(EZO_SESSION_PATCH, return_value=session) as mocked:
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
             validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
-            assert mocked.call_args.kwargs["allow_redirects"] is False
-            # Single-shot validation handles status codes itself; urllib3 retries stay off.
-            assert mocked.call_args.kwargs["retry"].total == 0
+
+        assert network.session_options[0]["allow_redirects"] is False
+        # Single-shot validation handles status codes itself; urllib3 retries stay off.
+        assert network.session_options[0]["retry"].total == 0
 
 
 class TestV2Pagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_metadata_next_page_and_saves_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_follows_metadata_next_page_and_saves_cursor(self) -> None:
         next_url = "https://acme.ezofficeinventory.com/api/v2/assets?page=2"
-        _wire(
-            session,
+        result = _driver().run(
+            "assets",
             [
-                _response({"assets": [{"identifier": 1}], "metadata": {"next_page": next_url}}),
-                _response({"assets": [{"identifier": 2}], "metadata": {"next_page": None}}),
+                ScriptedResponse(json={"assets": [{"identifier": 1}], "metadata": {"next_page": next_url}}),
+                ScriptedResponse(json={"assets": [{"identifier": 2}], "metadata": {"next_page": None}}),
             ],
+            api_version=EZOFFICEINVENTORY_API_VERSION_V2,
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("assets", manager, api_version=EZOFFICEINVENTORY_API_VERSION_V2))
-
-        assert rows == [{"identifier": 1}, {"identifier": 2}]
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert result.rows == [{"identifier": 1}, {"identifier": 2}]
+        assert result.paths == ["/api/v2/assets", "/api/v2/assets"]
+        assert result.params("page") == [None, "2"]
         # Checkpoint carries the next-page URL, not a page number — the v2 resume shape.
-        manager.save_state.assert_called_once_with(EZOfficeInventoryResumeConfig(next_url=next_url))
+        assert result.saved_states == [EZOfficeInventoryResumeConfig(next_url=next_url)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_cursor(self) -> None:
         next_url = "https://acme.ezofficeinventory.com/api/v2/assets?page=2"
-        _wire(session, [_response({"assets": [{"identifier": 2}], "metadata": {"next_page": None}})])
+        result = _driver().run(
+            "assets",
+            [ScriptedResponse(json={"assets": [{"identifier": 2}], "metadata": {"next_page": None}})],
+            resume_state=EZOfficeInventoryResumeConfig(next_url=next_url),
+            api_version=EZOFFICEINVENTORY_API_VERSION_V2,
+        )
 
-        manager = _make_manager(EZOfficeInventoryResumeConfig(next_url=next_url))
-        rows = _rows(_source("assets", manager, api_version=EZOFFICEINVENTORY_API_VERSION_V2))
-
-        assert rows == [{"identifier": 2}]
+        assert result.raised is None
+        assert result.rows == [{"identifier": 2}]
         # One request only: the saved cursor is the starting point, not page 1 followed by it.
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.urls == [next_url]
+        assert result.saved_states == []
 
 
 class TestHistoryFanout:
     """The history tables are per-item sub-resources fanned out over their list endpoint."""
 
-    @staticmethod
-    def _fanout_source(endpoint: str, manager: mock.MagicMock):
-        return _source(endpoint, manager, api_version=EZOFFICEINVENTORY_API_VERSION_V2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fetches_each_parent_and_injects_parent_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire_urls(
-            session,
+    def test_fetches_each_parent_and_injects_parent_id(self) -> None:
+        result = _driver().run(
+            "asset_checkout_history",
             [
-                _response(
-                    {"assets": [{"id": 1, "identifier": "A1"}, {"id": 2, "identifier": "A2"}], "metadata": {}},
+                ScriptedResponse(
+                    json={"assets": [{"id": 1, "identifier": "A1"}, {"id": 2, "identifier": "A2"}], "metadata": {}}
                 ),
-                _response({"histories": [{"id": 10}], "metadata": {}}),
-                _response({"histories": [{"id": 20}], "metadata": {}}),
+                ScriptedResponse(json={"histories": [{"id": 10}], "metadata": {}}),
+                ScriptedResponse(json={"histories": [{"id": 20}], "metadata": {}}),
             ],
+            api_version=EZOFFICEINVENTORY_API_VERSION_V2,
         )
 
-        rows = _rows(self._fanout_source("asset_checkout_history", _make_manager()))
-
+        assert result.raised is None
         # The child path binds the parent's record id, not its identification number.
-        assert urls[1:] == [
-            "https://acme.ezofficeinventory.com/api/v2/assets/1/history",
-            "https://acme.ezofficeinventory.com/api/v2/assets/2/history",
-        ]
+        assert result.paths[1:] == ["/api/v2/assets/1/history", "/api/v2/assets/2/history"]
         # A history row carries no back-reference to its asset, so the parent id is injected —
         # without it the composite primary key would collapse every asset's history together.
-        assert rows == [{"id": 10, "asset_id": 1}, {"id": 20, "asset_id": 2}]
+        assert result.rows == [{"id": 10, "asset_id": 1}, {"id": 20, "asset_id": 2}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_pages_are_followed_per_parent(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_child_pages_are_followed_per_parent(self) -> None:
         next_url = "https://acme.ezofficeinventory.com/api/v2/assets/1/history?page=2"
-        manager = _make_manager()
-        _wire(
-            session,
+        result = _driver().run(
+            "asset_checkout_history",
             [
-                _response({"assets": [{"id": 1}], "metadata": {}}),
-                _response({"histories": [{"id": 10}], "metadata": {"next_page": next_url}}),
-                _response({"histories": [{"id": 11}], "metadata": {"next_page": None}}),
+                ScriptedResponse(json={"assets": [{"id": 1}], "metadata": {}}),
+                ScriptedResponse(json={"histories": [{"id": 10}], "metadata": {"next_page": next_url}}),
+                ScriptedResponse(json={"histories": [{"id": 11}], "metadata": {"next_page": None}}),
             ],
+            api_version=EZOFFICEINVENTORY_API_VERSION_V2,
         )
 
-        rows = _rows(self._fanout_source("asset_checkout_history", manager))
-
-        assert rows == [{"id": 10, "asset_id": 1}, {"id": 11, "asset_id": 1}]
+        assert result.raised is None
+        assert result.rows == [{"id": 10, "asset_id": 1}, {"id": 11, "asset_id": 1}]
+        assert result.urls[2] == next_url
         # A fan-out run is full refresh with no resumable cursor: a mid-run checkpoint would
         # point at a child page without recording which parents were already walked.
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []

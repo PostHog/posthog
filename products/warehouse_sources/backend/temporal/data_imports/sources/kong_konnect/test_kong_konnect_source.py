@@ -1,10 +1,15 @@
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kongkonnect import (
     KongKonnectSourceConfig,
 )
@@ -79,30 +84,35 @@ class TestCoerceLookbackDays:
 
 
 class TestSourceForPipeline:
-    @patch.object(source_module, "kong_konnect_source")
-    def test_plumbs_region_and_lookback(self, mock_source: MagicMock) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "api_requests"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_plumbs_region_and_lookback(self) -> None:
+        driver = SourceDriver(KongKonnectSource(), _config(region="eu", lookback_days="5"))
+        result = driver.run(
+            "api_requests",
+            [ScriptedResponse(json={"results": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
 
-        KongKonnectSource().source_for_pipeline(_config(region="eu", lookback_days="5"), MagicMock(), inputs)
+        assert result.raised is None
+        assert result.requests[0].origin == "https://eu.api.konghq.com"
+        assert result.requests[0].json()["time_range"]["start"] == "2026-01-01T00:00:00Z"
+        full_refresh = driver.run("api_requests", [ScriptedResponse(json={"results": []})])
+        assert full_refresh.raised is None
+        assert full_refresh.requests[0].json()["time_range"]["start"] == "2026-06-10T12:00:00Z"
 
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["region"] == "eu"
-        assert kwargs["lookback_days"] == 5
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_incremental_value_gated_off_when_not_incremental(self) -> None:
+        driver = SourceDriver(KongKonnectSource(), _config())
+        result = driver.run(
+            "api_requests",
+            [ScriptedResponse(json={"results": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
 
-    @patch.object(source_module, "kong_konnect_source")
-    def test_incremental_value_gated_off_when_not_incremental(self, mock_source: MagicMock) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "api_requests"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        KongKonnectSource().source_for_pipeline(_config(), MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].json()["time_range"]["start"] == "2026-05-16T12:00:00Z"
 
 
 if __name__ == "__main__":

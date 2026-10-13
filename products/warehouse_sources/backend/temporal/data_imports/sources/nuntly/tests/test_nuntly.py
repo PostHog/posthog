@@ -1,149 +1,89 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
-
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuntly import NuntlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.nuntly import (
     NuntlyResumeConfig,
-    nuntly_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.settings import ENDPOINTS
-
-
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.source import NuntlySource
 
 
 class TestNuntlySourceResumeBehavior:
-    """End-to-end cursor pagination + resume behaviour of ``nuntly_source``."""
+    """End-to-end cursor pagination + resume behaviour of ``NuntlySource``."""
 
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]], list[str]]:
-        """Drive ``nuntly_source`` with a mocked HTTP session.
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(NuntlySource(), NuntlySourceConfig(api_key="apk_test"))
 
-        Returns ``(mock_session, sent_params, sent_urls)``. Params/urls are captured at
-        send-time since the underlying Request object is mutated in-place between pages.
-        """
-        sent_params: list[dict[str, Any]] = []
-        sent_urls: list[str] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = nuntly_source(
-                api_key="apk_test",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            list(cast(Iterable[Any], response.items()))
-            return mock_session, sent_params, sent_urls
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
+        return ScriptedResponse(json={"data": rows, "nextCursor": next_cursor})
 
     @parameterized.expand([("Emails",), ("Messages",), ("Inboxes",), ("Domains",), ("Webhooks",)])
     def test_fresh_run_walks_pages_and_saves_cursor_after_each_non_terminal_page(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            endpoint,
+            [
+                self._page([{"id": "1"}], "cursor-1"),
+                self._page([{"id": "2"}], "cursor-2"),
+                self._page([{"id": "3"}], None),
+            ],
+        )
 
-        responses = [
-            _make_http_response({"data": [{"id": "1"}], "nextCursor": "cursor-1"}),
-            _make_http_response({"data": [{"id": "2"}], "nextCursor": "cursor-2"}),
-            _make_http_response({"data": [{"id": "3"}], "nextCursor": None}),
-        ]
-        _, sent_params, sent_urls = self._drive(endpoint, manager, responses)
-
-        cursors_sent = [p.get("cursor") for p in sent_params]
-        assert cursors_sent == [None, "cursor-1", "cursor-2"]
-        assert all(p.get("limit") == 30 for p in sent_params)
-        assert all(url.startswith(f"https://api.nuntly.com{ENDPOINTS[endpoint].path}") for url in sent_urls)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert result.params("cursor") == [None, "cursor-1", "cursor-2"]
+        assert result.params("limit") == ["30", "30", "30"]
+        assert all(url.startswith(f"https://api.nuntly.com{ENDPOINTS[endpoint].path}") for url in result.urls)
+        assert result.saved_states == [
             NuntlyResumeConfig(cursor="cursor-1"),
             NuntlyResumeConfig(cursor="cursor-2"),
         ]
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = NuntlyResumeConfig(cursor="cursor-resumed")
+        result = self._driver().run(
+            "Emails",
+            [self._page([{"id": "4"}], None)],
+            resume_state=NuntlyResumeConfig(cursor="cursor-resumed"),
+        )
 
-        responses = [_make_http_response({"data": [{"id": "4"}], "nextCursor": None})]
-        _, sent_params, _ = self._drive("Emails", manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.params("cursor") == ["cursor-resumed"]
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("Emails", [self._page([{"id": "a"}], None)])
 
-        responses = [_make_http_response({"data": [{"id": "a"}], "nextCursor": None})]
-        self._drive("Emails", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("cursor") == [None]
 
     @parameterized.expand([("Emails",), ("Messages",), ("Inboxes",), ("Domains",), ("Webhooks",)])
     def test_source_response_uses_declared_primary_keys_and_partitioning(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(endpoint, [self._page([], None)])
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.return_value = _make_http_response({"data": [], "nextCursor": None})
-
-            response = nuntly_source(
-                api_key="apk_test",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=manager,
-            )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == ["id"]
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["createdAt"]
 
 
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
     def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.nuntly.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            mock_session.get.return_value = MagicMock(status_code=status_code)
-
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             is_valid, code = validate_credentials("apk_test")
 
         assert (is_valid, code) == (expected_valid, status_code)
+        assert network.requests_log[0].path == "/emails"
 
 
 class TestEndpointSettings:
