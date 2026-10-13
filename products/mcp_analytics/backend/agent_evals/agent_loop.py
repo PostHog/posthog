@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
+import httpx
 import anthropic
 from anthropic.types import Message, MessageParam, ToolResultBlockParam, ToolUseBlock, Usage
 
@@ -102,7 +103,8 @@ async def run_trial(scenario: Scenario, trial: int, max_turns: int, deps: TrialD
     while True:
         try:
             response = await deps.create_message(messages)
-        except anthropic.APIError as error:
+        # A dropped response stream surfaces as a raw httpx error, not an APIError.
+        except (anthropic.APIError, httpx.HTTPError) as error:
             return finish("model_error", str(error))
         turns += 1
         usage = usage.add(response.usage)

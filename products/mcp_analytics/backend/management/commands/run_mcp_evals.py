@@ -46,7 +46,9 @@ class Command(BaseCommand):
         parser.add_argument("--trials", type=int, default=3)
         parser.add_argument("--concurrency", type=int, default=4)
         parser.add_argument("--model", default="claude-opus-5-5")
-        parser.add_argument("--effort", choices=get_args(Effort), default="medium")
+        parser.add_argument(
+            "--effort", choices=get_args(Effort), help="Omitted unless set; the model's default applies."
+        )
         parser.add_argument("--max-turns", type=int, default=20)
 
     def handle(self, *args: object, **options: object) -> None:
@@ -70,7 +72,7 @@ class Command(BaseCommand):
             trials=cast(int, options["trials"]),
             concurrency=cast(int, options["concurrency"]),
             model=cast(str, options["model"]),
-            effort=cast(Effort, options["effort"]),
+            effort=cast(Effort | None, options["effort"]),
             max_turns=cast(int, options["max_turns"]),
         )
         try:

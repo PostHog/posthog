@@ -46,7 +46,7 @@ class RunConfig:
     trials: int
     concurrency: int
     model: str
-    effort: Effort
+    effort: Effort | None
     max_turns: int
 
 
@@ -59,7 +59,7 @@ class AgentRunReport:
     # The scenarios as they ran, so a later grader never reads criteria that were edited afterwards.
     scenarios: tuple[Scenario, ...]
     model: str
-    effort: Effort
+    effort: Effort | None
     system_prompt: str
     trials_per_scenario: int
     max_turns: int
@@ -130,7 +130,8 @@ async def _run_scenario(
             system=system,
             tools=tools,
             messages=messages,
-            output_config={"effort": config.effort},
+            # Omitted unless chosen, because models without effort support reject the field.
+            output_config={"effort": config.effort} if config.effort else anthropic.omit,
             extra_body={"cache_control": {"type": "ephemeral"}},
         ) as stream:
             return await stream.get_final_message()
@@ -225,7 +226,7 @@ def format_run_summary(report: AgentRunReport) -> str:
         by_scenario.setdefault(trial.scenario_id, []).append(trial)
     answered = sum(1 for trial in report.trials if trial.outcome == "answered")
     lines = [
-        f"agent run on {report.server_url}: {report.model} ({report.effort}), "
+        f"agent run on {report.server_url}: {report.model} ({report.effort or 'default effort'}), "
         f"{len(by_scenario)} scenarios x {report.trials_per_scenario} trials",
         f"answered {answered}/{len(report.trials)}",
     ]

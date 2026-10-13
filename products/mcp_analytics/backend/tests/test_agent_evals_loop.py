@@ -44,14 +44,14 @@ def _api_error() -> anthropic.APIError:
 
 
 class _Scripted:
-    def __init__(self, responses: list[Message | anthropic.APIError]) -> None:
+    def __init__(self, responses: list[Message | Exception]) -> None:
         self.responses = responses
         self.sent: list[list[MessageParam]] = []
 
     async def create_message(self, messages: list[MessageParam]) -> Message:
         self.sent.append(list(messages))
         response = self.responses[min(len(self.sent), len(self.responses)) - 1]
-        if isinstance(response, anthropic.APIError):
+        if isinstance(response, Exception):
             raise response
         return response
 
@@ -86,6 +86,7 @@ class TestAgentTrialLoop(SimpleTestCase):
                 "Checking.",
             ),
             ("an_api_failure_is_a_model_error_not_an_answer", [_api_error()], "model_error", 0, ""),
+            ("a_dropped_response_stream_is_a_model_error", [httpx.ReadError("stream closed")], "model_error", 0, ""),
             ("a_refusal_is_recorded_as_refused", [_message("refusal", [])], "refused", 1, ""),
             (
                 "a_cut_off_response_is_truncated",
@@ -106,7 +107,7 @@ class TestAgentTrialLoop(SimpleTestCase):
     def test_trial_outcome(
         self,
         _name: str,
-        responses: list[Message | anthropic.APIError],
+        responses: list[Message | Exception],
         outcome: str,
         turns: int,
         final_text: str,
