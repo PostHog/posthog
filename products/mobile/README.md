@@ -56,6 +56,7 @@ xcrun simctl openurl booted "posthog://report/demo-report-load-time"
 | `EXPO_PUBLIC_POSTHOG_KEY` | Project API key for the app's own usage analytics. Analytics are off when it is not set. |
 | `EXPO_PUBLIC_POSTHOG_HOST` | Host for those analytics, for example `https://us.i.posthog.com`. |
 | `EXPO_PUBLIC_DEMO_MODE` | `1` starts the app in demo mode. |
+| `EXPO_PUBLIC_SIGNUP_LINK` | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. |
 
 For local runs, put them in `.env.local` (git ignores it). Expo loads it when Metro starts.
 EAS builds and updates read them from the EAS environment of their profile, see [RELEASING.md](docs/RELEASING.md#one-time-setup).
@@ -71,9 +72,10 @@ npx expo-doctor
 
 ## Assets
 
-`assets/` holds placeholder PNGs (the three-bar mark on white) written by
-`pnpm assets` (`scripts/generate-placeholder-assets.mjs`).
-Final icon and splash artwork is pending.
+The app icon, adaptive icon, favicon and the iOS 26 `app.icon` bundle are copies of the
+PostHog Desktop mobile host's logomark assets.
+`splash-icon.png` is a placeholder (the three-bar mark) written by `pnpm assets`
+(`scripts/generate-placeholder-assets.mjs`). Final splash artwork is pending.
 
 ## Docs
 

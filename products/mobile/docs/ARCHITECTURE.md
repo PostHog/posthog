@@ -45,7 +45,7 @@ products/mobile/
     ui/                   tokens.ts, primitives, icons/
   plugins/                Expo config plugins (withIosSceneLifecycle: UIScene life cycle for Xcode 27)
   .argent/flows/          Argent flows that drive the app on a simulator (see TESTING.md)
-  assets/                 placeholder icon, adaptive icon, splash, favicon
+  assets/                 app icon (shared with PostHog Desktop), adaptive icon, splash, favicon
   scripts/                generate-placeholder-assets.mjs, eas-build.sh
 ```
 

@@ -14,6 +14,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     userInterfaceStyle: 'light',
     icon: './assets/icon.png',
     ios: {
+        // Icon Composer bundle for the iOS 26 layered icon; icon.png above covers older iOS and Android.
+        icon: './assets/app.icon',
         bundleIdentifier: APP_ID,
         // Local device builds sign automatically with this team; EAS builds carry their own credentials.
         appleTeamId: process.env.APPLE_TEAM_ID,

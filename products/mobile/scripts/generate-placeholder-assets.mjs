@@ -1,4 +1,5 @@
-// Writes placeholder PNG assets: the three-bar PostHog mark on white. Final artwork is pending.
+// Writes the placeholder splash image: the three-bar PostHog mark. Final splash artwork is pending.
+// The app icon, adaptive icon and favicon are the PostHog Desktop logomark and are not generated.
 // Uses only Node built-ins so it runs before `pnpm install`.
 import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -83,12 +84,7 @@ function render(size, scale, transparent) {
     ])
 }
 
-const outputs = [
-    ['icon.png', 1024, 24, false],
-    ['adaptive-icon.png', 1024, 18, true],
-    ['splash-icon.png', 512, 16, true],
-    ['favicon.png', 48, 2, false],
-]
+const outputs = [['splash-icon.png', 512, 16, true]]
 for (const [name, size, scale, transparent] of outputs) {
     writeFileSync(join(ASSETS, name), render(size, scale, transparent))
 }

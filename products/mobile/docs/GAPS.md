@@ -24,7 +24,7 @@ Known gaps and behavior that stays on the device.
 ## Platform
 
 - **Android text wrapping** is greedy, so a headline can end on a single word. iOS and web avoid it.
-- **Final assets.** Icon, adaptive icon, splash and favicon are generated placeholders.
+- **Final assets.** The app icon is the PostHog Desktop logomark. The splash image is still a generated placeholder.
 - **Hover states** only show on web.
 
 ## Verification limits
