@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthConfig,
     SuggestedTable,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -282,7 +282,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 "The linked Bing Ads integration could not be found. Please reconnect your Bing Ads integration."
             ) from e
 
-        developer_token = integration_secrets.get_secret("BING_ADS_DEVELOPER_TOKEN")
+        developer_token = credentials_service.get_secret("BING_ADS_DEVELOPER_TOKEN")
         if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
         if not integration.access_token:
