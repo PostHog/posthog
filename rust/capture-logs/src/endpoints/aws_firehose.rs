@@ -10,7 +10,7 @@
 use crate::authorizer::Signal;
 use crate::log_record::{
     apply_timestamp_override, convert_severity_text_to_number, datetime_from_millis,
-    severity_alias, try_extract_severity, KafkaLogRow,
+    severity_alias, severity_from_json, KafkaLogRow,
 };
 use crate::service::{gunzip_if_magic, Service};
 use axum::{
@@ -19,6 +19,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Json, Response},
 };
+use base64::{prelude::BASE64_STANDARD, Engine};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use common_compression::decode_base64;
@@ -34,6 +35,9 @@ const ACCESS_KEY_HEADER: &str = "x-amz-firehose-access-key";
 const REQUEST_ID_HEADER: &str = "x-amz-firehose-request-id";
 const SOURCE_ARN_HEADER: &str = "x-amz-firehose-source-arn";
 const COMMON_ATTRIBUTES_HEADER: &str = "x-amz-firehose-common-attributes";
+
+const TRACE_ID_KEYS: [&str; 2] = ["trace_id", "traceId"];
+const SPAN_ID_KEYS: [&str; 2] = ["span_id", "spanId"];
 
 const RECORDS_COUNTER: &str = "capture_logs_firehose_records_total";
 const EVENTS_COUNTER: &str = "capture_logs_firehose_events_total";
@@ -234,10 +238,19 @@ fn last_letter_run(token: &str) -> Option<&str> {
         .find(|run| !run.is_empty())
 }
 
+/// The message as a JSON object, or `None` for plain text. Parsed once per row and shared by
+/// severity and trace context extraction.
+pub fn parse_json_message(message: &str) -> Option<Value> {
+    if !message.trim_start().starts_with('{') {
+        return None;
+    }
+    serde_json::from_str(message).ok()
+}
+
 /// A JSON body is checked for the usual level keys first; otherwise a leading `ERROR`, `[WARN]`
 /// or `<timestamp> INFO` token is used, because CloudWatch lines carry no severity of their own.
-pub fn infer_severity(message: &str) -> (String, i32) {
-    let text = try_extract_severity(message).or_else(|| {
+pub fn infer_severity(message: &str, json: Option<&Value>) -> (String, i32) {
+    let text = json.and_then(severity_from_json).or_else(|| {
         // Look at the first three whitespace-separated tokens so a timestamp or request-id prefix
         // does not hide the level.
         message
@@ -248,6 +261,19 @@ pub fn infer_severity(message: &str) -> (String, i32) {
     });
     let text = text.unwrap_or("info");
     (text.to_string(), convert_severity_text_to_number(text))
+}
+
+/// A hex trace or span id from a JSON message, encoded as the other routes store it: base64 of
+/// the raw bytes. A missing, malformed, wrong-length or all-zero id gives an empty string.
+fn extract_hex_id(json: Option<&Value>, keys: &[&str], byte_len: usize) -> String {
+    json.and_then(|json| {
+        keys.iter()
+            .find_map(|key| json.get(key).and_then(Value::as_str))
+    })
+    .and_then(|id| hex::decode(id.trim()).ok())
+    .filter(|bytes| bytes.len() == byte_len && bytes.iter().any(|b| *b != 0))
+    .map(|bytes| BASE64_STANDARD.encode(bytes))
+    .unwrap_or_default()
 }
 
 /// Attribute values travel as JSON-encoded strings; this is the one place that encodes them.
@@ -327,12 +353,15 @@ fn build_row(
         put(&mut attributes, "aws.log.event.id", id);
     }
     let (timestamp, was_overridden) = apply_timestamp_override(raw_timestamp, &mut attributes);
-    let (severity_text, severity_number) = infer_severity(&body);
+    let json = parse_json_message(&body);
+    let (severity_text, severity_number) = infer_severity(&body, json.as_ref());
+    let trace_id = extract_hex_id(json.as_ref(), &TRACE_ID_KEYS, 16);
+    let span_id = extract_hex_id(json.as_ref(), &SPAN_ID_KEYS, 8);
 
     let row = KafkaLogRow {
         uuid: Uuid::now_v7().to_string(),
-        trace_id: String::new(),
-        span_id: String::new(),
+        trace_id,
+        span_id,
         trace_flags: 0,
         timestamp,
         observed_timestamp: now,
@@ -775,7 +804,7 @@ mod tests {
         ];
         for (message, text, number) in cases {
             assert_eq!(
-                infer_severity(message),
+                infer_severity(message, parse_json_message(message).as_ref()),
                 (text.to_string(), number),
                 "{message}"
             );
@@ -793,7 +822,7 @@ mod tests {
             let message =
                 format!("2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:{level}:  detail");
             assert_eq!(
-                infer_severity(&message),
+                infer_severity(&message, parse_json_message(&message).as_ref()),
                 (text.to_string(), number),
                 "{message}"
             );
@@ -900,6 +929,62 @@ mod tests {
         let decoded = raw_record_to_rows("a\n\nb\n", &FirehoseContext::default());
         assert_eq!(decoded.len(), 2);
         assert_eq!(decoded[0].0.service_name, "aws-firehose");
+    }
+
+    #[test]
+    fn json_trace_context_maps_to_trace_and_span_ids() {
+        const TRACE_HEX: &str = "0af7651916cd43dd8448eb211c80319c";
+        const SPAN_HEX: &str = "b7ad6b7169203331";
+        let trace_b64 = BASE64_STANDARD.encode(hex::decode(TRACE_HEX).unwrap());
+        let span_b64 = BASE64_STANDARD.encode(hex::decode(SPAN_HEX).unwrap());
+        let cases = [
+            (
+                format!(r#"{{"msg":"x","trace_id":"{TRACE_HEX}","span_id":"{SPAN_HEX}"}}"#),
+                trace_b64.as_str(),
+                span_b64.as_str(),
+            ),
+            (
+                format!(
+                    r#"{{"msg":"x","traceId":"{}","spanId":"{}"}}"#,
+                    TRACE_HEX.to_uppercase(),
+                    SPAN_HEX.to_uppercase()
+                ),
+                trace_b64.as_str(),
+                span_b64.as_str(),
+            ),
+            (format!("trace_id={TRACE_HEX} span_id={SPAN_HEX}"), "", ""),
+            (r#"{"msg":"x"}"#.to_string(), "", ""),
+            (
+                format!(r#"{{"trace_id":"{SPAN_HEX}","span_id":"{TRACE_HEX}"}}"#),
+                "",
+                "",
+            ),
+            (r#"{"trace_id":"not-hex","span_id":42}"#.to_string(), "", ""),
+            (
+                format!(
+                    r#"{{"trace_id":"{}","span_id":"{SPAN_HEX}"}}"#,
+                    "0".repeat(32)
+                ),
+                "",
+                span_b64.as_str(),
+            ),
+        ];
+
+        for (message, trace_id, span_id) in cases {
+            let mut env = envelope();
+            env.log_events = vec![CloudWatchLogEvent {
+                id: "1".to_string(),
+                timestamp: Some(Utc::now().timestamp_millis()),
+                message: message.clone(),
+            }];
+            let cloudwatch = cloudwatch_envelope_to_rows(env, &context()).remove(0).0;
+            let raw = raw_record_to_rows(&message, &context()).remove(0).0;
+            for row in [cloudwatch, raw] {
+                assert_eq!(row.trace_id, trace_id, "{message}");
+                assert_eq!(row.span_id, span_id, "{message}");
+                assert_eq!(row.body, message);
+            }
+        }
     }
 
     #[test]
