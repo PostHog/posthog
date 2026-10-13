@@ -41,6 +41,7 @@ const ERROR_SCENES: string[] = [
     Scene.ErrorProjectUnavailable,
     Scene.ErrorProjectAccessDenied,
     Scene.ErrorAccessDenied,
+    Scene.ErrorSceneLoad,
 ]
 
 // Index routes resolve without an entity id; the entity routes additionally build the id-keyed
