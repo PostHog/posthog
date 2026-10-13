@@ -4,38 +4,40 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usersnap import (
+    UsersnapSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import (
     ENDPOINTS,
     USERSNAP_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source import UsersnapSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap import (
     UsersnapResumeConfig,
     _format_datetime,
-    get_rows,
-    usersnap_source,
     validate_credentials,
 )
 
 
-def _make_manager(resume_state: UsersnapResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _run(endpoint: str, script: Script, **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(UsersnapSource(), UsersnapSourceConfig(jwt_secret="secret", jwt_id="jwt-id"))
+    return driver.run(endpoint, script, **kwargs)
 
 
-def _resp(payload: dict[str, Any]) -> mock.MagicMock:
-    response = mock.MagicMock(status_code=200, ok=True)
-    response.json.return_value = payload
-    return response
+def _resp(payload: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json=payload)
 
 
-def _resp_404() -> mock.MagicMock:
-    response = mock.MagicMock(status_code=404, ok=False, text="not found")
-    response.raise_for_status.side_effect = requests.HTTPError(response=response)
-    return response
+def _resp_404() -> ScriptedResponse:
+    return ScriptedResponse(status=404, json={"status": False})
 
 
 def _projects_page(projects: list[dict[str, Any]], has_more: bool = False) -> dict[str, Any]:
@@ -66,142 +68,132 @@ class TestFormatDatetime:
 
 
 class TestValidateCredentials:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("secret", "jwt-id") is False
+    def test_validate_credentials_swallows_exceptions(self):
+        with scripted_network(always(ConnectionError("boom"))):
+            assert validate_credentials("secret", "jwt-id") is False
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_validate_credentials_disables_http_sample_capture(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret", "jwt-id")
-        assert mock_session.call_args.kwargs["capture"] is False
+    def test_validate_credentials_disables_http_sample_capture(self):
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            assert validate_credentials("secret", "jwt-id") is True
+
+        assert network.session_options[0]["capture"] is False
 
 
 class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_projects_truncation_is_surfaced(self, mock_session):
-        mock_session.return_value.request.return_value = _resp(_projects_page([{"project_id": "p1"}], has_more=True))
+    def test_projects_truncation_is_surfaced(self):
         logger = mock.MagicMock()
 
-        list(get_rows("secret", "jwt-id", "projects", logger, _make_manager()))
+        _run("projects", [_resp(_projects_page([{"project_id": "p1"}], has_more=True))], logger=logger)
 
         logger.warning.assert_called_once()
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_feedbacks_falls_back_to_last_item_cursor_when_next_missing(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}])),
-            _resp(_feedbacks_page([{"feedback_id": "f1"}], has_more=True)),
-            _resp(_feedbacks_page([{"feedback_id": "f2"}], has_more=False)),
-        ]
-
-        batches = list(get_rows("secret", "jwt-id", "feedbacks", mock.MagicMock(), _make_manager()))
-
-        assert [item["feedback_id"] for batch in batches for item in batch] == ["f1", "f2"]
-        assert "after=f1" in mock_session.return_value.request.call_args_list[2].args[1]
-
-    @pytest.mark.parametrize(
-        "should_use_incremental_field, last_value, expected_query",
-        [
-            (
-                True,
-                datetime(2026, 1, 1, tzinfo=UTC),
-                [{"filter_type": "created_at", "operator": "gte", "value": "2026-01-01T00:00:00Z"}],
-            ),
-            (False, None, None),
-            (True, None, None),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_feedbacks_filter_body(self, mock_session, should_use_incremental_field, last_value, expected_query):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}])),
-            _resp(_feedbacks_page([{"feedback_id": "f1"}], has_more=False)),
-        ]
-
-        list(
-            get_rows(
-                "secret",
-                "jwt-id",
-                "feedbacks",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=last_value,
-            )
+    def test_feedbacks_falls_back_to_last_item_cursor_when_next_missing(self):
+        result = _run(
+            "feedbacks",
+            [
+                _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}])),
+                _resp(_feedbacks_page([{"feedback_id": "f1"}], has_more=True)),
+                _resp(_feedbacks_page([{"feedback_id": "f2"}], has_more=False)),
+            ],
         )
 
-        body = mock_session.return_value.request.call_args_list[1].kwargs["json"]
+        assert [item["feedback_id"] for item in result.rows] == ["f1", "f2"]
+        assert result.requests[2].param("after") == "f1"
+
+    def test_a_run_with_no_saved_state_starts_from_the_first_project_and_page(self):
+        result = _run(
+            "feedbacks",
+            [
+                _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
+                _resp(_feedbacks_page([], has_more=False)),
+                _resp(_feedbacks_page([], has_more=False)),
+            ],
+        )
+
+        assert result.paths[1:] == ["/v0.1/projects/p1/feedbacks/filter", "/v0.1/projects/p2/feedbacks/filter"]
+        assert result.params("after") == [None, None, None]
+
+    @pytest.mark.parametrize(
+        "incremental_inputs, expected_query",
+        [
+            (
+                {
+                    "incremental_field": "created_at",
+                    "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC),
+                },
+                [{"filter_type": "created_at", "operator": "gte", "value": "2026-01-01T00:00:00Z"}],
+            ),
+            ({}, None),
+            ({"incremental_field": "created_at"}, None),
+        ],
+    )
+    def test_feedbacks_filter_body(self, incremental_inputs, expected_query):
+        result = _run(
+            "feedbacks",
+            [
+                _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}])),
+                _resp(_feedbacks_page([{"feedback_id": "f1"}], has_more=False)),
+            ],
+            **incremental_inputs,
+        )
+
+        body = result.requests[1].json()
         assert body["order_by"] == {"direction": "asc", "order_by_type": "created_at"}
         assert body.get("query") == expected_query
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_feedbacks_resumes_from_bookmarked_project_and_cursor(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
-            _resp(_feedbacks_page([{"feedback_id": "f9"}], has_more=False)),
+    def test_feedbacks_resumes_from_bookmarked_project_and_cursor(self):
+        result = _run(
+            "feedbacks",
+            [
+                _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
+                _resp(_feedbacks_page([{"feedback_id": "f9"}], has_more=False)),
+            ],
+            resume_state=UsersnapResumeConfig(project_id="p2", after="f8"),
+        )
+
+        assert [item["feedback_id"] for item in result.rows] == ["f9"]
+        assert result.requests[1].path == "/v0.1/projects/p2/feedbacks/filter"
+        assert result.requests[1].param("after") == "f8"
+
+    def test_feedbacks_skips_project_deleted_mid_sync(self):
+        result = _run(
+            "feedbacks",
+            [
+                _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
+                _resp_404(),
+                _resp(_feedbacks_page([{"feedback_id": "f2"}], has_more=False)),
+            ],
+        )
+
+        assert result.raised is None
+        assert [item["feedback_id"] for item in result.rows] == ["f2"]
+
+    def test_assignees_fan_out_rows_carry_project_id(self):
+        result = _run(
+            "project_assignees",
+            [
+                _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
+                _resp({"status": True, "data": {"users": [{"user_id": "u1"}]}}),
+                _resp({"status": True, "data": {"users": [{"user_id": "u1"}, {"user_id": "u2"}]}}),
+            ],
+        )
+
+        assert [(row["project_id"], row["user_id"]) for row in result.rows] == [
+            ("p1", "u1"),
+            ("p2", "u1"),
+            ("p2", "u2"),
         ]
-
-        manager = _make_manager(UsersnapResumeConfig(project_id="p2", after="f8"))
-        batches = list(get_rows("secret", "jwt-id", "feedbacks", mock.MagicMock(), manager))
-
-        assert [item["feedback_id"] for batch in batches for item in batch] == ["f9"]
-        resumed_url = mock_session.return_value.request.call_args_list[1].args[1]
-        assert "/projects/p2/feedbacks/filter" in resumed_url
-        assert "after=f8" in resumed_url
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_feedbacks_skips_project_deleted_mid_sync(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
-            _resp_404(),
-            _resp(_feedbacks_page([{"feedback_id": "f2"}], has_more=False)),
-        ]
-
-        batches = list(get_rows("secret", "jwt-id", "feedbacks", mock.MagicMock(), _make_manager()))
-
-        assert [item["feedback_id"] for batch in batches for item in batch] == ["f2"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_assignees_fan_out_rows_carry_project_id(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
-            _resp({"status": True, "data": {"users": [{"user_id": "u1"}]}}),
-            _resp({"status": True, "data": {"users": [{"user_id": "u1"}, {"user_id": "u2"}]}}),
-        ]
-
-        batches = list(get_rows("secret", "jwt-id", "project_assignees", mock.MagicMock(), _make_manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert [(row["project_id"], row["user_id"]) for row in rows] == [("p1", "u1"), ("p2", "u1"), ("p2", "u2")]
         # The assignees endpoint is keyed on the project's api_key, not its project_id.
-        assert "/projects/k1/assignees" in mock_session.return_value.request.call_args_list[1].args[1]
-        assert "/projects/k2/assignees" in mock_session.return_value.request.call_args_list[2].args[1]
+        assert result.paths[1:] == ["/v0.1/projects/k1/assignees", "/v0.1/projects/k2/assignees"]
 
 
 class TestUsersnapSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = USERSNAP_ENDPOINTS[endpoint]
-        response = usersnap_source("secret", "jwt-id", endpoint, mock.MagicMock(), _make_manager())
+        response = _run(endpoint, [_resp(_projects_page([]))]).response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         # The feedbacks fan-out concatenates per-project streams, so it must not checkpoint

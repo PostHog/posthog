@@ -5,9 +5,13 @@ import pytest
 from unittest import mock
 
 from requests import Response
-from requests.exceptions import RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.pipedrive import (
     PAGE_SIZE,
     WEBHOOK_AUTH_USER,
@@ -25,10 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the pipedrive module.
-PIPEDRIVE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.pipedrive.make_tracked_session"
-)
 
 
 def _response(
@@ -148,21 +148,20 @@ class TestNormalizeCompanyDomain:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_returns_status_code(self, mock_session: mock.MagicMock, status_code: int) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("acme", "token") == status_code
+    def test_returns_status_code(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("acme", "token") == status_code
 
-        get_call = mock_session.return_value.get.call_args
-        assert get_call.args[0] == "https://acme.pipedrive.com/api/v1/users/me"
+        assert {request.url for request in network.requests_log} == {"https://acme.pipedrive.com/api/v1/users/me"}
         # Auth header travels on the probe request; token redaction is configured on the session.
-        assert get_call.kwargs["headers"]["x-api-token"] == "token"
-        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
+        assert all(request.headers["x-api-token"] == "token" for request in network.requests_log)
+        assert network.session_options[0]["redact_values"] == ("token",)
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_returns_none_on_transport_error(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("acme", "token") is None
+    def test_returns_none_on_transport_error(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))) as network:
+            assert validate_credentials("acme", "token") is None
+
+        assert {request.path for request in network.requests_log} == {"/api/v1/users/me"}
 
     def test_propagates_invalid_domain(self) -> None:
         with pytest.raises(ValueError):
@@ -366,30 +365,24 @@ class TestEndpointsForVersion:
         assert v1 == v2
 
 
-def _json_response(body: dict[str, Any], status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.reason = "OK" if status < 400 else "Error"
-    resp.url = "https://acme.pipedrive.com/api/v1/webhooks"
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hf_1"
 
 
 class TestWebhookManagement:
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_create_registers_a_wildcard_v2_subscription_with_generated_credentials(
-        self, MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"success": True, "data": {"id": 9}}, status=201)
-
-        result = create_webhook("acme", "token", WEBHOOK_URL)
+    def test_create_registers_a_wildcard_v2_subscription_with_generated_credentials(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(status=201, json={"success": True, "data": {"id": 9}}),
+                ScriptedResponse(json={"data": []}),
+            ]
+        ) as network:
+            result = create_webhook("acme", "token", WEBHOOK_URL)
 
         assert result.success is True
-        body = session.post.call_args.kwargs["json"]
+        assert [request.method for request in network.requests_log] == ["POST", "GET"]
+        assert [request.path for request in network.requests_log] == ["/api/v1/webhooks", "/api/v1/webhooks"]
+        assert network.requests_log[0].headers["x-api-token"] == "token"
+        body = network.requests_log[0].json()
         assert body["subscription_url"] == WEBHOOK_URL
         assert (body["event_action"], body["event_object"]) == ("*", "*")
         assert body["version"] == "2.0"
@@ -399,52 +392,54 @@ class TestWebhookManagement:
         assert body["http_auth_user"] == result.extra_inputs["http_auth_user"] == WEBHOOK_AUTH_USER
         assert body["http_auth_password"] == result.extra_inputs["http_auth_password"]
         assert len(body["http_auth_password"]) >= 32
+        assert network.session_options[0]["redact_values"] == ("token", body["http_auth_password"])
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_create_generates_a_fresh_password_each_time(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"success": True, "data": {"id": 9}}, status=201)
-        session.get.return_value = _json_response({"data": []})
-
-        first = create_webhook("acme", "token", WEBHOOK_URL)
-        second = create_webhook("acme", "token", WEBHOOK_URL)
+    def test_create_generates_a_fresh_password_each_time(self) -> None:
+        script = [
+            ScriptedResponse(status=201, json={"success": True, "data": {"id": 9}}),
+            ScriptedResponse(json={"data": []}),
+        ] * 2
+        with scripted_network(script) as network:
+            first = create_webhook("acme", "token", WEBHOOK_URL)
+            second = create_webhook("acme", "token", WEBHOOK_URL)
 
         assert first.extra_inputs["http_auth_password"] != second.extra_inputs["http_auth_password"]
+        assert [request.method for request in network.requests_log] == ["POST", "GET", "POST", "GET"]
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_create_removes_the_subscription_it_replaces(self, MockSession: mock.MagicMock) -> None:
+    def test_create_removes_the_subscription_it_replaces(self) -> None:
         # Each create mints a new password, so an older subscription on the same URL would keep
         # delivering with credentials the hog function no longer accepts.
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"success": True, "data": {"id": 9}}, status=201)
-        session.get.return_value = _json_response(
-            {
-                "data": [
-                    {"id": 4, "subscription_url": WEBHOOK_URL},
-                    {"id": 9, "subscription_url": WEBHOOK_URL},
-                    {"id": 5, "subscription_url": "https://someone-else.example.com/hook"},
-                ]
-            }
-        )
-        session.delete.return_value = _json_response({"success": True})
-
-        result = create_webhook("acme", "token", WEBHOOK_URL)
+        with scripted_network(
+            [
+                ScriptedResponse(status=201, json={"success": True, "data": {"id": 9}}),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"id": 4, "subscription_url": WEBHOOK_URL},
+                            {"id": 9, "subscription_url": WEBHOOK_URL},
+                            {"id": 5, "subscription_url": "https://someone-else.example.com/hook"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json={"success": True}),
+            ]
+        ) as network:
+            result = create_webhook("acme", "token", WEBHOOK_URL)
 
         assert result.success is True
-        assert [call.args[0] for call in session.delete.call_args_list] == [
+        assert [request.url for request in network.requests_log if request.method == "DELETE"] == [
             "https://acme.pipedrive.com/api/v1/webhooks/4"
         ]
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_create_succeeds_even_if_cleanup_fails(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"success": True, "data": {"id": 9}}, status=201)
-        session.get.side_effect = RequestException("boom")
-
-        result = create_webhook("acme", "token", WEBHOOK_URL)
+    def test_create_succeeds_even_if_cleanup_fails(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(status=201, json={"success": True, "data": {"id": 9}}), ScriptedResponse(status=403)]
+        ) as network:
+            result = create_webhook("acme", "token", WEBHOOK_URL)
 
         assert result.success is True
         assert result.extra_inputs["http_auth_password"]
+        assert [request.method for request in network.requests_log] == ["POST", "GET"]
 
     @pytest.mark.parametrize(
         "status, expected_fragment",
@@ -454,101 +449,92 @@ class TestWebhookManagement:
             (500, "Pipedrive API error (500)"),
         ],
     )
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_create_maps_api_failures_to_an_actionable_error(
-        self, MockSession: mock.MagicMock, status: int, expected_fragment: str
-    ) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"success": False}, status=status)
-
-        result = create_webhook("acme", "token", WEBHOOK_URL)
+    def test_create_maps_api_failures_to_an_actionable_error(self, status: int, expected_fragment: str) -> None:
+        with scripted_network([ScriptedResponse(status=status, json={"success": False})]) as network:
+            result = create_webhook("acme", "token", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None and expected_fragment in result.error
+        assert [request.method for request in network.requests_log] == ["POST"]
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_create_rejects_an_invalid_company_domain(self, MockSession: mock.MagicMock) -> None:
-        result = create_webhook("evil.example.com", "token", WEBHOOK_URL)
+    def test_create_rejects_an_invalid_company_domain(self) -> None:
+        with scripted_network([]) as network:
+            result = create_webhook("evil.example.com", "token", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None and "Invalid Pipedrive company domain" in result.error
-        MockSession.return_value.post.assert_not_called()
+        assert network.requests_log == []
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_delete_removes_only_our_subscriptions(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _json_response(
-            {
-                "data": [
-                    {"id": 1, "subscription_url": WEBHOOK_URL},
-                    {"id": 2, "subscription_url": "https://someone-else.example.com/hook"},
-                    {"id": 3, "subscription_url": WEBHOOK_URL},
-                ]
-            }
-        )
-        session.delete.return_value = _json_response({"success": True})
-
-        result = delete_webhook("acme", "token", WEBHOOK_URL)
+    def test_delete_removes_only_our_subscriptions(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"id": 1, "subscription_url": WEBHOOK_URL},
+                            {"id": 2, "subscription_url": "https://someone-else.example.com/hook"},
+                            {"id": 3, "subscription_url": WEBHOOK_URL},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json={"success": True}),
+                ScriptedResponse(json={"success": True}),
+            ]
+        ) as network:
+            result = delete_webhook("acme", "token", WEBHOOK_URL)
 
         assert result.success is True
-        deleted_urls = [call.args[0] for call in session.delete.call_args_list]
+        deleted_urls = [request.url for request in network.requests_log if request.method == "DELETE"]
         assert deleted_urls == [
             "https://acme.pipedrive.com/api/v1/webhooks/1",
             "https://acme.pipedrive.com/api/v1/webhooks/3",
         ]
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_delete_succeeds_when_the_webhook_is_already_gone(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _json_response({"data": None})
-
-        result = delete_webhook("acme", "token", WEBHOOK_URL)
+    def test_delete_succeeds_when_the_webhook_is_already_gone(self) -> None:
+        with scripted_network([ScriptedResponse(json={"data": None})]) as network:
+            result = delete_webhook("acme", "token", WEBHOOK_URL)
 
         assert result.success is True
-        session.delete.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_external_info_reports_the_registered_subscription(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _json_response(
-            {
-                "data": [
-                    {
-                        "id": 1,
-                        "subscription_url": WEBHOOK_URL,
-                        "event_action": "*",
-                        "event_object": "*",
-                        "is_active": 1,
-                        "add_time": "2026-05-01 10:00:00",
-                        "name": "PostHog data warehouse",
+    def test_external_info_reports_the_registered_subscription(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {
+                                "id": 1,
+                                "subscription_url": WEBHOOK_URL,
+                                "event_action": "*",
+                                "event_object": "*",
+                                "is_active": 1,
+                                "add_time": "2026-05-01 10:00:00",
+                                "name": "PostHog data warehouse",
+                            }
+                        ]
                     }
-                ]
-            }
-        )
-
-        info = get_external_webhook_info("acme", "token", WEBHOOK_URL)
+                )
+            ]
+        ) as network:
+            info = get_external_webhook_info("acme", "token", WEBHOOK_URL)
 
         assert info.exists is True
         assert info.enabled_events == ["*.*"]
         assert info.status == "active"
         assert info.created_at == "2026-05-01 10:00:00"
+        assert [request.path for request in network.requests_log] == ["/api/v1/webhooks"]
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_external_info_reports_a_missing_subscription(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _json_response({"data": [{"id": 1, "subscription_url": "https://other/hook"}]})
-
-        info = get_external_webhook_info("acme", "token", WEBHOOK_URL)
+    def test_external_info_reports_a_missing_subscription(self) -> None:
+        with scripted_network([ScriptedResponse(json={"data": [{"id": 1, "subscription_url": "https://other/hook"}]})]):
+            info = get_external_webhook_info("acme", "token", WEBHOOK_URL)
 
         assert info.exists is False
         assert info.error is None
 
-    @mock.patch(PIPEDRIVE_SESSION_PATCH)
-    def test_external_info_surfaces_an_api_failure(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _json_response({}, status=403)
-
-        info = get_external_webhook_info("acme", "token", WEBHOOK_URL)
+    def test_external_info_surfaces_an_api_failure(self) -> None:
+        with scripted_network([ScriptedResponse(status=403, json={})]):
+            info = get_external_webhook_info("acme", "token", WEBHOOK_URL)
 
         assert info.exists is False
         assert info.error is not None and "rejected the API token" in info.error

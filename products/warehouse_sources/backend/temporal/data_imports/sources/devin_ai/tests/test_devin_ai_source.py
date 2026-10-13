@@ -1,16 +1,19 @@
-from typing import Any
-
-from unittest.mock import patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import DevinAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.source import DevinAISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
+    DevinAISourceConfig,
+)
 
 
-def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> Any:
-    return source_module.DevinAISourceConfig(api_key=api_key, org_id=org_id)
+def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> DevinAISourceConfig:
+    return DevinAISourceConfig(api_key=api_key, org_id=org_id)
 
 
 class TestSourceConfig:
@@ -57,12 +60,13 @@ class TestValidateCredentials:
         ]
     )
     def test_status_code_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:
-        with patch.object(source_module, "validate_devin_ai_credentials", return_value=status):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             ok, _err = DevinAISource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
+        assert network.requests_log[0].path == "/v3/organizations/org-abc/sessions"
 
     def test_transport_failure_is_not_fatal_message(self) -> None:
-        with patch.object(source_module, "validate_devin_ai_credentials", side_effect=Exception("boom")):
+        with scripted_network(always(ConnectionError("boom"))):
             ok, err = DevinAISource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert err is not None

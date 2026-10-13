@@ -12,30 +12,31 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { RepoSwitcher } from '../components/RepoSwitcher'
 import { RunSummaryStats } from '../components/RunSummaryStats'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { RunApi } from '../generated/api.schemas'
+import { repoFullNameFromParams, runPath } from '../lib/repoPaths'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { ReviewState, VisualReviewRunsSceneLogicProps, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
 
 export const scene: SceneExport = {
     component: VisualReviewRunsScene,
     logic: visualReviewRunsSceneLogic,
-    paramsToProps: ({ params: { repoId } }): VisualReviewRunsSceneLogicProps => ({
-        repoId: repoId || '',
+    paramsToProps: ({ params: { repoOwner, repoName } }): VisualReviewRunsSceneLogicProps => ({
+        repoFullName: repoFullNameFromParams(repoOwner, repoName),
     }),
 }
 
-function BranchCell({ run, repoFullName }: { run: RunApi; repoFullName?: string }): JSX.Element {
-    const prUrl = run.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${run.pr_number}` : null
+function BranchCell({ run, repoFullName }: { run: RunApi; repoFullName: string }): JSX.Element {
+    const prUrl = run.pr_number ? `https://github.com/${repoFullName}/pull/${run.pr_number}` : null
 
     return (
         <div className="flex items-center gap-2 min-w-0">
@@ -70,7 +71,7 @@ const TAB_COUNT_TYPES: Record<ReviewState, 'warning' | 'highlight' | 'default' |
 }
 
 export function VisualReviewRunsScene(): JSX.Element {
-    const { runs, runsLoading, activeTab, counts, repoId, repoFullName, page, totalCount, searchQuery } =
+    const { runs, runsLoading, activeTab, counts, repoNotFound, repoFullName, page, totalCount, searchQuery } =
         useValues(visualReviewRunsSceneLogic)
     const { loadRuns, loadCounts, setActiveTab, setPage, setSearchQuery } = useActions(visualReviewRunsSceneLogic)
 
@@ -123,7 +124,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                         size="xsmall"
                         onClick={(e) => {
                             e.stopPropagation()
-                            router.actions.push(`/visual_review/runs/${run.id}`)
+                            router.actions.push(runPath(run.id, repoFullName))
                         }}
                     >
                         {needsReview ? 'Review' : 'View'}
@@ -140,21 +141,22 @@ export function VisualReviewRunsScene(): JSX.Element {
         { key: 'stale', label: 'Stale' },
     ]
 
+    if (repoNotFound) {
+        return <NotFound object="visual review repo" />
+    }
+
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={repoFullName ?? 'Visual review'}
-                resourceType={{ type: 'visual_review' }}
+            <VisualReviewSceneTitle
+                repoFullName={repoFullName}
+                activeTab="runs"
                 actions={
-                    <div className="flex gap-2 items-center">
-                        <RepoSwitcher repoId={repoId} activeTab="runs" />
-                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
-                            Settings
-                        </LemonButton>
-                    </div>
+                    <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                        Settings
+                    </LemonButton>
                 }
             />
-            <VisualReviewTabs activeKey="runs" repoId={repoId} />
+            <VisualReviewTabs activeKey="runs" repoFullName={repoFullName} />
 
             <div className="mb-3 flex items-center gap-2 flex-wrap">
                 <LemonSegmentedButton
@@ -212,7 +214,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                 nouns={['run', 'runs']}
                 emptyState={searchQuery.trim() ? `No runs match “${searchQuery.trim()}”.` : EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({
-                    onClick: () => router.actions.push(`/visual_review/runs/${run.id}`),
+                    onClick: () => router.actions.push(runPath(run.id, repoFullName)),
                     className: 'cursor-pointer',
                 })}
             />
