@@ -348,7 +348,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             free=True,
         )
 
-        with patch("posthog.cdp.flag_gated_templates.gated_template_enabled", return_value=flag_enabled):
+        with patch("products.cdp.backend.flag_gated_templates.gated_template_enabled", return_value=flag_enabled):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()

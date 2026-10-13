@@ -10,7 +10,6 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -20,6 +19,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import TranspilerError
+from products.cdp.backend.site_functions import get_transpiled_function
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -64,7 +64,7 @@ class TestSiteFunctions(TestCase):
             f.flush()
             return subprocess.check_output(["node", f.name]).decode("utf-8")
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_basic(self, mock_transpile_fn):
         result = self.compile_and_run()
         assert isinstance(result, str)
@@ -73,7 +73,7 @@ class TestSiteFunctions(TestCase):
         # This ensures the transpilation logic remains stable and any changes are intentional
         self.snapshot.assert_match(result)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_static_input(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.message); }"
         self.hog_function.inputs = {"message": {"value": "Hello, Inputs!"}}
@@ -81,14 +81,14 @@ class TestSiteFunctions(TestCase):
         result = self.compile_and_run()
         self.snapshot.assert_match(result)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_template_input(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"
         self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.name}!"}}
         result = self.compile_and_run()
         self.snapshot.assert_match(result)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_filters(self, mock_transpile_fn):
         self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
         self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
@@ -96,7 +96,7 @@ class TestSiteFunctions(TestCase):
         result = self.compile_and_run()
         self.snapshot.assert_match(result)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_invalid_template_input(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"
         self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.nonexistent_property}!"}}
@@ -111,7 +111,7 @@ class TestSiteFunctions(TestCase):
         with pytest.raises(TranspilerError):
             get_transpiled_function(self.hog_function)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_complex_inputs(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.complexInput); }"
         self.hog_function.inputs = {
@@ -126,7 +126,7 @@ class TestSiteFunctions(TestCase):
         result = self.compile_and_run()
         self.snapshot.assert_match(result)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_empty_inputs(self, mock_transpile_fn):
         self.hog_function.hog = 'export function onLoad() { console.log("No inputs"); }'
         self.hog_function.inputs = {}
@@ -136,7 +136,7 @@ class TestSiteFunctions(TestCase):
         assert 'console.log("No inputs");' in result
         assert "let inputs = {\n};" in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_non_template_string(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.staticMessage); }"
         self.hog_function.inputs = {"staticMessage": {"value": "This is a static message."}}
@@ -147,7 +147,7 @@ class TestSiteFunctions(TestCase):
         assert '"staticMessage": "This is a static message."' in result
         assert "function getInputsKey" not in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_templating_disabled(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.cssOverride); }"
         self.hog_function.inputs_schema = [{"key": "cssOverride", "type": "string", "templating": False}]
@@ -158,7 +158,7 @@ class TestSiteFunctions(TestCase):
         assert '"cssOverride": ".bar { color: red }"' in result
         assert "function getInputsKey" not in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_templating_disabled_on_a_list(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.notices); }"
         self.hog_function.inputs_schema = [{"key": "notices", "type": "json", "templating": False}]
@@ -169,7 +169,7 @@ class TestSiteFunctions(TestCase):
         # Only strings opt out of templating, so a structured value still compiles
         assert "function getInputsKey" in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_list_inputs(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.messages); }"
         self.hog_function.inputs = {"messages": {"value": ["Hello", "World", "{person.properties.name}"]}}
@@ -180,7 +180,7 @@ class TestSiteFunctions(TestCase):
         assert "function getInputsKey" in result
         assert 'inputs["messages"] = getInputsKey("messages");' in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_event_filter(self, mock_transpile_fn):
         self.hog_function.hog = "export function onEvent(event) { console.log(event.properties.url); }"
         self.hog_function.filters = {
@@ -203,7 +203,7 @@ class TestSiteFunctions(TestCase):
             in result
         )
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_groups(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.groupInfo); }"
         self.hog_function.inputs = {"groupInfo": {"value": "{groups['company']}"}}
@@ -218,7 +218,7 @@ class TestSiteFunctions(TestCase):
         assert 'inputs["groupInfo"] = getInputsKey("groupInfo");' in result
         assert '__getProperty(__getGlobal("groups"), "company", false)' in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_missing_group(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.groupInfo); }"
         self.hog_function.inputs = {"groupInfo": {"value": "{groups['nonexistent']}"}}
@@ -229,7 +229,7 @@ class TestSiteFunctions(TestCase):
         assert 'inputs["groupInfo"] = getInputsKey("groupInfo");' in result
         assert '__getProperty(__getGlobal("groups"), "nonexistent"' in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_complex_filters(self, mock_transpile_fn):
         action = Action.objects.create(team=self.team, name="Test Action")
         action.steps = [{"event": "$pageview", "url": "https://example.com"}]
@@ -255,7 +255,7 @@ class TestSiteFunctions(TestCase):
         assert '__getGlobal("event") == "$pageview"' in result
         assert "https://example.com" in result
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_person_property_cohort_filter_inlined(self, mock_transpile_fn):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -333,7 +333,7 @@ class TestSiteFunctions(TestCase):
             ),
         ]
     )
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_unsupported_cohort_raises_error(
         self, _name, is_static, filters, mock_transpile_fn
     ):
@@ -358,7 +358,7 @@ class TestSiteFunctions(TestCase):
         with pytest.raises(Exception, match="cohort"):
             get_transpiled_function(self.hog_function)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_mappings(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad({ inputs, posthog }) { console.log(inputs); }"
         self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.nonexistent_property}!"}}
@@ -375,7 +375,7 @@ class TestSiteFunctions(TestCase):
         result = self.compile_and_run()
         self.snapshot.assert_match(result)
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_run_function_onload(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad({ inputs, posthog }) { console.log(inputs.message); }"
         self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
@@ -390,7 +390,7 @@ class TestSiteFunctions(TestCase):
         )
         assert "Hello World Bob\nLoaded" == response.strip()
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_run_function_onevent(self, mock_transpile_fn):
         self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs.message); }"
         # self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
@@ -431,7 +431,7 @@ class TestSiteFunctions(TestCase):
         )
         assert "Loaded" == response.strip()
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_run_function_skip_disabled_mapping(self, mock_transpile_fn):
         self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs.message); }"
         self.hog_function.inputs = {"message": {"value": "Hello World {event.properties.id}"}}
@@ -459,7 +459,7 @@ class TestSiteFunctions(TestCase):
         )
         assert "Loaded" == response.strip()
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_ordered_inputs(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
         self.hog_function.inputs = {
@@ -477,7 +477,7 @@ class TestSiteFunctions(TestCase):
 
         assert idx_first < idx_second < idx_third
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_without_order(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
         self.hog_function.inputs = {
@@ -494,7 +494,7 @@ class TestSiteFunctions(TestCase):
 
         assert idx_noOrder < idx_alsoNoOrder < idx_withOrder
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_duplicate_orders(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
         self.hog_function.inputs = {

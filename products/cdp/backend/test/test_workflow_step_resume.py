@@ -9,9 +9,9 @@ from django.test import override_settings
 import jwt
 import requests
 
-from posthog.cdp.workflow_step_resume import RESULT_BYTE_CAP, RESULT_STRING_CAP, emit_workflow_step_resume
+from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, RESULT_STRING_CAP, emit_workflow_step_resume
 
-_PRODUCE = "posthog.cdp.workflow_step_resume.produce_internal_event"
+_PRODUCE = "products.cdp.backend.workflow_step_resume.produce_internal_event"
 _POST = "posthog.plugins.plugin_server_api.internal_requests.post"
 
 
