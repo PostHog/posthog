@@ -271,11 +271,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 tiles: tiles || [],
                 layout: layouts[activeBreakpoint],
                 activeBreakpoint,
-                groupTitles: dashboard?.customization?.group_titles,
+                groups: dashboard?.customization?.groups,
                 compactor: gridCompactor,
                 widgetTilesShown,
             }),
-        [tiles, layouts, activeBreakpoint, dashboard?.customization?.group_titles, gridCompactor, widgetTilesShown]
+        [tiles, layouts, activeBreakpoint, dashboard?.customization?.groups, gridCompactor, widgetTilesShown]
     )
     const showDecorationSpace = hasTileDecorations({ tiles: tiles || [], groupTitlesByTileId, widgetTilesShown })
 

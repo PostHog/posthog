@@ -322,10 +322,51 @@ export type DashboardWriteOpenApiApiPersistedFilters = { [key: string]: unknown 
 export type DashboardWriteOpenApiApiPersistedVariables = { [key: string]: unknown } | null
 
 /**
- * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * * `blue` - Blue
+ * * `purple` - Purple
+ * * `green` - Green
+ * * `yellow` - Yellow
+ * * `orange` - Orange
+ * * `red` - Red
+ */
+export type DashboardTileGroupRailEnumApi =
+    (typeof DashboardTileGroupRailEnumApi)[keyof typeof DashboardTileGroupRailEnumApi]
+
+export const DashboardTileGroupRailEnumApi = {
+    Blue: 'blue',
+    Purple: 'purple',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+} as const
+
+export interface DashboardTileGroupApi {
+    /**
+     * Heading for the group. When it is blank or omitted, the heading shows the number of tiles.
+     * @maxLength 200
+     */
+    title?: string
+    /** Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+    collapsed?: boolean
+    /** Whether to show a soft background behind the group. */
+    tint?: boolean
+    /** Color of a line on the left edge of the group. Null or omitted shows no line.
+     *
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red */
+    rail?: DashboardTileGroupRailEnumApi | null
+}
+
+/**
+ * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
  * @nullable
  */
-export type DashboardWriteOpenApiApiGroupTitles = { [key: string]: string } | null
+export type DashboardWriteOpenApiApiGroups = { [key: string]: DashboardTileGroupApi } | null
 
 export type DashboardWriteOpenApiApiTilesItem = { [key: string]: unknown }
 
@@ -398,9 +439,9 @@ export const LayoutCompactionEnumApi = {
 } as const
 
 /**
- * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
  */
-export type DashboardCustomizationApiGroupTitles = { [key: string]: string }
+export type DashboardCustomizationApiGroups = { [key: string]: DashboardTileGroupApi }
 
 export interface DashboardCustomizationApi {
     /** Named tile density preset.
@@ -417,8 +458,8 @@ export interface DashboardCustomizationApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
-    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
-    group_titles?: DashboardCustomizationApiGroupTitles
+    /** Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings. */
+    groups?: DashboardCustomizationApiGroups
 }
 
 /**
@@ -514,10 +555,10 @@ export interface DashboardWriteOpenApiApi {
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
      * @nullable
      */
-    group_titles?: DashboardWriteOpenApiApiGroupTitles
+    groups?: DashboardWriteOpenApiApiGroups
     /** @nullable */
     readonly tiles: readonly DashboardWriteOpenApiApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -550,10 +591,10 @@ export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 /**
- * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
  * @nullable
  */
-export type DashboardApiGroupTitles = { [key: string]: string } | null
+export type DashboardApiGroups = { [key: string]: DashboardTileGroupApi } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
@@ -649,10 +690,10 @@ export interface DashboardApi {
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
      * @nullable
      */
-    group_titles?: DashboardApiGroupTitles
+    groups?: DashboardApiGroups
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -668,10 +709,10 @@ export interface DashboardApi {
 }
 
 /**
- * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
  * @nullable
  */
-export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
+export type PatchedPatchedDashboardOpenApiApiGroups = { [key: string]: DashboardTileGroupApi } | null
 
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
@@ -1254,7 +1295,7 @@ export interface DashboardPatchTileOpenApiApi {
     /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
     show_description?: boolean
     /**
-     * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+     * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its group.
      * @maxLength 100
      * @nullable
      */
@@ -1321,10 +1362,10 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings.
      * @nullable
      */
-    group_titles?: PatchedPatchedDashboardOpenApiApiGroupTitles
+    groups?: PatchedPatchedDashboardOpenApiApiGroups
     /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
