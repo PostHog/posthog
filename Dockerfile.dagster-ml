@@ -13,7 +13,6 @@ ARG BASE_IMAGE
 # Keep the uv version equal to the one in Dockerfile.
 FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
 
-# hadolint ignore=DL3006
 FROM ${BASE_IMAGE}
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
