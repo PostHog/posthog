@@ -35,10 +35,10 @@ module "sharded_query_log_archive_v3" {
   database     = var.database
   name         = "sharded_query_log_archive_v3"
   override     = try(local.deployment.overrides["sharded_query_log_archive_v3"], {})
-  engine       = "ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/${var.database}.sharded_query_log_archive_v3_by_chain', 'schema-refresh') PARTITION BY toYYYYMM(initial_query_start_time) ORDER BY (toStartOfHour(initial_query_start_time), team_id, initial_query_start_time, initial_query_id) SETTINGS index_granularity = 8192"
+  engine       = "ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/${var.database}.sharded_query_log_archive_v3_by_chain', '{replica}')"
   partition_by = "toYYYYMM(initial_query_start_time)"
-  order_by     = "toStartOfHour(initial_query_start_time), team_id, initial_query_start_time, initial_query_id"
-  primary_key  = "toStartOfHour(initial_query_start_time), team_id, initial_query_start_time, initial_query_id"
+  order_by     = "(toStartOfHour(initial_query_start_time), team_id, initial_query_start_time, initial_query_id)"
+  primary_key  = "(toStartOfHour(initial_query_start_time), team_id, initial_query_start_time, initial_query_id)"
   settings     = "index_granularity = 8192"
   columns = [
     { name = "initial_query_start_time", type = "DateTime64(6, 'UTC')" },

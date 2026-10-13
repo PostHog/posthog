@@ -164,7 +164,7 @@ ORDER BY name, type, labels
 """
 
 
-@dataclass
+@dataclass(frozen=False)
 class MetricsClient:
     cluster: ClickhouseCluster
 
