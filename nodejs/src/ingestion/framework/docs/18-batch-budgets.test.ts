@@ -13,8 +13,10 @@
  * ## The budget object
  *
  * A budget enforces by virtue of existing. `BatchBudget` carries one absolute
- * deadline — `softAt` — and one flag its internal timer sets — `exhausted`; the
- * checkpoints read the flag. Past the deadline the framework stops starting
+ * deadline, `softAt`, and the checkpoints read its `exhausted` flag. The flag
+ * compares the clock with the deadline on every read, so a checkpoint sees the
+ * deadline even while synchronous work holds the event loop, and once set it
+ * stays set. Past the deadline the framework stops starting
  * work; work already running finishes. It is called soft because it never
  * interrupts anything — a step that hangs forever is the consumer's ack
  * watchdog to catch, and that watchdog is the only hard limit in the system.
@@ -126,8 +128,8 @@ function timeoutReasons<T>(results: { result: PipelineResult<T> }[]): (string | 
 }
 
 describe('Batch Time Budgets', () => {
-    // A budget's deadline arrives on a timer, so a case that needs one to pass
-    // moves the clock rather than waiting for it.
+    // A budget reads the clock, so a case that needs its deadline to pass moves
+    // the fake clock rather than waiting for it.
     beforeEach(() => {
         jest.useFakeTimers()
     })

@@ -9,7 +9,7 @@ describe('BatchBudget', () => {
         jest.useRealTimers()
     })
 
-    it('shares one unlimited budget that never exhausts and settles to nothing', () => {
+    it('shares one unlimited budget that never exhausts', () => {
         const budget = BatchBudget.unlimited()
 
         expect(budget).toBe(BatchBudget.unlimited())
@@ -17,20 +17,30 @@ describe('BatchBudget', () => {
         expect(budget.exhausted).toBe(false)
 
         jest.advanceTimersByTime(60_000)
-        budget.settle()
 
         expect(budget.exhausted).toBe(false)
     })
 
-    it('exhausts at the soft deadline', () => {
-        const budget = BatchBudget.softDeadline(Date.now() + 1000)
+    // setSystemTime moves the clock without running timers, as a synchronous step that holds the event loop does.
+    it('exhausts at the soft deadline even when no timer has run', () => {
+        const now = Date.now()
+        const budget = BatchBudget.softDeadline(now + 1000)
 
+        jest.setSystemTime(now + 999)
         expect(budget.exhausted).toBe(false)
 
-        jest.advanceTimersByTime(999)
-        expect(budget.exhausted).toBe(false)
+        jest.setSystemTime(now + 1000)
+        expect(budget.exhausted).toBe(true)
+    })
 
-        jest.advanceTimersByTime(1)
+    it('stays exhausted when the wall clock steps back', () => {
+        const now = Date.now()
+        const budget = BatchBudget.softDeadline(now + 1000)
+
+        jest.setSystemTime(now + 1000)
+        expect(budget.exhausted).toBe(true)
+
+        jest.setSystemTime(now)
         expect(budget.exhausted).toBe(true)
     })
 
@@ -38,14 +48,5 @@ describe('BatchBudget', () => {
         const budget = BatchBudget.softDeadline(Date.now() - 1)
 
         expect(budget.exhausted).toBe(true)
-    })
-
-    it('stops the deadline from arriving once settled', () => {
-        const budget = BatchBudget.softDeadline(Date.now() + 1000)
-
-        budget.settle()
-        jest.advanceTimersByTime(5000)
-
-        expect(budget.exhausted).toBe(false)
     })
 })

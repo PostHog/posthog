@@ -100,19 +100,26 @@ describe('BatchingPipeline', () => {
         expect(allResults[0].context.budget).toBe(BatchBudget.unlimited())
     })
 
-    it('counts a budget that expired before its batch completed', async () => {
-        batchBudgetExhaustedCounter.reset()
-        const collector = newBatchingPipeline<any, any, MsgCtx>(
-            (builder) => builder.pipe(beforeBatchStep),
-            (builder) => builder,
-            (builder) => builder.pipe(afterBatchStep),
-            { concurrentBatches: Infinity }
-        )
+    it.each([
+        ['before the batch started', -10, 0],
+        ['while afterBatch flushed', 500, 1_000],
+    ])('counts a budget that expired %s', async (_when, deadlineInMs, flushMs) => {
+        jest.useFakeTimers()
+        try {
+            batchBudgetExhaustedCounter.reset()
+            afterBatchStep.mockImplementation((input) => {
+                jest.setSystemTime(Date.now() + flushMs)
+                return Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
+            })
+            const collector = createCollector()
 
-        await collector.feed(makeBatch([1]), {}, BatchBudget.softDeadline(Date.now() - 10))
-        await drainAll(collector)
+            await collector.feed(makeBatch([1]), {}, BatchBudget.softDeadline(Date.now() + deadlineInMs))
+            await drainAll(collector)
 
-        expect(await getBudgetsExhausted()).toBe(1)
+            expect(await getBudgetsExhausted()).toBe(1)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('returns null when sub-pipeline is empty', async () => {

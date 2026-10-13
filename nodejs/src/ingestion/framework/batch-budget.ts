@@ -1,33 +1,17 @@
 /**
  * A fed batch's soft deadline. Past it the framework stops starting steps, but
  * it never interrupts a running one: the consumer's ack watchdog is the hard
- * limit. A timer sets the flag because checkpoints read `exhausted` once per
- * element per step.
+ * limit.
  */
 export class BatchBudget {
     private static readonly UNLIMITED = new BatchBudget(Infinity)
 
     private expired = false
-    private timer: ReturnType<typeof setTimeout> | null = null
 
     private constructor(
         /** Epoch milliseconds, or `Infinity` for no deadline. */
         readonly softAt: number
-    ) {
-        if (softAt === Infinity) {
-            return
-        }
-        const remainingMs = softAt - Date.now()
-        if (remainingMs <= 0) {
-            // A zero-delay timer fires after the first checkpoint can run.
-            this.expired = true
-            return
-        }
-        this.timer = setTimeout(() => {
-            this.expired = true
-        }, remainingMs)
-        this.timer.unref?.()
-    }
+    ) {}
 
     static softDeadline(softAt: number): BatchBudget {
         return new BatchBudget(softAt)
@@ -37,19 +21,20 @@ export class BatchBudget {
         return BatchBudget.UNLIMITED
     }
 
+    // Reads the clock rather than a timer flag: synchronous steps can hold the
+    // event loop past the deadline, and a timer flag would then let a late
+    // element through the timeout barrier. The flag stays set, so a wall-clock
+    // step backwards cannot restart a cut-off group.
     get exhausted(): boolean {
-        return this.expired
-    }
-
-    settle(): void {
-        if (this.timer) {
-            clearTimeout(this.timer)
-            this.timer = null
+        if (!this.expired && this.softAt !== Infinity) {
+            this.expired = Date.now() >= this.softAt
         }
+        return this.expired
     }
 }
 
-// Node fires a longer timer after 1 ms, so a longer allowance would expire at once.
+// The server arms its admission park timer with the allowance. Node fires a
+// longer timer after 1 ms, so a longer allowance would expire at once.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
 
 // Allowances arrive as durations, so the sender's clock never enters the arithmetic.

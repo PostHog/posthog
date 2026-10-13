@@ -75,9 +75,9 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
 }
 
 // The overrun is the tail the checkpoints cannot cut, because they only stop work from starting.
-function closeBudget(budget: BatchBudget): void {
-    budget.settle()
-    if (!budget.exhausted || budget.softAt === Infinity) {
+// It includes afterBatch, which flushes the batch's writes before the batch can be acked.
+function recordBudgetOverrun(budget: BatchBudget): void {
+    if (!budget.exhausted) {
         return
     }
     batchBudgetExhaustedCounter.inc()
@@ -381,7 +381,6 @@ export class BatchingPipeline<
                 batch.results.set(messageId, resultWithContext)
 
                 if (batch.inflight.size === 0) {
-                    closeBudget(batch.budget)
                     const orderedResults = batch.messageIds.map((id) => batch.results.get(id)!)
                     this.batches.delete(batchId)
                     for (const id of batch.messageIds) {
@@ -396,6 +395,7 @@ export class BatchingPipeline<
                     const afterResult = await runInContext(batch.trace?.parentContext, () =>
                         this.afterPipeline.process(createOkContext(afterInput, {}))
                     ).finally(() => batch.trace?.span.end())
+                    recordBudgetOverrun(batch.budget)
 
                     if (!isOkResult(afterResult.result)) {
                         throw new Error(`batching_pipeline afterBatch hook returned non-ok result for batch ${batchId}`)
