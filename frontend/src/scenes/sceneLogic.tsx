@@ -912,12 +912,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                if (
-                    projectLogic.findMounted()?.values.currentProject?.is_pending_deletion &&
-                    !isPathOpenWhileProjectPendingDeletion(router.values.location.pathname)
-                ) {
-                    // Same reason as the organization block above.
-                    router.actions.replace(urls.projectPendingDeletion())
+                if (projectLogic.findMounted()?.values.currentProject?.is_pending_deletion) {
+                    // Same reasons as the organization block above, including skipping the onboarding redirects.
+                    if (isPathOpenWhileProjectPendingDeletion(router.values.location.pathname)) {
+                        actions.loadScene(sceneId, sceneKey, params, method)
+                    } else {
+                        router.actions.replace(urls.projectPendingDeletion())
+                    }
                     return
                 }
 

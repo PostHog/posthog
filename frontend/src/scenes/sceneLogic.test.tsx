@@ -755,9 +755,20 @@ describe('sceneLogic', () => {
                 Scene.ProjectPendingDeletion,
             ],
             ['keeps my tickets open', urls.myTickets(), urls.myTickets(), 'MyTickets'],
-        ])('%s', async (_name, target, expectedRoute, expectedScene) => {
+            [
+                'keeps my tickets open when the project has not finished onboarding',
+                urls.myTickets(),
+                urls.myTickets(),
+                'MyTickets',
+                { ingested_event: false, completed_snippet_onboarding: false, has_completed_onboarding_for: {} },
+            ],
+        ])('%s', async (_name, target, expectedRoute, expectedScene, team: Partial<TeamType> = {}) => {
             logic.unmount()
-            initKeaTests(true, MOCK_DEFAULT_TEAM, { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+            initKeaTests(
+                true,
+                { ...MOCK_DEFAULT_TEAM, ...team },
+                { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true }
+            )
             await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
             featureFlagLogic.mount()
             logic = sceneLogic.build({ scenes: testScenes })
