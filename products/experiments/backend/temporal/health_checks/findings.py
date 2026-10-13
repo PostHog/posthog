@@ -7,9 +7,14 @@ This module only loads the experiments of a team batch and maps each finding to 
 
 from collections.abc import Callable, Iterator
 
+import structlog
+import posthoganalytics
+
 from posthog.models.health_issue import HealthIssue
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.temporal.health_checks.framework import _SEVERITY_WEIGHT, AlertContent, SignalContent, build_signal_extra
 from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.utils import get_instance_region
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.health.context import HealthContext, load_health_context
@@ -18,6 +23,10 @@ from products.experiments.backend.health.registry import (
     evaluate,
 )
 from products.experiments.backend.models.experiment import Experiment
+
+logger = structlog.get_logger(__name__)
+
+LIVE_GATE_FLAG = "experiments-health-checks"
 
 # One issue per experiment and subcode. A subcode change, such as a paused flag that goes to a 0% rollout,
 # resolves the old issue and opens a new one, because the fix is different.
@@ -37,6 +46,33 @@ def any_experiment(ctx: HealthContext) -> bool:
 
 def running_experiment(ctx: HealthContext) -> bool:
     return ctx.is_running
+
+
+def live_gate_team_ids(team_ids: list[int]) -> list[int]:
+    """Only the teams `LIVE_GATE_FLAG` answers `True` for.
+
+    A team left out keeps its open issues, so turning the flag off for a team stops new issues
+    without closing the old ones.
+    """
+    # Each flag read retries the definitions load while no definitions are loaded, so check once per batch.
+    if posthoganalytics.disabled or not posthoganalytics.feature_flag_definitions():
+        logger.warning("experiments_health_checks_live_gate_unreadable", team_count=len(team_ids))
+        return []
+    return [team_id for team_id in team_ids if _live_gate_answer(team_id) is True]
+
+
+def _live_gate_answer(team_id: int) -> bool | str | None:
+    # Team ids repeat across regions and EU evaluates a mirror of this flag, so every condition
+    # needs a `region` filter, or one project-id condition matches two different customers.
+    region = get_instance_region() or "DEV"
+    return get_feature_flag_or_none(
+        LIVE_GATE_FLAG,
+        f"team-{team_id}",
+        groups={"project": f"{region}:{team_id}"},
+        group_properties={"project": {"id": str(team_id), "region": region}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 def detect_experiment_findings(

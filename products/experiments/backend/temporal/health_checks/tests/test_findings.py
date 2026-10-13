@@ -2,7 +2,9 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import call, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,8 +14,14 @@ from posthog.models.health_issue import HealthIssue
 
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.temporal.health_checks.findings import detect_experiment_findings
+from products.experiments.backend.temporal.health_checks.findings import (
+    LIVE_GATE_FLAG,
+    detect_experiment_findings,
+    live_gate_team_ids,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+FLAG_READ_TARGET = "products.experiments.backend.temporal.health_checks.findings.get_feature_flag_or_none"
 
 METRIC = {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}
 
@@ -77,3 +85,48 @@ class TestExperimentHealthFindings(BaseTest):
         self._experiment(team=other_team, flag_active=False)
 
         assert detect_experiment_findings([self.team.id], flag_state) == {}
+
+
+class TestExperimentHealthLiveGate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("enabled", True, [1]),
+            ("deliberately_disabled", False, []),
+            ("flag_absent", None, []),
+            ("a_variant_is_not_enabled", "control", []),
+        ]
+    )
+    def test_the_gate_keeps_a_team_only_when_the_flag_answers_true(
+        self, _name: str, answer: Any, expected: list[int]
+    ) -> None:
+        with (
+            patch.multiple("posthoganalytics", disabled=False, feature_flag_definitions=lambda: [{"key": "x"}]),
+            patch(FLAG_READ_TARGET, return_value=answer) as flag_read,
+        ):
+            assert live_gate_team_ids([1]) == expected
+
+        assert flag_read.call_args == call(
+            LIVE_GATE_FLAG,
+            "team-1",
+            groups={"project": "DEV:1"},
+            group_properties={"project": {"id": "1", "region": "DEV"}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
+    @parameterized.expand(
+        [
+            ("sdk_off_by_configuration", True, [{"key": "x"}]),
+            ("no_definitions_loaded", False, None),
+        ]
+    )
+    def test_the_gate_reads_no_flag_when_the_sdk_cannot_answer(
+        self, _name: str, disabled: bool, definitions: Any
+    ) -> None:
+        with (
+            patch.multiple("posthoganalytics", disabled=disabled, feature_flag_definitions=lambda: definitions),
+            patch(FLAG_READ_TARGET) as flag_read,
+        ):
+            assert live_gate_team_ids([1]) == []
+
+        flag_read.assert_not_called()
