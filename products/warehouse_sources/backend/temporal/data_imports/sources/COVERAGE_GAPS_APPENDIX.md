@@ -518,9 +518,9 @@ Today (10): `accounts`, `call_dispositions`, `calls`, `excluded_domains`, `exclu
 
 Diffed against: <https://api.amplemarket.com/api-docs/v1/swagger.yaml>
 
-- [ ] `Contacts (GET /contacts)` — expands contact IDs on synced tasks into prospect attributes and account relationships (high)
-- [ ] `Lead list entries (GET /lead-lists/{id})` — provides leads, list membership, and enrichment results absent from synced list summaries (high)
-- [ ] `Job openings (GET /job-openings)` — adds hiring signals for account prioritization and outreach analysis (medium)
+- [x] `Contacts (GET /contacts)` — expands contact IDs on synced tasks into prospect attributes and account relationships (high). Added as `contacts` (fan-out over `accounts` by `account_id`, because the endpoint has no unfiltered listing). Contacts not linked to an account are not reachable.
+- [x] `Lead list entries (GET /lead-lists/{id})` — provides leads, list membership, and enrichment results absent from synced list summaries (high). Added as `lead_list_entries` (fan-out over `lead_lists`).
+- ~~`Job openings (GET /job-openings)`~~ — skipped: it requires a company id, domain, or LinkedIn URL and searches Amplemarket's company data, so the rows are not records in the customer's account
 
 Note: Parsed every GET operation in the vendor's published OpenAPI spec, including nested resources. Contacts require IDs, a name, or an account filter; lead entries require pagination for each list. Job openings require a company identifier or domain. Task status and type endpoints contain enum strings; enrichment jobs, recordings, and webhook-only engagement were excluded.
 
