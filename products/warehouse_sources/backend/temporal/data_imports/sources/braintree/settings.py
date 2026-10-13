@@ -22,7 +22,16 @@ _TRANSACTION_FIELDS = """
             amount { value currencyCode }
             orderId
             merchantAccountId
-            paymentMethodSnapshot { __typename }
+            customer { id legacyId }
+            paymentMethod { legacyId }
+            disbursementDetails { date }
+            installmentDetails { count }
+            processorAuthorizationResponse { avsPostalCodeResponse avsStreetAddressResponse cvvResponse }
+            paymentMethodSnapshot {
+              __typename
+              ... on CreditCardTransactionDetails { creditCard { brandCode last4 bin } }
+              ... on CreditCardDetails { brandCode last4 bin }
+            }
 """
 
 _REFUND_FIELDS = """
@@ -40,10 +49,19 @@ _DISPUTE_FIELDS = """
             legacyId
             createdAt
             receivedDate
+            replyByDate
+            responseDeadline
             status
             type
             caseNumber
+            referenceNumber
+            protectionLevel
             amountDisputed { value currencyCode }
+            amountWon { value currencyCode }
+            processorResponse { reason reasonCode reasonDescription }
+            transaction { id legacyId }
+            originalDispute { id legacyId }
+            statusHistory { status timestamp effectiveDate disbursementDate }
 """
 
 _CUSTOMER_FIELDS = """
