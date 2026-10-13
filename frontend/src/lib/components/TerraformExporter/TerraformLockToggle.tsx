@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { AccessControlManagementApi } from 'products/access_control/frontend/generated/api.schemas'
 
@@ -29,22 +31,26 @@ export function TerraformLockToggle(props: TerraformLockLogicProps): JSX.Element
             <LemonSwitch
                 bordered
                 fullWidth
-                label="Lock access control to Terraform"
+                label={
+                    <div className="flex gap-1 items-center">
+                        <span>Lock access control to Terraform</span>
+                        {lock !== null && (
+                            <Tooltip title={lockDescription(lock)}>
+                                <IconInfo className="text-secondary text-lg shrink-0" />
+                            </Tooltip>
+                        )}
+                    </div>
+                }
                 checked={lock?.managed ?? false}
                 onChange={setLock}
                 loading={lockLoading}
                 disabledReason={lock === null ? 'Loading…' : undefined}
                 data-attr="access-control-terraform-lock"
             />
-            {lock !== null && (
+            {lock?.terraform_last_applied_at && (
                 <p className="text-secondary text-xs mb-0">
-                    <span>{lockDescription(lock)}</span>
-                    {lock.terraform_last_applied_at && (
-                        <span>
-                            {' '}
-                            Last applied <TZLabel time={lock.terraform_last_applied_at} />.
-                        </span>
-                    )}
+                    <span>Last applied </span>
+                    <TZLabel time={lock.terraform_last_applied_at} />
                 </p>
             )}
         </div>
