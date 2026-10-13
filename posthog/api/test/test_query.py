@@ -117,6 +117,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.json()["results"], expected)
             self.assertEqual(response.json()["is_cached"], is_cached)
 
+    @parameterized.expand(
+        [
+            ("binary_first", "map(SHA1('abc'), 'hash', base64Encode(SHA1('abc')), 'text')"),
+            ("text_first", "map(base64Encode(SHA1('abc')), 'text', SHA1('abc'), 'hash')"),
+        ]
+    )
+    def test_hogql_binary_map_key_collision_returns_error(self, _name, expression):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": HogQLQuery(query=f"SELECT {expression}").model_dump(), "refresh": "force_blocking"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            "Cannot encode binary map keys without losing entries. Return mapKeys() and mapValues() separately.",
+        )
+
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
         # which embeds the limiter's internal Redis key + task id and used to leak into the UI.

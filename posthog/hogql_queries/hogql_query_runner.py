@@ -46,15 +46,39 @@ _ACTIVITY_LOGS_TABLE = "system.activity_logs"
 
 
 def _encode_binary_results(value: Any) -> Any:
+    """Reuse unchanged containers so ordinary queries do not allocate a second result tree."""
     match value:
         case bytes():
             return base64.b64encode(value).decode("ascii")
-        case list():
-            return [_encode_binary_results(item) for item in value]
-        case tuple():
-            return tuple(_encode_binary_results(item) for item in value)
+        case list() | tuple():
+            encoded_items = None
+            for index, item in enumerate(value):
+                encoded_item = _encode_binary_results(item)
+                if encoded_item is not item:
+                    if encoded_items is None:
+                        encoded_items = list(value)
+                    encoded_items[index] = encoded_item
+            if encoded_items is None:
+                return value
+            return tuple(encoded_items) if isinstance(value, tuple) else encoded_items
         case dict():
-            return {_encode_binary_results(key): _encode_binary_results(item) for key, item in value.items()}
+            encoded_map = None
+            for key, item in value.items():
+                encoded_key = _encode_binary_results(key)
+                encoded_item = _encode_binary_results(item)
+                if encoded_key is key and encoded_item is item:
+                    continue
+                if encoded_map is None:
+                    encoded_map = value.copy()
+                if encoded_key is not key:
+                    if encoded_key in encoded_map:
+                        raise ExposedHogQLError(
+                            "Cannot encode binary map keys without losing entries. "
+                            "Return mapKeys() and mapValues() separately."
+                        )
+                    del encoded_map[key]
+                encoded_map[encoded_key] = encoded_item
+            return value if encoded_map is None else encoded_map
         case _:
             return value
 
