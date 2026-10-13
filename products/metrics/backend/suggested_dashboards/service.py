@@ -45,13 +45,12 @@ def _suggestion(suggestion: MetricsDashboardSuggestion, *, dashboard_exists: boo
 
 
 def list_suggestions(team: Team) -> list[SuggestedDashboard]:
-    suggestions = (
+    suggestions = list(
         MetricsDashboardSuggestion.objects.for_team(team.id)
         .filter(template__status=MetricsDashboardTemplate.Status.APPROVED)
         .select_related("template")
         .order_by("-coverage", "template__name")
     )
-    suggestions = list(suggestions)
     dashboard_ids = [suggestion.dashboard_id for suggestion in suggestions if suggestion.dashboard_id is not None]
     deleted = set(unknown_dashboard_ids(dashboard_ids, team_id=team.id)) if dashboard_ids else set()
     return [
