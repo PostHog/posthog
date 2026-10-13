@@ -9,8 +9,8 @@ from django.core.cache import cache
 import structlog
 
 from posthog.cloud_utils import is_cloud
-from posthog.errors import InternalCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
 from posthog.ph_client import get_client
@@ -50,13 +50,16 @@ from products.workflows.backend.services.data_suggestions.stages import (
 )
 from products.workflows.backend.services.hog_flow_templates import list_step_templates
 
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
+
 logger = structlog.get_logger(__name__)
 
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 # A failed run waits this long before it tries again, so an outage does not rerun the queries on every visit.
 FAILURE_CACHE_TTL_SECONDS = 5 * 60
-# Longer than the slowest run, so a crashed worker cannot block a team for good.
-_GENERATION_LOCK_SECONDS = 5 * 60
+# Longer than the slowest run, model retries included, so a second run cannot start while the first is alive. Short
+# enough that a crashed worker does not block a team for long.
+_GENERATION_LOCK_SECONDS = 15 * 60
 # A built draft is kept this long, so a retry after a failed save does not pay for another plan.
 _BUILD_CACHE_SECONDS = 60 * 60
 MAX_SUGGESTIONS = 3
@@ -65,8 +68,8 @@ _GENERATION_ERRORS = (
     StageClassificationFailed,
     InternalCHQueryError,
     ClickHouseQueryTimeOut,
-    ClickHouseAtCapacity,
     ClickHouseQueryMemoryLimitExceeded,
+    *CH_TRANSIENT_ERRORS,
 )
 
 _GENERATING = DataSuggestionsResult(status="generating", suggestions=())
@@ -78,15 +81,13 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     unavailable = _unavailable_reason(team)
     if unavailable is not None:
         return unavailable
-    cached = _read_cache(team)
-    if cached is not None:
-        return cached
+    # Checked before the cache, so a refresh in progress reads as generating rather than as the old cards.
     if cache.get(_generation_lock_key(team)) is not None:
         return _GENERATING
-    return _UNAVAILABLE
+    return _read_cache(team) or _UNAVAILABLE
 
 
-def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[], None]) -> DataSuggestionsResult:
+def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str], None]) -> DataSuggestionsResult:
     """Returns the cached cards, or starts a background run through `enqueue` and reports that it is generating."""
     unavailable = _unavailable_reason(team)
     if unavailable is not None:
@@ -95,12 +96,13 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[], N
     if cached is not None and not refresh:
         return cached
     # Visits that arrive while a run is going would each repeat the queries and the model calls.
-    if not cache.add(_generation_lock_key(team), True, _GENERATION_LOCK_SECONDS):
+    lock_token = str(uuid.uuid4())
+    if not cache.add(_generation_lock_key(team), lock_token, _GENERATION_LOCK_SECONDS):
         return _GENERATING
     try:
-        enqueue()
+        enqueue(lock_token)
     except Exception:
-        cache.delete(_generation_lock_key(team))
+        _release_lock(team.id, lock_token)
         logger.exception("workflows.data_suggestions.enqueue_failed", team_id=team.id)
         return _UNAVAILABLE
     return _GENERATING
@@ -110,11 +112,14 @@ def has_cached_data_suggestions(*, team: Team) -> bool:
     return _read_cache(team) is not None
 
 
-def run_data_suggestions(*, team_id: int, user_id: int) -> None:
+def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None:
     """The background run that `start_data_suggestions` queues. It caches the result and releases the lock."""
     try:
         team = Team.objects.select_related("organization").get(id=team_id)
         user = User.objects.get(id=user_id)
+        # Consent or privacy settings can change between the click and the worker picking the run up.
+        if _unavailable_reason(team) is not None:
+            return
         previous = _read_cache(team)
         with _analytics_client() as analytics_client:
             result = _generate(team=team, user=user, analytics_client=analytics_client)
@@ -126,7 +131,7 @@ def run_data_suggestions(*, team_id: int, user_id: int) -> None:
         # Written before the lock is released, so the next visit reads it instead of starting another run.
         cache.set(_cache_key(team), _to_cache(result), ttl)
     finally:
-        cache.delete(_generation_lock_key_for(team_id))
+        _release_lock(team_id, lock_token)
 
 
 def build_data_suggestion(
@@ -195,6 +200,10 @@ def build_data_suggestion(
 def _unavailable_reason(team: Team) -> DataSuggestionsResult | None:
     if team.organization.is_ai_data_processing_approved is not True:
         return DataSuggestionsResult(status="ai_not_approved", suggestions=())
+    # The Jev client cannot send the gateway's privacy header, so event names would be recorded. Until it can,
+    # organizations in privacy mode get no suggestions.
+    if is_privacy_mode_enabled(team):
+        return _UNAVAILABLE
     # Without Jev the ranking cannot tell a sign-up from routine usage, so no suggestions are made.
     if not system_one_configured():
         return _UNAVAILABLE
@@ -217,6 +226,13 @@ def _generation_lock_key(team: Team) -> str:
 
 def _generation_lock_key_for(team_id: int) -> str:
     return f"workflows:data_suggestions:generating:{team_id}"
+
+
+def _release_lock(team_id: int, lock_token: str) -> None:
+    # Only the run that holds the lock releases it, so a run that outlived its lease cannot drop a newer run's lock.
+    key = _generation_lock_key_for(team_id)
+    if cache.get(key) == lock_token:
+        cache.delete(key)
 
 
 def _to_cache(result: DataSuggestionsResult) -> dict[str, Any]:

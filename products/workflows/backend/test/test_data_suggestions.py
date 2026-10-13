@@ -118,6 +118,11 @@ class TestDataSuggestions(SimpleTestCase):
                 plan(step("wait", type="wait_until_event", wait_event="made_up_event")),
             ),
             (
+                "split with a share outside 1 to 100",
+                {},
+                plan(step("ab", type="random_split", branches=[branch("A", None, -50), branch("B", None, 150)])),
+            ),
+            (
                 "split that does not add up to 100",
                 {},
                 plan(step("ab", type="random_split", branches=[branch("A", None, 50), branch("B", None, 40)])),

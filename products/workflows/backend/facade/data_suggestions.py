@@ -21,5 +21,7 @@ __all__ = [
 
 def start_data_suggestions(*, team: Team, user: User, refresh: bool) -> DataSuggestionsResult:
     return service.start_data_suggestions(
-        team=team, refresh=refresh, enqueue=lambda: generate_data_suggestions.delay(team.id, user.id)
+        team=team,
+        refresh=refresh,
+        enqueue=lambda lock_token: generate_data_suggestions.delay(team.id, user.id, lock_token),
     )
