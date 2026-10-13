@@ -8,6 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from '~/toolbar/urls'
 
 import { ExtensionFeatureList } from './ExtensionFeatureList'
+import { ExtensionPageTools } from './ExtensionPageTools'
 import { extensionPanelLogic } from './extensionPanelLogic'
 import { ExtensionPanelSettings } from './ExtensionPanelSettings'
 import type { ExtensionPanelState, UnsupportedPageReason } from './extensionPanelState'
@@ -94,7 +95,12 @@ function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState })
                 </LemonBanner>
             )
         case 'ready':
-            return <ExtensionFeatureList origin={panelState.origin} />
+            return (
+                <>
+                    <ExtensionPageTools />
+                    <ExtensionFeatureList origin={panelState.origin} />
+                </>
+            )
     }
 }
 

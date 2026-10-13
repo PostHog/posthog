@@ -250,7 +250,7 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 // The browser extension ships one panel bundle in a folder per browser. Only the manifest differs:
 //
 //   dist/toolbar-extension/<browser>/manifest.json
-//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, assets/, icons/
+//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, content.js, assets/, icons/
 //
 // Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
 const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
@@ -287,11 +287,17 @@ export function getToolbarExtensionBuildConfig(dirname) {
     }
 }
 
-/** Firefox doesn't run a module as a background script, so the background script is one classic script. */
+/**
+ * The panel injects content.js into the tab with `scripting.executeScript`, which runs a file as a classic script, and
+ * Firefox doesn't run a module as a background script. So each of these scripts is one self-contained IIFE.
+ */
 export function getToolbarExtensionScriptsBuildConfig(dirname) {
     return {
         name: 'Toolbar extension scripts',
-        entryPoints: { background: 'src/toolbar/extension/background.ts' },
+        entryPoints: {
+            background: 'src/toolbar/extension/background.ts',
+            content: 'src/toolbar/extension/content.tsx',
+        },
         format: 'iife',
         splitting: false,
         outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
@@ -319,7 +325,7 @@ function buildToolbarExtensionManifest(browser) {
             default_title: 'Open the PostHog toolbar',
             default_icon: TOOLBAR_EXTENSION_ICONS,
         },
-        permissions: ['storage'],
+        permissions: ['scripting', 'storage'],
         host_permissions: ['http://*/*', 'https://*/*'],
     }
     if (browser === 'firefox') {

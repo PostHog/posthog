@@ -19,7 +19,7 @@ const FEATURE_ICONS: Record<ExtensionFeatureKey, JSX.Element> = {
     experiments: <IconFlask />,
 }
 
-const GATE_DISABLED_REASONS: Record<ToolbarFeatureGateStatus, string | null> = {
+export const GATE_DISABLED_REASONS: Record<ToolbarFeatureGateStatus, string | null> = {
     available: null,
     checking: 'Checking plan access…',
     unknown: "Couldn't check plan access. Close and open the panel to try again.",

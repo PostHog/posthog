@@ -37,9 +37,10 @@ export const AutocaptureElementLabel = memo(
 
         return (
             <div
-                className="absolute"
+                // Inline, not a class, so the label also works where the toolbar stylesheet isn't loaded.
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
+                    position: 'absolute',
                     top: `${inBounds(
                         window.pageYOffset - 1,
                         rect.top - 7 + window.pageYOffset,
