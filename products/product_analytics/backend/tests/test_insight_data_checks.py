@@ -178,6 +178,26 @@ class TestEvaluateDataChecks(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("when_the_insight_does_not_apply_the_filter", False, True),
+            ("not_when_the_insight_applies_the_filter", True, False),
+        ]
+    )
+    def test_a_fix_in_the_filter_asks_to_turn_the_filter_on(
+        self, _name: str, filters_internal_users: bool, asks: bool
+    ) -> None:
+        checks = evaluate_data_checks(
+            counts(1000, local=300, bots=300),
+            filters_internal_users=filters_internal_users,
+            has_internal_users_filter=True,
+        )
+        fixes = {check.key: check.fix or "" for check in checks}
+        assert [
+            "turn that filter on" in fixes[key]
+            for key in (InsightDataCheckKey.LOCAL_DEVELOPMENT, InsightDataCheckKey.BOT_TRAFFIC)
+        ] == [asks, asks]
+
+    @parameterized.expand(
+        [
             ("every_event_read", 1.0, "66 of these events came from local development"),
             ("sample_read", 0.01, "About 6,600 of these events came from local development"),
         ]

@@ -24,6 +24,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
@@ -31,6 +32,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
@@ -288,8 +292,8 @@ def evaluate_data_checks(
             has_internal_users_filter=has_internal_users_filter,
             own_team_domain=own_team_domain,
         ),
-        _local_development_check(counts),
-        _bot_traffic_check(counts),
+        _local_development_check(counts, filters_internal_users=filters_internal_users),
+        _bot_traffic_check(counts, filters_internal_users=filters_internal_users),
         _duplicate_events_check(counts),
     ]
 
@@ -537,17 +541,26 @@ def _count_events(
         counts = _query_counts(checked, reader, insight_filters=insight_filters, sampled=sampled, total=total)
     if not counts.events:
         return counts
-    return replace(
-        counts,
-        internal_users=_count_internal_user_events(
+    try:
+        internal_users = _count_internal_user_events(
             checked,
             reader,
             chart_events=round(counts.events / counts.sample_rate),
             has_internal_users_filter=has_internal_users_filter,
             own_team=own_team,
             insight_filters=insight_filters,
-        ),
-    )
+        )
+    except (
+        ExposedHogQLError,
+        ExposedCHQueryError,
+        ResolutionError,
+        ClickHouseQueryTimeOut,
+        ClickHouseQueryMemoryLimitExceeded,
+    ) as error:
+        # This query alone reads the project's filter and person properties, so it can fail when the others pass.
+        capture_exception(error)
+        return counts
+    return replace(counts, internal_users=internal_users)
 
 
 def _query_counts(
@@ -740,14 +753,20 @@ def _internal_users_check(
         return _check(
             key,
             InsightDataCheckLevel.SKIPPED,
-            "Not checked, because too few users sent these events to take a sample of them",
+            "Not checked, because this check could not finish"
+            if counts.internal_users is None
+            else "Not checked, because too few users sent these events to take a sample of them",
         )
     if filters_internal_users:
         return _check(key, InsightDataCheckLevel.PASSED, "Internal and test users are filtered out")
     return _passed(key, "internal or test users", events, counts)
 
 
-def _local_development_check(counts: DataCheckCounts) -> InsightDataCheck:
+def _fix_in_the_filter(change: str, *, filters_internal_users: bool) -> str:
+    return f"{change}." if filters_internal_users else f"{change}, and turn that filter on for this insight."
+
+
+def _local_development_check(counts: DataCheckCounts, *, filters_internal_users: bool) -> InsightDataCheck:
     key = InsightDataCheckKey.LOCAL_DEVELOPMENT
     share = counts.local_events / counts.events
     # No minimum share: a local session also creates test persons and flag exposures, whatever its share.
@@ -758,9 +777,9 @@ def _local_development_check(counts: DataCheckCounts) -> InsightDataCheck:
         key,
         _finding_level(share),
         f"{amount[0].upper()}{amount[1:]} of these events came from local development",
-        fix=(
-            "Send local traffic to a separate project, or exclude localhost in the internal and test users filter "
-            "and turn that filter on for this insight."
+        fix=_fix_in_the_filter(
+            "Send local traffic to a separate project, or exclude localhost in the internal and test users filter",
+            filters_internal_users=filters_internal_users,
         ),
         action=InsightDataCheckAction.OPEN_FILTER_SETTINGS,
         events=counts.local_events,
@@ -768,7 +787,7 @@ def _local_development_check(counts: DataCheckCounts) -> InsightDataCheck:
     )
 
 
-def _bot_traffic_check(counts: DataCheckCounts) -> InsightDataCheck:
+def _bot_traffic_check(counts: DataCheckCounts, *, filters_internal_users: bool) -> InsightDataCheck:
     key = InsightDataCheckKey.BOT_TRAFFIC
     share = counts.bot_events / counts.events
     if not _is_finding(counts.bot_events, share):
@@ -777,9 +796,9 @@ def _bot_traffic_check(counts: DataCheckCounts) -> InsightDataCheck:
         key,
         _finding_level(share),
         f"{_percent(share)} of these events came from bots and crawlers",
-        fix=(
-            'In the internal and test users filter, add "Traffic type is not Bot or AI Agent", '
-            "and turn that filter on for this insight."
+        fix=_fix_in_the_filter(
+            'In the internal and test users filter, add "Traffic type is not Bot or AI Agent"',
+            filters_internal_users=filters_internal_users,
         ),
         action=InsightDataCheckAction.OPEN_FILTER_SETTINGS,
         events=counts.bot_events,

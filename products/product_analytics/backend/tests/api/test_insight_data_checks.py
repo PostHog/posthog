@@ -310,6 +310,19 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert result["checks"][0]["level"] == expected_level
 
+    def test_reports_the_other_checks_when_the_project_filter_cannot_be_read(self) -> None:
+        self.team.test_account_filters = [{"type": "hogql", "key": "timestamp.day"}]
+        self.team.save()
+
+        result = self._check(self._query())
+
+        assert {check["key"]: check["level"] for check in result["checks"]} == {
+            "internal_users": "skipped",
+            "local_development": "warning",
+            "bot_traffic": "warning",
+            "duplicate_events": "warning",
+        }
+
     def test_an_insight_that_filters_internal_users_passes_that_check(self) -> None:
         result = self._check(self._query(filterTestAccounts=True))
 
