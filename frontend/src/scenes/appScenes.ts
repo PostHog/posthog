@@ -94,7 +94,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.RealTimeUsage]: () => import('./real-time-usage/RealTimeUsage'),
     [Scene.DashboardTemplateCopy]: () => import('./dashboard/dashboards/templates/DashboardTemplateCopyScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
-    [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
+    [Scene.SavedInsights]: () => import('products/product_analytics/frontend/insights/savedInsights/SavedInsights'),
     [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),
     [Scene.Health]: () => import('./health/HealthScene'),
     [Scene.HealthCategoryDetail]: () => import('./health/categoryDetail/HealthCategoryDetailScene'),

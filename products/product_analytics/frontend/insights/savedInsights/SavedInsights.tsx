@@ -1,10 +1,9 @@
-import './SavedInsights.scss'
-
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis, IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
 
+import 'scenes/saved-insights/SavedInsights.scss'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
@@ -34,8 +33,10 @@ import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insight
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { NewInsightShortcuts } from 'scenes/saved-insights/newInsightsMenu'
+import { isDraftInsightRow } from 'scenes/saved-insights/draftInsight'
+import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { SavedInsightListItem, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -48,18 +49,13 @@ import { AccessControlLevel, AccessControlResourceType, ActivityScope, SavedInsi
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { HomeDashboardStarterModal } from 'products/product_analytics/frontend/insights/home/HomeDashboardStarterModal'
-
-export * from './insightTypesMetadata'
-
+import { HomeTab } from 'products/product_analytics/frontend/insights/home/HomeTab'
+import { NewInsightButton } from 'products/product_analytics/frontend/insights/newInsightMenu/NewInsightMenu'
+import { NewInsightShortcuts } from 'products/product_analytics/frontend/insights/newInsightMenu/newInsightsMenu'
 import { ProductAnalyticsNotifications } from 'products/product_analytics/frontend/notifications/ProductAnalyticsNotifications'
 import { productAnalyticsNotificationsLogic } from 'products/product_analytics/frontend/notifications/productAnalyticsNotificationsLogic'
 
-import { isDraftInsightRow } from './draftInsight'
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
-import { HomeTab } from './HomeTab'
-import { InsightIcon } from './InsightIcon'
-import { NewInsightButton } from './NewInsightMenu'
-import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 export const scene: SceneExport = {
     component: SavedInsights,
