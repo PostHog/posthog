@@ -1874,6 +1874,11 @@
         "params": ["repoOwner", "repoName"],
         "scope": "project"
     },
+    "warehouseDestination": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseDestinations": {
         "template": "/data-management/warehouse-destinations",
         "params": [],
