@@ -111,7 +111,7 @@ class PushGateDecision:
     probability: float | None = None
     model: str | None = None
     own_commits: int | None = None
-    # Lines the new own commits change in code files, summed per commit. Set only when the gate read the patches.
+    # Lines the new own commits change in code files, summed per commit. Set only when the gate read every file.
     own_code_lines: int | None = None
 
 
@@ -120,6 +120,13 @@ class _ChangedFile:
     filename: str
     changes: int
     patch: str | None
+
+
+@frozen
+class _CommitFiles:
+    files: list[_ChangedFile]
+    # GitHub lists at most one page of files per commit, so a full page may hide more files.
+    complete: bool
 
 
 @frozen
@@ -267,17 +274,20 @@ class PushGate:
             reviewhog_shas={commit["sha"] for commit in commits if _is_own_commit(commit, app_login)},
         )
 
-    def _commit_files(self, shas: list[str]) -> list[_ChangedFile] | None:
+    def _commit_files(self, shas: list[str]) -> _CommitFiles | None:
         files: list[_ChangedFile] = []
+        complete = True
         for sha in shas:
             commit = self._get(f"/commits/{sha}", endpoint="/commits/{ref}")
             if commit is None:
                 return None
-            files.extend(_changed_files(commit))
-        return files
+            commit_files = _changed_files(commit)
+            complete = complete and len(commit_files) < GITHUB_COMPARE_FILES_CAP
+            files.extend(commit_files)
+        return _CommitFiles(files=files, complete=complete)
 
-    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int) -> PushGateDecision:
-        lines = sum(file.changes for file in code_files)
+    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int, lines_known: bool) -> PushGateDecision:
+        lines = sum(file.changes for file in code_files) if lines_known else None
         if any(file.patch is None for file in code_files):
             return _runs("interdiff_too_large", own_commits=own_commits, own_code_lines=lines)
         state = "\n\n".join(f"--- {file.filename}\n{file.patch}" for file in code_files)
@@ -341,7 +351,7 @@ class PushGate:
         own_files = self._commit_files(own_shas)
         if own_files is None:
             return _runs("compare_unavailable", own_commits=len(own_shas))
-        code_files = [file for file in own_files if not _NON_CODE_FILE.search(file.filename)]
+        code_files = [file for file in own_files.files if not _NON_CODE_FILE.search(file.filename)]
         if not code_files:
-            return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0)
-        return self._ask_system_one(code_files, own_commits=len(own_shas))
+            return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0 if own_files.complete else None)
+        return self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)

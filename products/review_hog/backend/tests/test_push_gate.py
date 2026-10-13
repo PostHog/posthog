@@ -191,6 +191,17 @@ def test_push_gate_asks_system_one_about_own_code_commits(
     assert "round" not in str(call["questions"]["alters"].instructions)
 
 
+def test_push_gate_logs_no_push_size_when_a_commit_lists_a_full_page_of_files() -> None:
+    full_page = [_file(f"posthog/module_{n}.py") for n in range(300)]
+    push = _push(
+        new_commits=[_commit("a"), _commit("c")],
+        pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+        own_commit_files=full_page,
+    )
+    decision = _decide(push, _system_one(0.8))
+    assert (decision.reason, decision.own_code_lines) == ("system_one_above_threshold", None)
+
+
 def test_push_gate_reviews_a_push_that_mixes_reviewhog_and_author_commits() -> None:
     push = _push(
         new_commits=[_commit("a"), _own_commit("r"), _commit("c")],
