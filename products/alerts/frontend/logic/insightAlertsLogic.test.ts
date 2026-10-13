@@ -44,10 +44,10 @@ const METRICS_QUERY = {
     clauses: [{ name: 'a', metricName: 'queue.depth', aggregation: 'avg' }],
 }
 
-const FUNNEL_FLOW_QUERY = {
+const funnelWithViz = (funnelVizType?: string): Record<string, any> => ({
     ...FUNNEL_QUERY,
-    source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType: 'flow' } },
-}
+    source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+})
 
 const SQL_QUERY = {
     kind: NodeKind.DataVisualizationNode,
@@ -293,7 +293,7 @@ describe('insightAlertsLogic', () => {
     it.each([
         { name: 'metrics', query: METRICS_QUERY, metricsEnabled: true, expectedWarning: false },
         { name: 'metrics', query: METRICS_QUERY, metricsEnabled: false, expectedWarning: false },
-        { name: 'flow funnel', query: FUNNEL_FLOW_QUERY, metricsEnabled: false, expectedWarning: false },
+        { name: 'flow funnel', query: funnelWithViz('flow'), metricsEnabled: false, expectedWarning: false },
         { name: 'retention', query: RETENTION_QUERY, metricsEnabled: true, expectedWarning: true },
     ])(
         'with metrics flag $metricsEnabled, a $name query on an insight with alerts sets the deletion warning to $expectedWarning',
@@ -384,14 +384,10 @@ describe('areAlertsSupportedForInsight', () => {
     })
 
     it('supports steps and trends funnels but not time-to-convert or flow', () => {
-        const withViz = (funnelVizType?: string): Record<string, any> => ({
-            ...FUNNEL_QUERY,
-            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
-        })
-        expect(areAlertsSupportedForInsight(withViz('steps'))).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('trends'))).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('time_to_convert'))).toBe(false)
-        expect(areAlertsSupportedForInsight(withViz('flow'))).toBe(false)
+        expect(areAlertsSupportedForInsight(funnelWithViz('steps'))).toBe(true)
+        expect(areAlertsSupportedForInsight(funnelWithViz('trends'))).toBe(true)
+        expect(areAlertsSupportedForInsight(funnelWithViz('time_to_convert'))).toBe(false)
+        expect(areAlertsSupportedForInsight(funnelWithViz('flow'))).toBe(false)
     })
 
     const trendsWithDisplay = (display?: ChartDisplayType): Record<string, any> => ({
@@ -425,10 +421,6 @@ describe('alertsUnsupportedReason', () => {
     // A time-to-convert/flow funnel is itself a funnel, so the generic "funnel insights are supported"
     // copy reads as a contradiction; the reason should name the real cause instead.
     it('gives a funnel-viz-specific reason for time-to-convert / flow funnels', () => {
-        const funnelWithViz = (funnelVizType: string): Record<string, any> => ({
-            ...FUNNEL_QUERY,
-            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
-        })
         for (const viz of ['time_to_convert', 'flow']) {
             const reason = alertsUnsupportedReason({}, funnelWithViz(viz))
             expect(reason).toContain('conversion rate')
