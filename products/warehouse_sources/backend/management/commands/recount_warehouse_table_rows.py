@@ -49,8 +49,7 @@ def find_recount_candidates(
 
 
 def count_table_rows(schema: ExternalDataSchema, table: DataWarehouseTable) -> int:
-    # The Delta log gives the count without a read of the data files, which can time out on a large
-    # table. In cdc_only mode the schema's table is the companion, which is another Delta table.
+    # In cdc_only mode the schema's table is the companion, which is another Delta table.
     if schema.cdc_table_mode != "cdc_only":
         uri = build_delta_table_uri(schema.folder_path(), schema.resolved_s3_folder_name or schema.name)
         storage_options = delta_storage_options()

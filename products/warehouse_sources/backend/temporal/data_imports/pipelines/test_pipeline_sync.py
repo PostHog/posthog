@@ -504,7 +504,6 @@ class TestValidateSchemaAndUpdateTable:
             pytest.param(False, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, id="first_sync_full_refresh"),
             pytest.param(False, ExternalDataSchema.SyncType.INCREMENTAL, 1_200, 1_200, id="first_sync_incremental"),
             pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, id="later_full_refresh"),
-            # A full refresh must not count the published files when the log has no statistics.
             pytest.param(
                 True, ExternalDataSchema.SyncType.FULL_REFRESH, None, 200, id="full_refresh_without_log_count"
             ),
