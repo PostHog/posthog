@@ -27,6 +27,7 @@ import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schema
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { CommandResultCard } from '../../../components/composer/CommandResultCard'
+import { CommentContextChips } from '../../../components/composer/CommentContextChips'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
@@ -270,6 +271,7 @@ export function TaskRunComposer({
                         textAreaRef={textAreaRef}
                         chips={
                             <>
+                                {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
                                 <AttachedContextChips />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </>
@@ -289,6 +291,7 @@ export function TaskRunComposer({
                     <>
                         <Composer.Frame ref={labelRef}>
                             <Composer.Header className="flex flex-wrap items-center gap-2 empty:hidden">
+                                {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
                                 <AttachedContextChips />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </Composer.Header>

@@ -90,6 +90,7 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
+        '/api/projects/:id/signals/reports/:reportId/feedback_state/': { sentiment: null, note: '' },
         '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
             const reportId = req.params.reportId as string
             return [200, mockArtefacts(reportId)]
