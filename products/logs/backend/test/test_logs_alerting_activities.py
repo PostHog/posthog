@@ -2220,6 +2220,20 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         assert _produced_events(mock_produce) == ["$logs_alert_incident_closed"]
         assert mock_produce.call_args.kwargs["properties"]["alert_id"] == str(broken.id)
 
+    def test_a_close_for_an_alert_cut_over_after_it_was_read_sends_nothing(self) -> None:
+        from products.logs.backend.alert_incidents import close_incident
+        from products.logs.backend.alert_state_machine import IncidentCloseReason
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team, name="read before cutover", filters={"serviceNames": ["ok"]}, state="firing"
+        )
+        LogsAlertConfiguration.objects.filter(pk=alert.pk).update(owner="platform")
+
+        with patch("products.logs.backend.alert_incidents.produce_alert_internal_event") as mock_produce:
+            assert close_incident(alert, IncidentCloseReason.BROKEN) is True
+
+        mock_produce.assert_not_called()
+
 
 class TestCohortFromManifest(unittest.TestCase):
     def test_reconstructs_cohort_from_manifest_and_alerts(self):
