@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconSparkles, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
@@ -29,8 +29,7 @@ export interface AiFirstCreateSceneProps {
     suggestionIcon: JSX.Element
     /** Rendered between the composer and the suggestions while no run is active, e.g. a row of starting points. */
     belowComposer?: React.ReactNode
-    // pinned: `data-attr` root. The page, its escape hatch (`-open-editor`), its banner close (`-dismiss-banner`) and
-    // its cards (`-suggestion`) hang off it.
+    // pinned: `data-attr` root. The page, its escape hatch (`-open-editor`) and its cards (`-suggestion`) hang off it.
     dataAttr: string
 }
 
@@ -50,37 +49,40 @@ export function AiFirstCreateScene({
     useEffect(() => composerShown(), [composerShown])
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
+    const escapeHatch = (
+        <LemonButton
+            type="secondary"
+            size="xsmall"
+            className="shrink-0"
+            onClick={() => {
+                escapeHatchClicked()
+                onEscapeHatch()
+            }}
+            data-attr={`${dataAttr}-open-editor`}
+        >
+            {escapeHatchLabel}
+        </LemonButton>
+    )
+
     return (
         // Natural height while drafting so the cards sit under the composer; full page once a run starts.
         <div className="flex flex-col grow min-h-0" data-attr={dataAttr}>
             {/* The escape hatch stays up during a run, so a turn that never creates the entity has a way out. */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 shrink-0 px-4 pt-2">
-                {!bannerDismissed && (
-                    <div className="flex items-center gap-1.5 grow basis-80 min-w-0 text-xs text-secondary">
-                        <IconSparkles className="text-ai size-4 shrink-0" />
-                        <span>{banner}</span>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconX />}
-                            onClick={dismissBanner}
-                            aria-label="Dismiss"
-                            className="shrink-0"
-                            data-attr={`${dataAttr}-dismiss-banner`}
-                        />
-                    </div>
-                )}
-                <LemonButton
-                    size="small"
-                    className="shrink-0 ml-auto"
-                    onClick={() => {
-                        escapeHatchClicked()
-                        onEscapeHatch()
-                    }}
-                    data-attr={`${dataAttr}-open-editor`}
+            {bannerDismissed ? (
+                <div className="flex justify-end shrink-0 m-2">{escapeHatch}</div>
+            ) : (
+                <LemonBanner
+                    type="info"
+                    icon={<IconSparkles className="LemonBanner__icon text-ai" />}
+                    onClose={dismissBanner}
+                    className="m-2 shrink-0"
                 >
-                    {escapeHatchLabel}
-                </LemonButton>
-            </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-secondary">{banner}</div>
+                        {escapeHatch}
+                    </div>
+                </LemonBanner>
+            )}
             <div className={cn('flex flex-col', activeCreation ? 'grow min-h-0' : 'shrink-0 mt-auto')}>
                 <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
             </div>
