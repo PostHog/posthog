@@ -300,8 +300,17 @@ def _element_to_row(element: Element, skip_tags: set[str] | None = None) -> dict
 
 def _extract_rows(root: Element, config: QualysVmdrEndpointConfig) -> Iterator[dict[str, Any]]:
     for item in root.iter(config.item_tag):
+        if config.flatten_ip_set:
+            for entry in item:
+                value = (entry.text or "").strip()
+                if entry.tag not in ("IP", "IP_RANGE") or not value:
+                    continue
+                start_ip, _, end_ip = value.partition("-")
+                yield {"ip_range": value, "start_ip": start_ip, "end_ip": end_ip or start_ip}
+            continue
+
         if not config.flatten_host_detections:
-            yield _element_to_row(item)
+            yield _element_to_row(item, skip_tags=set(config.drop_tags))
             continue
 
         # One row per (host, detection): host scalars prefixed host_* merged with the
