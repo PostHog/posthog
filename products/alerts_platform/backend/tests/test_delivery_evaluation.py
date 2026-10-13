@@ -136,16 +136,20 @@ class TestDeliverEvaluation(APIBaseTest):
         self,
         announced: Any,
         by_event: dict[str, list[AlertDestinationGroup]],
-        live: bool = True,
+        live: bool | Exception = True,
         transports: dict[DestinationType, type] | None = None,
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
+        configuration_id: str | None = None,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
 
         with (
-            patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=live),
+            patch(
+                f"{_MODULE}.posthoganalytics.feature_enabled",
+                **({"side_effect": live} if isinstance(live, Exception) else {"return_value": live}),
+            ),
             patch(f"{_MODULE}.announcement", return_value=announced),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
@@ -159,7 +163,12 @@ class TestDeliverEvaluation(APIBaseTest):
             ),
         ):
             return deliver_evaluation(
-                _request(self.team.id, sends_messages=sends_messages, incident_actions=incident_actions)
+                _request(
+                    self.team.id,
+                    sends_messages=sends_messages,
+                    incident_actions=incident_actions,
+                    **({"configuration_id": configuration_id} if configuration_id else {}),
+                )
             )
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
@@ -314,14 +323,12 @@ class TestDeliverEvaluation(APIBaseTest):
                 owner=owner,
             )
 
-        with (
-            patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")),
-            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
-            patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
-        ):
-            outcome = deliver_evaluation(_request(self.team.id, configuration_id=str(configuration.id)))
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)),
+            {FIRING_EVENT: [_group(SLACK)]},
+            live=RuntimeError("flags unreachable"),
+            configuration_id=str(configuration.id),
+        )
 
         assert (outcome.live, len(RecordingTransport.sends)) == (delivers, int(delivers))
 
