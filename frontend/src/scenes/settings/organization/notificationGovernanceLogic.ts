@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -367,6 +368,11 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
                 lemonToast.error("Couldn't save the changes. Try again, and if it keeps happening contact support.")
                 throw error
             }
+            posthog.capture('member notification settings saved', {
+                change_count: values.pendingChangeCount,
+                affected_member_count: values.affectedMemberCount,
+                settings: [...new Set(values.changesToSave.map((change) => change.setting))],
+            })
             actions.saveChangesSuccess()
             actions.loadMembers()
             lemonToast.success('Notification settings saved')
