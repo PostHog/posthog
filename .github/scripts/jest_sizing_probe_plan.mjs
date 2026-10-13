@@ -37,21 +37,14 @@ console.log(`PROBE_COUNTS ${JSON.stringify(counts)}`)
 const include = []
 function arm(name, file, config, tests, shards, workers, rep) {
     for (let chunk = 1; chunk <= shards; chunk++) {
-        include.push({ arm: name, file, config, tests, shards, chunk, workers, rep })
+        include.push({ arm: name, file, config, tests, shards, chunk, workers, rep, twice: name === 'cache_pair' })
     }
 }
 const hub = counts.hub_types
-const cycle = counts.cycle_logic
-const util = counts.leaf_util
 for (const rep of [1, 2]) {
-    for (const workers of ['default', '100%']) {
-        for (const shards of [3, 4, 6]) {
-            arm('default_hub', hub.file, '', hub.default.tests, shards, workers, rep)
-        }
-    }
-    arm('runtime_cycle', cycle.file, RUNTIME_CONFIG, cycle.runtime.tests, 2, 'default', rep)
+    arm('cache_pair', hub.file, '', hub.default.tests, 6, 'default', rep)
+    arm('default_hub', hub.file, '', hub.default.tests, 3, 'default', rep)
 }
-arm('default_util', util.file, '', util.default.tests, 1, 'default', 1)
 
 console.log(`PROBE_MATRIX_CELLS ${include.length}`)
 appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\n`)

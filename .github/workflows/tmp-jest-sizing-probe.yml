@@ -49,6 +49,10 @@ jobs:
             fail-fast: false
             matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
         steps:
+            - name: Runner hardware
+              run: |
+                  echo "PROBE_CPU $(lscpu | grep 'Model name' | sed 's/.*: *//') cores=$(nproc) mem_gb=$(free -g | awk '/^Mem:/{print $2}')"
+
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install pnpm dependencies
@@ -74,3 +78,14 @@ jobs:
                   if [ -n "$JEST_CONFIG" ]; then args+=(--config "$JEST_CONFIG"); fi
                   if [ "$WORKERS" != "default" ]; then args+=("--maxWorkers=$WORKERS"); fi
                   pnpm --filter=@posthog/frontend exec jest "${args[@]}" --findRelatedTests "$CHANGED_FILE"
+
+            - name: Run jest again with the cache it just wrote
+              if: matrix.twice
+              continue-on-error: true
+              env:
+                  NODE_OPTIONS: --max-old-space-size=16384
+                  CHANGED_FILE: ${{ matrix.file }}
+                  SHARD_INDEX: ${{ matrix.chunk }}
+                  SHARD_COUNT: ${{ matrix.shards }}
+              run: |
+                  pnpm --filter=@posthog/frontend exec jest --forceExit --passWithNoTests "--shard=$SHARD_INDEX/$SHARD_COUNT" --findRelatedTests "$CHANGED_FILE"
