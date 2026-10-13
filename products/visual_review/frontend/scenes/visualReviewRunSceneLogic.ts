@@ -47,7 +47,7 @@ import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
 export interface VisualReviewRunSceneLogicProps {
     runId: string
-    // The repo named in the URL. Links fall back to the loaded repo when the logic is built without it.
+    // The repo named in the URL. Links use it until the run's repo loads.
     repoFullName?: string
 }
 
@@ -825,10 +825,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 return selectedSnapshot ? liftOnMergeDisabledReason(selectedSnapshot) : null
             },
         ],
+        // The URL can name another repo after a rename or a hand edit, so the run's own repo wins once it loads.
         repoFullName: [
             (s) => [s.repo, (_, p) => p.repoFullName],
             (repo: RepoApi | null, repoFullName: string | undefined): string | null =>
-                repoFullName || repo?.repo_full_name || null,
+                repo?.repo_full_name || repoFullName || null,
         ],
         thumbnailBasePath: [
             (s) => [s.run, s.currentProjectId],
@@ -873,8 +874,22 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             actions.loadQuarantinedRunSnapshots()
         },
         loadRepoSuccess: ({ repo }) => {
-            if (repo) {
-                actions.rememberRepo(repo.team_id, repo.repo_full_name)
+            if (!repo) {
+                return
+            }
+            actions.rememberRepo(repo.team_id, repo.repo_full_name)
+            // The repo request can finish after the user moved on while this logic is still mounted.
+            const stillOnThisRun = router.values.location.pathname.endsWith(`/runs/${props.runId}`)
+            if (
+                stillOnThisRun &&
+                props.repoFullName &&
+                props.repoFullName.toLowerCase() !== repo.repo_full_name.toLowerCase()
+            ) {
+                router.actions.replace(
+                    runPath(props.runId, repo.repo_full_name),
+                    router.values.searchParams,
+                    router.values.hashParams
+                )
             }
         },
         loadSnapshotsSuccess: () => {

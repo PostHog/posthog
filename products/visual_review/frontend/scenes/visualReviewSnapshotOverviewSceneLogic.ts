@@ -182,6 +182,7 @@ export interface visualReviewSnapshotOverviewSceneLogicValues {
     frequentlyToleratedCount: number
     overview: BaselineOverviewApi | null
     overviewLoading: boolean
+    overviewRepoId: string | null
     repoFullName: string
     statCounts: Record<StatPreset, number>
     thumbnailBasePath: string | null
@@ -206,6 +207,9 @@ export interface visualReviewSnapshotOverviewSceneLogicActions {
     ) => {
         overview: BaselineOverviewApi
         payload?: any
+    }
+    setOverviewRepoId: (repoId: string) => {
+        repoId: string
     }
     setSearch: (search: string) => {
         search: string
@@ -278,7 +282,7 @@ export interface visualReviewSnapshotOverviewSceneLogicMeta {
             filters: Filters
         ) => FacetGroups
         facetSelection: (filters: Filters) => FacetSelection
-        thumbnailBasePath: (currentProjectId: number | string, repo: RepoApi | null) => string | null
+        thumbnailBasePath: (currentProjectId: number | string, overviewRepoId: any) => string | null
         breadcrumbs: (repo: RepoApi | null, repoFullName: string) => Breadcrumb[]
     }
 }
@@ -310,8 +314,15 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         setTheme: (theme: ThemeFilter) => ({ theme }),
         setSearch: (search: string) => ({ search }),
         clearAllFilters: true,
+        setOverviewRepoId: (repoId: string) => ({ repoId }),
     }),
     reducers({
+        overviewRepoId: [
+            null as string | null,
+            {
+                setOverviewRepoId: (_, { repoId }) => repoId,
+            },
+        ],
         filters: [
             EMPTY_FILTERS,
             {
@@ -340,13 +351,14 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         overview: [
             null as BaselineOverviewApi | null,
             {
                 loadOverview: async () => {
                     const projectId = String(values.currentProjectId)
                     const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    actions.setOverviewRepoId(repoId)
                     return visualReviewReposBaselinesRetrieve(projectId, repoId)
                 },
             },
@@ -502,10 +514,11 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                 team: new Set<string>(),
             }),
         ],
+        // The overview request already resolved the repo, so a failed repo load does not hide every thumbnail.
         thumbnailBasePath: [
-            (s) => [s.currentProjectId, s.repo],
-            (projectId: number | string, repo: RepoApi | null): string | null =>
-                projectId && repo ? `/api/projects/${projectId}/visual_review/repos/${repo.id}/thumbnails` : null,
+            (s) => [s.currentProjectId, s.overviewRepoId],
+            (projectId: number | string, repoId: string | null): string | null =>
+                projectId && repoId ? `/api/projects/${projectId}/visual_review/repos/${repoId}/thumbnails` : null,
         ],
         breadcrumbs: [
             (s) => [s.repo, s.repoFullName],
