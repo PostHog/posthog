@@ -23,7 +23,7 @@ from posthog.storage import object_storage
 
 from products.access_control.backend.property_access_control import get_non_writable_property_names
 from products.cohorts.backend.models.cohort import Cohort
-from products.workflows.backend.facade.contracts import PeopleImportSummary
+from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
 
 MAX_PEOPLE_IMPORT_ROWS = 50_000
 # Person properties are stored per person, so one row must not grow a profile without bound.
@@ -35,10 +35,6 @@ PERSON_LOOKUP_CHUNK_SIZE = 1000
 
 _STORAGE_FOLDER = "workflows_people_imports"
 _HEADER_SEPARATORS = re.compile(r"[^a-z0-9]+")
-
-
-class PeopleImportInvalid(Exception):
-    """The upload cannot be used. The message is shown to the person who sent it."""
 
 
 class StagedPerson(TypedDict):
