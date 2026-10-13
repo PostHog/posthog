@@ -327,6 +327,11 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # Neon's proxy refuses a connect with "Control plane request failed" when it briefly can't reach
+    # Neon's own control plane. Neon's proxy treats this as a transient error that is safe to retry.
+    # libpq then tries again without TLS (sslmode=prefer), which Neon refuses as "connection is
+    # insecure", so that second line is noise and does not mean the source needs SSL.
+    "control plane request failed",
     # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
     # the tenant's own backend database to fetch/cache the password secret used to validate the
     # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts

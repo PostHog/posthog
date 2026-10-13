@@ -2483,6 +2483,14 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # Neon's proxy briefly can't reach its own control plane. libpq then retries without TLS
+            # and Neon refuses that attempt as insecure, so both lines arrive in one OperationalError.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: ERROR:  '
+                "Control plane request failed\n"
+                'connection to server at "203.0.113.20", port 5432 failed: ERROR:  connection is insecure '
+                "(try using `sslmode=require`)"
+            ),
             # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
             # user record) times out waiting for the backend, reporting a bare OperationalError
             # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
