@@ -44,7 +44,7 @@ function isNotFound(error: any): boolean {
     return error instanceof RepoNotFoundError || error?.status === 404
 }
 
-// Forwarding scene logic. `/visual_review` goes to the repo the team used last, else the first
+// Forwarding scene logic. `/visual-review` goes to the repo the team used last, else the first
 // connected repo, else Settings. URLs that name a repo or a run by UUID go to the owner/name URL
 // of the same page. A failed or unresolvable lookup stays here to show its state, so it cannot loop.
 export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>([
@@ -113,15 +113,15 @@ export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>(
         },
     })),
     urlToAction(({ actions }) => ({
-        '/visual_review': () => actions.forward({ kind: 'index' }),
-        '/visual_review/runs/:runId': ({ runId }) => actions.forward({ kind: 'run', runId: runId ?? '' }),
-        '/visual_review/repos/:repoId/runs': ({ repoId }) =>
+        '/visual-review': () => actions.forward({ kind: 'index' }),
+        '/visual-review/runs/:runId': ({ runId }) => actions.forward({ kind: 'run', runId: runId ?? '' }),
+        '/visual-review/repos/:repoId/runs': ({ repoId }) =>
             actions.forward({ kind: 'repoPage', repoId: repoId ?? '', page: 'runs' }),
-        '/visual_review/repos/:repoId/snapshots': ({ repoId }) =>
+        '/visual-review/repos/:repoId/snapshots': ({ repoId }) =>
             actions.forward({ kind: 'repoPage', repoId: repoId ?? '', page: 'snapshots' }),
-        '/visual_review/repos/:repoId/flakiness': ({ repoId }) =>
+        '/visual-review/repos/:repoId/flakiness': ({ repoId }) =>
             actions.forward({ kind: 'repoPage', repoId: repoId ?? '', page: 'flakiness' }),
-        '/visual_review/repos/:repoId/:runType/snapshots/:identifier': ({ repoId, runType, identifier }) =>
+        '/visual-review/repos/:repoId/:runType/snapshots/:identifier': ({ repoId, runType, identifier }) =>
             actions.forward({
                 kind: 'snapshotHistory',
                 repoId: repoId ?? '',

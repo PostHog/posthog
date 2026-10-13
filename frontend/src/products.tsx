@@ -308,24 +308,24 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
     '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
-    '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
-    '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
-    '/visual_review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
-    '/visual_review/repos/:repoOwner/:repoName/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
-    '/visual_review/repos/:repoOwner/:repoName/snapshots': [
+    '/visual-review': ['VisualReviewIndex', 'visualReviewIndex'],
+    '/visual-review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
+    '/visual-review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
+    '/visual-review/repos/:repoOwner/:repoName/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+    '/visual-review/repos/:repoOwner/:repoName/snapshots': [
         'VisualReviewSnapshotOverview',
         'visualReviewSnapshotOverview',
     ],
-    '/visual_review/repos/:repoOwner/:repoName/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
-    '/visual_review/repos/:repoOwner/:repoName/:runType/snapshots/:identifier': [
+    '/visual-review/repos/:repoOwner/:repoName/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
+    '/visual-review/repos/:repoOwner/:repoName/:runType/snapshots/:identifier': [
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
     ],
-    '/visual_review/runs/:runId': ['VisualReviewIndex', 'visualReviewLegacyRun'],
-    '/visual_review/repos/:repoId/runs': ['VisualReviewIndex', 'visualReviewLegacyRepoRuns'],
-    '/visual_review/repos/:repoId/snapshots': ['VisualReviewIndex', 'visualReviewLegacySnapshotOverview'],
-    '/visual_review/repos/:repoId/flakiness': ['VisualReviewIndex', 'visualReviewLegacyFlakiness'],
-    '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
+    '/visual-review/runs/:runId': ['VisualReviewIndex', 'visualReviewLegacyRun'],
+    '/visual-review/repos/:repoId/runs': ['VisualReviewIndex', 'visualReviewLegacyRepoRuns'],
+    '/visual-review/repos/:repoId/snapshots': ['VisualReviewIndex', 'visualReviewLegacySnapshotOverview'],
+    '/visual-review/repos/:repoId/flakiness': ['VisualReviewIndex', 'visualReviewLegacyFlakiness'],
+    '/visual-review/repos/:repoId/:runType/snapshots/:identifier': [
         'VisualReviewIndex',
         'visualReviewLegacySnapshotHistory',
     ],
@@ -529,6 +529,10 @@ export const productRedirects: Record<
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/visual_review': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
+    '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
+        combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1852,19 +1856,19 @@ export const productUrls = {
         }).url,
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
-    visualReviewRuns: (): string => '/visual_review',
-    visualReviewSettings: (): string => '/visual_review/settings',
-    visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+    visualReviewRuns: (): string => '/visual-review',
+    visualReviewSettings: (): string => '/visual-review/settings',
+    visualReviewRun: (runId: string): string => `/visual-review/runs/${runId}`,
     visualReviewRepoRun: (repoOwner: string, repoName: string, runId: string): string =>
-        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs/${runId}`,
+        `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs/${runId}`,
     visualReviewRepoRuns: (repoOwner: string, repoName: string): string =>
-        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs`,
+        `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs`,
     visualReviewSnapshotOverview: (repoOwner: string, repoName: string): string =>
-        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/snapshots`,
+        `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/snapshots`,
     visualReviewFlakiness: (repoOwner: string, repoName: string): string =>
-        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/flakiness`,
+        `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/flakiness`,
     visualReviewSnapshotHistory: (repoOwner: string, repoName: string, runType: string, identifier: string): string =>
-        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
+        `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     etlOverview: (): string => '/etl',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,

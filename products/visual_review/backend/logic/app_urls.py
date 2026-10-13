@@ -15,7 +15,7 @@ from ..models import Repo, Run, RunSnapshot
 def repo_url(repo: Repo) -> str:
     owner, _, name = repo.repo_full_name.partition("/")
     return (
-        f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
+        f"{settings.SITE_URL}/project/{repo.team_id}/visual-review/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
     )
 
 

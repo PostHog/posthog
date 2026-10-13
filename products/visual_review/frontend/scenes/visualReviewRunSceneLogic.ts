@@ -1095,7 +1095,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values, props }) => ({
-        '/visual_review/repos/:repoOwner/:repoName/runs/:runId': ({ runId }, searchParams, hashParams) => {
+        '/visual-review/repos/:repoOwner/:repoName/runs/:runId': ({ runId }, searchParams, hashParams) => {
             if (runId !== props.runId) {
                 return
             }

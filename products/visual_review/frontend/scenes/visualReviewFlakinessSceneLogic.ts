@@ -605,7 +605,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         }
     }),
     urlToAction(({ actions, values, props }) => ({
-        '/visual_review/repos/:repoOwner/:repoName/flakiness': (params, _searchParams, hash) => {
+        '/visual-review/repos/:repoOwner/:repoName/flakiness': (params, _searchParams, hash) => {
             if (repoFullNameFromParams(params.repoOwner, params.repoName) !== props.repoFullName) {
                 return
             }
