@@ -3175,7 +3175,6 @@ describe('maxThreadLogic', () => {
                 pending_approvals: [approval('new', 'pending'), approval('stale', 'auto_rejected')],
             })
             expect(visibleProposal()).toBe('new')
-            expect(logic.values.effectiveApprovalStatuses['stale'].status).toBe('auto_rejected')
         })
     })
 

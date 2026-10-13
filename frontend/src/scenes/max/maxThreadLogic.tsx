@@ -2568,13 +2568,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     baseStatuses[proposalId] = { status: approval.decision_status }
                 }
 
-                const statuses = { ...baseStatuses, ...resolved }
-                for (const [proposalId, base] of Object.entries(baseStatuses)) {
-                    if (base.status === 'auto_rejected') {
-                        statuses[proposalId] = base
-                    }
+                // Frontend resolved statuses take precedence
+                return {
+                    ...baseStatuses,
+                    ...resolved,
                 }
-                return statuses
             },
         ],
 

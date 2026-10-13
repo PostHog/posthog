@@ -862,6 +862,7 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
         approvals = {pending.value.tool_name: pending.value for task in snapshot.tasks for pending in task.interrupts}
         for approval in approvals.values():
             self.conversation.approval_decisions[approval.proposal_id] = {"decision_status": "pending"}
+        await self.conversation.asave(update_fields=["approval_decisions"])
         runner._resume_payload = {"action": action, "proposal_id": approvals["second"].proposal_id}
         command = await runner._init_or_update_state()
         await graph.ainvoke(command, config)
@@ -889,6 +890,7 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
             ("new_message", {"live": "auto_rejected", "stale": "auto_rejected"}),
             ("stale_response", {"live": "pending", "stale": "auto_rejected"}),
             ("stale_response_with_message", {"live": "auto_rejected", "stale": "auto_rejected"}),
+            ("live_response", {"live": "approved", "stale": "auto_rejected"}),
         ]
     )
     async def test_unresumable_pending_approval_is_auto_rejected(self, trigger: str, expected: dict[str, str]) -> None:
@@ -921,6 +923,9 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
             runner._latest_message = HumanMessage(content="are you stuck?", id=str(uuid4()))
             runner._resume_payload = {"action": "reject", "proposal_id": stale_id}
             self.assertIsInstance(await runner._init_or_update_state(), AssistantState)
+        elif trigger == "live_response":
+            runner._resume_payload = {"action": "approve", "proposal_id": live_id}
+            await runner._init_or_update_state()
         else:
             runner._resume_payload = {"action": "approve", "proposal_id": stale_id}
             with self.assertRaisesMessage(ValueError, "Approval does not match a pending operation"):

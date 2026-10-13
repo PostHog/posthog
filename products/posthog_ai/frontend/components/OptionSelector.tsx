@@ -137,6 +137,9 @@ export function OptionSelector({
                             className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm cursor-pointer"
                             onClick={(e) => {
                                 e.preventDefault()
+                                if (disabled) {
+                                    return
+                                }
                                 if (selectedValue === o.value) {
                                     onSelect(null)
                                 } else {
@@ -149,6 +152,7 @@ export function OptionSelector({
                                 type="radio"
                                 className="cursor-pointer"
                                 checked={selectedValue === o.value && !showCustomInput}
+                                disabled={disabled}
                                 onChange={() => {}}
                             />
                             <span>{o.label}</span>
@@ -167,6 +171,7 @@ export function OptionSelector({
                             type="radio"
                             className="cursor-pointer"
                             checked={showCustomInput}
+                            disabled={disabled}
                             onChange={() => {
                                 setUserWantsCustomMode(true)
                             }}
@@ -206,6 +211,7 @@ export function OptionSelector({
                                 <LemonButton
                                     type="primary"
                                     size="small"
+                                    disabled={disabled}
                                     disabledReason={!customInput.trim() ? 'Please type a response' : undefined}
                                     onClick={handleCustomSubmit}
                                 >

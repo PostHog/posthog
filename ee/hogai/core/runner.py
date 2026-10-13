@@ -590,6 +590,16 @@ class BaseAgentRunner(ABC):
                 if message.id is not None:
                     self._stream_processor.mark_id_as_streamed(message.id)
 
+            await self._expire_pending_approvals(
+                keep={
+                    proposal_id
+                    for task in snapshot.tasks
+                    if task.result is None
+                    for pending in task.interrupts
+                    if (proposal_id := pending_approval_proposal_id(pending.value))
+                }
+            )
+
             resume_value = self._resume_payload
             if self._resume_payload and self._resume_payload.get("action") in ("approve", "reject"):
                 proposal_id = self._resume_payload.get("proposal_id")
@@ -605,10 +615,9 @@ class BaseAgentRunner(ABC):
                 )
                 if approval_interrupt is None:
                     if not self._latest_message:
-                        if isinstance(proposal_id, str):
-                            await self._expire_pending_approvals({proposal_id})
                         raise ValueError("Approval does not match a pending operation")
                     self._resume_payload = None
+                    resume_value = None
                 else:
                     # A scalar resume targets the next interrupt, which may belong to a different approval card.
                     resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
@@ -650,7 +659,7 @@ class BaseAgentRunner(ABC):
                     # Return None to resume from checkpoint
                     return None
 
-            await self._expire_pending_approvals()
+            await self._expire_pending_approvals(keep=set())
 
         # Add the latest message id to streamed messages, so we don't send it multiple times.
         if self._latest_message and self._latest_message.id is not None:
@@ -772,6 +781,7 @@ class BaseAgentRunner(ABC):
         checkpoint's interrupt value (single source of truth). The serializer fetches it from there.
         """
         # Only store if not already in approval_decisions (don't overwrite resolved status)
+        await self._conversation.arefresh_from_db(fields=["approval_decisions"])
         if approval.proposal_id in self._conversation.approval_decisions:
             return
 
@@ -796,6 +806,7 @@ class BaseAgentRunner(ABC):
         if not action or not proposal_id:
             return
 
+        await self._conversation.arefresh_from_db(fields=["approval_decisions"])
         if proposal_id not in self._conversation.approval_decisions:
             return
 
@@ -806,20 +817,20 @@ class BaseAgentRunner(ABC):
         self._conversation.approval_decisions[proposal_id]["decision_status"] = status
         await self._conversation.asave(update_fields=["approval_decisions"])
 
-    def _pending_proposal_ids(self, proposal_ids: set[str] | None) -> list[str]:
+    def _pending_proposal_ids(self, keep: set[str]) -> list[str]:
         return [
             proposal_id
             for proposal_id, decision in self._conversation.approval_decisions.items()
-            if (proposal_ids is None or proposal_id in proposal_ids)
+            if proposal_id not in keep
             and isinstance(decision, dict)
             and decision.get("decision_status") == ApprovalDecisionStatus.PENDING
         ]
 
-    async def _expire_pending_approvals(self, proposal_ids: set[str] | None = None) -> None:
-        if not self._pending_proposal_ids(proposal_ids):
+    async def _expire_pending_approvals(self, keep: set[str]) -> None:
+        if not self._pending_proposal_ids(keep):
             return
         await self._conversation.arefresh_from_db(fields=["approval_decisions"])
-        expired_ids = self._pending_proposal_ids(proposal_ids)
+        expired_ids = self._pending_proposal_ids(keep)
         for proposal_id in expired_ids:
             self._conversation.approval_decisions[proposal_id]["decision_status"] = ApprovalDecisionStatus.AUTO_REJECTED
         if expired_ids:
