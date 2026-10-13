@@ -106,6 +106,9 @@ pub struct UnclaimedSettle {
 pub enum Settlement {
     Done,
     Unfinished(Vec<SerializedKafkaMessage>),
+    /// The request finished nothing, so a budgeted retry would wait out the
+    /// same budget again. The key resends without one at once.
+    Bounced(Vec<SerializedKafkaMessage>),
     Failed {
         messages: Vec<SerializedKafkaMessage>,
         retry_at: Instant,
@@ -149,8 +152,8 @@ struct KeyState {
     claim: Option<Claim>,
     retry_at: Option<Instant>,
     /// Settles that left messages unfinished since the key last finished a
-    /// run. A failure leaves it, because a failed request says nothing about
-    /// the budget.
+    /// run; a bounce counts as all of them. A failure leaves it, because a
+    /// failed request says nothing about the budget.
     unfinished_attempts: u32,
 }
 
@@ -470,6 +473,12 @@ impl KeyQueues {
                 state.unfinished_attempts = state.unfinished_attempts.saturating_add(1);
                 (messages, None)
             }
+            Settlement::Bounced(messages) => {
+                if let Some(attempts) = self.budget_attempts {
+                    state.unfinished_attempts = state.unfinished_attempts.max(attempts.get());
+                }
+                (messages, None)
+            }
             Settlement::Failed { messages, retry_at } => (messages, Some(retry_at)),
         };
         let unbudgeted = self
@@ -612,6 +621,8 @@ mod tests {
     use std::time::Duration;
 
     use common_kafka_consumer::{GroupMessage, Partition};
+
+    use rstest::rstest;
 
     use super::*;
     use crate::batcher::test_support::{message, offsets};
@@ -922,32 +933,56 @@ mod tests {
         assert_eq!(queues.queued_bytes(), 0);
     }
 
-    #[test]
-    fn a_key_reports_its_escalation_once_when_it_uses_up_its_budgeted_attempts() {
+    #[derive(Clone, Copy)]
+    enum SettleKind {
+        Unfinished,
+        Bounced,
+        Failed,
+    }
+
+    #[rstest]
+    #[case::attempts_used_up(
+        &[
+            SettleKind::Unfinished,
+            SettleKind::Failed,
+            SettleKind::Unfinished,
+            SettleKind::Failed,
+            SettleKind::Unfinished,
+        ],
+        &[false, false, true, false, false],
+        "a failure neither counts as an attempt nor resets the count"
+    )]
+    #[case::bounced(
+        &[SettleKind::Bounced, SettleKind::Failed, SettleKind::Unfinished],
+        &[true, false, false],
+        "a bounce uses up the attempts at once, and a failure keeps the escalation"
+    )]
+    fn a_key_reports_its_escalation_once(
+        #[case] settles: &[SettleKind],
+        #[case] expected: &[bool],
+        #[case] reason: &str,
+    ) {
         let now = Instant::now();
         let mut queues = KeyQueues::default().with_budget_attempts(NonZeroU32::new(2));
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
-        let mut settle_a = |settlement| {
-            take_all(&mut queues, now);
-            queues
-                .settle(&key("a"), settlement, now)
-                .expect("claimed")
-                .escalated
-        };
-        let unfinished = || Settlement::Unfinished(vec![message("a", 0, 1)]);
-        let failed = || failure(vec![message("a", 0, 1)], now);
 
-        assert_eq!(
-            [
-                settle_a(unfinished()),
-                settle_a(failed()),
-                settle_a(unfinished()),
-                settle_a(failed()),
-                settle_a(unfinished()),
-            ],
-            [false, false, true, false, false],
-            "a failure neither counts as an attempt nor resets the count"
-        );
+        let escalated: Vec<bool> = settles
+            .iter()
+            .map(|kind| {
+                take_all(&mut queues, now);
+                let messages = vec![message("a", 0, 1)];
+                let settlement = match kind {
+                    SettleKind::Unfinished => Settlement::Unfinished(messages),
+                    SettleKind::Bounced => Settlement::Bounced(messages),
+                    SettleKind::Failed => failure(messages, now),
+                };
+                queues
+                    .settle(&key("a"), settlement, now)
+                    .expect("claimed")
+                    .escalated
+            })
+            .collect();
+        assert_eq!(escalated, expected, "{reason}");
     }
 
     #[test]
