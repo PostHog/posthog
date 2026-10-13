@@ -17,10 +17,11 @@ from django.conf import settings
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
+
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 
 logger = structlog.get_logger(__name__)
 

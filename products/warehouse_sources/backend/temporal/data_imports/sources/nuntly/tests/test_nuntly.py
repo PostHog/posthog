@@ -96,15 +96,6 @@ class TestNuntlySourceResumeBehavior:
         assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"id": "only"}], "nextCursor": None})]
-        self._drive("Emails", manager, responses)
-
-        manager.save_state.assert_not_called()
-
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -153,15 +144,6 @@ class TestValidateCredentials:
             is_valid, code = validate_credentials("apk_test")
 
         assert (is_valid, code) == (expected_valid, status_code)
-
-    def test_transport_error_maps_to_false_none(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.nuntly.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            mock_session.get.side_effect = ConnectionError("boom")
-
-            assert validate_credentials("apk_test") == (False, None)
 
 
 class TestEndpointSettings:

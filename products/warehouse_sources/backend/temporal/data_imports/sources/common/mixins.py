@@ -28,6 +28,10 @@ from posthog.utils import get_instance_region
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.util import _is_safe_public_ip
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
+    DeadlineExceededError,
+    run_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
 )
@@ -52,6 +56,9 @@ _MALFORMED_HOST_ERROR = (
 _NON_ASCII_HOST_ERROR = (
     "This host has characters outside ASCII. Enter its punycode form instead, the spelling that starts with xn--."
 )
+
+# The longest the host check waits for a DNS answer before it reports a temporary failure.
+HOST_RESOLUTION_TIMEOUT_SECONDS = 15
 
 # The sync registry and the schema-refresh map match this prefix; the rest of the message carries
 # the volatile host details.
@@ -190,8 +197,15 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
         pass
 
     try:
-        addrinfo = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+        addrinfo = run_with_deadline(
+            lambda: socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP),
+            timeout_seconds=HOST_RESOLUTION_TIMEOUT_SECONDS,
+            thread_name="host-check-resolve",
+        )
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
+    except DeadlineExceededError as e:
+        # A resolver that does not answer is a blip too, and `getaddrinfo` has no timeout of its own.
+        raise TemporaryHostResolutionError(host) from e
     except socket.gaierror as e:
         # A resolver blip is not a verdict on the host; refusing it would disable the schema.
         if is_temporary_resolution_failure(e):
@@ -584,9 +598,8 @@ def _check_direct_host(config, team_id: int | None) -> None:
     same either way; it only costs the internal-host exemption on entry points that don't carry a
     team yet.
 
-    The resolve inside `resolve_safe_host` is unbounded. A stalled resolver therefore hangs the
-    activity until Temporal's `start_to_close_timeout` rather than failing fast and retryably.
-    Bounding this one is the follow-up.
+    The resolve inside `resolve_safe_host` stops at `HOST_RESOLUTION_TIMEOUT_SECONDS`, so a stalled
+    resolver fails fast and retryably.
     """
     _checked_connect_host(config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR)
 

@@ -28,6 +28,7 @@ function makeCheck(overrides: Partial<SignalReportCheckApi> = {}): SignalReportC
         expires_at: '2026-10-27T09:00:00Z',
         last_run_at: null,
         last_outcome: null,
+        last_outcome_reason: null,
         dispatched_at: null,
         consecutive_errors: 0,
         created_at: '2026-09-20T09:00:00Z',
@@ -99,10 +100,21 @@ describe('reportCheckPresentation', () => {
                 'Gave up after 3 tries · Sep 27 · 11 rageclicks in the last 14 days.',
             ],
             [
-                'an inconclusive check preserves its explanation',
-                { status: 'inconclusive', last_run_at: '2026-09-27T09:00:00Z' },
+                'an inconclusive check reads apart from errored and says why in plain words',
+                {
+                    status: 'inconclusive',
+                    last_run_at: '2026-09-27T09:00:00Z',
+                    last_outcome: 'inconclusive',
+                    last_outcome_reason: 'needs_manual_verification',
+                },
                 'Inconclusive',
-                'Sep 27 · 11 rageclicks in the last 14 days.',
+                'Needs a person to verify · Sep 27 · 11 rageclicks in the last 14 days.',
+            ],
+            [
+                'an open check waiting on data says why it looks again',
+                { last_outcome: 'inconclusive', last_outcome_reason: 'awaiting_data', soak_minutes: null },
+                'Runs Sep 27',
+                'Not enough data yet, looks again · 1 run',
             ],
             [
                 'a check that expired before its first run says so',

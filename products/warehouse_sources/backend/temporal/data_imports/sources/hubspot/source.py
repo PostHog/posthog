@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     DEFAULT_PROPS,
     ENDPOINTS as HUBSPOT_ENDPOINTS,
     HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_2026_09,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
     HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
@@ -58,8 +59,8 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
-    supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03)
-    default_version = HUBSPOT_API_VERSION_2026_03
+    supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_09)
+    default_version = HUBSPOT_API_VERSION_2026_09
     api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -8,6 +8,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
@@ -53,7 +54,7 @@ function ReviewRow({
                     {error}
                 </LemonButton>
             ))}
-            <div>{children}</div>
+            <div className="flex flex-col gap-2">{children}</div>
         </div>
     )
 }
@@ -70,6 +71,7 @@ export function BroadcastReviewStep(): JSX.Element {
         rateLimitedSendDuration,
         stepValidationErrors,
         emailSettings,
+        missingRecipientEmail,
     } = useValues(broadcastWizardLogic)
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
@@ -145,6 +147,7 @@ export function BroadcastReviewStep(): JSX.Element {
                 </ReviewRow>
 
                 <ReviewRow label="Email" step="content">
+                    {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
                     {!emailSettings.trackingEnabled && (
                         <div className="text-xs text-secondary">Open and click tracking is off.</div>
                     )}

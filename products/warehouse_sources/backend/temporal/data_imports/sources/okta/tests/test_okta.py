@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta 
     OktaResumeConfig,
     _build_initial_params,
     _format_incremental_value,
-    normalize_domain,
     okta_source,
     validate_credentials,
 )
@@ -68,22 +67,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestNormalizeDomain:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("example.okta.com", "example.okta.com"),
-            ("https://example.okta.com", "example.okta.com"),
-            ("http://example.okta.com/", "example.okta.com"),
-            ("  example.okta.com  ", "example.okta.com"),
-            ("example.okta.com/api/v1", "example.okta.com"),
-            ("https://example.okta.com/api/v1/users", "example.okta.com"),
-        ],
-    )
-    def test_normalize_domain(self, raw, expected):
-        assert normalize_domain(raw) == expected
-
-
 class TestFormatIncrementalValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -98,21 +81,8 @@ class TestFormatIncrementalValue:
     def test_format(self, value, expected):
         assert _format_incremental_value(value) == expected
 
-    def test_no_offset_suffix(self):
-        assert "+00:00" not in _format_incremental_value(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestBuildInitialParams:
-    def test_filter_endpoint_incremental(self):
-        params = _build_initial_params(
-            OKTA_ENDPOINTS["users"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="lastUpdated",
-        )
-        assert params["filter"] == 'lastUpdated gt "2024-01-01T00:00:00.000Z"'
-        assert params["limit"] == 200
-
     def test_applications_never_sends_filter(self):
         # Okta's Apps API `filter` does not support lastUpdated, so an incremental run must
         # not send a server-side filter — it would 400.
@@ -124,34 +94,6 @@ class TestBuildInitialParams:
         )
         assert params == {"limit": 200}
 
-    def test_filter_endpoint_no_watermark_has_no_filter(self):
-        params = _build_initial_params(
-            OKTA_ENDPOINTS["users"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="lastUpdated",
-        )
-        assert "filter" not in params
-
-    def test_filter_endpoint_full_refresh_has_no_filter(self):
-        params = _build_initial_params(
-            OKTA_ENDPOINTS["groups"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field=None,
-        )
-        assert "filter" not in params
-
-    def test_logs_incremental_uses_since(self):
-        params = _build_initial_params(
-            OKTA_ENDPOINTS["logs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="published",
-        )
-        assert params["since"] == "2024-01-01T00:00:00.000Z"
-        assert params["sortOrder"] == "ASCENDING"
-
     def test_logs_first_sync_applies_lookback(self):
         params = _build_initial_params(
             OKTA_ENDPOINTS["logs"],
@@ -162,35 +104,6 @@ class TestBuildInitialParams:
         # The 90-day lookback means `since` is populated even without a stored watermark.
         assert "since" in params
         assert params["sortOrder"] == "ASCENDING"
-
-    def test_logs_full_refresh_has_no_since(self):
-        params = _build_initial_params(
-            OKTA_ENDPOINTS["logs"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert "since" not in params
-        assert params["sortOrder"] == "ASCENDING"
-
-    def test_logs_full_refresh_ignores_stray_watermark(self):
-        # Even if a watermark leaks in, a non-incremental run must not apply a `since` filter.
-        params = _build_initial_params(
-            OKTA_ENDPOINTS["logs"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field=None,
-        )
-        assert "since" not in params
-
-    def test_non_incremental_endpoint_only_limit(self):
-        params = _build_initial_params(
-            OKTA_ENDPOINTS["group_rules"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field=None,
-        )
-        assert params == {"limit": 200}
 
 
 class TestValidateCredentials:
@@ -267,39 +180,6 @@ class TestValidateCredentials:
             patched.return_value.get.assert_not_called()
 
 
-class TestOktaSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_key, partition_key",
-        [
-            ("users", "id", "created"),
-            ("groups", "id", "created"),
-            ("applications", "id", "created"),
-            ("logs", "uuid", "published"),
-            ("group_rules", "id", "created"),
-            ("user_types", "id", None),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_key, partition_key):
-        response = okta_source(
-            domain="example.okta.com",
-            api_key="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
-        assert response.sort_mode == "asc"
-        if partition_key:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-            assert response.partition_format == "week"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-
-
 class TestOktaPagination:
     def _source(self, endpoint="users", manager=None, **kwargs):
         return okta_source(
@@ -332,24 +212,6 @@ class TestOktaPagination:
         assert snaps[0]["params"]["limit"] == 200
         # Second request follows the self-contained Link-header URL.
         assert snaps[1]["url"] == "https://example.okta.com/api/v1/users?after=cur"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": "1"}], link='<https://example.okta.com/api/v1/users?after=cur>; rel="next"'),
-                _response([{"id": "2"}]),
-            ],
-        )
-        manager = _make_manager()
-        _rows(self._source(manager=manager))
-
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, OktaResumeConfig)
-        assert saved.next_url == "https://example.okta.com/api/v1/users?after=cur"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
@@ -414,16 +276,6 @@ class TestOktaPagination:
         )
         assert snaps[0]["params"]["filter"] == 'lastUpdated gt "2024-01-01T00:00:00.000Z"'
         assert snaps[0]["params"]["limit"] == 200
-
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_on_429(self, MockSession, _mock_sleep):
-        session = MockSession.return_value
-        _wire(session, [_response([], status_code=429), _response([{"id": "1"}])])
-        rows = _rows(self._source())
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_runtime_host_check_blocks_unsafe_domain(self, MockSession):

@@ -200,13 +200,20 @@ class TestValidateManifest(SimpleTestCase):
         }
         validate_manifest(manifest)
 
-    @parameterized.expand([("json", ["not", "an", "object"]), ("params", ["nope"])])
-    def test_rejects_non_object_params_or_json(self, field, value):
+    @parameterized.expand(
+        [
+            ("json", ["not", "an", "object"], "resources[0].endpoint.json"),
+            ("params", ["nope"], "resources[0].endpoint.params"),
+            ("headers", 5, "client.headers"),
+        ]
+    )
+    def test_rejects_non_object_params_json_or_headers(self, field, value, expected_location):
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"][field] = value
+        container = manifest["client"] if field == "headers" else manifest["resources"][0]["endpoint"]
+        container[field] = value
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
-        assert field in str(ctx.exception)
+        assert expected_location in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -1680,6 +1687,29 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         with self.assertRaises(NonRetryableException):
             source.source_for_pipeline(config, inputs)
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_manifest_cannot_raise_retry_limits(self, mock_resources):
+        # Fails if a user-authored manifest can set the retry limits, which would let its own endpoint
+        # hold a shared source thread for as long as it likes.
+        mock_resources.return_value = [_fake_resource("users")]
+        manifest = _minimal_manifest()
+        manifest["client"]["retry_budget_seconds"] = 172800
+        manifest["client"]["retry_after_max_seconds"] = 86400
+
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        CustomSource().source_for_pipeline(CustomSourceConfig(manifest_json=json.dumps(manifest)), inputs)
+
+        client_config = mock_resources.call_args.args[0]["client"]
+        assert "retry_budget_seconds" not in client_config
+        assert "retry_after_max_seconds" not in client_config
+        assert client_config["base_url"] == manifest["client"]["base_url"]
+
     @parameterized.expand(
         [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
     )
@@ -1763,18 +1793,21 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         threaded_config = mock_resources.call_args.args[0]
         assert threaded_config["client"]["paginator"] == paginator_config
 
+    @parameterized.expand([("on_resource",), ("in_resource_defaults",)])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_cursor_type_stripped_before_rest_engine(self, mock_resources):
+    def test_cursor_type_stripped_before_rest_engine(self, location, mock_resources):
         # cursor_type informs schema field typing but is not a valid kwarg for the
         # engine's Incremental(**config) — it must be removed before the manifest
-        # reaches the REST engine, while the other incremental keys survive.
+        # reaches the REST engine, while the other incremental keys survive. The engine
+        # merges resource_defaults into each resource itself, so the defaults must not
+        # carry it either.
         mock_resources.return_value = [_fake_resource("users")]
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["incremental"] = {
-            "cursor_path": "updated_at",
-            "start_param": "since",
-            "cursor_type": "integer",
-        }
+        incremental = {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "integer"}
+        if location == "on_resource":
+            manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        else:
+            manifest["resource_defaults"] = {"endpoint": {"incremental": incremental}}
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
@@ -1787,8 +1820,12 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        threaded_incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
-        assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
+        threaded_manifest = mock_resources.call_args.args[0]
+        assert threaded_manifest["resources"][0]["endpoint"]["incremental"] == {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+        }
+        assert "incremental" not in threaded_manifest.get("resource_defaults", {}).get("endpoint", {})
 
 
 class TestCustomSourceNonRetryableErrors(SimpleTestCase):
@@ -1819,15 +1856,25 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(ctx.exception) for key in non_retryable)
 
-    def test_http_407_proxy_auth_is_classified_non_retryable(self):
-        # A proxy that refuses the request (the egress proxy blocking a disallowed address, or an
-        # upstream proxy needing credentials) returns 407 deterministically, so retrying can't fix
-        # it. Build the real requests HTTPError raise_for_status() produces, so this breaks if the
-        # matched substring drifts. Route through the classifier's message so a regression that
-        # leaves it None (raw driver text) is caught too. The URL is a placeholder.
+    @parameterized.expand(
+        [
+            # A proxy that refuses the request (the egress proxy blocking a disallowed address, or
+            # an upstream proxy needing credentials).
+            ("proxy_auth", 407, "Proxy Authentication Required", "proxy"),
+            # An upstream account whose plan doesn't cover the endpoint.
+            ("payment_required", 402, "Payment Required", "paid plan"),
+        ]
+    )
+    def test_deterministic_http_rejection_is_classified_non_retryable(
+        self, _name: str, status_code: int, reason: str, expected_phrase: str
+    ) -> None:
+        # Both statuses recur on every retry until the customer changes something. Build the real
+        # requests HTTPError raise_for_status() produces, so this breaks if the matched substring
+        # drifts. Route through the classifier's message so a regression that leaves it None (raw
+        # driver text) is caught too. The URL is a placeholder.
         response = Response()
-        response.status_code = 407
-        response.reason = "Proxy Authentication Required"
+        response.status_code = status_code
+        response.reason = reason
         response.url = "https://api.example.com/data"
         with self.assertRaises(requests.exceptions.HTTPError) as ctx:
             response.raise_for_status()
@@ -1836,7 +1883,7 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         matches = [friendly for key, friendly in non_retryable.items() if key in str(ctx.exception)]
         assert matches
         assert matches[0] is not None
-        assert "proxy" in matches[0].lower()
+        assert expected_phrase in matches[0].lower()
 
     def test_non_json_response_message_is_classified_non_retryable(self):
         # The REST client raises RESTClientNonRetryableError when a configured endpoint
@@ -2629,6 +2676,34 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert ok is False
         assert err is not None and "upstream_row_order" in err and "'users'" in err
 
+    @parameterized.expand(
+        [
+            (
+                "endpoint_incremental",
+                {"incremental": {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "integer"}},
+            ),
+            (
+                "params_incremental",
+                {"params": {"since": {"type": "incremental", "cursor_path": "updated_at", "cursor_type": "integer"}}},
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_incremental_in_resource_defaults_rejected(self, _name, default_endpoint, mock_resources):
+        manifest = _minimal_manifest()
+        manifest["resource_defaults"] = {"endpoint": default_endpoint}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+
+        with self.assertRaises(ManifestValidationError) as ctx:
+            source.preview_resource(config, team_id=999, resource_name="users")
+        assert "resource_defaults" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "resource_defaults" in err
+
 
 class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
     def _manifest(self) -> dict:
@@ -2757,9 +2832,11 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert result.row_count == PREVIEW_MAX_ROWS
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_engine_manifest_is_single_page_incremental_stripped_session_injected(self, mock_resources):
+    def test_engine_manifest_is_single_page_resource_incremental_stripped_session_injected(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[]])]
         manifest = _minimal_manifest()
+        # Default endpoint incrementals are invalid; their rejection is covered by
+        # test_incremental_in_resource_defaults_rejected.
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
         source = CustomSource()

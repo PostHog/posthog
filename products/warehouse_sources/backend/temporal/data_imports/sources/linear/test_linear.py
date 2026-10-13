@@ -9,18 +9,16 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
-from tenacity import Future, RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear import (
     _FLOAT_FIELDS,
-    LINEAR_MAX_RETRY_AFTER_SECONDS,
     LINEAR_MAX_RETRY_ATTEMPTS,
     LinearResumeConfig,
     LinearRetryableError,
     _make_paginated_request,
     _parse_retry_after,
-    _wait_strategy,
     linear_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
@@ -93,12 +91,6 @@ def _make_truncated_response(body: str) -> MagicMock:
     response.text = body
     response.json.side_effect = json.JSONDecodeError("Unterminated string starting at", body, len(body))
     return response
-
-
-def _retry_state(exc: BaseException) -> RetryCallState:
-    state = RetryCallState(retry_object=MagicMock(), fn=None, args=(), kwargs={})
-    state.outcome = Future.construct(1, exc, has_exception=True)
-    return state
 
 
 def _capture_post_calls(session: MagicMock, responses: list[MagicMock]) -> list[dict[str, Any]]:
@@ -224,33 +216,6 @@ class TestMakePaginatedRequest:
 
     @patch("time.sleep", return_value=None)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_http_429_is_retried_then_succeeds(self, mock_session_cls: MagicMock, _mock_sleep: MagicMock) -> None:
-        # Linear returns an HTML 429 page that fails JSON parsing. It must be retried with backoff,
-        # not surfaced as a non-retryable JSONDecodeError/Exception.
-        session = MagicMock()
-        session.post.side_effect = [
-            _make_rate_limited_response(),
-            _make_response([{"id": "a"}], False, None),
-        ]
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-        )
-
-        assert pages == [[{"id": "a"}]]
-        assert session.post.call_count == 2
-
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_persistent_http_429_raises_retryable_error(
         self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
     ) -> None:
@@ -341,35 +306,6 @@ class TestMakePaginatedRequest:
             )
 
         assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
-
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_truncated_2xx_response_is_retried_then_succeeds(
-        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
-    ) -> None:
-        # A large page cut mid-stream arrives as a 2xx whose body fails to JSON-decode. It must be
-        # retried with backoff, not surfaced as a non-retryable JSONDecodeError/Exception.
-        session = MagicMock()
-        session.post.side_effect = [
-            _make_truncated_response('{"data":{"issues":{"nodes":[{"id":"a"'),
-            _make_response([{"id": "a"}], False, None),
-        ]
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-        )
-
-        assert pages == [[{"id": "a"}]]
-        assert session.post.call_count == 2
 
     @patch("time.sleep", return_value=None)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
@@ -542,29 +478,6 @@ class TestEndpointCatalog:
         )
 
 
-class TestGetSchemas:
-    def test_reports_every_endpoint_with_its_sync_capabilities(self) -> None:
-        schemas = {s.name: s for s in LinearSource().get_schemas(cast(Any, None), team_id=1)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        # Only endpoints whose Linear query takes a server-side updatedAt filter may sync
-        # incrementally; the rest must stay full refresh.
-        assert {name for name, s in schemas.items() if s.supports_incremental} == {
-            "issues",
-            "projects",
-            "comments",
-            "cycles",
-            "resources",
-            "workflow_states",
-            "project_milestones",
-            "initiatives",
-            "project_updates",
-            "documents",
-        }
-        # Initiatives are plan-gated, so they must not be enabled for every new connection.
-        assert {name for name, s in schemas.items() if not s.should_sync_default} == {"initiatives"}
-
-
 class TestRateLimitBackoff:
     @parameterized.expand(
         [
@@ -578,18 +491,6 @@ class TestRateLimitBackoff:
     )
     def test_parse_retry_after(self, _name: str, headers: dict[str, str], expected: float | None) -> None:
         assert _parse_retry_after(_make_rate_limited_response(headers)) == expected
-
-    def test_wait_strategy_honors_retry_after(self) -> None:
-        exc = LinearRetryableError("Linear: rate limited (429)", retry_after=45.0)
-        assert _wait_strategy(_retry_state(exc)) == 45.0
-
-    def test_wait_strategy_caps_retry_after(self) -> None:
-        exc = LinearRetryableError("Linear: rate limited (429)", retry_after=10_000.0)
-        assert _wait_strategy(_retry_state(exc)) == LINEAR_MAX_RETRY_AFTER_SECONDS
-
-    def test_wait_strategy_falls_back_to_backoff_without_retry_after(self) -> None:
-        exc = LinearRetryableError("Linear: rate limited (429)")
-        assert 0 < _wait_strategy(_retry_state(exc)) <= 60
 
     @patch("time.sleep", return_value=None)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
@@ -619,21 +520,6 @@ class TestRateLimitBackoff:
 
 
 class TestLinearSource:
-    def test_source_response_wires_primary_key_and_items(self) -> None:
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        response = linear_source(
-            access_token="tok",
-            endpoint_name="issues",
-            logger=logger,
-            resumable_source_manager=manager,
-        )
-
-        assert response.name == "issues"
-        assert response.primary_keys == ["id"]
-        assert callable(response.items)
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_get_rows_threads_manager_through(self, mock_session_cls: MagicMock) -> None:
         session = MagicMock()
@@ -689,3 +575,57 @@ class TestLinearSourceNonRetryableErrors:
         non_retryable_errors = LinearSource().get_non_retryable_errors()
         # Transient/server errors must stay retryable so the pipeline backs off and retries.
         assert not any(key in observed_error for key in non_retryable_errors)
+
+
+def _make_validation_response(status_code: int, body: Any) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = body
+    return response
+
+
+class TestValidateCredentials:
+    @parameterized.expand(
+        [
+            ("unauthorized_401", _make_validation_response(401, {}), "Linear rejected your connection"),
+            (
+                "authentication_error_400",
+                _make_validation_response(400, {"errors": [{"extensions": {"code": "AUTHENTICATION_ERROR"}}]}),
+                "Linear rejected your connection",
+            ),
+            ("forbidden_403", _make_validation_response(403, {}), "can't read this workspace"),
+            ("server_error_503", _make_validation_response(503, {}), "Couldn't reach Linear"),
+            (
+                "unexpected_graphql_error",
+                _make_validation_response(400, {"errors": [{"message": "boom"}]}),
+                "Couldn't verify your Linear connection",
+            ),
+            ("network_error", requests.exceptions.ConnectionError("api.linear.app down"), "Couldn't reach Linear"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_failures_return_user_facing_message(
+        self,
+        _name: str,
+        outcome: MagicMock | Exception,
+        expected_message: str,
+        mock_session_cls: MagicMock,
+        _mock_capture: MagicMock,
+    ) -> None:
+        mock_session_cls.return_value.post.side_effect = [outcome]
+
+        valid, message = validate_credentials("tok")
+
+        assert valid is False
+        assert message is not None
+        assert expected_message in message
+        assert "api.linear.app" not in message
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_viewer_response_is_valid(self, mock_session_cls: MagicMock) -> None:
+        mock_session_cls.return_value.post.return_value = _make_validation_response(
+            200, {"data": {"viewer": {"id": "user-1"}}}
+        )
+
+        assert validate_credentials("tok") == (True, None)

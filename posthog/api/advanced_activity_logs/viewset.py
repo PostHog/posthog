@@ -62,8 +62,7 @@ def activity_log_ordering(request: Request) -> tuple[str, str]:
 def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
     """Keep personal loops' config out of the team-wide activity feed.
 
-    Loop activity is team-scoped in the log, but a personal loop is owner-only (see
-    products/tasks/docs/LOOPS.md "Access control"). The static visibility manager can't express
+    Loop activity is team-scoped in the log, but a personal loop is owner-only. The static visibility manager can't express
     per-user ownership, so restrict `Loop`-scoped rows to the loops this user may actually see.
     Lazy import keeps the tasks product off this module's import path.
     """
@@ -169,6 +168,11 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "detail",
             "created_at",
         ]
+
+    def to_representation(self, instance: ActivityLog) -> dict:
+        data = super().to_representation(instance)
+        data["detail"] = instance.safe_detail
+        return data
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -552,7 +556,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         ]
 
     def get_detail(self, obj):
-        return json.dumps(obj.detail) if obj.detail else ""
+        return json.dumps(obj.safe_detail) if obj.detail else ""
 
 
 class StaticFiltersSerializer(serializers.Serializer):
@@ -716,17 +720,21 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if not filters_serializer.is_valid():
             return Response({"error": "Filters are invalid"}, status=400)
 
-        query_params = {}
+        query_params: dict[str, str | list[str]] = {}
 
-        # Transform body params to query params to include the filters in the export path
+        # Transform body params to query params to include the filters in the export path.
+        # Lists become repeated keys (?users=a&users=b): the filters serializer reads them via
+        # getlist, so a comma-joined value would be validated as one item. Only unset or empty
+        # values are skipped: an explicit False is a filter too (is_system=false).
         for key, value in filters_serializer.validated_data.items():
-            if value:
-                if isinstance(value, list):
-                    query_params[key] = ",".join(str(v) for v in value)
-                elif isinstance(value, dict):
-                    query_params[key] = json.dumps(value)
-                else:
-                    query_params[key] = str(value)
+            if value is None or value in ("", [], {}):
+                continue
+            if isinstance(value, list):
+                query_params[key] = [str(v) for v in value]
+            elif isinstance(value, dict):
+                query_params[key] = json.dumps(value)
+            else:
+                query_params[key] = str(value)
 
         try:
             serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
@@ -742,7 +750,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 export_format=format_mapping[export_format],
                 export_context={
-                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params)}",
+                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params, doseq=True)}",
                     "method": "GET",
                     "filters": serializable_filters,
                     "filename": filename,

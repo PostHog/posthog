@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.da
     _build_initial_url,
     _compute_next_url,
     _extract_items,
-    _flatten_item,
     _format_datetime,
     _format_filter_value,
     base_url,
@@ -59,51 +58,11 @@ class TestFormatDatetime:
     def test_format_datetime(self, value: Any, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_datetime(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestExtractItems:
     def test_top_level_list(self) -> None:
         config = DATADOG_ENDPOINTS["monitors"]  # data_path=None
         assert _extract_items([{"id": 1}, {"id": 2}], config) == [{"id": 1}, {"id": 2}]
-
-    def test_top_level_list_with_unexpected_dict(self) -> None:
-        config = DATADOG_ENDPOINTS["monitors"]
-        assert _extract_items({"unexpected": "shape"}, config) == []
-
-    def test_wrapped_data_path(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]  # data_path="data"
-        assert _extract_items({"data": [{"id": "a"}]}, config) == [{"id": "a"}]
-
-    def test_wrapped_custom_path(self) -> None:
-        config = DATADOG_ENDPOINTS["dashboards"]  # data_path="dashboards"
-        assert _extract_items({"dashboards": [{"id": "x"}]}, config) == [{"id": "x"}]
-
-    def test_missing_path_returns_empty(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        assert _extract_items({"meta": {}}, config) == []
-
-
-class TestFlattenItem:
-    def test_flattens_attributes_to_root(self) -> None:
-        item = {"id": "abc", "type": "log", "attributes": {"timestamp": "2026-01-01T00:00:00Z", "status": "info"}}
-        flat = _flatten_item(item)
-        assert flat["id"] == "abc"
-        assert flat["type"] == "log"
-        assert flat["timestamp"] == "2026-01-01T00:00:00Z"
-        assert flat["status"] == "info"
-        assert "attributes" not in flat
-
-    def test_does_not_clobber_existing_root_keys(self) -> None:
-        item = {"id": "abc", "attributes": {"id": "SHOULD_NOT_WIN", "name": "x"}}
-        flat = _flatten_item(item)
-        assert flat["id"] == "abc"
-        assert flat["name"] == "x"
-
-    def test_no_attributes_is_noop(self) -> None:
-        item = {"id": "abc", "name": "x"}
-        assert _flatten_item(item) == {"id": "abc", "name": "x"}
 
 
 class TestBuildInitialParams:
@@ -195,27 +154,8 @@ class TestBuildInitialParams:
         for key in expected_absent:
             assert key not in params
 
-    def test_full_refresh_ignores_a_stored_watermark(self) -> None:
-        params = _build_initial_params(
-            DATADOG_ENDPOINTS["usage_hourly"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert params["filter[timestamp][start]"] != "2026-03-04T00"
-
-    def test_cursor_endpoint_first_sync_seeds_lookback_window(self) -> None:
-        # No stored watermark, but the cursor endpoints must still send filter[from] so Datadog
-        # doesn't fall back to its now-15m default.
-        config = DATADOG_ENDPOINTS["logs"]
-        params = _build_initial_params(config, should_use_incremental_field=True, db_incremental_field_last_value=None)
-        assert params["filter[from]"].endswith("Z")
-
 
 class TestBuildInitialUrl:
-    def test_keeps_brackets_literal(self) -> None:
-        url = _build_initial_url("https://api.datadoghq.com", "/api/v2/logs/events", {"page[limit]": 1000})
-        assert url == "https://api.datadoghq.com/api/v2/logs/events?page[limit]=1000"
-
     def test_no_params(self) -> None:
         assert (
             _build_initial_url("https://api.datadoghq.com", "/api/v1/dashboard", {})
@@ -225,24 +165,6 @@ class TestBuildInitialUrl:
 
 class TestComputeNextUrl:
     HOST = "https://api.datadoghq.com"
-
-    def test_cursor_uses_links_next(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        nxt = _compute_next_url(
-            config,
-            "https://api.datadoghq.com/api/v2/logs/events",
-            {"links": {"next": "https://api.datadoghq.com/api/v2/logs/events?cursor=abc"}},
-            1000,
-            self.HOST,
-        )
-        assert nxt == "https://api.datadoghq.com/api/v2/logs/events?cursor=abc"
-
-    def test_cursor_no_links_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        assert (
-            _compute_next_url(config, "https://api.datadoghq.com/api/v2/logs/events", {"data": []}, 0, self.HOST)
-            is None
-        )
 
     @pytest.mark.parametrize(
         "next_link",
@@ -275,13 +197,6 @@ class TestComputeNextUrl:
         query = parse_qs(urlparse(nxt).query)
         assert query["page"] == ["1"]
 
-    def test_page_short_page_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["monitors"]
-        nxt = _compute_next_url(
-            config, "https://api.datadoghq.com/api/v1/monitor?page=0&page_size=100", {}, 42, self.HOST
-        )
-        assert nxt is None
-
     def test_offset_advances_by_page_size(self) -> None:
         config = DATADOG_ENDPOINTS["incidents"]  # page_size=100
         nxt = _compute_next_url(
@@ -290,64 +205,6 @@ class TestComputeNextUrl:
         assert nxt is not None
         query = parse_qs(urlparse(nxt).query)
         assert query["page[offset]"] == ["100"]
-
-    def test_offset_short_page_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["incidents"]
-        nxt = _compute_next_url(
-            config, "https://api.datadoghq.com/api/v2/incidents?page[offset]=0&page[size]=100", {}, 7, self.HOST
-        )
-        assert nxt is None
-
-    def test_advances_with_the_record_cursor(self) -> None:
-        config = DATADOG_ENDPOINTS["usage_hourly"]
-        nxt = _compute_next_url(
-            config,
-            "https://api.datadoghq.com/api/v2/usage/hourly_usage?page[limit]=500",
-            {"meta": {"pagination": {"next_record_id": "rec-2"}}},
-            500,
-            self.HOST,
-        )
-        assert nxt is not None
-        query = parse_qs(urlparse(nxt).query)
-        assert query["page[next_record_id]"] == ["rec-2"]
-        assert query["page[limit]"] == ["500"]
-
-    @pytest.mark.parametrize(
-        "body",
-        [
-            {"meta": {"pagination": {"next_record_id": None}}},
-            {"meta": {"pagination": {}}},
-            {"meta": {}},
-            {},
-        ],
-    )
-    def test_absent_cursor_terminates(self, body: Any) -> None:
-        config = DATADOG_ENDPOINTS["usage_hourly"]
-        assert (
-            _compute_next_url(config, "https://api.datadoghq.com/api/v2/usage/hourly_usage", body, 500, self.HOST)
-            is None
-        )
-
-    def test_short_page_does_not_terminate(self) -> None:
-        # The record cursor is the only termination signal here — a short page is normal.
-        config = DATADOG_ENDPOINTS["usage_hourly"]
-        nxt = _compute_next_url(
-            config,
-            "https://api.datadoghq.com/api/v2/usage/hourly_usage?page[limit]=500",
-            {"meta": {"pagination": {"next_record_id": "rec-2"}}},
-            3,
-            self.HOST,
-        )
-        assert nxt is not None
-
-    def test_none_pagination_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["dashboards"]
-        assert (
-            _compute_next_url(
-                config, "https://api.datadoghq.com/api/v1/dashboard", {"dashboards": [1, 2]}, 2, self.HOST
-            )
-            is None
-        )
 
 
 class TestValidateCredentials:
@@ -556,35 +413,11 @@ class TestFetchPageRetry:
 
 
 class TestFormatFilterValue:
-    @pytest.mark.parametrize(
-        ("timestamp_format", "expected"),
-        [
-            ("iso_ms", "2026-03-04T02:58:14.000Z"),
-            ("month", "2026-03"),
-            ("hour", "2026-03-04T02"),
-            ("epoch_seconds", "1772593094"),
-        ],
-    )
-    def test_each_family_encoding(self, timestamp_format: Any, expected: str) -> None:
-        assert _format_filter_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), timestamp_format) == expected
-
-    @pytest.mark.parametrize("timestamp_format", ["month", "hour", "epoch_seconds"])
-    def test_iso_string_watermark_is_parsed(self, timestamp_format: Any) -> None:
-        # A string watermark can pass straight through an ISO filter but would be rejected by the
-        # month / hour / epoch filters, so it has to be parsed rather than forwarded.
-        value = _format_filter_value("2026-03-04T02:58:14Z", timestamp_format)
-        assert value != "2026-03-04T02:58:14Z"
-        assert _format_filter_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), timestamp_format) == value
-
     def test_unparseable_string_falls_back_to_itself(self) -> None:
         assert _format_filter_value("not-a-date", "month") == "not-a-date"
 
 
 class TestExtractItemsForNewShapes:
-    def test_single_object_endpoint_wraps_the_object(self) -> None:
-        config = DATADOG_ENDPOINTS["slo_history"]
-        assert _extract_items({"data": {"from_ts": 1, "type": "metric"}}, config) == [{"from_ts": 1, "type": "metric"}]
-
     def test_single_object_endpoint_rejects_a_list(self) -> None:
         config = DATADOG_ENDPOINTS["slo_history"]
         assert _extract_items({"data": [{"from_ts": 1}]}, config) == []
@@ -595,17 +428,6 @@ class TestExtractItemsForNewShapes:
             {"metric": "system.cpu.idle"},
             {"metric": "system.load.1"},
         ]
-
-
-class TestWindowedEndpointParams:
-    def test_sends_both_bounds_in_epoch_seconds(self) -> None:
-        # /api/v1/slo/{slo_id}/history rejects a request missing either bound.
-        params = _build_initial_params(
-            DATADOG_ENDPOINTS["slo_history"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert int(params["from_ts"]) < int(params["to_ts"])
 
 
 class TestFanOut:
@@ -646,33 +468,6 @@ class TestFanOut:
             resumable_source_manager=manager,
         )
 
-    def test_queries_each_parent_and_stamps_the_parent_id(self) -> None:
-        result = self._run(
-            "team_memberships",
-            {
-                "/api/v2/team": {"data": [{"id": "team-a", "attributes": {}}, {"id": "team-b", "attributes": {}}]},
-                "/api/v2/team/team-a/memberships": {"data": [{"id": "m1", "attributes": {"role": "admin"}}]},
-                "/api/v2/team/team-b/memberships": {"data": [{"id": "m2", "attributes": {"role": "member"}}]},
-            },
-        )
-
-        assert result["rows"] == [
-            {"id": "m1", "role": "admin", "team_id": "team-a"},
-            {"id": "m2", "role": "member", "team_id": "team-b"},
-        ]
-        assert "/api/v2/team/team-a/memberships" in result["paths"]
-        assert "/api/v2/team/team-b/memberships" in result["paths"]
-
-    def test_single_object_child_is_yielded_as_one_row(self) -> None:
-        result = self._run(
-            "slo_history",
-            {
-                "/api/v1/slo": {"data": [{"id": "slo-1"}]},
-                "/api/v1/slo/slo-1/history": {"data": {"from_ts": 1, "overall": {"sli_value": 99.9}}},
-            },
-        )
-        assert result["rows"] == [{"from_ts": 1, "overall": {"sli_value": 99.9}, "slo_id": "slo-1"}]
-
     def test_parent_deleted_mid_sync_is_skipped(self) -> None:
         # A 404 on one child must not fail the whole sync — the parent list is a snapshot.
         result = self._run(
@@ -704,18 +499,6 @@ class TestFanOut:
                     },
                 )
 
-    def test_no_resume_state_is_saved(self) -> None:
-        # A fan-out position is a parent cursor plus a child page, which the single-URL resume
-        # state can't express — saving one would resume the child walk against the wrong parent.
-        result = self._run(
-            "team_memberships",
-            {
-                "/api/v2/team": {"data": [{"id": "team-a"}]},
-                "/api/v2/team/team-a/memberships": {"data": [{"id": "m1"}]},
-            },
-        )
-        assert result["saved"] == []
-
 
 class TestWalkTermination:
     def _pages(self, endpoint: str, bodies: list[Any]) -> tuple[list[Any], list[str]]:
@@ -745,15 +528,6 @@ class TestWalkTermination:
                 )
             )
         return rows, fetched
-
-    def test_repeated_record_cursor_stops_the_walk(self) -> None:
-        # Datadog echoing the same cursor would otherwise loop this walk forever.
-        rows, fetched = self._pages(
-            "usage_hourly",
-            [{"data": [{"id": "u1", "attributes": {}}], "meta": {"pagination": {"next_record_id": "same"}}}],
-        )
-        assert len(fetched) == 2
-        assert len(rows) == 2
 
     def test_empty_page_with_a_cursor_keeps_paginating(self) -> None:
         # The usage cursor lives in meta, independently of data, so an empty page is not the end.

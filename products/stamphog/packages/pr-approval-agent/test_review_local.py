@@ -14,9 +14,9 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
-import reviewer  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
+import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
@@ -116,8 +116,9 @@ def test_ownership_summary_reflects_author_team_membership(
     # which reads the key with a default of True. An unset key tells the reviewer that every author
     # owns the code that they touched, and the note then never appears on a hosted review.
     pipeline = _ownership_pipeline(ownership)
+    pipeline.author_team_slugs = author_team_slugs
 
-    review_local._apply_ownership_summary(pipeline, author_team_slugs)
+    pipeline._summarize_ownership()
 
     assert pipeline.classification["ownership_summary"] == expected_summary
     assert pipeline.classification.get("author_on_owning_team") is expected_on_team
@@ -157,6 +158,52 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
 
     assert result["final_verdict"] == "WAIT"
     assert "Migration risk" in result["reviewer"]["reasoning"]
+
+
+def _evidence(state: str, head_sha: str, reviewer: str = "PostHog Review") -> dict:
+    return {
+        "state": state,
+        "reviewer": reviewer,
+        "review_kind": "Standard",
+        "findings_count": 0,
+        "published": False,
+        "head_sha": head_sha,
+    }
+
+
+@pytest.mark.parametrize(
+    "review_evidence, expected",
+    [
+        pytest.param([_evidence("pending", "h" * 40)], "WAIT", id="pending-on-the-head-waits"),
+        pytest.param([_evidence("pending", "o" * 40)], "APPROVED", id="pending-on-an-older-head-is-ignored"),
+        pytest.param([_evidence("failed", "h" * 40)], "APPROVED", id="failed-reviews-as-without-it"),
+        pytest.param(
+            [_evidence("completed", "h" * 40), _evidence("pending", "h" * 40, reviewer="Other Reviewer")],
+            "WAIT",
+            id="one-pending-among-completed-waits",
+        ),
+    ],
+)
+def test_pending_external_review_waits_instead_of_approving(
+    monkeypatch, review_evidence: list[dict], expected: str
+) -> None:
+    # The server stops waiting when its poll budget runs out. An approval over a review that is still
+    # running would stand before that review's findings reach the PR.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    def fake_llm(self, gate_verdict: str) -> None:
+        self.final_verdict = "APPROVED"
+        self.reviewer_output = {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(Pipeline, "_llm_review", fake_llm)
+    context = {**_run_context([_api_file("src/app.py")]), "review_evidence": review_evidence}
+
+    result = review_local.run(context)
+
+    assert result["final_verdict"] == expected
+    if expected == "WAIT":
+        assert "still reviewing this commit" in result["reviewer"]["reasoning"]
 
 
 _GIT_PROVENANCE = CommitProvenance(commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",))
@@ -559,7 +606,7 @@ def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
         seen["stacked"] = pr.stacked
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", fake_review)
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", fake_review)
 
     result = review_local.run(_stacked_context("feat/parent", "master"))
 
@@ -575,11 +622,14 @@ def _pregate_context(
     user_type: str = "User",
     check_runs: list[dict] | None = None,
     folder_policies_known: bool = False,
+    author_team_slugs: list[str] | None = None,
 ) -> dict:
     context = _run_context(files, check_runs)
     context["pr"] = {**context["pr"], "draft": draft, "user": {"login": "alice", "type": user_type}}
     if folder_policies_known:
         context["folder_policies_known"] = True
+    if author_team_slugs is not None:
+        context["author_team_slugs"] = author_team_slugs
     return context
 
 
@@ -642,6 +692,49 @@ _PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", 
             id="pending-migration-check-with-a-manifest",
         ),
         pytest.param(_pregate_context([_api_file("src/app.py")]), None, False, id="clean-t1"),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")], author_team_slugs=["team-replay"]),
+            "REFUSED",
+            True,
+            id="owner-only-path-from-another-team",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")]),
+            "REFUSED",
+            True,
+            id="owner-only-path-without-team-lookup",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")], author_team_slugs=["team-workflows"]),
+            None,
+            False,
+            id="owner-only-path-from-the-owning-team",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.test.ts")]),
+            None,
+            False,
+            id="owner-only-path-test-file",
+        ),
+        pytest.param(
+            _pregate_context(
+                [
+                    {
+                        **_api_file("products/workflows/backend/hog_flow.py", status="renamed"),
+                        "previous_filename": "products/workflows/backend/models/hog_flow.py",
+                    }
+                ]
+            ),
+            "REFUSED",
+            True,
+            id="owner-only-path-renamed-out",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/worker\n.ts")]),
+            "REFUSED",
+            True,
+            id="owner-only-path-with-a-newline",
+        ),
     ],
 )
 def test_pregate_is_final_only_where_the_full_review_agrees(
@@ -666,7 +759,7 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
     def approve(self, pr, classification, gate_context, diff_path=None):
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
     assert review_local.run(context)["final_verdict"] == expect_verdict
 
 
@@ -691,7 +784,7 @@ def test_main_prints_the_result_with_phase_timings_as_its_last_line(monkeypatch,
     def approve(self, pr, classification, gate_context, diff_path=None):
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
     context_path = tmp_path / "context.json"
     context_path.write_text(json.dumps(_run_context([_api_file("src/app.py")])))
     monkeypatch.setenv(review_local.LAUNCHED_AT_ENV, str(review_local._now_ms() - 1500))

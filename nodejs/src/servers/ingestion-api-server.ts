@@ -28,7 +28,7 @@ import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import { buildIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -48,6 +48,7 @@ import {
 import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
+    createPersonProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
@@ -230,8 +231,7 @@ export class IngestionApiServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
-            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
+            personBatchWritePerKeyTeamAllowlist: this.config.PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -276,7 +276,8 @@ export class IngestionApiServer implements NodeServer {
         })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
+        this.ingestionProducerRegistry = await buildIngestionProducerRegistry(
+            this.config.KAFKA_CLIENT_RACK,
             this.config
         )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
@@ -346,7 +347,7 @@ export class IngestionApiServer implements NodeServer {
             maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
-            mergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            mergeLockedOutcomeTeamAllowlist: this.config.PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST,
             mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
             mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
@@ -510,11 +511,17 @@ export class IngestionApiServer implements NodeServer {
 
         const service: PluginServerService = {
             id: 'ingestion-api',
+            // Runs before the lifecycle ends Postgres and Redis, so in-flight batches and the store drain finish here.
             onShutdown: async () => {
-                await this.topHog.stop()
-                await this.hogTransformer.stop()
-                await eventFilterManagerStarted.stop()
-                await stopEventIngestionRestrictionManager()
+                try {
+                    await this.grpcServer?.stop()
+                    await this.drainStores()
+                } finally {
+                    await this.topHog.stop()
+                    await this.hogTransformer.stop()
+                    await eventFilterManagerStarted.stop()
+                    await stopEventIngestionRestrictionManager()
+                }
             },
             healthcheck: () => this.isHealthy(),
         }
@@ -529,6 +536,41 @@ export class IngestionApiServer implements NodeServer {
         return new HealthCheckResultOk()
     }
 
+    /** Drains both stores even when one fails, then rethrows the first failure. */
+    private async drainStores(): Promise<void> {
+        const results = await Promise.allSettled([this.drainPersonsStore(), this.drainGroupStore()])
+        this.personhogClientClosers.forEach((close) => close())
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+        if (failed) {
+            throw failed.reason
+        }
+    }
+
+    private async drainPersonsStore(): Promise<void> {
+        // In shadow mode the pipeline's store is the routing store, so both backends write the pending updates.
+        const personsStore = this.pipelinePersonsStore ?? this.personsStore
+        if (!personsStore) {
+            return
+        }
+        const flushResults = await personsStore.flush()
+        if (this.ingestionOutputs) {
+            await Promise.all(createPersonProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await personsStore.shutdown()
+    }
+
+    private async drainGroupStore(): Promise<void> {
+        if (!this.groupStore) {
+            return
+        }
+        const flushResults = await this.groupStore.flush()
+        // flush() leaves the ClickHouse messages to the caller; skipping them would write Postgres only.
+        if (flushResults.length > 0 && this.ingestionOutputs) {
+            await Promise.all(createGroupProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await this.groupStore.shutdown()
+    }
+
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
@@ -538,33 +580,8 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                // Stop accepting stream traffic before draining stores, so no
-                // new batches land mid-teardown.
-                await this.grpcServer?.stop()
-                // No Kafka offsets in this server — drain buffered writes before
-                // shutdown so shutdown() can assert a clean cache.
-                if (this.personsStore) {
-                    await this.personsStore.flushAndProduceMessages()
-                }
-                if (this.pipelinePersonsStore) {
-                    await this.pipelinePersonsStore.shutdown()
-                } else if (this.personsStore) {
-                    await this.personsStore.shutdown()
-                }
-                this.personhogClientClosers.forEach((close) => close())
-                if (this.groupStore) {
-                    const groupFlushResults = await this.groupStore.flush()
-                    // flush() returns messages for the caller to produce (it no
-                    // longer awaits ClickHouse delivery inline) — mirror
-                    // personsStore.flushAndProduceMessages() so a drain at
-                    // shutdown doesn't write Postgres but silently drop the
-                    // corresponding ClickHouse row.
-                    if (groupFlushResults.length > 0 && this.ingestionOutputs) {
-                        await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
-                    }
-                    await this.groupStore.shutdown()
-                }
                 this.cookielessManager?.shutdown()
+                // Disconnected last: the store drain in the ingestion-api service's onShutdown produces through them.
                 await this.ingestionProducerRegistry?.disconnectAll()
             },
         }

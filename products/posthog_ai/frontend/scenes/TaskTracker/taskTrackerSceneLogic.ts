@@ -14,6 +14,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     type ClaudeTaskRunCreateSchemaApi,
@@ -238,6 +240,9 @@ export interface taskTrackerSceneLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    addFiles: (files: File[]) => {
+        files: File[]
+    } // composerAttachmentsLogic
     removeAttachments: (ids: string[]) => {
         ids: string[]
     } // composerAttachmentsLogic
@@ -487,7 +492,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
             composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
-            ['removeAttachments', 'setUploading'],
+            ['addFiles', 'removeAttachments', 'setUploading'],
         ],
     })),
 
@@ -1056,6 +1061,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
+                // Every composer submits through here, so this is the one place that reaches all of them.
+                todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
                 props.onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
@@ -1147,6 +1154,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
             actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
+            if (seed.files?.length) {
+                actions.addFiles(seed.files)
+            }
             if (seed.autoSubmit) {
                 actions.submitNewTask()
             }

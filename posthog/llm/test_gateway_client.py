@@ -1,6 +1,7 @@
 import json
 import asyncio
 from typing import get_args
+from uuid import UUID
 
 import pytest
 from unittest.mock import patch
@@ -27,6 +28,7 @@ from posthog.llm.gateway_client import (
     private_scout_gateway,
     resolve_ai_gateway_config,
     team_trace_id,
+    trace_id_from_seed,
 )
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
@@ -359,6 +361,17 @@ class TestTeamTraceId:
 
     def test_distinct_teams_do_not_share_a_trace(self):
         assert team_trace_id(2) != team_trace_id(3)
+
+
+class TestTraceIdFromSeed:
+    # The Go route sends this value verbatim and the Python route hashes anything it cannot parse,
+    # so a non-UUID would give one call two different trace ids.
+    def test_result_parses_as_a_uuid_so_both_gateway_routes_agree(self):
+        derived = trace_id_from_seed("slack-thread-T123-1700000000.000100")
+        assert str(UUID(derived)) == derived
+
+    def test_distinct_seeds_do_not_share_a_trace(self):
+        assert trace_id_from_seed("slack-thread-T1-1.1") != trace_id_from_seed("slack-thread-T1-1.2")
 
 
 class TestBuildAsyncAnthropicClient:

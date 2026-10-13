@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -966,13 +966,6 @@ export class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(
-        dashboardId: DashboardType['id'],
-        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
-    ): ApiRequest {
-        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
-    }
-
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
@@ -1003,14 +996,6 @@ export class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
-    }
-
-    public dashboardCollaboratorsDetail(
-        dashboardId: DashboardType['id'],
-        userUuid: UserType['uuid'],
-        projectId?: ProjectType['id']
-    ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -2811,6 +2796,8 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // true (default) only selects traces with a root span.
+                rootSpans?: boolean
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
@@ -3429,7 +3416,7 @@ const api = {
             } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
-            onError: (error: any) => void
+            onError: (error: any, willRetry?: boolean) => void
         ): Promise<() => void> {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
@@ -3445,12 +3432,12 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
-            const handleConnectionError = (error: any): void => {
-                if (isAbortError(error)) {
+            const handleConnectionError = (error: any, willRetry = false): void => {
+                if (abortController.signal.aborted || isAbortError(error)) {
                     return
                 }
                 apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
-                onError(error)
+                onError(error, willRetry)
             }
 
             fetchEventSource(url, {
@@ -3475,16 +3462,18 @@ const api = {
                             onComplete()
                         } else if (data.type === 'error') {
                             streamFinished = true
+                            abortController.abort()
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
                         }
                     } catch (error) {
+                        abortController.abort()
                         onError(error)
                     }
                 },
                 onerror: (error) => {
-                    handleConnectionError(error)
+                    handleConnectionError(error, true)
                 },
             }).then(() => {
                 if (!abortController.signal.aborted && !streamFinished) {
@@ -7264,7 +7253,8 @@ async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    startedByUserAction = isUserActionInProgress()
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7276,7 +7266,7 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error, startedByUserAction)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
@@ -7315,13 +7305,13 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 
     if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
         if (await awaitReauthentication()) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 

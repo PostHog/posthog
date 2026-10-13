@@ -15,10 +15,10 @@ from typing import Literal, get_args
 # `GRANTABLE_API_SCOPE_OBJECTS` below, through the `resource` choice fields of the access
 # control serializers.
 #
-# The MCP `OAUTH_SCOPES_SUPPORTED` list at
-# `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
-# `get_scope_descriptions()` below via `posthog/scopes_projection.py`. Run
-# `hogli build:projections` to regenerate after editing this file.
+# The `OAUTH_SCOPES_SUPPORTED` and `OAUTH_SCOPES_HIDDEN` lists at
+# `services/mcp/src/lib/oauth-scopes.generated.ts` and `frontend/src/lib/oauthScopes.generated.ts`
+# are generated from this file via `posthog/scopes_projection.py`. Run
+# `hogli build:projections` to regenerate after editing it.
 APIScopeObject = Literal[
     "action",
     "access_control",
@@ -39,6 +39,7 @@ APIScopeObject = Literal[
     "comment",
     "conversation",
     "context_layer_internal",
+    "cross_project_dashboard",
     "customer_analytics",
     "customer_task",
     "customer_journey",
@@ -244,8 +245,7 @@ GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
     obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
 )
 
-# llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
-# ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
+# llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     # SDK local evaluation and remote config. The Rust feature-flags service already
@@ -263,12 +263,19 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     ("support_ticket", "read"),
     # First write-capable PSAK scope: lets a service credential fire a loop via
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
-    # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
+    # in the project (accepted).
     ("loop", "write"),
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
+    # A project's own usage and share of spend, for a service that watches one project's billing.
+    # Only someone with full billing access may grant it (see the key serializer).
+    ("billing", "read"),
+    # Lets a service start Replay Vision scans and read their results back through `vision/requests/`.
+    # Both are needed together; every other replay_scanner and session_recording route stays PSAK-denied.
+    ("replay_scanner", "write"),
+    ("session_recording", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

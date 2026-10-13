@@ -63,6 +63,8 @@ describe('TemporalService', () => {
     })
 
     afterEach(() => {
+        jest.useRealTimers()
+        jest.restoreAllMocks()
         jest.clearAllMocks()
     })
 
@@ -389,23 +391,6 @@ describe('TemporalService', () => {
             })
         })
 
-        it('collapses every trace of one session onto the same workflow id', async () => {
-            for (const traceId of ['trace-1', 'trace-2']) {
-                await service.startAggregateEvaluationWorkflow({
-                    evaluationId: 'eval-123',
-                    event: createMockEvent(),
-                    target: 'session',
-                    traceId,
-                    sessionId: null,
-                    aiSessionId: 'ai-session-9',
-                    settle: { strategy: 'inactivity', quiet_period_seconds: 3600, max_age_seconds: 86400 },
-                })
-            }
-
-            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
-            expect(calls[0][1].workflowId).toEqual(calls[1][1].workflowId)
-        })
-
         it('returns null when the trace was already evaluated', async () => {
             ;(mockClient.workflow.start as jest.Mock).mockRejectedValueOnce(
                 new WorkflowExecutionAlreadyStartedError('done', 'llma-trace-eval-x', 'run-aggregate-evaluation')
@@ -424,32 +409,73 @@ describe('TemporalService', () => {
             expect(result).toBeNull()
         })
 
-        it('produces the same workflow id for every event of the same trace', async () => {
-            await service.startAggregateEvaluationWorkflow({
-                evaluationId: 'eval-123',
-                event: createMockEvent({ uuid: 'event-1' }),
-                target: 'trace',
-                traceId: 'trace-789',
-                sessionId: null,
-                aiSessionId: null,
-                settle: { strategy: 'fixed_window', window_seconds: 1800 },
-            })
-            await service.startAggregateEvaluationWorkflow({
-                evaluationId: 'eval-123',
-                event: createMockEvent({ uuid: 'event-2' }),
-                target: 'trace',
-                traceId: 'trace-789',
-                sessionId: null,
-                aiSessionId: null,
-                settle: { strategy: 'fixed_window', window_seconds: 1800 },
-            })
+        it.each([
+            {
+                name: 'every event of one trace',
+                target: 'trace' as const,
+                units: [
+                    { uuid: 'event-1', traceId: 'trace-789', aiSessionId: null },
+                    { uuid: 'event-2', traceId: 'trace-789', aiSessionId: null },
+                ],
+                workflowId: 'llma-trace-eval-eval-123-trace-789',
+            },
+            {
+                name: 'every trace of one session',
+                target: 'session' as const,
+                units: [
+                    { uuid: 'event-1', traceId: 'trace-1', aiSessionId: 'ai-session-9' },
+                    { uuid: 'event-2', traceId: 'trace-2', aiSessionId: 'ai-session-9' },
+                ],
+                workflowId: 'llma-session-eval-eval-123-ai-session-9',
+            },
+        ])('starts one workflow for $name until the dedup window ends', async ({ target, units, workflowId }) => {
+            // lru-cache reads the clock through the performance object it captured at import. Fake
+            // timers replace that global object, so only a spy on the method moves the cache clock.
+            // The fake timers still have to run, because lru-cache holds each clock reading until a
+            // timer clears it.
+            let now = performance.now()
+            jest.spyOn(performance, 'now').mockImplementation(() => now)
+            jest.useFakeTimers({ doNotFake: ['performance'] })
+            const advanceClock = (ms: number): void => {
+                now += ms
+                jest.advanceTimersByTime(ms)
+            }
+            const starts = () =>
+                units.map(
+                    ({ uuid, traceId, aiSessionId }) =>
+                        () =>
+                            service.startAggregateEvaluationWorkflow({
+                                evaluationId: 'eval-123',
+                                event: createMockEvent({ uuid }),
+                                target,
+                                traceId,
+                                sessionId: null,
+                                aiSessionId,
+                                settle: { strategy: 'fixed_window', window_seconds: 1800 },
+                            })
+                )
+
+            await Promise.all(starts().map((start) => start()))
+            for (const start of starts()) {
+                await start()
+            }
 
             const calls = (mockClient.workflow.start as jest.Mock).mock.calls
-            expect(calls[0][1].workflowId).toEqual(calls[1][1].workflowId)
-            expect(calls[0][1].workflowId).not.toContain('event-1')
+            expect(calls).toHaveLength(1)
+            expect(calls[0][1].workflowId).toEqual(workflowId)
+
+            const [repeatStart] = starts()
+            advanceClock(40_000)
+            await repeatStart()
+            expect(calls).toHaveLength(1)
+
+            advanceClock(40_000)
+            await repeatStart()
+            expect(calls).toHaveLength(2)
+            expect(calls[1][1].workflowId).toEqual(workflowId)
         })
 
-        it('rethrows non-dedup start failures', async () => {
+        it('rethrows non-dedup start failures and lets the next start retry', async () => {
             ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
 
             await expect(
@@ -463,6 +489,19 @@ describe('TemporalService', () => {
                     settle: { strategy: 'fixed_window', window_seconds: 1800 },
                 })
             ).rejects.toThrow('Temporal unavailable')
+            ;(mockClient.workflow.start as jest.Mock).mockResolvedValue(mockWorkflowHandle)
+            await expect(
+                service.startAggregateEvaluationWorkflow({
+                    evaluationId: 'eval-123',
+                    event: createMockEvent(),
+                    target: 'trace',
+                    traceId: 'trace-789',
+                    sessionId: null,
+                    aiSessionId: null,
+                    settle: { strategy: 'fixed_window', window_seconds: 1800 },
+                })
+            ).resolves.toBe(mockWorkflowHandle)
+            expect(mockClient.workflow.start).toHaveBeenCalledTimes(2)
         })
     })
 

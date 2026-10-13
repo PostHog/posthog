@@ -1,6 +1,7 @@
 import time
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -11,23 +12,29 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
+    MailgunSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun import mailgun as mailgun_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
     FORBIDDEN_ERROR,
     INVALID_KEY_ERROR,
-    MAX_RETRY_AFTER_SECONDS,
+    LOGS_LOOKBACK_DAYS,
+    METRICS_PAGE_SIZE,
     UNREACHABLE_ERROR,
     MailgunResumeConfig,
     MailgunRetryableError,
     _epoch_to_datetime,
-    _increment_skip,
     _initial_url,
-    _next_page_url,
     _normalize_row,
     _parse_retry_after,
-    _retry_wait,
     _to_epoch,
     _webhook_table_transformer,
-    base_url_for_region,
     create_webhook,
     delete_webhook,
     get_domain_names,
@@ -38,14 +45,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.ma
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
-    ENDPOINTS,
     MAILGUN_ENDPOINTS,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source import MailgunSource
 
 US_BASE = "https://api.mailgun.net"
-EU_BASE = "https://api.eu.mailgun.net"
 POSTHOG_URL = "https://us.posthog.com/public/webhooks/abc"
 
 
@@ -136,137 +142,22 @@ class TestHelpers:
         assert result is not None
         assert 0 < result <= 61
 
-    @pytest.mark.parametrize(
-        "region, expected",
-        [
-            ("us", "https://api.mailgun.net"),
-            ("eu", "https://api.eu.mailgun.net"),
-            ("EU", "https://api.eu.mailgun.net"),
-            ("unknown", "https://api.mailgun.net"),
-        ],
-    )
-    def test_base_url_for_region(self, region, expected):
-        assert base_url_for_region(region) == expected
-
-    def test_retry_wait_honors_retry_after(self):
-        retry_state = mock.MagicMock()
-        retry_state.outcome.exception.return_value = MailgunRetryableError("rate limited", retry_after=42)
-        assert _retry_wait(retry_state) == 42
-
-    def test_retry_wait_caps_retry_after(self):
-        retry_state = mock.MagicMock()
-        retry_state.outcome.exception.return_value = MailgunRetryableError("rate limited", retry_after=9999)
-        assert _retry_wait(retry_state) == MAX_RETRY_AFTER_SECONDS
-
-    def test_retry_wait_falls_back_to_exponential(self):
-        retry_state = mock.MagicMock()
-        retry_state.outcome.exception.return_value = MailgunRetryableError("server error")
-        retry_state.attempt_number = 1
-        wait = _retry_wait(retry_state)
-        assert 0 <= wait <= 61
-
 
 class TestInitialUrl:
-    def test_events_url_includes_ascending_begin_and_end(self):
-        url = _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], "example.com", begin=1700000000)
-
-        assert url is not None
-        assert url.startswith(f"{US_BASE}/v3/example.com/events?")
-        query = _query(url)
-        assert query["limit"] == ["300"]
-        assert query["ascending"] == ["yes"]
-        assert query["begin"] == ["1700000000"]
-        assert int(query["end"][0]) <= int(time.time()) - 30 * 60
-
-    def test_events_url_without_begin_on_full_refresh(self):
-        url = _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], "example.com", begin=None)
-
-        assert url is not None
-        query = _query(url)
-        assert "begin" not in query
-        assert query["ascending"] == ["yes"]
-
-    def test_events_url_is_none_when_watermark_inside_lag_window(self):
-        assert _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], "example.com", begin=int(time.time())) is None
-
     def test_domain_is_url_quoted_in_path(self):
         url = _initial_url(US_BASE, MAILGUN_ENDPOINTS["bounces"], "ex/ample.com")
         assert url is not None
         assert "/v3/ex%2Fample.com/bounces" in url
 
-    def test_skip_endpoint_starts_at_zero(self):
-        url = _initial_url(US_BASE, MAILGUN_ENDPOINTS["domains"], None)
-        assert url is not None
-        query = _query(url)
-        assert query["skip"] == ["0"]
-        assert query["limit"] == ["1000"]
-
     def test_domain_scoped_endpoint_without_domain_raises(self):
         with pytest.raises(ValueError):
             _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], None)
-
-    @pytest.mark.parametrize("endpoint", ["bounces", "complaints", "unsubscribes", "tags", "templates"])
-    def test_full_refresh_endpoints_have_no_time_filters(self, endpoint):
-        url = _initial_url(US_BASE, MAILGUN_ENDPOINTS[endpoint], "example.com", begin=1700000000)
-        assert url is not None
-        query = _query(url)
-        assert "begin" not in query
-        assert "ascending" not in query
-
-
-class TestPagination:
-    def test_increment_skip(self):
-        url = _increment_skip(f"{US_BASE}/v4/domains?limit=1000&skip=0", 1000)
-        assert _query(url)["skip"] == ["1000"]
-
-    def test_increment_skip_without_existing_skip_param(self):
-        url = _increment_skip(f"{US_BASE}/v4/domains?limit=1000", 1000)
-        assert _query(url)["skip"] == ["1000"]
-
-    def test_skip_pagination_stops_on_partial_page(self):
-        config = MAILGUN_ENDPOINTS["domains"]
-        assert _next_page_url(config, f"{US_BASE}/v4/domains?limit=1000&skip=0", {}, config.page_size - 1) is None
-
-    def test_skip_pagination_continues_on_full_page(self):
-        config = MAILGUN_ENDPOINTS["domains"]
-        next_url = _next_page_url(config, f"{US_BASE}/v4/domains?limit=1000&skip=0", {}, config.page_size)
-        assert next_url is not None
-        assert _query(next_url)["skip"] == ["1000"]
-
-    def test_paging_stops_on_empty_items(self):
-        config = MAILGUN_ENDPOINTS["events"]
-        data = _paging_page([], "https://api.mailgun.net/v3/example.com/events/next-token")
-        assert _next_page_url(config, "current", data, 0) is None
-
-    def test_paging_follows_next_url_when_items_present(self):
-        config = MAILGUN_ENDPOINTS["events"]
-        data = _paging_page([{"id": "a"}], "https://api.mailgun.net/v3/example.com/events/next-token")
-        assert _next_page_url(config, "current", data, 1) == "https://api.mailgun.net/v3/example.com/events/next-token"
-
-    def test_paging_stops_when_next_missing(self):
-        config = MAILGUN_ENDPOINTS["events"]
-        data = _paging_page([{"id": "a"}], None)
-        assert _next_page_url(config, "current", data, 1) is None
-
-    def test_paging_stops_when_next_points_at_current_page(self):
-        config = MAILGUN_ENDPOINTS["tags"]
-        data = _paging_page([{"tag": "a"}], "current")
-        assert _next_page_url(config, "current", data, 1) is None
 
 
 class TestNormalizeRow:
     def test_injects_domain_for_domain_scoped_endpoints(self):
         row = _normalize_row(MAILGUN_ENDPOINTS["bounces"], "example.com", {"address": "a@b.com"})
         assert row == {"address": "a@b.com", "domain": "example.com"}
-
-    def test_converts_event_timestamp_to_datetime(self):
-        row = _normalize_row(MAILGUN_ENDPOINTS["events"], "example.com", {"id": "x", "timestamp": 1521472262.9})
-        assert row["timestamp"] == datetime.fromtimestamp(1521472262.9, tz=UTC)
-        assert row["domain"] == "example.com"
-
-    def test_leaves_account_level_rows_untouched(self):
-        row = _normalize_row(MAILGUN_ENDPOINTS["mailing_lists"], None, {"address": "list@example.com"})
-        assert row == {"address": "list@example.com"}
 
     def test_does_not_mutate_original_item(self):
         item = {"id": "x", "timestamp": 1521472262.9}
@@ -296,29 +187,6 @@ class TestValidateCredentials:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key", "us") == (False, UNREACHABLE_ERROR)
 
-    @pytest.mark.parametrize(
-        "region, expected_host",
-        [
-            ("us", "https://api.mailgun.net/v4/domains"),
-            ("eu", "https://api.eu.mailgun.net/v4/domains"),
-        ],
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_validate_credentials_targets_region_host(self, mock_session, region, expected_host):
-        mock_session.return_value.get.return_value = _response({}, 200)
-
-        validate_credentials("key", region)
-
-        assert mock_session.return_value.get.call_args.args[0] == expected_host
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_validate_credentials_uses_basic_auth(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, 200)
-
-        validate_credentials("key-123", "us")
-
-        assert mock_session.return_value.get.call_args.kwargs["auth"] == ("api", "key-123")
-
 
 class TestGetDomainNames:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
@@ -335,31 +203,8 @@ class TestGetDomainNames:
         second_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert _query(second_url)["skip"] == [str(page_size)]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_skips_items_without_a_name(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"items": [{"name": "a.com"}, {"id": "no-name"}]})
-
-        assert get_domain_names("key", US_BASE, mock.MagicMock()) == ["a.com"]
-
 
 class TestGetRows:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_account_level_endpoint_paginates_via_paging_next(self, mock_session):
-        next_url = f"{US_BASE}/v3/lists/pages?limit=100&page=next&address=b%40x.com"
-        mock_session.return_value.get.side_effect = [
-            _response(_paging_page([{"address": "a@x.com"}, {"address": "b@x.com"}], next_url)),
-            _response(_paging_page([], next_url)),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", "mailing_lists", mock.MagicMock(), manager))
-
-        assert [row["address"] for batch in batches for row in batch] == ["a@x.com", "b@x.com"]
-        # State saved after the yielded batch and again when the chain terminates.
-        saved_states = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved_states[0].next_url == next_url
-        assert saved_states[-1].next_url is None
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_domains_endpoint_uses_skip_pagination(self, mock_session):
         page_size = MAILGUN_ENDPOINTS["domains"].page_size
@@ -373,31 +218,6 @@ class TestGetRows:
         assert sum(len(batch) for batch in batches) == page_size + 1
         second_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert _query(second_url)["skip"] == [str(page_size)]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_domain_scoped_endpoint_fans_out_over_domains(self, mock_session):
-        domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}]}
-        a_events = _paging_page([{"id": "e1", "timestamp": 1700000000.5}], f"{US_BASE}/v3/a.com/events/next")
-        a_empty = _paging_page([], None)
-        b_events = _paging_page([{"id": "e2", "timestamp": 1700000100.5}], f"{US_BASE}/v3/b.com/events/next")
-        b_empty = _paging_page([], None)
-        mock_session.return_value.get.side_effect = [
-            _response(domains_page),
-            _response(a_events),
-            _response(a_empty),
-            _response(b_events),
-            _response(b_empty),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", "events", mock.MagicMock(), manager))
-
-        rows = [row for batch in batches for row in batch]
-        assert [(row["id"], row["domain"]) for row in rows] == [("e1", "a.com"), ("e2", "b.com")]
-        assert rows[0]["timestamp"] == datetime.fromtimestamp(1700000000.5, tz=UTC)
-
-        first_events_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert first_events_url.startswith(f"{US_BASE}/v3/a.com/events?")
 
     @pytest.mark.parametrize(
         "self_referencing, expected_requests, expected_rows",
@@ -461,29 +281,6 @@ class TestGetRows:
         assert "exceeded 3 pages" in logger.warning.call_args.args[0]
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_incremental_run_passes_begin_from_watermark(self, mock_session):
-        domains_page = {"items": [{"name": "a.com"}]}
-        empty = _paging_page([], None)
-        mock_session.return_value.get.side_effect = [_response(domains_page), _response(empty)]
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "key",
-                "us",
-                "events",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC),
-                incremental_field="timestamp",
-            )
-        )
-
-        events_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert _query(events_url)["begin"] == ["1700000000"]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_incremental_watermark_inside_lag_window_skips_fetch(self, mock_session):
         domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}]}
         mock_session.return_value.get.side_effect = [_response(domains_page)]
@@ -507,22 +304,6 @@ class TestGetRows:
         assert mock_session.return_value.get.call_count == 1
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_resumes_mid_chain_without_relisting_domains(self, mock_session):
-        resume_url = f"{US_BASE}/v3/a.com/events/page-token"
-        resume = MailgunResumeConfig(next_url=resume_url, current_domain="a.com", pending_domains=["b.com"])
-        a_empty = _paging_page([{"id": "e9", "timestamp": 1700000000.0}], None)
-        b_page = _paging_page([], None)
-        mock_session.return_value.get.side_effect = [_response(a_empty), _response(b_page)]
-
-        manager = _make_manager(resume)
-        batches = list(get_rows("key", "us", "events", mock.MagicMock(), manager))
-
-        # First request goes straight to the saved page URL — no /v4/domains listing.
-        assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
-        rows = [row for batch in batches for row in batch]
-        assert [(row["id"], row["domain"]) for row in rows] == [("e9", "a.com")]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_resume_with_completed_state_yields_nothing(self, mock_session):
         manager = _make_manager(MailgunResumeConfig(next_url=None, current_domain=None, pending_domains=[]))
 
@@ -530,23 +311,6 @@ class TestGetRows:
 
         assert batches == []
         mock_session.return_value.get.assert_not_called()
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_state_saved_after_each_yielded_batch(self, mock_session):
-        domains_page = {"items": [{"name": "a.com"}]}
-        next_url = f"{US_BASE}/v3/a.com/bounces?page=next&address=x"
-        page_one = _paging_page([{"address": "x@y.com", "created_at": "Fri, 21 Oct 2011 11:02:55 GMT"}], next_url)
-        page_two = _paging_page([], None)
-        mock_session.return_value.get.side_effect = [_response(domains_page), _response(page_one), _response(page_two)]
-
-        manager = _make_manager()
-        list(get_rows("key", "us", "bounces", mock.MagicMock(), manager))
-
-        saved_states = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved_states[0].next_url == next_url
-        assert saved_states[0].current_domain == "a.com"
-        assert saved_states[-1].next_url is None
-        assert saved_states[-1].pending_domains == []
 
     @pytest.mark.parametrize("status_code", [400, 401, 403])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
@@ -633,49 +397,242 @@ class TestGetRows:
         assert [row["address"] for batch in batches for row in batch] == ["a@x.com"]
 
 
-class TestMailgunSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = MAILGUN_ENDPOINTS[endpoint]
-        response = mailgun_source("key", "us", endpoint, mock.MagicMock(), _make_manager(), mock.MagicMock())
+def _metrics_item(day: date, tag: str) -> dict[str, Any]:
+    return {
+        "dimensions": [
+            {"dimension": "time", "value": f"{day.strftime('%a, %d %b %Y')} 00:00:00 +0000", "display_value": ""},
+            {"dimension": "tag", "value": tag, "display_value": tag.title()},
+        ],
+        "metrics": {"delivered_count": 3, "opened_rate": "66.67"},
+    }
 
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_format == config.partition_format
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_domain_scoped_endpoints_have_domain_in_primary_key(self, endpoint):
-        config = MAILGUN_ENDPOINTS[endpoint]
-        if config.domain_scoped:
-            assert "domain" in config.primary_keys
+def _request_day(request: RecordedRequest) -> date:
+    return datetime.strptime(request.json()["start"], "%a, %d %b %Y %H:%M:%S %z").date()
 
-    @pytest.mark.parametrize("config", list(MAILGUN_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"timestamp", "created_at"}
 
-    def test_webhook_endpoint_returns_a_webhook_only_response(self):
-        webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=False)
+# Short enough for the driver's request limit; production walks a full year of days.
+METRICS_LOOKBACK_DAYS = 20
 
-        response = mailgun_source(
-            "key", "us", WEBHOOK_EVENTS_ENDPOINT, mock.MagicMock(), _make_manager(), webhook_manager
+
+class TestMetricsRows:
+    @pytest.fixture(autouse=True)
+    def _short_lookback(self):
+        with mock.patch.object(mailgun_module, "METRICS_LOOKBACK_DAYS", METRICS_LOOKBACK_DAYS):
+            yield
+
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(MailgunSource(), MailgunSourceConfig(api_key="key-123", region="us"))
+
+    def test_walks_one_day_per_request_and_pages_within_a_busy_day(self):
+        today = datetime.now(UTC).date()
+        busy_day = today - timedelta(days=10)
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            body = request.json()
+            if _request_day(request) != busy_day:
+                return ScriptedResponse(json={"items": []})
+            count = METRICS_PAGE_SIZE if body["pagination"]["skip"] == 0 else 2
+            return ScriptedResponse(json={"items": [_metrics_item(busy_day, f"tag-{i}") for i in range(count)]})
+
+        result = self._driver().run("tag_metrics", respond)
+
+        assert result.raised is None
+        assert {request.method for request in result.requests} == {"POST"}
+        assert {request.path for request in result.requests} == {"/v1/analytics/metrics"}
+        days = [_request_day(request) for request in result.requests]
+        assert days[0] == today - timedelta(days=METRICS_LOOKBACK_DAYS - 1)
+        assert days[-1] == today
+        assert len(days) == METRICS_LOOKBACK_DAYS + 1
+        busy_requests = [request.json() for request in result.requests if _request_day(request) == busy_day]
+        assert [body["pagination"]["skip"] for body in busy_requests] == [0, METRICS_PAGE_SIZE]
+        assert busy_requests[0]["dimensions"] == ["time", "tag"]
+        assert busy_requests[0]["pagination"]["sort"] == "tag:asc"
+        assert len(result.rows) == METRICS_PAGE_SIZE + 2
+        assert result.rows[0] == {
+            "delivered_count": 3,
+            "opened_rate": "66.67",
+            "time": datetime.combine(busy_day, datetime.min.time(), tzinfo=UTC),
+            "tag": "tag-0",
+            "tag_display_value": "Tag-0",
+        }
+
+    @pytest.mark.parametrize(
+        "watermark_days_ago, expected_first_day_ago",
+        [
+            (5, 7),
+            # A watermark older than the lookback starts at the lookback edge instead.
+            (METRICS_LOOKBACK_DAYS + 30, METRICS_LOOKBACK_DAYS - 1),
+        ],
+    )
+    def test_incremental_sync_starts_shortly_before_the_watermark(self, watermark_days_ago, expected_first_day_ago):
+        today = datetime.now(UTC).date()
+        watermark = datetime.combine(today - timedelta(days=watermark_days_ago), datetime.min.time(), tzinfo=UTC)
+
+        result = self._driver().run(
+            "metrics",
+            lambda _request: ScriptedResponse(json={"items": []}),
+            incremental_field="time",
+            db_incremental_field_last_value=watermark,
         )
 
-        assert response.name == WEBHOOK_EVENTS_ENDPOINT
-        assert response.webhook_only is True
-        # Mailgun webhook payloads carry no sending domain, so the polled `events` table's
-        # ["domain", "id"] key can't be reused here.
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["timestamp"]
+        assert result.raised is None
+        days = [_request_day(request) for request in result.requests]
+        assert days[0] == today - timedelta(days=expected_first_day_ago)
+        assert days[-1] == today
+        assert result.requests[0].json()["dimensions"] == ["time"]
 
+    def test_a_day_that_never_stops_returning_full_pages_moves_on_at_the_row_cap(self):
+        today = datetime.now(UTC).date()
+        full_page = ScriptedResponse(
+            json={"items": [_metrics_item(today, f"tag-{i}") for i in range(METRICS_PAGE_SIZE)]}
+        )
+
+        with mock.patch.object(mailgun_module, "MAX_METRICS_ROWS_PER_DAY", METRICS_PAGE_SIZE):
+            result = self._driver().run("tag_metrics", lambda _request: full_page)
+
+        assert result.raised is None
+        assert len(result.requests) == METRICS_LOOKBACK_DAYS
+        assert {request.json()["pagination"]["skip"] for request in result.requests} == {0}
+
+    def test_resume_continues_from_the_saved_day_and_offset(self):
+        today = datetime.now(UTC).date()
+
+        result = self._driver().run(
+            "domain_metrics",
+            lambda _request: ScriptedResponse(json={"items": []}),
+            resume_state=MailgunResumeConfig(metrics_day=today.isoformat(), metrics_skip=METRICS_PAGE_SIZE),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert _request_day(result.requests[0]) == today
+        assert result.requests[0].json()["pagination"]["skip"] == METRICS_PAGE_SIZE
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(MailgunSource(), MailgunSourceConfig(api_key="key-123", region="us"))
+
+
+def _log_item(event_id: str) -> dict[str, Any]:
+    return {"id": event_id, "event": "delivered", "@timestamp": "2024-07-08T12:30:00.250Z", "domain": {"name": "a.com"}}
+
+
+class TestLogsRows:
+    def test_follows_page_tokens_until_an_empty_page(self):
+        pages = {
+            None: {"items": [_log_item("e1"), _log_item("e2")], "pagination": {"next": "t1"}},
+            "t1": {"items": [_log_item("e3")], "pagination": {"next": "t2"}},
+            "t2": {"items": [], "pagination": {"next": "t3"}},
+        }
+
+        result = _driver().run(
+            "logs", lambda request: ScriptedResponse(json=pages[request.json()["pagination"].get("token")])
+        )
+
+        assert result.raised is None
+        assert {request.path for request in result.requests} == {"/v1/analytics/logs"}
+        bodies = [request.json() for request in result.requests]
+        assert [body["pagination"].get("token") for body in bodies] == [None, "t1", "t2"]
+        assert {(body["start"], body["end"]) for body in bodies} == {(bodies[0]["start"], bodies[0]["end"])}
+        assert {body["pagination"]["sort"] for body in bodies} == {"timestamp:asc"}
+        assert [row["id"] for row in result.rows] == ["e1", "e2", "e3"]
+        assert "@timestamp" not in result.rows[0]
+        assert result.rows[0]["timestamp"] == datetime(2024, 7, 8, 12, 30, 0, 250000, tzinfo=UTC)
+
+    @pytest.mark.parametrize(
+        "watermark_days_ago, expected_start_days_ago",
+        [
+            (None, LOGS_LOOKBACK_DAYS),
+            (2, 2),
+            # A watermark older than Mailgun's retention starts at the lookback edge instead.
+            (LOGS_LOOKBACK_DAYS + 30, LOGS_LOOKBACK_DAYS),
+        ],
+    )
+    def test_window_starts_at_the_watermark_or_the_lookback(self, watermark_days_ago, expected_start_days_ago):
+        now = datetime.now(UTC)
+        watermark = None if watermark_days_ago is None else now - timedelta(days=watermark_days_ago)
+
+        result = _driver().run(
+            "logs",
+            lambda _request: ScriptedResponse(json={"items": [], "pagination": {}}),
+            incremental_field="timestamp" if watermark else None,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        start = parsedate_to_datetime(result.requests[0].json()["start"])
+        assert abs(start - (now - timedelta(days=expected_start_days_ago))) < timedelta(minutes=1)
+
+    @pytest.mark.parametrize(
+        "resume_token, saved_start, expected_tokens",
+        [
+            ("t5", "2024-07-01T00:00:00+00:00", ["t5"]),
+            # An exhausted window has nothing left to read.
+            (None, "2024-07-08T00:00:00+00:00", []),
+        ],
+    )
+    def test_resume_reuses_the_saved_window_and_token(self, resume_token, saved_start, expected_tokens):
+        resume_state = MailgunResumeConfig(
+            logs_start=saved_start, logs_end="2024-07-08T00:00:00+00:00", logs_token=resume_token
+        )
+
+        result = _driver().run(
+            "logs",
+            lambda _request: ScriptedResponse(json={"items": [], "pagination": {}}),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        bodies = [request.json() for request in result.requests]
+        assert [body["pagination"].get("token") for body in bodies] == expected_tokens
+        for body in bodies:
+            assert parsedate_to_datetime(body["start"]) == datetime(2024, 7, 1, tzinfo=UTC)
+            assert parsedate_to_datetime(body["end"]) == datetime(2024, 7, 8, tzinfo=UTC)
+
+
+class TestFanOutEndpoints:
+    def test_mailing_list_members_fan_out_over_every_list(self):
+        lists_next = f"{US_BASE}/v3/lists/pages?page=next&address=b%40lists.example.com&limit=100"
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v3/lists/pages":
+                if request.param("page") == "next":
+                    return ScriptedResponse(json=_paging_page([], None))
+                lists = [{"address": "a@lists.example.com"}, {"address": "b@lists.example.com"}]
+                return ScriptedResponse(json=_paging_page(lists, lists_next))
+            if request.path == "/v3/lists/a%40lists.example.com/members/pages" and request.param("page") is None:
+                members = [{"address": "x@example.com", "subscribed": True}]
+                return ScriptedResponse(json=_paging_page(members, f"{request.url}&page=next&address=x%40example.com"))
+            return ScriptedResponse(json=_paging_page([], None))
+
+        result = _driver().run("mailing_list_members", respond)
+
+        assert result.raised is None
+        assert [(row["list_address"], row["address"]) for row in result.rows] == [
+            ("a@lists.example.com", "x@example.com")
+        ]
+        assert "/v3/lists/b%40lists.example.com/members/pages" in result.paths
+
+    def test_subaccounts_read_their_own_response_key_across_skip_pages(self):
+        page_size = MAILGUN_ENDPOINTS["subaccounts"].page_size
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            count = page_size if request.param("skip") == "0" else 1
+            skip = int(request.param("skip") or 0)
+            return ScriptedResponse(
+                json={"subaccounts": [{"id": f"sub-{skip + i}"} for i in range(count)], "total": page_size + 1}
+            )
+
+        result = _driver().run("subaccounts", respond)
+
+        assert result.raised is None
+        assert result.params("skip") == ["0", str(page_size)]
+        assert len(result.rows) == page_size + 1
+
+
+class TestMailgunSourceResponse:
     def test_webhook_endpoint_yields_nothing_until_the_webhook_is_live(self):
         webhook_manager = mock.MagicMock()
         webhook_manager.webhook_enabled = mock.AsyncMock(return_value=False)
@@ -700,26 +657,6 @@ class TestMailgunSourceResponse:
 
 
 class TestWebhookTableTransformer:
-    def test_unwraps_the_delivery_envelope_and_normalizes_the_timestamp(self):
-        table = table_from_py_list(
-            [
-                {
-                    "signature": {"timestamp": "1700000000", "token": "tok", "signature": "sig"},
-                    "event-data": {"id": "evt_1", "event": "delivered", "timestamp": 1700000000.5},
-                }
-            ]
-        )
-
-        rows = _webhook_table_transformer(table).to_pylist()
-
-        assert rows == [
-            {
-                "id": "evt_1",
-                "event": "delivered",
-                "timestamp": datetime.fromtimestamp(1700000000.5, tz=UTC),
-            }
-        ]
-
     def test_keeps_the_latest_row_per_event_id_within_one_batch(self):
         table = table_from_py_list(
             [
@@ -764,32 +701,6 @@ class TestWebhookManagement:
             *list_payloads,
         ]
         return session
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_create_registers_every_event_type_on_every_domain(self, mock_session):
-        session = self._session(mock_session, [_webhook_list_response({}), _webhook_list_response({})])
-        session.post.return_value = _response({})
-
-        result = create_webhook("key", "us", POSTHOG_URL)
-
-        assert result.success is True
-        # Mailgun never returns the signing key, so the user has to paste it before deliveries verify.
-        assert result.pending_inputs == ["signing_secret"]
-        posted = [(call.args[0], call.kwargs["data"]) for call in session.post.call_args_list]
-        assert len(posted) == len(WEBHOOK_TYPES) * 2
-        for domain in ("mg.example.com", "mg.other.com"):
-            registered = {data["id"] for url, data in posted if url.endswith(f"/v3/domains/{domain}/webhooks")}
-            assert registered == set(WEBHOOK_TYPES)
-        assert {data["url"] for _, data in posted} == {POSTHOG_URL}
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_create_uses_the_region_host(self, mock_session):
-        session = self._session(mock_session, [_webhook_list_response({}), _webhook_list_response({})])
-        session.post.return_value = _response({})
-
-        create_webhook("key", "eu", POSTHOG_URL)
-
-        assert all(call.args[0].startswith(EU_BASE) for call in session.post.call_args_list)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_create_is_idempotent_for_types_already_pointing_at_us(self, mock_session):

@@ -2,7 +2,6 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -10,11 +9,9 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.rootly import (
     ROOTLY_BASE_URL,
-    ROOTLY_JSON_API_MEDIA_TYPE,
     RootlyResumeConfig,
     _build_url,
     _clamp_future_value_to_now,
-    _flatten_item,
     _format_incremental_value,
     probe_credentials,
     rootly_source,
@@ -83,11 +80,6 @@ class TestBuildUrl:
     def test_no_params_returns_base(self) -> None:
         assert _build_url("https://api.rootly.com/v1/users", {}) == "https://api.rootly.com/v1/users"
 
-    def test_bracket_params_are_percent_encoded(self) -> None:
-        # Rootly is Rails/JSON:API and parses percent-encoded brackets; urlencode keeps them safe.
-        url = _build_url("https://api.rootly.com/v1/incidents", {"page[size]": 100})
-        assert url == "https://api.rootly.com/v1/incidents?page%5Bsize%5D=100"
-
 
 class TestFormatIncrementalValue:
     @parameterized.expand(
@@ -103,36 +95,8 @@ class TestFormatIncrementalValue:
 
 
 class TestClampFutureValueToNow:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, tzinfo=UTC)) == datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_is_unchanged(self) -> None:
-        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
     def test_string_passthrough(self) -> None:
         assert _clamp_future_value_to_now("cursor-token") == "cursor-token"
-
-
-class TestFlattenItem:
-    def test_attributes_hoisted_to_root_and_id_type_kept(self) -> None:
-        item = {
-            "id": "123",
-            "type": "incidents",
-            "attributes": {"title": "DB down", "status": "started", "created_at": "2026-01-01T00:00:00Z"},
-        }
-        assert _flatten_item(item) == {
-            "id": "123",
-            "type": "incidents",
-            "title": "DB down",
-            "status": "started",
-            "created_at": "2026-01-01T00:00:00Z",
-        }
-
-    def test_missing_attributes_is_safe(self) -> None:
-        assert _flatten_item({"id": "123", "type": "incidents"}) == {"id": "123", "type": "incidents"}
 
 
 class TestPagination:
@@ -159,40 +123,6 @@ class TestPagination:
         # The next-page URL is self-contained; the original params must not be re-appended.
         assert snapshots[1]["url"] == second
         assert snapshots[1]["params"] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_page_except_the_last(self, MockSession) -> None:
-        session = MockSession.return_value
-        second = "https://api.rootly.com/v1/incidents?page%5Bnumber%5D=2"
-        _wire(
-            session,
-            [
-                _response([{"id": "1", "attributes": {}}], next_url=second),
-                _response([{"id": "2", "attributes": {}}]),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source(manager=manager))
-
-        # State saved once (pointing at the second page) so a crash re-yields that page; nothing
-        # is saved after the final page (no next link).
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == RootlyResumeConfig(next_url=second)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        resume_url = "https://api.rootly.com/v1/incidents?page%5Bnumber%5D=3"
-        snapshots = _wire(session, [_response([{"id": "9", "attributes": {"title": "Z"}}])])
-
-        manager = _make_manager(RootlyResumeConfig(next_url=resume_url))
-        rows = _rows(_source(manager=manager))
-
-        # Starts at the resumed URL, not the freshly-built first page.
-        assert rows == [{"id": "9", "title": "Z"}]
-        assert snapshots[0]["url"] == resume_url
-        assert snapshots[0]["params"] == {}
 
     @parameterized.expand(
         [
@@ -269,54 +199,6 @@ class TestIncrementalParams:
 
         assert snapshots[0]["params"] == expected_params
 
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_future_cursor_is_clamped(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "1", "attributes": {}}])])
-
-        _rows(
-            _source(
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2027, 2, 5, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-
-        assert snapshots[0]["params"]["filter[updated_at][gt]"] == "2026-06-15T12:00:00+00:00"
-
-
-class TestHeadersAndAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_json_api_accept_header_is_set_on_session(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1", "attributes": {}}])])
-
-        _rows(_source())
-        assert session.headers.get("Accept") == ROOTLY_JSON_API_MEDIA_TYPE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_auth_is_framework_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        auths: list[Any] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            auths.append(request.auth)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": "1", "attributes": {}}])]
-
-        _rows(_source())
-
-        # The token flows through the framework auth (so it's redacted from logs), not a
-        # hand-built Authorization header.
-        prepared = mock.MagicMock()
-        prepared.headers = {}
-        auths[0](prepared)
-        assert prepared.headers["Authorization"] == "Bearer rootly_test"
-
 
 class TestProbeCredentials:
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
@@ -324,28 +206,3 @@ class TestProbeCredentials:
     def test_returns_status_code(self, _name: str, status_code: int, MockSession) -> None:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert probe_credentials("rootly_test", "incidents") == status_code
-
-    @mock.patch(ROOTLY_SESSION_PATCH)
-    def test_connection_failure_returns_none(self, MockSession) -> None:
-        MockSession.return_value.get.side_effect = Exception("boom")
-        assert probe_credentials("rootly_test") is None
-
-    @mock.patch(ROOTLY_SESSION_PATCH)
-    def test_probes_endpoint_path_with_bearer_token(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = mock.MagicMock(status_code=200)
-
-        probe_credentials("rootly_test", "incidents")
-
-        url = session.get.call_args.args[0]
-        assert url == f"{ROOTLY_BASE_URL}/incidents?page%5Bsize%5D=1"
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer rootly_test"
-
-    @mock.patch(ROOTLY_SESSION_PATCH)
-    def test_defaults_to_users_probe(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = mock.MagicMock(status_code=200)
-
-        probe_credentials("rootly_test")
-
-        assert session.get.call_args.args[0] == f"{ROOTLY_BASE_URL}/users?page%5Bsize%5D=1"

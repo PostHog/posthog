@@ -40,6 +40,7 @@ import {
     signalsReportPrReviewCommentUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
+    signalsReportsPriorityUpdate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -47,7 +48,9 @@ import type {
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
     ReportChartApi,
+    ReportPriorityApi,
     SignalReportCheckApi,
+    SignalReportApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -66,6 +69,7 @@ import {
     captureInboxReportAction,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
+    InboxReportActionSurface,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
@@ -301,9 +305,9 @@ export interface inboxReportDetailLogicValues {
     evidenceExpanded: boolean
     expandedTaskIds: string[]
     feedbackNoteDraft: string
-    feedbackNoteOpen: boolean
     feedbackNoteSent: boolean
     feedbackNoteSubmitting: boolean
+    feedbackSentNote: string | null
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
@@ -326,6 +330,7 @@ export interface inboxReportDetailLogicValues {
     prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
+    prioritySaving: boolean
     report: SignalReport | null
     reportArtefacts: SignalReportArtefact[] | null
     reportArtefactsLoading: boolean
@@ -533,9 +538,6 @@ export interface inboxReportDetailLogicActions {
     openDraftThread: (draft: DraftThread) => {
         draft: DraftThread
     }
-    openFeedbackNote: () => {
-        value: true
-    }
     postReviewComment: (payload: {
         body: string
         inReplyTo?: string
@@ -557,8 +559,12 @@ export interface inboxReportDetailLogicActions {
     postReviewCommentFinished: () => {
         value: true
     }
-    rateReport: (sentiment: InboxReportFeedbackSentiment) => {
+    rateReport: (
+        sentiment: InboxReportFeedbackSentiment,
+        surface?: InboxReportActionSurface
+    ) => {
         sentiment: InboxReportFeedbackSentiment
+        surface: InboxReportActionSurface
     }
     searchAvailableReviewers: (query: string) => {
         query: string
@@ -581,14 +587,21 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
+    setPrioritySaving: (saving: boolean) => {
+        saving: boolean
+    }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
-    submitFeedbackNote: (note: string) => {
+    submitFeedbackNote: (
+        note: string,
+        surface?: InboxReportActionSurface
+    ) => {
         note: string
+        surface: InboxReportActionSurface
     }
     toggleExpandedTask: (taskId: string) => {
         taskId: string
@@ -599,6 +612,9 @@ export interface inboxReportDetailLogicActions {
     ) => {
         commentId: string
         content: string
+    }
+    updatePriority: (priority: ReportPriorityApi) => {
+        priority: ReportPriorityApi
     }
     updateReviewers: (
         content: Record<string, string>[],
@@ -703,6 +719,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setEditingCommentId: (commentId: string | null) => ({ commentId }),
         selectPullRequest: (url: string) => ({ url }),
         setReport: (report: SignalReport | null) => ({ report }),
+        updatePriority: (priority: ReportPriorityApi) => ({ priority }),
+        setPrioritySaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
@@ -721,12 +739,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         toggleExpandedTask: (taskId: string) => ({ taskId }),
         // Thumbs feedback at the end of the report body. Recorded server-side as a report action
         // (consumption evidence) – nothing about the report's state changes.
-        rateReport: (sentiment: InboxReportFeedbackSentiment) => ({ sentiment }),
+        rateReport: (sentiment: InboxReportFeedbackSentiment, surface: InboxReportActionSurface = 'detail_footer') => ({
+            sentiment,
+            surface,
+        }),
         // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
-        openFeedbackNote: true,
         setFeedbackNoteDraft: (draft: string) => ({ draft }),
         // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
-        submitFeedbackNote: (note: string) => ({ note }),
+        submitFeedbackNote: (note: string, surface: InboxReportActionSurface = 'detail_footer') => ({ note, surface }),
         cancelReportCheck: (checkId: string) => ({ checkId }),
         // Fired whether the cancel succeeded or failed, so the row's button always comes back.
         cancelReportCheckDone: (checkId: string) => ({ checkId }),
@@ -916,7 +936,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
         // Checks whose cancel request is in flight, so each row's Stop button disables itself
         // without blocking a second row.
@@ -939,6 +959,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
+        prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
         report: [
             null as SignalReport | null,
             {
@@ -970,7 +991,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 toggleExpandedTask: (state, { taskId }) =>
                     state.includes(taskId) ? state.filter((id) => id !== taskId) : [...state, taskId],
-                setReport: () => [],
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : []),
             },
         ],
         // Which tab the report column shows. The logic is keyed by report id, so each report keeps its
@@ -989,22 +1010,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 rateReport: (_, { sentiment }) => sentiment,
             },
         ],
-        // Whether the optional note field is showing. Switching the rating closes an unsent note so
-        // the draft can't end up attached to a sentiment the reader has since changed their mind about.
-        feedbackNoteOpen: [
-            false,
-            {
-                openFeedbackNote: () => true,
-                rateReport: () => false,
-                submitFeedbackNote: () => false,
-            },
-        ],
+        // Switching the rating drops an unsent draft so it can't end up attached to a sentiment the
+        // reader has since changed their mind about.
         feedbackNoteDraft: [
             '',
             {
                 setFeedbackNoteDraft: (_, { draft }) => draft,
                 rateReport: () => '',
                 submitFeedbackNote: () => '',
+            },
+        ],
+        // The note as sent, so the row can show the reader what went through.
+        feedbackSentNote: [
+            null as string | null,
+            {
+                submitFeedbackNote: (_, { note }) => note.trim() || null,
+                rateReport: () => null,
             },
         ],
         feedbackNoteSent: [
@@ -1078,7 +1099,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 openDraftThread: (_, { draft }) => draft,
                 closeDraftThread: () => null,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
         // Which thread's composer has a post in flight — gates its submit button and textarea.
@@ -1094,10 +1115,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as string | null,
             {
                 setEditingCommentId: (_, { commentId }) => commentId,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
-    }),
+    })),
 
     selectors({
         // Mirrors the optimistic override lifecycle: an update is in flight exactly while the
@@ -1388,6 +1409,40 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, asyncActions, values, props, selectors }) => ({
+        updatePriority: async ({ priority }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.prioritySaving || currentReport.priority === priority) {
+                return
+            }
+            actions.setPrioritySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority })
+            } catch {
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setPrioritySaving(false)
+                    lemonToast.error("Couldn't save the priority. Try again.")
+                }
+                return
+            }
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                priority,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setPrioritySaving(false)
+        },
         approveReportCheck: async ({ checkId }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -1442,11 +1497,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 })
             }
         },
-        rateReport: ({ sentiment }) => {
+        rateReport: ({ sentiment, surface }) => {
             if (!values.report) {
                 return
             }
-            captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
+            captureInboxReportFeedback({ report: values.report, sentiment, surface })
             // Best-effort server-side record of the bare rating: consumption evidence the scout
             // inactivity sweep reads, so rating a report keeps its scout from being auto-paused.
             // The analytics event above stays the durable record of the rating itself.
@@ -1455,7 +1510,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             }).catch(() => {})
         },
         // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
-        submitFeedbackNote: async ({ note }) => {
+        submitFeedbackNote: async ({ note, surface }) => {
             const trimmed = note.trim()
             if (!values.report || !values.feedbackSentiment || !trimmed) {
                 return
@@ -1475,7 +1530,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     report: values.report,
                     sentiment,
                     note: trimmed,
-                    surface: 'detail_footer',
+                    surface,
                 })
                 // Best-effort: also carry the note into the scout steering channel so the scout that filed
                 // the report reads it next run. The analytics event above is the durable record, so a

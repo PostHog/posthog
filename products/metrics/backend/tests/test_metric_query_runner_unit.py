@@ -13,8 +13,9 @@ from products.metrics.backend.metric_query_runner import _active_since_expr, _hi
 class TestPickInterval:
     @parameterized.expand(
         [
+            ("15m_range_picks_15_seconds", dt.timedelta(minutes=15), "second_15"),
             ("1h_range_picks_minute", dt.timedelta(hours=1), "minute"),
-            ("1d_range_picks_hour", dt.timedelta(days=1), "hour"),
+            ("1d_range_picks_30_minutes", dt.timedelta(days=1), "minute_30"),
             ("30d_range_picks_day", dt.timedelta(days=30), "day"),
         ]
     )
@@ -70,6 +71,7 @@ class TestFormulaParser:
             ("trailing_garbage", "a + b )", frozenset({"a", "b"})),
             ("empty", "   ", frozenset({"a"})),
             ("bad_char", "a ^ b", frozenset({"a", "b"})),
+            ("non_finite_literal", "9" * 400, frozenset({"a"})),
             ("nesting_too_deep_parens", "(" * 40 + "a" + ")" * 40, frozenset({"a"})),
             ("nesting_too_deep_unary", "-" * 40 + "a", frozenset({"a"})),
         ]

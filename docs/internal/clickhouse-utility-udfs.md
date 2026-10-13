@@ -112,8 +112,11 @@ Queries on `events_json` derive `$active_feature_flags` from the `$feature_flags
 Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
 becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
 
-On native events, HogQL `JSONExtract*` calls with `$feature_flags` as their first property key read the same restricted-property-aware map as dotted `$feature_flags` access.
-The original extractor still determines the return type and missing-value default.
+A HogQL JSON function on `events_json` whose first key is `$feature/<key>`, `$active_feature_flags` or `$feature_flags` reads the flags map directly instead of the rebuilt document, also when the document is `toString(properties)`.
+The result is the same as reading the rebuilt document, because the value is serialized the way the SDK sent it: a boolean flag as JSON `true` or `false`, a variant as a JSON string, with the sentinels mapped back.
+The original function still determines the return type, the missing-value default and any deeper keys.
+Key listings of the whole document, `properties` selected through a subquery, and `JSON_VALUE` (whose second argument is a JSONPath, not a key) keep reading the rebuilt document.
+A JSON function with a key computed per row fails the query when the key names `$feature/<key>` or `$active_feature_flags`, because no stored document holds those keys.
 The legacy table stores flags as sent, so HogQL reads every flag property there as stored, `$feature_flags` included.
 
 ### Benchmarking the cleaner

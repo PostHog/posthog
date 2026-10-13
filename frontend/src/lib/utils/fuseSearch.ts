@@ -1,7 +1,7 @@
-import FuseClass, { IFuseOptions } from 'fuse.js'
+import FuseClass, { FuseResultMatch, IFuseOptions } from 'fuse.js'
 
 export type Fuse<T> = FuseClass<T>
-export type { IFuseOptions }
+export type { FuseResultMatch, IFuseOptions }
 
 const FUSE_DEFAULTS = {
     threshold: 0.3,

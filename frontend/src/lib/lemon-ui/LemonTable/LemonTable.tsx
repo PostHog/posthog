@@ -84,6 +84,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
+    /** Extra grouped header levels above the column titles, for hierarchical tables. */
+    headerRows?: { title: React.ReactNode; colSpan: number }[][]
     /** Whether header titles should be uppercased. The default value is `true`. */
     uppercaseHeader?: boolean
     /**
@@ -169,6 +171,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     scrollToTopOnPageChange = true,
     expandable,
     showHeader = true,
+    headerRows,
     uppercaseHeader = true,
     tableLayout = 'auto',
     noSortingCancellation: disableSortingCancellation = false,
@@ -498,6 +501,21 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                             </colgroup>
                             {showHeader && (
                                 <thead>
+                                    {headerRows?.map((row, rowIndex) => (
+                                        <tr key={rowIndex} className="LemonTable__row--grouping">
+                                            {isRowExpansionToggleShown && <th className="LemonTable__toggle" />}
+                                            {row.map((cell, cellIndex) => (
+                                                <th
+                                                    key={cellIndex}
+                                                    colSpan={cell.colSpan}
+                                                    scope="colgroup"
+                                                    className="LemonTable__boundary"
+                                                >
+                                                    {cell.title}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    ))}
                                     {columnGroups.some((group) => group.title) && (
                                         <tr className="LemonTable__row--grouping">
                                             {
