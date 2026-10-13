@@ -31,9 +31,10 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     SourceKind,
 )
-from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
+
+PLATFORM_ALERT_EVENTS_TABLE = "platform_alert_events"
 
 
 @frozen

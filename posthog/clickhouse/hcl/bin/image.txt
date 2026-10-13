@@ -1,1 +1,0 @@
-ghcr.io/posthog/chschema:sha-9d9192f

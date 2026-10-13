@@ -5,7 +5,7 @@ rules:
       owners: team-analytics-platform
     - match: '/cdp/'
       owners: team-workflows
-    - match: '/clickhouse/hcl/'
+    - match: '/clickhouse/schema/'
       owners: clickhouse
     - match:
           - '/csp_middleware.py'

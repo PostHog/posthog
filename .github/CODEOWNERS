@@ -12,8 +12,13 @@
 # justification. If you are not _certain_ there is _no other way_
 # to manage the risk you're thinking about, do not add an entry.
 
-# ClickHouse team owns Clickhouse migrations
-posthog/clickhouse/migrations/** @PostHog/clickhouse
+# ClickHouse team owns the ClickHouse schema. A merge to master sends it to the infrastructure
+# repository, which rolls it out to the production clusters, and this tooling builds every
+# local, test and self-hosted database from it.
+posthog/clickhouse/schema/** @PostHog/clickhouse
+bin/clickhouse-schema @PostHog/clickhouse
+.github/workflows/ci-clickhouse-schema.yml @PostHog/clickhouse
+.github/workflows/cd-clickhouse-schema-dispatch.yml @PostHog/clickhouse
 
 # HogQL team owns HogQL changes
 posthog/hogql/** @PostHog/hogql

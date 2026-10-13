@@ -40,15 +40,16 @@ Migrations must run smoothly in local development, self-hosted instances, and Po
 
 ## Tread carefully with ClickHouse schema changes
 
-ClickHouse is at the core of PostHog's scalable analytics capabilities. The ClickHouse schema can be changed just like the Postgres one – with migrations – but there are two important bits of complexity added:
+ClickHouse is at the core of PostHog's scalable analytics capabilities.
+Unlike the Postgres schema, the ClickHouse schema has no migrations.
+It is declared as Terraform in [`posthog/clickhouse/schema/`](https://github.com/PostHog/posthog/tree/master/posthog/clickhouse/schema), and Terraform works out the `CREATE` and `ALTER` statements.
+The README in that directory explains how to make a change.
+
+There are a few things to keep in mind:
 
 1. ClickHouse has no indexes like traditional databases. Instead, each table has a sorting key, defined in the `ORDER BY` clause of the table. This determines how data is laid out on disk, and ClickHouse reads data in the order it's laid out, so it's important that the sorting key is optimal for the table's use cases.
-2. Tables that store events are _sharded_ + _distributed_ in PostHog Cloud. This improves performance in multi-tenant architecture, but means that updating these is not straightforward like with most tables, and may require manual write access to the cluster.
+2. Tables that store events are _sharded_ + _distributed_ in PostHog Cloud. This improves performance in multi-tenant architecture, but means that one logical table is several objects on different nodes: the data table, the Distributed tables in front of it, the Kafka table, and the materialized view that fills it. A new column usually has to reach all of them.
+3. Run `bin/clickhouse-schema plan` and read it before you apply. Adding a column or an index is an in-place `ALTER`. Changing the engine, the partition key, or the sorting key replaces the table, which loses its data. A change like that needs a manual data migration instead. See [how we did one for the events table](./clickhouse-event-table-migrations).
+4. PostHog Cloud does not apply the schema when the app deploys. After your PR merges, the change is planned, reviewed, and applied for each cluster from the infrastructure repository. Ship a schema change in its own PR, and merge it before the code that depends on it.
 
-To make sure that your new ClickHouse migration is A-OK – both above points having been addressed – make sure you loop in someone with extensive experience operating ClickHouse for review. Ask for feedback in the `#team-clickhouse` Slack channel.
-
-### Declarative schema rollout
-
-The OpenTofu catalogue in `posthog/clickhouse/schema/` is being introduced alongside Python migrations. During the foundation stage, normal migration, local setup and test commands still use Python. Apply the new catalogue only to an isolated database or an explicitly adopted infrastructure canary. Ownership cutover and removal of the legacy tooling happen in separate pull requests.
-
-The ownership cutover switches local, test and Hobby setup to OpenTofu. Cloud deployment hooks stop applying ClickHouse schema; infrastructure owns it. Merge the cutover only after the canary migration succeeds and every cloud object has a verified owner. Legacy definitions remain dormant until cleanup.
+To make sure that your ClickHouse schema change is safe, loop in someone with extensive experience operating ClickHouse for review. Ask for feedback in the `#team-clickhouse` Slack channel.

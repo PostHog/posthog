@@ -57,42 +57,12 @@ logger = _LazyDagsterLogger()
 def ON_CLUSTER_CLAUSE(on_cluster=True):
     # The test ClickHouse is a single node: ON CLUSTER only adds distributed-DDL keeper
     # round-trips (tens of ms per statement) without changing the outcome, and tests issue
-    # DDL in bulk (session-start CREATEs, per-test TRUNCATEs), so render no clause there.
+    # TRUNCATEs in bulk, so render no clause there.
     # If a call site ever needs to exercise real ON CLUSTER SQL under TEST, thread an
     # allow-in-test flag through here.
     if on_cluster and not TEST:
         return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
     return ""
-
-
-# Smoke-test only: when migrating against the multinode docker-compose stack
-# from the host, every docker hostname (`clickhouse-aux`, …) is mapped to
-# 127.0.0.1 via /etc/hosts, but only one container can publish on port 9000 —
-# so without a per-host port override, every role-routed connection lands on
-# whichever container holds 127.0.0.1:9000 (the data node). The compose file
-# publishes each satellite on a distinct host port; this map mirrors that.
-#
-# Canonical source: `docker-compose.multinode-clickhouse.yml` (per-service
-# `ports:` blocks). Keep this map in sync when adding or renumbering nodes.
-_MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
-    "clickhouse-data": ("localhost", 9000),
-    "clickhouse-ai-events": ("localhost", 9100),
-    "clickhouse-aux": ("localhost", 9200),
-    "clickhouse-ops": ("localhost", 9300),
-    "clickhouse-sessions": ("localhost", 9400),
-    "clickhouse-logs": ("localhost", 9500),
-    "clickhouse-ingestion-events": ("localhost", 9600),
-    "clickhouse-ingestion-small": ("localhost", 9700),
-    "clickhouse-ingestion-medium": ("localhost", 9800),
-}
-
-
-def _resolve_connection_target(host_name: str, port: int | None) -> tuple[str, int | None]:
-    if settings.MULTINODE_CLICKHOUSE:
-        override = _MULTINODE_HOST_PORT_OVERRIDES.get(host_name)
-        if override:
-            return override
-    return (host_name, port)
 
 
 K = TypeVar("K")
@@ -209,9 +179,8 @@ class ClickhouseCluster:
             # We only use the port from system.clusters if we're running in E2E tests or debug mode,
             # otherwise, we will use the default port.
             effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
-            resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
             host_info = HostInfo(
-                ConnectionInfo(resolved_host, resolved_port),
+                ConnectionInfo(host_name, effective_port),
                 shard_num if host_cluster_role == shard_role else None,
                 replica_num if host_cluster_role == shard_role else None,
                 host_cluster_type,
@@ -228,9 +197,8 @@ class ClickhouseCluster:
                 (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
                 if host_cluster_role == shard_role:
                     effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
-                    resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                     host_info = HostInfo(
-                        ConnectionInfo(resolved_host, resolved_port),
+                        ConnectionInfo(host_name, effective_port),
                         shard_num,
                         replica_num,
                         host_cluster_type,
@@ -252,9 +220,8 @@ class ClickhouseCluster:
             for row in satellite_hosts:
                 (host_name, port, _shard_num, _replica_num, host_cluster_type, host_cluster_role) = row
                 effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
-                resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                 host_info = HostInfo(
-                    ConnectionInfo(resolved_host, resolved_port),
+                    ConnectionInfo(host_name, effective_port),
                     shard_num=None,
                     replica_num=None,
                     host_cluster_type=host_cluster_type,
@@ -680,9 +647,9 @@ def redact_sql_secrets(sql: str) -> str:
     return _SQL_SECRET_RE.sub(r"\1 '[REDACTED]'", sql)
 
 
-# Cap how much SQL we embed in a Query repr. Reprs land in logs (every statement the migration
-# runner executes) and traces, so a multi-megabyte statement — e.g. a large seed INSERT with all
-# its VALUES inline — floods them. The head is enough to identify the statement.
+# Cap how much SQL we embed in a Query repr. Reprs land in logs and traces, so a
+# multi-megabyte statement — e.g. a large seed INSERT with all its VALUES inline — floods them.
+# The head is enough to identify the statement.
 _MAX_QUERY_REPR_LEN = 1500
 
 

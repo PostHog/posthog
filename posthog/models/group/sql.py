@@ -1,123 +1,15 @@
-from posthog import settings
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_GROUPS_WS, KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
+from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.kafka_client.topics import KAFKA_GROUPS
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 GROUPS_TABLE = "groups"
-GROUPS_TABLE_MV = f"{GROUPS_TABLE}_mv"
-GROUPS_WRITABLE_TABLE = f"writable_{GROUPS_TABLE}"
-KAFKA_GROUPS_TABLE = f"kafka_{GROUPS_TABLE}"
 
-DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-DROP_GROUPS_TABLE_MV_SQL = f"DROP TABLE IF EXISTS {GROUPS_TABLE_MV}"
-DROP_KAFKA_GROUPS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_GROUPS_TABLE}"
 
 TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} {ON_CLUSTER_CLAUSE()}"
 
-GROUPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
-(
-    group_type_index UInt8,
-    group_key VARCHAR,
-    created_at DateTime64,
-    team_id Int64,
-    group_properties VARCHAR
-    {extra_fields}
-) ENGINE = {engine}
-"""
-
-
-def GROUPS_TABLE_ENGINE():
-    return ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp")
-
-
-def GROUPS_TABLE_SQL(on_cluster=True):
-    return (
-        GROUPS_TABLE_BASE_SQL
-        + """ORDER BY (team_id, group_type_index, group_key)
-{storage_policy}
-"""
-    ).format(
-        table_name=GROUPS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=GROUPS_TABLE_ENGINE(),
-        extra_fields=KAFKA_COLUMNS,
-        storage_policy=STORAGE_POLICY(),
-    )
-
-
-def KAFKA_GROUPS_TABLE_SQL(on_cluster=True):
-    return GROUPS_TABLE_BASE_SQL.format(
-        table_name="kafka_" + GROUPS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=kafka_engine(KAFKA_GROUPS),
-        extra_fields="",
-    )
-
-
-def GROUPS_WRITABLE_TABLE_SQL():
-    # This is a table used for writing from the ingestion layer. It's not sharded, thus it uses the single shard cluster.
-    return GROUPS_TABLE_BASE_SQL.format(
-        table_name="writable_" + GROUPS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=Distributed(data_table=GROUPS_TABLE, cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
-        extra_fields=KAFKA_COLUMNS,
-    )
-
-
-def GROUPS_TABLE_MV_SQL(
-    target_table=GROUPS_WRITABLE_TABLE,
-    on_cluster=True,
-    mv_name=GROUPS_TABLE_MV,
-    kafka_table=KAFKA_GROUPS_TABLE,
-):
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {ON_CLUSTER_CLAUSE(on_cluster)}
-TO {target_table}
-AS SELECT
-group_type_index,
-group_key,
-created_at,
-team_id,
-group_properties,
-_timestamp,
-_offset
-FROM {kafka_table}
-"""
-
 
 # WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
-
-KAFKA_GROUPS_WS_TABLE = "kafka_groups_ws"
-GROUPS_WS_MV = "groups_ws_mv"
-
-DROP_KAFKA_GROUPS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_GROUPS_WS_TABLE}"
-DROP_GROUPS_WS_MV_SQL = f"DROP TABLE IF EXISTS {GROUPS_WS_MV}"
-
-
-def KAFKA_GROUPS_WS_TABLE_SQL():
-    return GROUPS_TABLE_BASE_SQL.format(
-        table_name=KAFKA_GROUPS_WS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=kafka_engine(
-            topic=KAFKA_GROUPS,
-            group=CONSUMER_GROUP_GROUPS_WS,
-            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
-        ),
-        extra_fields="",
-    )
-
-
-def GROUPS_WS_TABLE_MV_SQL(target_table=GROUPS_WRITABLE_TABLE):
-    return GROUPS_TABLE_MV_SQL(
-        target_table=target_table,
-        on_cluster=False,
-        mv_name=GROUPS_WS_MV,
-        kafka_table=KAFKA_GROUPS_WS_TABLE,
-    )
 
 
 # { ..., "group_0": 1325 }
@@ -141,3 +33,24 @@ COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
 SELECT_GROUPS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
     table_name=GROUPS_TABLE
 )
+
+GROUPS_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+(
+    group_type_index UInt8,
+    group_key VARCHAR,
+    created_at DateTime64,
+    team_id Int64,
+    group_properties VARCHAR
+    {extra_fields}
+) ENGINE = {engine}
+"""
+
+
+def KAFKA_GROUPS_TABLE_SQL(on_cluster=True):
+    return GROUPS_TABLE_BASE_SQL.format(
+        table_name="kafka_" + GROUPS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_GROUPS),
+        extra_fields="",
+    )

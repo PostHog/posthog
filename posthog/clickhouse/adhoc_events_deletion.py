@@ -22,12 +22,3 @@ TTL deleted_at + INTERVAL 3 MONTH WHERE is_deleted = 1
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=ReplacingMergeTreeDeleted(ADHOC_EVENTS_DELETION_TABLE, ver="deleted_at", is_deleted="is_deleted"),
     )
-
-
-def DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(on_cluster=True):
-    return """
-DROP TABLE IF EXISTS {table_name} {on_cluster_clause}
-""".format(
-        table_name=ADHOC_EVENTS_DELETION_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    )

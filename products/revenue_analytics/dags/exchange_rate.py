@@ -8,8 +8,9 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, settings_with_log_comment
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DATA_BACKFILL_SQL, EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DATA_BACKFILL_SQL
 
 OPEN_EXCHANGE_RATES_API_BASE_URL = "https://openexchangerates.org/api"
 

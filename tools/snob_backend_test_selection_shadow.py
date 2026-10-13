@@ -86,6 +86,9 @@ FULL_RUN_PATTERNS = (
     ".github/clickhouse-versions.json",
     "docker-compose",
     "docker/clickhouse/",
+    # The schema every ClickHouse test database is built from. No Python import edge reaches it.
+    "posthog/clickhouse/schema/",
+    "bin/clickhouse-schema",
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
     # Non-Python files that affect generated Python code or test behavior

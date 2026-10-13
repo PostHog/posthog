@@ -12,7 +12,7 @@ from django.core.management.base import BaseCommand
 import aiohttp
 import structlog
 
-OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
+OUTPUT_FILE = "posthog/clickhouse/schema/catalog/channel_definition/channel_definitions.json"
 
 VALID_ENTRY_RE = re.compile(r"^[ a-z0-9.+_-]+$")
 logger = structlog.get_logger(__name__)

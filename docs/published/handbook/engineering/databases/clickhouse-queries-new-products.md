@@ -13,6 +13,12 @@ Related reading:
 - [Materialized columns](./materialized-columns.md)
 - [Query attribution](https://posthog.com/handbook/engineering/clickhouse/query-attribution)
 
+## Declare the table family
+
+For a new sharded table fed by Kafka, add a declaration under `posthog/clickhouse/schema/catalog/` using `lib/table_family`. Declare the Kafka topic and input columns, stored columns, sorting and partition keys, and the materialized view's SELECT expressions. The library creates the storage, readable, writable, Kafka and materialized-view objects. Infrastructure supplies placement; new cloud families default to aux storage and small ingestion.
+
+Declare indexes and projections under `storage`. They do not belong on Distributed or Kafka tables. Use `layout = "global"` for a table replicated as one dataset across its participating nodes. See the [schema guide](https://github.com/PostHog/posthog/blob/master/posthog/clickhouse/schema/README.md) for complete examples and overrides.
+
 ## Use HogQL, not raw ClickHouse SQL
 
 Always use [HogQL](./hogql-python.md) rather than writing raw ClickHouse SQL. HogQL is our AST-powered layer on top of ClickHouse SQL that provides critical safety and performance guarantees automatically.
@@ -79,7 +85,7 @@ session_id_v7 UInt128,
 
 ClickHouse does not sort UUIDs correctly as of today. The internal representation swaps the high and low 64-bit words, so `ORDER BY uuid_column` does not produce chronological order for UUIDv7s. This is a [known issue](https://michcioperz.com/wiki/clickhouse-uuid-ordering/) (see also [ClickHouse issue #77226](https://github.com/ClickHouse/ClickHouse/issues/77226)).
 
-The workaround is to store your UUIDv7 as `UInt128` instead of `UUID`. You can convert with `reinterpretAsUInt128(toUUID(...))` or use a materialized column to do this at insert time. See the session ID materialization migration for an example of this conversion at the data layer.
+The workaround is to store your UUIDv7 as `UInt128` instead of `UUID`. You can convert with `reinterpretAsUInt128(toUUID(...))` or use a materialized column to do this at insert time. See the `$session_id_uuid` column of `sharded_events` in `posthog/clickhouse/schema/catalog/events/columns.tf` for an example of this conversion at the data layer.
 
 ### When not to use UUIDv7
 
@@ -91,7 +97,7 @@ You need a good reason to use a different format. The main exception is person I
 
 If your product frequently filters or groups by a specific property, you should ensure that property has a materialized column. Materialized columns store JSON property values as separate columns on disk, making reads up to 25x faster.
 
-Properties are automatically materialized by a cron job that analyzes slow queries (see `analyze.py`). But for new products, you may want to proactively create materialized columns for properties you know will be heavily queried. You can do this via a ClickHouse migration – see migration 0147 for an example that adds both a materialized column and a bloom filter index.
+Properties are automatically materialized by a cron job that analyzes slow queries (see `analyze.py`). But for new products, you may want to proactively create materialized columns for properties you know will be heavily queried. You can do this by declaring the column in the table's module under `posthog/clickhouse/schema/catalog/`. `sharded_events` in `catalog/events/families.tf` has examples of a materialized column with a skip index on it.
 
 For more details, see the [materialized columns handbook page](./materialized-columns.md).
 
@@ -99,8 +105,8 @@ For more details, see the [materialized columns handbook page](./materialized-co
 
 ClickHouse data skipping indexes allow the engine to skip granules (blocks of rows) that definitely don't match your query filter. Common types:
 
-- **`minmax`** – tracks the min and max value per granule. Good for timestamp or numeric columns. Example: migration 0222 adds a `minmax` index on `$session_id_uuid`.
-- **bloom_filter** – probabilistic index for equality and IN lookups on high-cardinality columns. Example: migration 0184 adds a bloom filter on `distinct_id`. Bloom filters also support Map columns – you can index `mapKeys(my_map)` and `mapValues(my_map)` separately to speed up lookups into map-typed columns. See the Logs table and spans table for examples, and `property_groups.py` for the reusable pattern.
+- **`minmax`** – tracks the min and max value per granule. Good for timestamp or numeric columns. Example: the `minmax_$session_id_uuid` index on `sharded_events`.
+- **bloom_filter** – probabilistic index for equality and IN lookups on high-cardinality columns. Example: the `bloom_filter_distinct_id` index on `sharded_events`. Bloom filters also support Map columns – you can index `mapKeys(my_map)` and `mapValues(my_map)` separately to speed up lookups into map-typed columns. See the Logs table and spans table for examples, and `property_groups.py` for the reusable pattern.
 - **ngrambf_v1** – n-gram bloom filter for `substring` and `ILIKE` searches on text columns. Good for things like log bodies, email addresses, URLs, or any column where users will do partial-match searches. Examples: the Logs table indexes `lower(body)` with `ngrambf_v1(3, 25000, 2, 0)`, and the spans table indexes span name. For materialized property columns, we have a reusable `NgramLowerIndex` helper that handles the ClickHouse limitations around case-insensitivity (must wrap in `lower()`) and `Nullable` columns (must wrap in `coalesce()`).
 
 ### Test that your skip indexes are actually used

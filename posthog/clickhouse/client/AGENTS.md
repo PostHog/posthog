@@ -1,7 +1,7 @@
 # ClickHouse client authentication
 
 How code authenticates to ClickHouse.
-For migrations, see `posthog/clickhouse/migrations/AGENTS.md`.
+For schema changes, see `posthog/clickhouse/schema/README.md`.
 
 A service authenticates to ClickHouse with a short-lived Kubernetes ServiceAccount token.
 The on-node ch-podauth LDAP bridge validates the token.

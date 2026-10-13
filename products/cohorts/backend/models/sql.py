@@ -1,30 +1,4 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import CollapsingMergeTree
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
-
-
-def COHORTPEOPLE_TABLE_ENGINE():
-    return CollapsingMergeTree("cohortpeople", ver="sign")
-
-
-CREATE_COHORTPEOPLE_TABLE_SQL = lambda on_cluster=True: """
-CREATE TABLE IF NOT EXISTS cohortpeople {on_cluster_clause}
-(
-    person_id UUID,
-    cohort_id Int64,
-    team_id Int64,
-    sign Int8,
-    version UInt64
-) ENGINE = {engine}
-Order By (team_id, cohort_id, person_id, version)
-{storage_policy}
-""".format(
-    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    engine=COHORTPEOPLE_TABLE_ENGINE(),
-    storage_policy="",
-)
-
-TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople {ON_CLUSTER_CLAUSE()}"
 
 GET_COHORT_SIZE_SQL = """
 SELECT count(DISTINCT person_id)
@@ -55,12 +29,4 @@ SELECT person_id
 FROM {PERSON_STATIC_COHORT_TABLE}
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
-"""
-
-
-STALE_COHORTPEOPLE = f"""
-SELECT team_id, count() AS stale_people_count FROM cohortpeople
-WHERE team_id IN %(team_ids)s AND cohort_id = %(cohort_id)s AND version < %(version)s
-GROUP BY team_id
-HAVING stale_people_count > 0
 """

@@ -64,6 +64,8 @@ FULL_RUN_PATTERNS = (
     "rust/persons_migrations/",
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
+    "posthog/clickhouse/schema/",
+    "bin/clickhouse-schema",
     "hogli.yaml",
     "manage.py",
     "pytest.ini",
@@ -215,7 +217,7 @@ def dynamic_import_tests(changed_trees: set[str], universe: set[str]) -> set[str
 def snob_tests(changed_py_files: list[str]) -> set[str]:
     if not changed_py_files:
         return set()
-    import snob_lib  # noqa: PLC0415 — resolved by this script's PEP 723 deps, absent in stdlib-only test runs
+    import snob_lib  # noqa: PLC0415 — resolved by this script's PEP 723 deps, absent in stdlib-only test runs  # ty: ignore[unresolved-import]
 
     return {normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)}
 

@@ -5,10 +5,11 @@ from clickhouse_driver.errors import SocketTimeoutError
 from prometheus_client import Counter
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.models.event.deletion import events_data_tables_via_sync_execute, events_read_tables_via_sync_execute
-from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 logger.setLevel("DEBUG")
