@@ -67,7 +67,12 @@ from products.signals.backend.ranking.features import (
 )
 from products.signals.backend.ranking.model_contract import model_feature_set, model_mismatch, trained_head_files
 from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
-from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ServingManifest, serving_manifest_key
+from products.signals.backend.ranking.serving_manifest import (
+    DEFAULT_MODEL_KIND,
+    ServingManifest,
+    serving_manifest_key,
+    serving_project_vectors_key,
+)
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     PARQUET_PART_NAME,
@@ -87,6 +92,7 @@ from products.signals.dags.inbox_ranking.consent import training_consent_team_id
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
     STATE_TABLE,
     TITLE_EMBEDDINGS_TABLE,
 )
@@ -889,6 +895,10 @@ def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> No
     needs no credential for the dataset bucket. A model version is immutable, so a version already
     at the target is left alone, and the manifest is written last: a failed copy leaves the previous
     manifest, and the models it names, serving.
+
+    When an entry reads project vectors, the dt=D `inbox_project_vectors` day is copied the same
+    way, and the manifest names it. Its `as_of` is the end of dt=D, so it is never newer than a
+    report the sweep scores after this publish.
     """
     if skip_unconfigured(context):
         return
@@ -945,9 +955,15 @@ def _publish_manifest(
         return {"published": dagster.MetadataValue.bool(False), **pin_metadata}
 
     manifest = decision.manifest
+    project_vectors_source = None
+    if any(entry.reads_project_vectors for entry in manifest.models):
+        project_vectors_source = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
+        manifest = manifest.model_copy(update={"project_vectors": serving_project_vectors_key(prefix, partition_key)})
     manifest_key = serving_manifest_key(prefix)
     primary = _ServingStore(storage=object_storage.object_storage_client(), bucket=settings.OBJECT_STORAGE_BUCKET)
-    publication = publish_serving_models(context, client, bucket, prefix, manifest, primary)
+    publication = publish_serving_models(
+        context, client, bucket, prefix, manifest, primary, project_vectors_source=project_vectors_source
+    )
     context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
     mirror_published = _publish_mirror(context, client, bucket, prefix, manifest)
     capture_training_events(
@@ -981,6 +997,7 @@ def _publish_manifest(
         "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
         "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
         "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+        "project_vectors_key": dagster.MetadataValue.text(manifest.project_vectors or ""),
         **pin_metadata,
         **mirror_metadata,
     }
@@ -1050,12 +1067,23 @@ def _publish_mirror(
 
     The primary publish has already succeeded, so a mirror failure only logs: the region that
     trains keeps serving, and the mirror keeps its previous manifest and models.
+
+    Project vectors are per-team data of this deployment's teams, so they never go to another
+    deployment's store. The mirror's manifest names none, and its sweep skips the models that read them.
+    A served model that reads them could not score there, so the mirror keeps its previous manifest.
     """
     if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
         return None
+    if manifest.served.reads_project_vectors:
+        context.log.warning(
+            f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project vectors"
+        )
+        return False
     try:
         mirror = _ServingStore(storage=serving_mirror_storage(), bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET)
-        publish_serving_models(context, client, bucket, prefix, manifest, mirror)
+        publish_serving_models(
+            context, client, bucket, prefix, manifest.model_copy(update={"project_vectors": None}), mirror
+        )
     except Exception as error:
         context.log.exception(f"serving manifest {manifest.manifest_version} not mirrored: {error!r}")
         return False
@@ -1077,13 +1105,15 @@ def publish_serving_models(
     prefix: str,
     manifest: ServingManifest,
     target: _ServingStore,
+    *,
+    project_vectors_source: str | None = None,
 ) -> _ModelPublication:
-    """Copy every model the manifest names from the dataset bucket into `target`, then write the
-    manifest there.
+    """Copy every model the manifest names from the dataset bucket into `target`, then the project
+    vectors the manifest names from `project_vectors_source`, then write the manifest there.
 
     Returns the keys copied, the keys already there, and the bytes moved. A missing source object
-    fails before the manifest is written, so the manifest can never name a model the sweep cannot
-    load.
+    fails before the manifest is written, so the manifest can never name a model or a project
+    vectors day the sweep cannot load.
     """
     copied: list[str] = []
     present: list[str] = []
@@ -1106,6 +1136,10 @@ def publish_serving_models(
             bytes_copied += len(body)
         copied.append(entry.key)
         context.log.info(f"copied {entry.key} to {target.bucket}/{entry.prefix}")
+    if manifest.project_vectors is not None:
+        bytes_copied += _publish_project_vectors(
+            context, client, bucket, project_vectors_source, manifest.project_vectors, target
+        )
     target.storage.write(
         bucket=target.bucket,
         key=serving_manifest_key(prefix),
@@ -1113,6 +1147,28 @@ def publish_serving_models(
         extras={"ContentType": "application/json"},
     )
     return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
+
+
+def _publish_project_vectors(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    source: str | None,
+    target_key: str,
+    target: _ServingStore,
+) -> int:
+    """Copy one day of project vectors to `target_key`, and return the bytes moved.
+
+    A day is immutable once the manifest names it, so a copy already at the target is left alone.
+    """
+    if target.storage.head_object(bucket=target.bucket, file_key=target_key) is not None:
+        return 0
+    body = None if source is None else _read_bytes_if_exists(client, bucket, source)
+    if body is None:
+        raise dagster.Failure(f"project vectors {source} are missing in the dataset bucket; manifest not written")
+    target.storage.write(bucket=target.bucket, key=target_key, content=body, extras=None)
+    context.log.info(f"copied project vectors to {target.bucket}/{target_key}")
+    return len(body)
 
 
 # dt=D evaluates scores from birth through maturity, so the mapping reaches back as far as the
