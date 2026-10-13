@@ -257,6 +257,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
+#   ticket:write           Support ticket fields and saved ticket views, plus new private notes.
+#                          The API blocks scouts from public replies, outbound compose, customer
+#                          identity changes, existing-note changes, and generic ticket comments.
+#                          Ticket field changes can still start configured workflows that message
+#                          customers. Ticket delete is outside the scope. Saved view delete is
+#                          permanent and removes member pins; a view is a name and filter set.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -283,6 +289,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "ticket:write",
     }
 )
 

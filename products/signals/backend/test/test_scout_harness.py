@@ -986,6 +986,8 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        assert "Scouts can only add private notes" not in granted
+        assert "Scouts can only add private notes" in _prompt(write_scopes=["ticket:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
