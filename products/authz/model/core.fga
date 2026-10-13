@@ -78,15 +78,15 @@ type project
     define default_admin: [user:*]
     define default_owner: [user:*]
     # Presence includes none: a lower user level still replaces every role/default grant.
-    define user_override: user_none or user_member or user_admin or user_owner
-    define role_override: role_none or role_member or role_admin or role_owner
+    define has_user_rule: user_none or user_member or user_admin or user_owner
+    define has_role_rule: role_none or role_member or role_admin or role_owner
     define default_level: default_none or default_member or default_admin or default_owner
-    define user_or_role_override: user_override or role_override
-    define has_rule: user_or_role_override or default_level
+    define has_user_or_role_rule: has_user_rule or has_role_rule
+    define has_rule: has_user_or_role_rule or default_level
     # Policy levels exclude the implicit project default and the organization-admin bypass.
-    define policy_owner: user_owner or (role_owner but not user_override) or (default_owner but not user_or_role_override)
-    define policy_admin: policy_owner or user_admin or (role_admin but not user_override) or (default_admin but not user_or_role_override)
-    define policy_member: policy_admin or user_member or (role_member but not user_override) or (default_member but not user_or_role_override)
+    define policy_owner: user_owner or (role_owner but not has_user_rule) or (default_owner but not has_user_or_role_rule)
+    define policy_admin: policy_owner or user_admin or (role_admin but not has_user_rule) or (default_admin but not has_user_or_role_rule)
+    define policy_member: policy_admin or user_member or (role_member but not has_user_rule) or (default_member but not has_user_or_role_rule)
     define org_member: member from organization
     define org_admin: admin from organization
     define access_control_enabled: access_control_enabled from organization
@@ -115,15 +115,15 @@ type access_policy
     define default_editor: [user:*]
     define default_manager: [user:*]
     # These sets track whether a level is configured, including an explicit none.
-    define user_override: user_none or user_viewer or user_editor or user_manager
-    define role_override: role_none or role_viewer or role_editor or role_manager
+    define has_user_rule: user_none or user_viewer or user_editor or user_manager
+    define has_role_rule: role_none or role_viewer or role_editor or role_manager
     define default_level: default_none or default_viewer or default_editor or default_manager
-    define user_or_role_override: user_override or role_override
-    define has_rule: (user_or_role_override or default_level) and access_control_enabled from organization
+    define has_user_or_role_rule: has_user_rule or has_role_rule
+    define has_rule: (has_user_or_role_rule or default_level) and access_control_enabled from organization
     # Only resolved levels inherit: a user viewer must not inherit a role manager grant.
-    define manager: (user_manager or (role_manager but not user_override) or (default_manager but not user_or_role_override)) and has_rule
-    define editor: manager or ((user_editor or (role_editor but not user_override) or (default_editor but not user_or_role_override)) and has_rule)
-    define viewer: editor or ((user_viewer or (role_viewer but not user_override) or (default_viewer but not user_or_role_override)) and has_rule)
+    define manager: (user_manager or (role_manager but not has_user_rule) or (default_manager but not has_user_or_role_rule)) and has_rule
+    define editor: manager or ((user_editor or (role_editor but not has_user_rule) or (default_editor but not has_user_or_role_rule)) and has_rule)
+    define viewer: editor or ((user_viewer or (role_viewer but not has_user_rule) or (default_viewer but not has_user_or_role_rule)) and has_rule)
 type resource
   relations
     define project: [project]
