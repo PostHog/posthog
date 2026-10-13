@@ -32,6 +32,7 @@ from posthog.hogql import ast
 
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -141,6 +142,41 @@ class TestChannelModifiersShapeKey(BaseTest):
         override_key = channel_rules_shape_key(self._runner(HogQLQueryModifiers(bounceRateDurationSeconds=42)))
         assert override_key != default_key
 
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_force_blocking_native_overview_scans_events_with_precompute_enabled(self, use_aggregates: bool) -> None:
+        query = WebOverviewQuery(properties=[], dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07"))
+        with (
+            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
+            mock.patch(
+                "posthog.models.event.new_events_schema.get_instance_setting",
+                side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+            ),
+            mock.patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as insert,
+            mock.patch(
+                "products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute.sync_execute",
+                return_value=[[0] * 10],
+            ) as aggregate,
+            mock.patch("posthog.hogql.query.sync_execute", return_value=([[0] * 10], [])) as execute,
+        ):
+            legacy = WebOverviewQueryRunner(team=self.team, query=query, user=self.user)
+            assert can_use_lazy_precompute(legacy, log_prefix="web_overview") is True
+            query.modifiers = HogQLQueryModifiers(
+                useNewEventsCluster=True, useWebAnalyticsPreAggregatedTables=use_aggregates
+            )
+            runner = WebOverviewQueryRunner(team=self.team, query=query, user=self.user)
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+        insert.assert_not_called()
+        aggregate.assert_not_called()
+        assert execute.called
+        for call in execute.call_args_list:
+            assert call.kwargs["workload"] == Workload.NATIVE_EVENTS
+            assert "preaggregated" not in call.args[0]
+        assert "events_json" in execute.call_args.args[0]
+
 
 class TestLazyTtlSchedule(BaseTest):
     def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
@@ -155,22 +191,29 @@ class TestLazyTtlSchedule(BaseTest):
 
 
 class TestCheckCommonEligibility(BaseTest):
-    def _check(self, *, use_precompute, properties=None) -> None:
+    def _check(self, *, use_precompute, properties=None, modifiers=None) -> None:
         check_common_eligibility(
             team=self.team,
             use_web_analytics_precompute=use_precompute,
             conversion_goal=None,
             sampling=None,
-            modifiers=None,
+            modifiers=modifiers,
             properties=properties or [],
             resolve_date_range=_date_range,
         )
 
-    def test_enrolled_team_untouched_toggle_defaults_on(self) -> None:
+    @parameterized.expand(
+        [(None,), (HogQLQueryModifiers(useNewEventsCluster=False),), (HogQLQueryModifiers(useNewEventsCluster=True),)]
+    )
+    def test_enrolled_team_untouched_toggle_defaults_on(self, modifiers: HogQLQueryModifiers | None) -> None:
         # Re-introducing the old opt-in requirement would silently send every
         # enrolled team without the UI toggle back to the raw path.
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            self._check(use_precompute=None)
+            if modifiers and modifiers.useNewEventsCluster:
+                with self.assertRaises(PerQueryOptedOut):
+                    self._check(use_precompute=None, modifiers=modifiers)
+                return
+            self._check(use_precompute=None, modifiers=modifiers)
             with self.assertRaises(PerQueryOptedOut):
                 self._check(use_precompute=False)
 

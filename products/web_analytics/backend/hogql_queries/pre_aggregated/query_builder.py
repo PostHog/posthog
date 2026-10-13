@@ -37,6 +37,8 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         return get_bounces_table(self.runner.use_v2_tables)
 
     def can_use_preaggregated_tables(self) -> bool:
+        if self.runner.modifiers and self.runner.modifiers.useNewEventsCluster:
+            return False
         query = self.runner.query
 
         if self.runner.rewritten_first_pageview_filters:
