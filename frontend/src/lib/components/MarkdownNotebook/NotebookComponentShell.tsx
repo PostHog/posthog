@@ -48,7 +48,7 @@ import {
     NotebookComponentToolbarExtrasContext,
     withoutNotebookMenuIcons,
 } from './componentToolbarExtras'
-import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
+import { getNotebookObjectProp, getNotebookStringProp, isDiscussionCommentNode } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { installNotebookJupyterEditorKeys } from './jupyterEditorKeys'
 import { resolveNotebookJupyterKey, useNotebookJupyterCommands, useNotebookJupyterStoreValue } from './jupyterMode'
@@ -360,7 +360,8 @@ export function NotebookComponentShell({
         return true
     }
 
-    const jupyter = useNotebookJupyterCommands()
+    const jupyterCommands = useNotebookJupyterCommands()
+    const jupyter = isDiscussionCommentNode(node) ? null : jupyterCommands
     const isJupyterCell = !!jupyter && jupyter.config.cellTagNames.includes(node.tagName)
     const jupyterStore = isJupyterCell ? jupyter.store : null
     const isJupyterActive = useNotebookJupyterStoreValue((state) => !!jupyter && state.activeCellId === node.id)
@@ -566,7 +567,7 @@ export function NotebookComponentShell({
             }
         }
 
-        if (event.key === 'Backspace') {
+        if (event.key === 'Backspace' || (event.key === 'Delete' && isDiscussionCommentNode(node))) {
             deleteNode()
             return
         }
