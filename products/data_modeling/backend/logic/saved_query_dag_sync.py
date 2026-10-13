@@ -735,9 +735,13 @@ def _repoint_reader(reader: Node) -> None:
 
 
 def _delete_unread_copies(team_id: int, dag: DAG, copies: QuerySet[Node]) -> None:
-    unread = copies.filter(dag=dag, outgoing_edges__isnull=True)
+    materializing = DataModelingJob.objects.filter(team_id=team_id, status=DataModelingJobStatus.RUNNING).values(
+        "saved_query_id"
+    )
+    unread = copies.filter(dag=dag, outgoing_edges__isnull=True).exclude(saved_query_id__in=materializing)
     with transaction.atomic():
         lock_dag(team_id, dag.id)
+        lock_dag_placements(team_id, dag.id)
         while unread.exists():
             delete_nodes(team_id, unread)
     maybe_reconcile_dag(dag)

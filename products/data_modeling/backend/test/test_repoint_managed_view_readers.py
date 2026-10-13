@@ -5,8 +5,10 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
+from parameterized import parameterized
+
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
-from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models import DataModelingJob, DataModelingJobStatus, Edge, Node
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -16,11 +18,16 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 MANAGED_VIEWSETS_FLAG = "managed-viewsets"
 
 
-@patch(
-    "posthog.hogql.database.database.feature_enabled_or_false",
-    side_effect=lambda flag, *args, **kwargs: flag == MANAGED_VIEWSETS_FLAG,
-)
 class TestRepointManagedViewReaders(BaseTest):
+    def setUp(self):
+        super().setUp()
+        flag_patch = patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda flag, *args, **kwargs: flag == MANAGED_VIEWSETS_FLAG,
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
     def _managed_view(self, name: str, sql: str, viewset: DataWarehouseManagedViewSet) -> DataWarehouseSavedQuery:
         view = DataWarehouseSavedQuery.objects.create(
             name=name,
@@ -32,7 +39,10 @@ class TestRepointManagedViewReaders(BaseTest):
         sync_saved_query_to_dag(view, dag=DAG.get_or_create_revenue_analytics(self.team), allow_managed=True)
         return view
 
-    def test_only_apply_moves_readers_to_the_reference_and_deletes_the_copies(self, _flag):
+    @parameterized.expand([("idle", False), ("charges_materializing", True)])
+    def test_only_apply_moves_readers_to_the_reference_and_deletes_the_copies(
+        self, _name: str, charges_materializing: bool
+    ):
         viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
@@ -50,13 +60,16 @@ class TestRepointManagedViewReaders(BaseTest):
         )
         user_node = Node.objects.create(team=self.team, dag=default_dag, saved_query=user_view, type=NodeType.VIEW)
         Edge.objects.create(team=self.team, dag=default_dag, source=charges_copy, target=user_node)
+        if charges_materializing:
+            DataModelingJob.objects.create(team=self.team, saved_query=charges, status=DataModelingJobStatus.RUNNING)
 
         call_command("repoint_managed_view_readers", team_id=self.team.pk, stdout=StringIO())
         self.assertEqual(Node.objects.filter(id__in=[charges_copy.id, mrr_copy.id]).count(), 2)
 
         call_command("repoint_managed_view_readers", team_id=self.team.pk, apply=True, stdout=StringIO())
 
-        self.assertFalse(Node.objects.filter(id__in=[charges_copy.id, mrr_copy.id]).exists())
+        remaining = set(Node.objects.filter(id__in=[charges_copy.id, mrr_copy.id]).values_list("id", flat=True))
+        self.assertEqual(remaining, {charges_copy.id} if charges_materializing else set())
         reference = Edge.objects.get(target=user_node).source
         self.assertEqual(reference.type, NodeType.TABLE)
         self.assertEqual(reference.properties["origin"], "cross_dag_view")
