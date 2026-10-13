@@ -436,6 +436,7 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 
 - The stream runner parses `PARTIAL` and resolves the send with the accepted index list, instead of fencing it as busy.
 - The scheduler's partial arm is the failure arm plus a completed prefix: complete each key's finished prefix as group completions, return the remainder to the front of its queue, and keep the key blocked until the redelivery settles.
+- Send the remainder with `replay` set. The worker's feed-order sentinel saw its offsets in the first send, so an unmarked redelivery counts as a key-order violation.
 - The prototype against the old machinery ([#91480](https://github.com/PostHog/posthog/pull/91480)) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one `on_settled` arm.
 - Stamp `soft_budget_ms` on each request from config. Unset sends no budget.
 
