@@ -4,13 +4,13 @@ Scoping policies by flag owner removes coverage from the flags a product owns, s
 one organization at a time and each step needs the size of the change in front of it first.
 """
 
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from django.core.management.base import BaseCommand
 
 from posthog.models import Organization, Team
 
-from products.approvals.backend.actions.registry import ACTION_REGISTRY, register_actions
+from products.approvals.backend.coverage import families_by_owner_kind
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -18,24 +18,6 @@ from products.feature_flags.backend.ownership import owner_kind_counts
 
 UNOWNED_LABEL = "(unowned)"
 NO_FAMILY = "(none)"
-
-
-def families_by_owner_kind() -> dict[Optional[str], set[str]]:
-    """Which action keys govern each owner kind once an organization is rolled out.
-
-    Read off the registered actions rather than restated here, so this report cannot describe a
-    scoping the gate does not apply.
-    """
-    register_actions()
-    families: dict[Optional[str], set[str]] = {}
-    for key, action in ACTION_REGISTRY.items():
-        if not hasattr(action, "owner_scope"):
-            # An action that gates something other than a flag write, such as a holdout change.
-            continue
-        # Only the flag-write families declare `owner_scope`, and each declares it as `str | None`.
-        scope = cast(Optional[str], action.owner_scope)
-        families.setdefault(scope, set()).add(key)
-    return families
 
 
 class Command(BaseCommand):

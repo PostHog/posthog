@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
@@ -892,3 +893,78 @@ class TestFeatureFlagApprovalIntegration(APIBaseTest):
         self.flag.refresh_from_db()
         assert self.flag.filters["groups"][0]["rollout_percentage"] == 75
         assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+
+# TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
+    """Which policies cover a flag follows its owner, so adoption must not be a way around one.
+
+    A member who may not enable a governed flag could otherwise attach it to a survey or an early
+    access feature, which leaves it owned by a product with no family, and then enable it with no
+    change request. They need flag write access either way, so what this protects is the approval.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": "approvals"},
+        ]
+        self.organization.save()
+        self.flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="governed",
+            name="governed",
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+    def _policy(self, action_key: str) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    def _adopt(self, product: str):
+        from products.feature_flags.backend.ownership import assert_flag_available_for
+
+        return assert_flag_available_for(self.flag, product=product)
+
+    def _scoped_by_owner(self, enabled: bool):
+        return patch(
+            "products.approvals.backend.coverage.scope_by_owner_enabled",
+            return_value=enabled,
+        )
+
+    @parameterized.expand([("survey",), ("product_tour",), ("early_access_feature",)])
+    def test_a_product_with_no_family_cannot_adopt_a_governed_flag(self, _mock_enabled, product: str) -> None:
+        self._policy("feature_flag.enable")
+
+        with self._scoped_by_owner(True), self.assertRaises(ValidationError) as caught:
+            self._adopt(product)
+
+        assert "need approval" in str(caught.exception)
+
+    def test_an_experiment_may_adopt_it_because_the_cover_moves(self, _mock_enabled) -> None:
+        """Experiment policies mirror the flag policies, so adoption keeps the flag governed."""
+        self._policy("feature_flag.enable")
+        self._policy("experiment.launch")
+
+        with self._scoped_by_owner(True):
+            self._adopt("experiment")
+
+    def test_an_ungoverned_flag_may_be_adopted(self, _mock_enabled) -> None:
+        with self._scoped_by_owner(True):
+            self._adopt("survey")
+
+    def test_adoption_is_untouched_before_the_rollout(self, _mock_enabled) -> None:
+        """`feature_flag.*` still covers every flag then, so no owner change can drop the cover."""
+        self._policy("feature_flag.enable")
+
+        with self._scoped_by_owner(False):
+            self._adopt("survey")
