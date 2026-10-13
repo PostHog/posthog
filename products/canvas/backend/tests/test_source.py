@@ -213,6 +213,64 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "operation_invalid",
             ),
             (
+                # A caller must not replace a value the author fixed.
+                "operation_field_both_fixed_and_input",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["annotations.create"],
+                            "operations": [
+                                {
+                                    "name": "mark",
+                                    "description": "Mark it",
+                                    "verb": "annotations.create",
+                                    "payload": {"content": "Incident started"},
+                                    "inputs": ["content"],
+                                }
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                # A bad fixed value fails at publish, not on every invoke.
+                "operation_fixed_value_the_verb_rejects",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["surveys.launch"],
+                            "operations": [
+                                {
+                                    "name": "launch",
+                                    "description": "Launch it",
+                                    "verb": "surveys.launch",
+                                    "payload": {"survey_id": "not-a-uuid"},
+                                }
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                "operation_required_field_not_supplied",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["feature_flags.enable"],
+                            "operations": [
+                                {"name": "enable", "description": "Enable it", "verb": "feature_flags.enable"}
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
                 "undeclared_connector_call",
                 project(
                     files={CANVAS_COMPONENT_PATH: CODE + 'ph.connectors.call("github", "list_pull_requests", {});'}
