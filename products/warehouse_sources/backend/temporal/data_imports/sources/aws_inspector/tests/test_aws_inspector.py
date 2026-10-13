@@ -151,30 +151,41 @@ def test_incremental_filter_survives_pagination_and_full_refresh_omits_it(
 
 @pytest.mark.parametrize("completed", [False, True])
 def test_resume_retains_original_filter_and_stages_before_yield(
-    config: AwsInspectorSourceConfig, http: MagicMock, manager: MagicMock, completed: bool
+    config: AwsInspectorSourceConfig, completed: bool
 ) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = AwsInspectorResumeConfig(
-        next_token="saved-page", updated_after=1735689600.0, completed=completed
+    resume_state = AwsInspectorResumeConfig(next_token="saved-page", updated_after=1735689600.0, completed=completed)
+    result = driver(config).run(
+        "findings",
+        [
+            ScriptedResponse(
+                json={"findings": [{"findingArn": "arn:aws:inspector2:eu-west-1:111111111111:finding/example"}]}
+            )
+        ]
+        if not completed
+        else [],
+        resume_state=resume_state,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2025-02-01T00:00:00Z",
     )
-    http.post.return_value = response(
-        {"findings": [{"findingArn": "arn:aws:inspector2:eu-west-1:111111111111:finding/example"}]}
-    )
-    resource = aws_inspector_source(config, "findings", manager, True, "2025-02-01T00:00:00Z")
-    rows = iter(cast(Iterable[Any], resource.items()))
+    assert result.raised is None
     if completed:
-        assert list(rows) == []
-        http.post.assert_not_called()
+        assert result.items == []
+        assert result.requests == []
+        assert result.saved_states == []
+        assert result.final_state == resume_state
     else:
-        next(rows)
-        assert json.loads(http.post.call_args.kwargs["data"]) == {
+        assert result.items == [
+            [{"finding_arn": "arn:aws:inspector2:eu-west-1:111111111111:finding/example", "region": "eu-west-1"}]
+        ]
+        assert result.requests[0].json() == {
             "maxResults": 25,
             "nextToken": "saved-page",
             "filterCriteria": {"updatedAt": [{"startInclusive": 1735689600.0}]},
         }
-        manager.save_state.assert_called_once_with(AwsInspectorResumeConfig(updated_after=1735689600.0, completed=True))
-        assert list(rows) == []
-    manager.clear_state.assert_not_called()
+        completed_state = AwsInspectorResumeConfig(updated_after=1735689600.0, completed=True)
+        assert result.saved_states == [completed_state]
+        assert result.committed_states == [completed_state]
+        assert result.final_state == completed_state
 
 
 @pytest.mark.parametrize("value", [1735689600, 1735689600.0, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00"])

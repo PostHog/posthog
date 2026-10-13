@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 # A run stops at one of these limits, because the source would not stop by itself.
 _CLOCK_LIMIT_SECONDS = 4 * 3600.0
 _REQUEST_LIMIT = 40
+# A scripted run ends when its script runs out, so the limit only stops a script that never does.
+SCRIPTED_REQUEST_LIMIT = 2000
 
 _SOURCES_PACKAGE = "products.warehouse_sources.backend.temporal.data_imports.sources"
 _UNSET = object()
@@ -105,8 +107,9 @@ def _parse_request(origin: str, sent: bytes, read_timeout: Any) -> RecordedReque
 class FakeNetwork:
     """Answers every HTTP request through its responder, and records what the source did."""
 
-    def __init__(self, responder: Responder) -> None:
+    def __init__(self, responder: Responder, request_limit: int = _REQUEST_LIMIT) -> None:
         self.responder = responder
+        self._request_limit = request_limit
         self.requests_log: list[RecordedRequest] = []
         # The keyword arguments of each `make_tracked_session` call, in order.
         self.session_options: list[dict[str, Any]] = []
@@ -143,7 +146,7 @@ class FakeNetwork:
         self.requests += 1
         self._run_without_progress += 1
         self.longest_run_without_progress = max(self.longest_run_without_progress, self._run_without_progress)
-        if self.requests > _REQUEST_LIMIT:
+        if self.requests > self._request_limit:
             raise RunStopped("request limit")
 
         request = _parse_request(origin, sent, read_timeout)
@@ -313,9 +316,9 @@ def _waits_on_the_fake_clock(sleep: Callable[[float], None]) -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def fake_environment(responder: Responder) -> Iterator[FakeNetwork]:
+def fake_environment(responder: Responder, request_limit: int = _REQUEST_LIMIT) -> Iterator[FakeNetwork]:
     """Route HTTP to a `FakeNetwork`, block every other connection, and make each wait advance a fake clock."""
-    network = FakeNetwork(responder)
+    network = FakeNetwork(responder, request_limit)
     redis = _MemoryRedis()
 
     def connect(connection: Any) -> None:

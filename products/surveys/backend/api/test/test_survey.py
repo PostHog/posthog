@@ -27,7 +27,9 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -556,7 +558,10 @@ class TestSurvey(APIBaseTest):
             ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
             translations={
-                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+                "es": {
+                    "thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">',
+                    "introScreenDescription": '<strong>Bienvenido</strong><img src="invalid" onerror="void 0">',
+                }
             },
         )
 
@@ -568,6 +573,7 @@ class TestSurvey(APIBaseTest):
         assert "link" not in serialized_survey["questions"][0]
         assert "<strong>Detalles</strong>" in serialized_survey["questions"][0]["translations"]["es"]["description"]
         assert "<strong>Gracias</strong>" in serialized_survey["translations"]["es"]["thankYouMessageDescription"]
+        assert "<strong>Bienvenido</strong>" in serialized_survey["translations"]["es"]["introScreenDescription"]
         assert "onerror" not in json.dumps(serialized_survey)
 
     def test_detail_payload_sanitizes_stored_survey_html(self) -> None:
@@ -586,7 +592,10 @@ class TestSurvey(APIBaseTest):
             ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
             translations={
-                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+                "es": {
+                    "thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">',
+                    "introScreenDescription": '<strong>Bienvenido</strong><img src="invalid" onerror="void 0">',
+                }
             },
         )
 
@@ -596,6 +605,7 @@ class TestSurvey(APIBaseTest):
         assert "<strong>Welcome</strong>" in response.json()["appearance"]["introScreenDescription"]
         assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
         assert "<strong>Gracias</strong>" in response.json()["translations"]["es"]["thankYouMessageDescription"]
+        assert "<strong>Bienvenido</strong>" in response.json()["translations"]["es"]["introScreenDescription"]
         assert "onerror" not in json.dumps(response.json())
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
@@ -660,6 +670,17 @@ class TestSurvey(APIBaseTest):
         assert "en-us" in result
         assert "default" not in result
         assert "en" not in result
+
+    def test_sdk_payload_keeps_intro_screen_translation_fields(self) -> None:
+        intro_fields = {
+            "introScreenHeader": "Bienvenido",
+            "introScreenDescription": "Dos preguntas rápidas",
+            "introScreenButtonText": "Comenzar",
+        }
+
+        result = get_survey_api_translations({"es": {**intro_fields, "unknownField": "dropped"}}, base_language="en")
+
+        assert result == {"es": intro_fields}
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
@@ -910,6 +931,25 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in survey.translations["es"]["thankYouMessageDescription"]
         assert "<strong>Cerrar</strong>" in survey.translations["es"]["thankYouMessageCloseButtonText"]
         assert "<script>" not in survey.translations["es"]["thankYouMessageCloseButtonText"]
+
+    @parameterized.expand([("introScreenHeader",), ("introScreenDescription",), ("introScreenButtonText",)])
+    def test_intro_screen_translations_are_persisted_and_sanitized(self, field: str):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Question?"}],
+                "translations": {"es": {field: "<em>Bienvenido</em><script>xss()</script>"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.translations is not None
+        assert "<em>Bienvenido</em>" in survey.translations["es"][field]
+        assert "<script>" not in survey.translations["es"][field]
 
     def test_inline_question_translations_sanitize_all_fields(self):
         response = self.client.post(
@@ -4598,24 +4638,21 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "text"
 
-    def test_validate_thank_you_description_content_type(self):
+    @parameterized.expand([("thankYouMessageDescriptionContentType",), ("introScreenDescriptionContentType",)])
+    def test_validate_description_content_type(self, content_type_field: str):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": "Notebooks beta release survey",
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
-                "appearance": {
-                    "thankYouMessageHeader": "Thanks for your feedback!",
-                    "thankYouMessageDescription": "This is a thank you message",
-                    "thankYouMessageDescriptionContentType": "text/html",
-                },
+                "appearance": {content_type_field: "text/html"},
             },
             format="json",
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert response_data["detail"] == "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
+        assert response_data["detail"] == f"{content_type_field} must be one of ['text', 'html']"
 
     def test_create_survey_with_survey_popup_delay(self):
         response = self.client.post(
@@ -6766,6 +6803,100 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found" in str(response.json()).lower()
+
+    @parameterized.expand([("private_project", "project"), ("no_survey_access", "survey")])
+    def test_bulk_duplicate_requires_access_to_every_target(self, _name: str, resource: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team3,
+            resource=resource,
+            resource_id=str(self.team3.id) if resource == "project" else None,
+            access_level="none",
+        )
+        member = self._create_user("duplicate-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, self.team3.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not Survey.objects.filter(team__in=[self.team2, self.team3]).exists()
+
+    @parameterized.expand([("private_project", True, 403, 0), ("open_project", False, 201, 1)])
+    def test_bulk_duplicate_resolves_an_environment_to_its_project(
+        self, _name: str, project_private: bool, expected_status: int, expected_project_surveys: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        environment = Team.objects.create(organization=self.organization, name="Team 3 env", parent_team=self.team3)
+        if project_private:
+            AccessControl.objects.create(
+                team=self.team3, resource="project", resource_id=str(self.team3.id), access_level="none"
+            )
+        member = self._create_user("duplicate-env-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [environment.id]},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert Survey.objects.filter(team=self.team3).count() == expected_project_surveys
+        assert not Survey.objects.filter(team=environment).exists()
+
+    def test_bulk_duplicate_rejects_key_not_scoped_to_target(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-project-only",
+            secure_value=hash_key_value(token),
+            scopes=["survey:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not Survey.objects.filter(team=self.team2).exists()
+
+    def test_bulk_duplicate_only_targets_projects_in_the_source_organization(self) -> None:
+        # bootstrap makes the new organization the user's current one, so it differs from the source organization
+        _, _, other_org_team = Organization.objects.bootstrap(self.user)
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-org-only",
+            secure_value=hash_key_value(token),
+            scopes=["survey:write"],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [other_org_team.id]},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not Survey.objects.filter(team=other_org_team).exists()
 
     def test_bulk_duplicate_multiple_times_to_same_team(self):
         """Test that multiple duplications to the same team create surveys with different timestamps"""

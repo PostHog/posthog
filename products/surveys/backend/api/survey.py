@@ -60,8 +60,10 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.utils_cors import cors_response
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -135,9 +137,7 @@ SURVEY_QUESTION_HTML_FIELDS = (
 SURVEY_TRANSLATION_HTML_FIELDS = (
     "name",
     "description",
-    "thankYouMessageHeader",
-    "thankYouMessageDescription",
-    "thankYouMessageCloseButtonText",
+    *SURVEY_APPEARANCE_HTML_FIELDS,
     *SURVEY_QUESTION_HTML_FIELDS,
 )
 
@@ -224,9 +224,7 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
     [
         "name",
-        "thankYouMessageHeader",
-        "thankYouMessageDescription",
-        "thankYouMessageCloseButtonText",
+        *SURVEY_APPEARANCE_HTML_FIELDS,
     ]
 )
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -234,11 +232,6 @@ FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "targeting_flag_filters",
 ]
 SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
-SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
-    "thankYouMessageHeader",
-    "thankYouMessageDescription",
-    "thankYouMessageCloseButtonText",
-)
 SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
     "id",
     "type",
@@ -278,7 +271,7 @@ class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
         appearance = draft.get("appearance")
         if isinstance(appearance, dict):
             draft["appearance"] = {
-                field: appearance[field] for field in SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS if field in appearance
+                field: appearance[field] for field in SURVEY_APPEARANCE_HTML_FIELDS if field in appearance
             }
 
         questions = draft.get("questions")
@@ -302,6 +295,15 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     )
     thankYouMessageCloseButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated thank-you close button text."
+    )
+    introScreenHeader = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen header."
+    )
+    introScreenDescription = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen description."
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
 
 
@@ -1122,6 +1124,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
+        intro_screen_description_content_type = value.get("introScreenDescriptionContentType")
+        if intro_screen_description_content_type and intro_screen_description_content_type not in ["text", "html"]:
+            raise serializers.ValidationError("introScreenDescriptionContentType must be one of ['text', 'html']")
+
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
@@ -1246,13 +1252,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Translation for '{raw_lang_code}' must be an object")
 
             cleaned_translation: dict[str, str] = {}
-            for field in [
-                "name",
-                "description",
-                "thankYouMessageHeader",
-                "thankYouMessageDescription",
-                "thankYouMessageCloseButtonText",
-            ]:
+            for field in ["name", "description", *SURVEY_APPEARANCE_HTML_FIELDS]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(
@@ -3276,11 +3276,35 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             }
         )
 
+    def _check_duplicate_target_access(
+        self, request: request.Request, target_team: Team, access_control: UserAccessControl
+    ) -> None:
+        # The permission classes check only the source project in the URL. Apply the checks that
+        # `POST /surveys/` in the target project applies: the key's project scope, project access,
+        # and survey editor access.
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams is not None and target_team.id not in scoped_teams:
+            raise exceptions.PermissionDenied(
+                f"API key does not have access to the requested project: ID {target_team.id}."
+            )
+
+        if (
+            self.user_permissions.team(target_team).effective_membership_level is None
+            or not access_control.check_access_level_for_object(target_team, required_level="member")
+            or not access_control.check_access_level_for_resource("survey", required_level="editor")
+        ):
+            raise exceptions.PermissionDenied(
+                f"You don't have permission to create surveys in project {target_team.id}. "
+                "Ask a project admin for access, or remove the project from the list."
+            )
+
     @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
     def duplicate_to_projects(self, request: request.Request, **kwargs):
         """Duplicate a survey to multiple projects in a single transaction.
 
         Accepts a list of target team IDs and creates a copy of the survey in each project.
+        Every target project must be in the source project's organization, and the caller needs
+        survey editor access in each one.
         Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
         """
         if not request.user.is_authenticated:
@@ -3298,14 +3322,21 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         if not target_team_ids or not isinstance(target_team_ids, list):
             raise exceptions.ValidationError("target_team_ids must be a non-empty list of team IDs")
 
-        user_organization = user.organization
-        if not user_organization:
-            raise exceptions.ValidationError("User must belong to an organization")
+        organization_id = self.team.organization_id
+        requested_teams = Team.objects.select_related("parent_team").filter(
+            id__in=target_team_ids, organization_id=organization_id
+        )
+        # Surveys are project-scoped, so an environment resolves to its project, as RootTeamMixin.save does.
+        # The checks below and bulk_create must see the project, because bulk_create skips that save.
+        target_teams = list({team.id: team for team in (t.parent_team or t for t in requested_teams)}.values())
+        # for_team_ids loads the teams again, so a team deleted between the two queries is missing from its result
+        target_access_controls = self.user_access_control.for_team_ids(team.id for team in target_teams)
 
-        target_teams = Team.objects.filter(id__in=target_team_ids, organization_id=user_organization.id)
-
-        if len(target_teams) != len(target_team_ids):
+        if len(requested_teams) != len(target_team_ids) or len(target_access_controls) != len(target_teams):
             raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
+
+        for target_team in target_teams:
+            self._check_duplicate_target_access(request, target_team, target_access_controls[target_team.id])
 
         duplicate_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         created_surveys = []
@@ -3400,7 +3431,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                     )
 
                     log_activity(
-                        organization_id=user_organization.id,
+                        organization_id=organization_id,
                         team_id=created_survey.team_id,
                         user=user,
                         was_impersonated=is_impersonated(request),

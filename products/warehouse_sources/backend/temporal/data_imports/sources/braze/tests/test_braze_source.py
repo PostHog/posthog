@@ -1,11 +1,14 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
     DATA_SERIES_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
 
 BASE_URL = "https://rest.iad-01.braze.com"
@@ -32,60 +35,46 @@ class TestBrazeSource:
         assert schemas["email_templates"].default_incremental_lookback_seconds is None
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "status, expected_valid, expected_message",
         [
-            ((True, None), True, None),
-            ((False, "Invalid Braze API key"), False, "Invalid Braze API key"),
+            (200, True, None),
+            (401, False, "Invalid Braze API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.braze.source.validate_braze_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, status, expected_valid, expected_message):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(
-            self.config.api_key, self.config.url, "/campaigns/list?page=0", self.team_id
-        )
+        assert [request.url for request in network.requests_log] == [f"{BASE_URL}/campaigns/list?page=0"]
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.braze.source.validate_braze_credentials"
-    )
-    def test_validate_credentials_rejects_unknown_schema(self, mock_validate):
-        is_valid, error_message = self.source.validate_credentials(
-            self.config, self.team_id, schema_name="does_not_exist"
-        )
+    def test_validate_credentials_rejects_unknown_schema(self):
+        with scripted_network([]) as network:
+            is_valid, error_message = self.source.validate_credentials(
+                self.config, self.team_id, schema_name="does_not_exist"
+            )
 
         assert is_valid is False
         assert "does_not_exist" in (error_message or "")
         # Never probes the API for an unknown schema.
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.braze.source.validate_braze_credentials"
-    )
-    def test_validate_credentials_accepts_missing_scope_at_source_create(self, mock_validate):
+    def test_validate_credentials_accepts_missing_scope_at_source_create(self):
         # A scoped key may lack the probe endpoint's permission at create time — accepted.
-        mock_validate.return_value = (False, "Your Braze API key does not have permission for this endpoint")
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network([ScriptedResponse(status=403)]):
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is True
         assert error_message is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.braze.source.validate_braze_credentials"
-    )
-    def test_validate_credentials_enforces_scope_for_specific_schema(self, mock_validate):
-        mock_validate.return_value = (False, "Your Braze API key does not have permission for this endpoint")
-
-        is_valid, error_message = self.source.validate_credentials(
-            self.config, self.team_id, schema_name="email_templates"
-        )
+    def test_validate_credentials_enforces_scope_for_specific_schema(self):
+        with scripted_network([ScriptedResponse(status=403)]) as network:
+            is_valid, error_message = self.source.validate_credentials(
+                self.config, self.team_id, schema_name="email_templates"
+            )
 
         assert is_valid is False
         assert error_message == "Your Braze API key does not have permission for this endpoint"
+        assert [request.url for request in network.requests_log] == [f"{BASE_URL}/templates/email/list?page=0"]

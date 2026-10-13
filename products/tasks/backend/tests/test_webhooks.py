@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import OperationalError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -35,7 +35,7 @@ from products.tasks.backend.models import Loop, Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import _task_run_scope_team_ids, find_task_run
 
 
-class TestAccountType(TestCase):
+class TestAccountType(SimpleTestCase):
     @parameterized.expand(
         [
             ("org_owner", {"repository": {"owner": {"type": "Organization"}}}, "organization"),

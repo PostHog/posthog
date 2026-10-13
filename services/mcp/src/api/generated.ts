@@ -673,6 +673,8 @@ export namespace Schemas {
       available_resource_levels: string[];
       /** Whether the caller may change access rules in this project. */
       can_edit: boolean;
+      /** Whether the access rules of this project are locked to Terraform. */
+      is_managed_by_terraform: boolean;
       /** The default project access level for members. */
       project_access_level: string;
       /** The default level per resource type, keyed by resource name. */
@@ -701,6 +703,23 @@ export namespace Schemas {
       Editor: 'editor',
       Manager: 'manager',
     } as const;
+
+    export interface AccessControlManagement {
+      /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+      managed: boolean;
+      /**
+         * When Terraform last wrote an access rule in this project, or null.
+         * @nullable
+         */
+      terraform_last_applied_at: string | null;
+      /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+      has_terraform_account: boolean;
+    }
+
+    export interface AccessControlManagementRequest {
+      /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+      managed: boolean;
+    }
 
     /**
      * * `object` - object
@@ -2765,6 +2784,8 @@ export namespace Schemas {
     }
 
     export interface DataWarehouseSyncWarning {
+      /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+      data_is_current?: boolean | null;
       /** Human-readable warning shown to the user */
       message: string;
       /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -9976,6 +9997,7 @@ export namespace Schemas {
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
@@ -15477,6 +15499,20 @@ export namespace Schemas {
       Yer: 'YER',
       Zar: 'ZAR',
       Zmw: 'ZMW',
+    } as const;
+
+    /**
+     * * `realized` - Realized
+     * * `training` - Training
+     * * `fixed` - Fixed
+     */
+    export type BaseRateSourceEnum = typeof BaseRateSourceEnum[keyof typeof BaseRateSourceEnum];
+
+
+    export const BaseRateSourceEnum = {
+      Realized: 'realized',
+      Training: 'training',
+      Fixed: 'fixed',
     } as const;
 
     export interface UserBasicInfo {
@@ -22375,6 +22411,62 @@ export namespace Schemas {
       proposed_status?: ProposedStatusEnum;
     }
 
+    /**
+     * * `feature_flag` - Feature flag
+     * * `experiment` - Experiment
+     * * `release` - Release
+     * * `annotation` - Annotation
+     */
+    export type ChangeKindEnum = typeof ChangeKindEnum[keyof typeof ChangeKindEnum];
+
+
+    export const ChangeKindEnum = {
+      FeatureFlag: 'feature_flag',
+      Experiment: 'experiment',
+      Release: 'release',
+      Annotation: 'annotation',
+    } as const;
+
+    export interface ChangeFeedItem {
+      /** The source of the change.
+       *
+       * * `feature_flag` - Feature flag
+       * * `experiment` - Experiment
+       * * `release` - Release
+       * * `annotation` - Annotation */
+      kind: ChangeKindEnum;
+      /** When the change happened. For annotations, this is the time the annotation marks. */
+      timestamp: string;
+      /** ID of the changed object: the feature flag, experiment, release, or annotation ID. */
+      item_id: string;
+      /**
+         * Display name: the flag key, experiment name, release version, or annotation text.
+         * @nullable
+         */
+      name: string | null;
+      /** What happened, for example `created`, `updated`, `deleted`, `released`, or `annotated`. */
+      activity: string;
+      /** For flag and experiment updates, the names of the fields that changed. Empty for other kinds. */
+      changed_fields: string[];
+      /**
+         * For releases, the project or service the release belongs to. Null for other kinds.
+         * @nullable
+         */
+      service: string | null;
+      /**
+         * Name or email of the person who made the change. Null for automated changes.
+         * @nullable
+         */
+      actor_name: string | null;
+    }
+
+    export interface ChangeFeed {
+      /** Changes in the time window, newest first. */
+      results: ChangeFeedItem[];
+      /** True when the window holds more changes than `limit`. Narrow the window to see the rest. */
+      has_more: boolean;
+    }
+
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
 
     /**
@@ -23921,6 +24013,10 @@ export namespace Schemas {
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
+      /**
+         * Person UUIDs to add to a new static cohort.
+         * @maxItems 1000
+         */
       _create_static_person_ids?: string[];
     }
 
@@ -24572,8 +24668,11 @@ export namespace Schemas {
          * @maxLength 500
          */
       email_subject?: string;
-      /** ID of the EmailChannel to send from. */
-      email_config_id: string;
+      /**
+         * ID of the support email channel to send from. Omit it to send from the team's default support channel.
+         * @nullable
+         */
+      email_config_id?: string | null;
       /**
          * Message content in markdown.
          * @maxLength 5000
@@ -27660,26 +27759,6 @@ export namespace Schemas {
       status?: CustomerTaskStatusEnum;
     }
 
-    export interface Dag {
-      readonly id: string;
-      /**
-         * Human-readable name for this DAG
-         * @maxLength 2048
-         */
-      name: string;
-      /** Optional description of the DAG's purpose */
-      description?: string;
-      /**
-         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-         * @nullable
-         */
-      sync_frequency?: string | null;
-      readonly node_count: number;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
     export type DashboardFilters = { [key: string]: unknown };
 
     /**
@@ -28345,6 +28424,24 @@ export namespace Schemas {
       /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
       readonly non_portable_references: NonPortableReferences;
     }
+
+    /**
+     * * `generating` - Generating
+     * * `pending_review` - Pending Review
+     * * `approved` - Approved
+     * * `rejected` - Rejected
+     * * `failed` - Failed
+     */
+    export type DashboardTemplateStatusEnum = typeof DashboardTemplateStatusEnum[keyof typeof DashboardTemplateStatusEnum];
+
+
+    export const DashboardTemplateStatusEnum = {
+      Generating: 'generating',
+      PendingReview: 'pending_review',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Failed: 'failed',
+    } as const;
 
     /**
      * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
@@ -30296,11 +30393,6 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
-      /**
-         * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
-         * @nullable
-         */
-      dag_id?: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Where this SavedQuery is created.
@@ -32188,6 +32280,7 @@ export namespace Schemas {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
+     * * `Northbeam` - Northbeam
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33574,6 +33667,7 @@ export namespace Schemas {
       RainforestPay: 'RainforestPay',
       Wise: 'Wise',
       LaravelCloud: 'LaravelCloud',
+      Northbeam: 'Northbeam',
     } as const;
 
     /**
@@ -34973,7 +35067,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37617,7 +37712,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -38404,8 +38500,6 @@ export namespace Schemas {
       readonly source_id: string;
       /** ID of the downstream node. */
       readonly target_id: string;
-      dag: string;
-      readonly dag_name: string;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -44236,6 +44330,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44250,6 +44345,7 @@ export namespace Schemas {
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
     } as const;
 
     /**
@@ -44304,7 +44400,8 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
-       * * `forced_variant_release_condition` - Forced Variant Release Condition */
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `flag_variants_mismatch` - Flag Variants Mismatch */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -44469,7 +44566,7 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -46934,7 +47031,7 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -49334,7 +49431,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -50754,7 +50852,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -53294,6 +53393,12 @@ export namespace Schemas {
       thankYouMessageDescription?: string;
       /** Translated thank-you close button text. */
       thankYouMessageCloseButtonText?: string;
+      /** Translated intro screen header. */
+      introScreenHeader?: string;
+      /** Translated intro screen description. */
+      introScreenDescription?: string;
+      /** Translated intro screen button text. */
+      introScreenButtonText?: string;
     }
 
     /**
@@ -61895,8 +62000,6 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name: string;
       type?: NodeTypeEnum;
-      dag: string;
-      readonly dag_name: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -65503,6 +65606,148 @@ export namespace Schemas {
       schemas: ManagedWarehouseSourceTableStatus[];
     }
 
+    export interface ManagedWarehouseTrinoMonitoringLimits {
+      /**
+         * Maximum number of the organization's queries that run at the same time. Zero when Trino is not enabled.
+         * @minimum 0
+         */
+      max_running_queries: number;
+      /**
+         * Maximum number of the organization's queries that can wait in the queue. Zero when Trino is not enabled.
+         * @minimum 0
+         */
+      max_queued_queries: number;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringQuery {
+      /** Trino query identifier. */
+      query_id: string;
+      /** Trino query state in lower case, such as queued, planning, starting, running, or finishing. */
+      state: string;
+      /** Warehouse username that ran the query. Blank when it cannot be resolved. */
+      user: string;
+      /** Client-reported source of the query, such as a tool name. Blank when not set. */
+      source: string;
+      /** SQL text with literal values replaced by ? and comments removed. A placeholder when unavailable. */
+      query: string;
+      /**
+         * UTC timestamp when the query was submitted, or null when Trino does not report it.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Milliseconds since the query was submitted.
+         * @minimum 0
+         */
+      elapsed_ms: number;
+      /**
+         * Milliseconds the query spent queued.
+         * @minimum 0
+         */
+      queued_ms: number;
+      /**
+         * CPU milliseconds the query has used.
+         * @minimum 0
+         */
+      cpu_ms: number;
+      /**
+         * Bytes the query has read from storage.
+         * @minimum 0
+         */
+      physical_input_bytes: number;
+      /**
+         * Peak memory the query has reserved, in bytes.
+         * @minimum 0
+         */
+      peak_memory_bytes: number;
+      /**
+         * Rows the query has read.
+         * @minimum 0
+         */
+      processed_input_rows: number;
+      /**
+         * Best-effort progress percentage, or null when Trino cannot estimate it.
+         * @minimum 0
+         * @nullable
+         */
+      progress_percentage: number | null;
+      /** Whether all of the query's work is waiting on data or metadata. */
+      blocked: boolean;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringState {
+      /** Trino lifecycle state for the organization: not_enabled, pending, provisioning, ready, or failed. */
+      state: string;
+      /**
+         * UTC timestamp when Trino became ready for the organization, or null.
+         * @nullable
+         */
+      ready_at: string | null;
+      /**
+         * UTC timestamp when Trino setup last failed for the organization, or null.
+         * @nullable
+         */
+      failed_at: string | null;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringTotals {
+      /**
+         * Queries submitted and not yet finished. Equals running plus queued.
+         * @minimum 0
+         */
+      in_flight: number;
+      /**
+         * In-flight queries past the queue. This is the count the concurrency limit applies to.
+         * @minimum 0
+         */
+      running: number;
+      /**
+         * Queries waiting for a running slot.
+         * @minimum 0
+         */
+      queued: number;
+      /**
+         * Running queries whose work is all waiting on data or metadata. A subset of running.
+         * @minimum 0
+         */
+      blocked: number;
+      /**
+         * Elapsed milliseconds of the longest in-flight query, or zero when there is none.
+         * @minimum 0
+         */
+      longest_running_ms: number;
+      /**
+         * Bytes read so far by all in-flight queries.
+         * @minimum 0
+         */
+      physical_input_bytes: number;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringSnapshotResponse {
+      /**
+         * Version of the Trino monitoring response schema.
+         * @minimum 1
+         * @maximum 1
+         */
+      schema_version: number;
+      /** Organization whose managed warehouse is represented. */
+      org_id: string;
+      /** UTC timestamp when this snapshot was assembled. */
+      as_of: string;
+      /** Trino lifecycle details for the organization. */
+      trino: ManagedWarehouseTrinoMonitoringState;
+      /** Whether live query data could be read. When false, totals are zero and do not mean the warehouse is idle. */
+      available: boolean;
+      /** Concurrency and queue limits. */
+      limits: ManagedWarehouseTrinoMonitoringLimits;
+      /** Current in-flight query totals. */
+      totals: ManagedWarehouseTrinoMonitoringTotals;
+      /** In-flight queries, longest-running first, capped at 200 rows. */
+      queries: ManagedWarehouseTrinoMonitoringQuery[];
+      /** Whether the query list was capped. Totals always cover every in-flight query. */
+      queries_truncated: boolean;
+    }
+
     export interface MarkToleratedInput {
       /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
       snapshot_id: string;
@@ -66480,6 +66725,129 @@ export namespace Schemas {
       Ratio: 'ratio',
       Retention: 'retention',
     } as const;
+
+    export interface MetricsCreatedDashboard {
+      /** The id of the dashboard. */
+      dashboard_id: number;
+    }
+
+    /**
+     * * `curated` - Curated
+     * * `generated` - Generated
+     */
+    export type MetricsDashboardTemplateSourceEnum = typeof MetricsDashboardTemplateSourceEnum[keyof typeof MetricsDashboardTemplateSourceEnum];
+
+
+    export const MetricsDashboardTemplateSourceEnum = {
+      Curated: 'curated',
+      Generated: 'generated',
+    } as const;
+
+    export interface MetricsDashboardTemplateRound {
+      /** Check round, from 1. */
+      round: number;
+      /** True when the round rendered a picture of the dashboard. */
+      has_picture: boolean;
+      /**
+         * The verdict of the model on the picture.
+         * @nullable
+         */
+      looks_good: boolean | null;
+      /** The problems that the model saw. */
+      problems: string[];
+      /** True when the model corrected the panels after this round. */
+      revised: boolean;
+    }
+
+    export interface MetricsDashboardTemplate {
+      /** Template id. */
+      id: string;
+      /** Stable key: the bank file name, or a digest of the metric names. */
+      key: string;
+      /** Dashboard name. */
+      name: string;
+      /** What the dashboard shows. */
+      description: string;
+      /** Curated in code, or generated.
+       *
+       * * `curated` - Curated
+       * * `generated` - Generated */
+      source: MetricsDashboardTemplateSourceEnum;
+      /** Review status.
+       *
+       * * `generating` - Generating
+       * * `pending_review` - Pending Review
+       * * `approved` - Approved
+       * * `rejected` - Rejected
+       * * `failed` - Failed */
+      status: DashboardTemplateStatusEnum;
+      /** Metric names that the charts read. */
+      metric_names: string[];
+      /** Chart titles, top to bottom. */
+      panel_titles: string[];
+      /** When the template entered the bank. */
+      created_at: string;
+      /** Number of projects that have the template suggested. */
+      suggestion_count: number;
+      /**
+         * Project whose metrics generated it.
+         * @nullable
+         */
+      source_team_id: number | null;
+      /**
+         * Project of the preview dashboard.
+         * @nullable
+         */
+      preview_team_id: number | null;
+      /**
+         * Unlisted dashboard that shows the template with live data.
+         * @nullable
+         */
+      preview_dashboard_id: number | null;
+      /** The picture check rounds of the generation. */
+      rounds: MetricsDashboardTemplateRound[];
+      /** Drafted charts whose queries failed the checks. */
+      dropped_panels: string[];
+      /**
+         * Why the generation failed.
+         * @nullable
+         */
+      error: string | null;
+      /**
+         * Who approved or rejected the template.
+         * @nullable
+         */
+      reviewed_by: string | null;
+      /**
+         * When the template was approved or rejected.
+         * @nullable
+         */
+      reviewed_at: string | null;
+    }
+
+    export interface MetricsSuggestedDashboard {
+      /** Suggestion id. */
+      id: string;
+      /** The bank dashboard that the suggestion is for. */
+      template_id: string;
+      /** Dashboard name. */
+      name: string;
+      /** What the dashboard shows. */
+      description: string;
+      /** Why the dashboard suits this project. Can be empty. */
+      reason: string;
+      /** Number of charts on the dashboard. */
+      panel_count: number;
+      /** Number of the project's metrics that the dashboard uses. */
+      matched_metric_count: number;
+      /** Share of the dashboard's charts that have data in this project. */
+      coverage: number;
+      /**
+         * The dashboard that someone in the project created from this suggestion.
+         * @nullable
+         */
+      dashboard_id: number | null;
+    }
 
     export interface MinimalPerson {
       /** Numeric person ID. */
@@ -68598,19 +68966,25 @@ export namespace Schemas {
     }
 
     export interface PredictionSegmentThresholds {
-      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed. */
       likely_threshold: number;
-      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed. */
       possible_threshold: number;
       /** How many times the base rate a score must reach to be in the Likely segment. */
       likely_lift: number;
       /**
-         * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+         * The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the fraction of the champion's training population that did it. Null when base_rate_source is fixed.
          * @nullable
          */
       base_rate: number | null;
       /** Number of checked prediction dates the base rate pools. */
       base_rate_dates: number;
+      /** Where the cut points come from. realized: the checked dates hold enough positives. training: no realized base rate yet, so the champion's training population sets it. fixed: neither is available, so fixed cut points apply.
+       *
+       * * `realized` - Realized
+       * * `training` - Training
+       * * `fixed` - Fixed */
+      base_rate_source: BaseRateSourceEnum;
       /**
          * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
          * @nullable
@@ -69046,6 +69420,8 @@ export namespace Schemas {
     }
 
     /**
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -69062,6 +69438,8 @@ export namespace Schemas {
 
 
     export const SettingEnum = {
+      ApprovalRequested: 'approval_requested',
+      ApprovalResolved: 'approval_resolved',
       DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
       DiscussionsMentioned: 'discussions_mentioned',
       ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
@@ -69078,6 +69456,8 @@ export namespace Schemas {
     export interface OrganizationNotificationLock {
       /** Notification setting this rule enforces.
        *
+       * * `approval_requested` - approval_requested
+       * * `approval_resolved` - approval_resolved
        * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -69101,6 +69481,8 @@ export namespace Schemas {
       user_id: number;
       /** Notification setting to lock or unlock.
        *
+       * * `approval_requested` - approval_requested
+       * * `approval_resolved` - approval_resolved
        * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -70048,15 +70430,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CustomerProfileConfig[];
-    }
-
-    export interface PaginatedDAGList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Dag[];
     }
 
     export interface PaginatedDashboardBasicList {
@@ -75967,6 +76340,16 @@ export namespace Schemas {
       readonly content_type: string | null;
       /** @nullable */
       readonly size_bytes: number | null;
+      /**
+         * Width in pixels. Null for images uploaded before it was recorded.
+         * @nullable
+         */
+      readonly width: number | null;
+      /**
+         * Height in pixels. Null for images uploaded before it was recorded.
+         * @nullable
+         */
+      readonly height: number | null;
       /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
       readonly url: string;
       readonly created_at: string;
@@ -78350,6 +78733,10 @@ export namespace Schemas {
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
+      /**
+         * Person UUIDs to add to a new static cohort.
+         * @maxItems 1000
+         */
       _create_static_person_ids?: string[];
     }
 
@@ -78728,26 +79115,6 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
-    }
-
-    export interface PatchedDAG {
-      readonly id?: string;
-      /**
-         * Human-readable name for this DAG
-         * @maxLength 2048
-         */
-      name?: string;
-      /** Optional description of the DAG's purpose */
-      description?: string;
-      /**
-         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-         * @nullable
-         */
-      sync_frequency?: string | null;
-      readonly node_count?: number;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
     }
 
     export interface PatchedDashboardTemplate {
@@ -79169,11 +79536,6 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
-      /**
-         * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
-         * @nullable
-         */
-      dag_id?: string | null;
       /** @nullable */
       readonly is_materialized?: boolean | null;
       /** Where this SavedQuery is created.
@@ -79362,8 +79724,6 @@ export namespace Schemas {
       readonly source_id?: string;
       /** ID of the downstream node. */
       readonly target_id?: string;
-      dag?: string;
-      readonly dag_name?: string;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -80282,7 +80642,7 @@ export namespace Schemas {
       readonly can_freeze_exposure?: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health?: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -82168,8 +82528,6 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name?: string;
       type?: NodeTypeEnum;
-      dag?: string;
-      readonly dag_name?: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -86845,6 +87203,38 @@ export namespace Schemas {
     export interface PauseUntilRequest {
       /** Pause the grouping pipeline until this timestamp (ISO 8601). */
       timestamp: string;
+    }
+
+    export interface PeopleImport {
+      /** The static cohort that fills with the imported people. */
+      cohort_id: number;
+      /** People created or updated. */
+      row_count: number;
+      /** Rows that create a person who isn't in PostHog yet. */
+      new_people: number;
+      /** Person properties the rows set. */
+      columns: string[];
+      /** Rows dropped for a missing or invalid email. */
+      dropped_invalid_email: number;
+      /** Rows dropped because an earlier row had the email or distinct ID. */
+      dropped_duplicate_email: number;
+      /** Rows dropped for holding more than 4KB of data. */
+      dropped_too_large: number;
+    }
+
+    export type PeopleImportCreateRowsItem = {[key: string]: string};
+
+    export interface PeopleImportCreate {
+      /**
+         * Name of the static cohort that holds the imported people.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
+         * @maxItems 50000
+         */
+      rows: PeopleImportCreateRowsItem[];
     }
 
     export interface PersonBulkDeleteRequest {
@@ -96621,7 +97011,7 @@ export namespace Schemas {
          * @nullable
          */
       source_perspective: string | null;
-      /** Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+      /** Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings this way too). `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
        *
        * * `old_code` - On unchanged code
        * * `dedup_prior` - Repeat of an earlier review
@@ -100674,6 +101064,11 @@ export namespace Schemas {
     }
 
     export interface SetupPlanResponse {
+      /**
+         * Time of the latest seven-day source scan, including cached scans. Null if no scan time is available.
+         * @nullable
+         */
+      readonly source_scanned_at: string | null;
       /** Ranked suggestions, most important first */
       suggestions: Suggestion[];
       /** Per-capability readiness, with the suggestions blocking each */
@@ -103767,7 +104162,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -105218,7 +105614,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -106636,7 +107033,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -111812,6 +112210,19 @@ export namespace Schemas {
       file: string;
     }
 
+    export interface UploadedMediaCreated {
+      /** Id of the uploaded image. */
+      readonly id: string;
+      /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+      readonly image_location: string;
+      /** The file's original name. */
+      readonly name: string;
+      /** Width in pixels. */
+      readonly width: number;
+      /** Height in pixels. */
+      readonly height: number;
+    }
+
     export interface UploadedMediaStartUpload {
       /**
          * The file's display name, e.g. 'logo.png'.
@@ -112617,7 +113028,7 @@ export namespace Schemas {
     }
 
     export interface WarehouseConnection {
-      /** Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
+      /** Postgres connection host. The warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
       host: string;
       /** Postgres wire-protocol port */
       port: number;
@@ -112646,6 +113057,56 @@ export namespace Schemas {
       Deleting: 'deleting',
       Deleted: 'deleted',
     } as const;
+
+    /**
+     * * `not_enabled` - not_enabled
+     * * `pending` - pending
+     * * `provisioning` - provisioning
+     * * `ready` - ready
+     * * `failed` - failed
+     * * `unavailable` - unavailable
+     */
+    export type WarehouseTrinoStatusStateEnum = typeof WarehouseTrinoStatusStateEnum[keyof typeof WarehouseTrinoStatusStateEnum];
+
+
+    export const WarehouseTrinoStatusStateEnum = {
+      NotEnabled: 'not_enabled',
+      Pending: 'pending',
+      Provisioning: 'provisioning',
+      Ready: 'ready',
+      Failed: 'failed',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface WarehouseTrinoConnection {
+      /** Trino host to connect to over HTTPS */
+      host: string;
+      /** Trino HTTPS port */
+      port: number;
+      /** Trino catalog that holds the organization's data */
+      catalog: string;
+      /** Root username */
+      username: string;
+    }
+
+    export interface WarehouseTrinoStatus {
+      /** Trino lifecycle state for the organization. `unavailable` means the state could not be read.
+       *
+       * * `not_enabled` - not_enabled
+       * * `pending` - pending
+       * * `provisioning` - provisioning
+       * * `ready` - ready
+       * * `failed` - failed
+       * * `unavailable` - unavailable */
+      state: WarehouseTrinoStatusStateEnum;
+      /**
+         * When Trino became ready for the organization
+         * @nullable
+         */
+      ready_at: string | null;
+      /** Trino connection target. Null until Trino is ready and reachable. */
+      connection: WarehouseTrinoConnection | null;
+    }
 
     export interface WarehouseStatusResponse {
       /** duckgres org identifier (the PostHog organization id) */
@@ -112679,7 +113140,10 @@ export namespace Schemas {
          * @nullable
          */
       failed_at: string | null;
+      /** Postgres connection target. Null for organizations on the Trino Data ops variant. */
       connection?: WarehouseConnection | null;
+      /** Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise. */
+      trino?: WarehouseTrinoStatus | null;
       /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
       has_backfill: boolean;
       /**
@@ -119875,6 +120339,23 @@ export namespace Schemas {
     mcp_hosts?: string;
     };
 
+    export type ChangeFeedListParams = {
+    /**
+     * Start of the time window (inclusive), ISO 8601. Defaults to 24 hours before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the time window (inclusive), ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Maximum number of changes to return, newest first. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    };
+
     export type ChangeRequestsListParams = {
     action_key?: string;
     /**
@@ -120979,30 +121460,11 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type DataModelingDagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type DataModelingEdgesListParams = {
-    /**
-     * Return only the edges of this DAG.
-     */
-    dag?: string;
     /**
      * A page number within the paginated result set.
      */
     page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type DataModelingJobsListParams = {
@@ -121038,10 +121500,6 @@ export namespace Schemas {
 
     export type DataModelingNodesListParams = {
     /**
-     * Scope the lineage counts to this DAG.
-     */
-    dag?: string;
-    /**
      * A page number within the paginated result set.
      */
     page?: number;
@@ -121050,6 +121508,23 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type DataModelingNodesRetrieveParams = {
+    /**
+     * Resolve the path ID as this backing resource type instead of a node ID.
+     */
+    lookup?: DataModelingNodesRetrieveLookup;
+    };
+
+    export type DataModelingNodesRetrieveLookup = typeof DataModelingNodesRetrieveLookup[keyof typeof DataModelingNodesRetrieveLookup];
+
+
+    export const DataModelingNodesRetrieveLookup = {
+      Metric: 'metric',
+      PosthogTable: 'posthog_table',
+      SavedQuery: 'saved_query',
+      WarehouseTable: 'warehouse_table',
+    } as const;
 
     export type DataModelingNodesLineageRetrieveParams = {
     /**
@@ -121369,6 +121844,61 @@ export namespace Schemas {
      */
     source_id: string;
     };
+
+    export type DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveParams = {
+    /**
+     * Allow-listed Trino metric to retrieve.
+     *
+     * * `queries_in_flight` - queries_in_flight
+     * * `query_rate` - query_rate
+     * * `error_ratio` - error_ratio
+     * * `duration_p50` - duration_p50
+     * * `duration_p95` - duration_p95
+     * * `queue_time_p95` - queue_time_p95
+     * * `scanned_bytes_rate` - scanned_bytes_rate
+     * * `cpu_seconds_rate` - cpu_seconds_rate
+     * * `storage_bytes` - storage_bytes
+     * @minLength 1
+     */
+    metric: DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric;
+    /**
+     * Trailing time window to retrieve. Defaults to 24h.
+     *
+     * * `1h` - 1h
+     * * `6h` - 6h
+     * * `24h` - 24h
+     * * `7d` - 7d
+     * * `30d` - 30d
+     * @minLength 1
+     */
+    window?: DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow;
+    };
+
+    export type DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric = typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric[keyof typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric];
+
+
+    export const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric = {
+      QueriesInFlight: 'queries_in_flight',
+      QueryRate: 'query_rate',
+      ErrorRatio: 'error_ratio',
+      DurationP50: 'duration_p50',
+      DurationP95: 'duration_p95',
+      QueueTimeP95: 'queue_time_p95',
+      ScannedBytesRate: 'scanned_bytes_rate',
+      CpuSecondsRate: 'cpu_seconds_rate',
+      StorageBytes: 'storage_bytes',
+    } as const;
+
+    export type DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow = typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow[keyof typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow];
+
+
+    export const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow = {
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+      '30d': '30d',
+    } as const;
 
     export type DataWarehouseRunningActivityRetrieveParams = {
     /**
@@ -122357,6 +122887,10 @@ export namespace Schemas {
      */
     owner_team: string;
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -122388,6 +122922,10 @@ export namespace Schemas {
      */
     owner_team?: string;
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -122406,6 +122944,10 @@ export namespace Schemas {
      * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
      */
     owner_team: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -127217,6 +127759,31 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type MetricsDashboardTemplatesListParams = {
+    /**
+     * Only templates with this status.
+     */
+    status?: MetricsDashboardTemplatesListStatus;
+    };
+
+    export type MetricsDashboardTemplatesListStatus = typeof MetricsDashboardTemplatesListStatus[keyof typeof MetricsDashboardTemplatesListStatus];
+
+
+    export const MetricsDashboardTemplatesListStatus = {
+      Approved: 'approved',
+      Failed: 'failed',
+      Generating: 'generating',
+      PendingReview: 'pending_review',
+      Rejected: 'rejected',
+    } as const;
+
+    export type MetricsDashboardTemplatesPictureRetrieveParams = {
+    /**
+     * Check round, from 1.
+     */
+    round: number;
+    };
+
     export type MetricsErrorSpikesRetrieveParams = {
     /**
      * Lower bound (inclusive) for the spike window. ISO 8601.
@@ -130086,6 +130653,10 @@ export namespace Schemas {
      * The library to list.
      */
     purpose: UploadedMediaListPurpose;
+    /**
+     * Only list images whose name contains this text, ignoring case.
+     */
+    search?: string;
     };
 
     export type UploadedMediaListPurpose = typeof UploadedMediaListPurpose[keyof typeof UploadedMediaListPurpose];
@@ -130113,8 +130684,6 @@ export namespace Schemas {
       /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
       purpose?: UploadedMediaCreateBodyPurpose;
     };
-
-    export type UploadedMediaCreate201 = { [key: string]: unknown };
 
     export type UserProductListListParams = {
     /**

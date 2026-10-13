@@ -812,6 +812,7 @@ class ReviewPRWorkflow:
                         urgency_threshold=urgency_threshold,
                         review_mode=inputs.review_mode,
                         trigger_source=inputs.trigger_source,
+                        capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_GITHUB_POST_RETRY,

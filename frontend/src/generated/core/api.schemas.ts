@@ -509,6 +509,8 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `approval_requested` - approval_requested
+ * * `approval_resolved` - approval_resolved
  * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -524,6 +526,8 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    ApprovalRequested: 'approval_requested',
+    ApprovalResolved: 'approval_resolved',
     DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
@@ -540,6 +544,8 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -582,6 +588,8 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -5480,6 +5488,16 @@ export interface UploadedMediaApi {
     readonly content_type: string | null
     /** @nullable */
     readonly size_bytes: number | null
+    /**
+     * Width in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly width: number | null
+    /**
+     * Height in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly height: number | null
     /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
     readonly url: string
     readonly created_at: string
@@ -5492,6 +5510,19 @@ export interface PaginatedUploadedMediaListApi {
     /** @nullable */
     previous?: string | null
     results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaCreatedApi {
+    /** Id of the uploaded image. */
+    readonly id: string
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly image_location: string
+    /** The file's original name. */
+    readonly name: string
+    /** Width in pixels. */
+    readonly width: number
+    /** Height in pixels. */
+    readonly height: number
 }
 
 export interface UploadedMediaStartUploadApi {
@@ -6951,6 +6982,10 @@ export type UploadedMediaListParams = {
      * The library to list.
      */
     purpose: UploadedMediaListPurpose
+    /**
+     * Only list images whose name contains this text, ignoring case.
+     */
+    search?: string
 }
 
 export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
@@ -6977,8 +7012,6 @@ export type UploadedMediaCreateBody = {
     /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
     purpose?: UploadedMediaCreateBodyPurpose
 }
-
-export type UploadedMediaCreate201 = { [key: string]: unknown }
 
 export type UsersListParams = {
     email?: string
