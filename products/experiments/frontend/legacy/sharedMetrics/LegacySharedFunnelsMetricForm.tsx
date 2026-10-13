@@ -5,18 +5,18 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import { getHogQLValue } from 'scenes/insights/filters/aggregationTarget'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hasBreakdownFilter } from '~/queries/utils'
 import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { sharedMetricLogic } from '~/scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { BreakdownAttributionType, FilterType } from '~/types'
+import { BreakdownAttributionType, InsightType } from '~/types'
 
 import {
     LegacyFunnelAttributionSelect,
@@ -44,25 +44,22 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
 
     return (
         <>
-            <ActionFilter
+            <SeriesActionFilter
                 bordered
-                filters={queryNodeToFilter(sharedMetricQuery.funnels_query)}
-                setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+                series={sharedMetricQuery.funnels_query.series}
+                insightType={InsightType.FUNNELS}
+                hasBreakdown={hasBreakdownFilter(sharedMetricQuery.funnels_query.breakdownFilter)}
+                onChange={(series) => {
                     if (!sharedMetric?.query) {
                         return
                     }
 
-                    const series = actionsAndEventsToSeries(
-                        { actions, events, data_warehouse } as any,
-                        true,
-                        MathAvailability.None
-                    )
                     setSharedMetric({
                         query: {
                             ...sharedMetricQuery,
                             funnels_query: {
                                 ...sharedMetricQuery.funnels_query,
-                                series,
+                                series: cleanSeriesNodes(series, MathAvailability.None) as FunnelsQuery['series'],
                             },
                         },
                     })
