@@ -296,6 +296,10 @@ export function clampPreviewPageIndex(
     return index
 }
 
+export function getFirstPreviewPageIndex(survey: Pick<Survey | NewSurvey, 'appearance'>): number {
+    return survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0
+}
+
 export function getIntroScreenPageOptions(
     survey: Pick<Survey | NewSurvey, 'appearance'>
 ): { label: string; value: number }[] {
