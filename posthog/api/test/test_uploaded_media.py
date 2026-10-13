@@ -9,18 +9,19 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 from boto3 import resource
 from botocore.config import Config
 from parameterized import parameterized
-from PIL import Image
+from PIL import ExifTags, Image
 from rest_framework import status
 
 from posthog.api.uploaded_media import FOUR_MEGABYTES
 from posthog.models import Team, UploadedMedia
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.uploaded_media import sniff_image
 from posthog.models.utils import UUIDT, generate_random_token_personal
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -42,6 +43,27 @@ SMALL_GIF_HEIGHT = 816
 def get_path_to(fixture_file: str) -> str:
     file_dir = os.path.dirname(__file__)
     return os.path.join(file_dir, "fixtures", fixture_file)
+
+
+class TestSniffImage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("upright", 1, (120, 80)),
+            ("rotated_a_quarter_turn", 6, (80, 120)),
+        ]
+    )
+    def test_reports_the_size_a_browser_displays(
+        self, _name: str, orientation: int, expected_size: tuple[int, int]
+    ) -> None:
+        exif = Image.Exif()
+        exif[ExifTags.Base.Orientation] = orientation
+        buffer = io.BytesIO()
+        Image.new("RGB", (120, 80)).save(buffer, format="JPEG", exif=exif)
+
+        sniffed = sniff_image(buffer.getvalue())
+
+        assert sniffed is not None
+        assert (sniffed.width, sniffed.height) == expected_size
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)

@@ -7,7 +7,7 @@ from django.db import models
 from django.db.models import Q
 
 import structlog
-from PIL import Image
+from PIL import ExifTags, Image
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -73,6 +73,10 @@ def is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
+# EXIF orientations that rotate the image a quarter turn, so a browser shows it with width and
+# height swapped from the stored pixels.
+_QUARTER_TURN_ORIENTATIONS = frozenset({5, 6, 7, 8})
+
 # Guards against a decompression bomb: a small, highly-compressed file that decodes to an
 # enormous bitmap. Checked from the header, before Pillow decodes the full image into memory.
 _MAX_IMAGE_PIXELS = 50_000_000
@@ -102,6 +106,8 @@ def sniff_image(data: Optional[bytes]) -> Optional[SniffedImage]:
                 return None
             image.load()
             content_type = Image.MIME.get(image.format or "")
+            if image.getexif().get(ExifTags.Base.Orientation) in _QUARTER_TURN_ORIENTATIONS:
+                width, height = height, width
     except Exception:
         return None
     if content_type not in _INLINE_SAFE_CONTENT_TYPES:
