@@ -1,0 +1,349 @@
+{
+    "name": "Host metrics",
+    "description": "CPU, memory, disk and network of hosts that run the Prometheus node exporter.",
+    "panels": [
+        {
+            "key": "cpu_busy",
+            "title": "CPU busy",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "node_cpu_seconds_total",
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "mode",
+                                "op": "eq",
+                                "value": "idle"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "node_cpu_seconds_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 70
+                        },
+                        {
+                            "color": "danger",
+                            "value": 90
+                        }
+                    ]
+                },
+                "formula": "(1 - a / b) * 100"
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "memory_used",
+            "title": "Memory used",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "node_memory_MemAvailable_bytes",
+                        "aggregation": "sum"
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "node_memory_MemTotal_bytes",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 70
+                        },
+                        {
+                            "color": "danger",
+                            "value": 90
+                        }
+                    ]
+                },
+                "formula": "(1 - a / b) * 100"
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "load",
+            "title": "Load average (1m)",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "node_load1",
+                        "aggregation": "avg"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "disk_free",
+            "title": "Disk free",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "node_filesystem_avail_bytes",
+                        "aggregation": "sum"
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "node_filesystem_size_bytes",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "danger",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 10
+                        },
+                        {
+                            "color": "success",
+                            "value": 25
+                        }
+                    ]
+                },
+                "formula": "a / b * 100"
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "cpu_by_mode",
+            "title": "CPU time by mode",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "node_cpu_seconds_total",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "mode"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "area"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_available",
+            "title": "Memory available by host",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "node_memory_MemAvailable_bytes",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "instance"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "network",
+            "title": "Network traffic",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "received",
+                        "metricName": "node_network_receive_bytes_total",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "sent",
+                        "metricName": "node_network_transmit_bytes_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "disk_io",
+            "title": "Disk throughput",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "read",
+                        "metricName": "node_disk_read_bytes_total",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "written",
+                        "metricName": "node_disk_written_bytes_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By/s"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "load_average",
+            "title": "Load average",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "load1",
+                        "metricName": "node_load1",
+                        "aggregation": "avg"
+                    },
+                    {
+                        "name": "load5",
+                        "metricName": "node_load5",
+                        "aggregation": "avg"
+                    },
+                    {
+                        "name": "load15",
+                        "metricName": "node_load15",
+                        "aggregation": "avg"
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "filesystem_free",
+            "title": "Free space by mount",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "node_filesystem_avail_bytes",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "mountpoint"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}
