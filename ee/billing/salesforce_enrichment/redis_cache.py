@@ -13,6 +13,7 @@ from .constants import (
 )
 
 _LIST_PIPELINE_BATCH = 5000  # Entries per RPUSH call during list population
+_CHUNK_ACCOUNT_FIELDS = ("Id", "Website")
 
 
 async def _store_json_list(cache_key: str, items: list[dict[str, Any]], ttl: int) -> None:
@@ -61,9 +62,7 @@ async def store_accounts_in_redis(
     accounts_data: list[dict[str, Any]],
     ttl: int = REDIS_TTL_SECONDS,
 ) -> None:
-    # The chunk job reads only these two fields. Full Salesforce records, with their `attributes`
-    # metadata, take several times the Redis memory for the whole run.
-    accounts = [{"Id": account["Id"], "Website": account["Website"]} for account in accounts_data]
+    accounts = [{field: account[field] for field in _CHUNK_ACCOUNT_FIELDS} for account in accounts_data]
     await _store_json_list(SALESFORCE_ACCOUNTS_CACHE_KEY, accounts, ttl)
 
 

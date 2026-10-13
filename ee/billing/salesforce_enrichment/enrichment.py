@@ -564,8 +564,6 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         logger.exception("Redis cache error", error=str(e), cache_time=round(cache_time, 3))
         capture_exception(e)
 
-    # Rebuild the cache so that the later chunks of this run read their page from it and do not each query
-    # every account from Salesforce again.
     try:
         accounts_result = await asyncio.to_thread(sf.query_all, SALESFORCE_ACCOUNTS_QUERY)
         all_accounts = accounts_result["records"]
