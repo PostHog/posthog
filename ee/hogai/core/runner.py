@@ -603,6 +603,7 @@ class BaseAgentRunner(ABC):
                     None,
                 )
                 if approval_interrupt is None:
+                    await self._expire_pending_approvals({proposal_id})
                     raise ValueError("Approval does not match a pending operation")
                 # A scalar resume targets the next interrupt, which may belong to a different approval card.
                 resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
@@ -643,6 +644,8 @@ class BaseAgentRunner(ABC):
                     # This means an approval interrupt is waiting for user input.
                     # Return None to resume from checkpoint
                     return None
+
+            await self._expire_pending_approvals()
 
         # Add the latest message id to streamed messages, so we don't send it multiple times.
         if self._latest_message and self._latest_message.id is not None:
@@ -797,3 +800,14 @@ class BaseAgentRunner(ABC):
 
         self._conversation.approval_decisions[proposal_id]["decision_status"] = status
         await self._conversation.asave(update_fields=["approval_decisions"])
+
+    async def _expire_pending_approvals(self, proposal_ids: set[str] | None = None) -> None:
+        expired = False
+        for proposal_id, decision in self._conversation.approval_decisions.items():
+            if proposal_ids is not None and proposal_id not in proposal_ids:
+                continue
+            if isinstance(decision, dict) and decision.get("decision_status") == "pending":
+                decision["decision_status"] = "auto_rejected"
+                expired = True
+        if expired:
+            await self._conversation.asave(update_fields=["approval_decisions"])
