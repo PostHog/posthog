@@ -2,6 +2,7 @@
 
 import pytest
 
+from django.conf import settings
 from django.db.models import F
 
 from parameterized import parameterized
@@ -403,9 +404,9 @@ class TestApprovalComment:
 
         body = comment_markdown._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
 
-        # Each snapshot name links straight to its deep link on the run page
         changed = run_with_artifacts.snapshots.get(identifier="Login/Form")
-        assert f"[`Login/Form`]({comment_markdown._run_url(run_with_artifacts, repo)}?snapshot={changed.id})" in body
+        deep_link = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run_with_artifacts.id}#snapshot={changed.id}"
+        assert f"[`Login/Form`]({deep_link})" in body
 
     def test_build_approval_comment_body_caps_at_eight_and_links_out(self, repo, mocker):
         mocker.patch.object(comment_markdown, "ArtifactStorage", self._fake_storage())
