@@ -214,11 +214,27 @@ export interface SqlLineSeriesMeta {
 const isExcludedFromTotal = (settings: AxisSeriesSettings | undefined): boolean =>
     settings?.formatting?.style === 'percent' || !!settings?.display?.excludeFromTotal
 
-export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDisplayType): Series<SqlLineSeriesMeta>[] {
+const optsIntoValueLabels = (series: SqlLineYSeries): boolean => series.settings?.display?.valueLabels === 'show'
+
+export function hasValueLabels(
+    chartSettings: ChartSettings,
+    ySeriesData: SqlLineYSeries[] | null | undefined
+): boolean {
+    return !!chartSettings.showValuesOnSeries || !!ySeriesData?.some(optsIntoValueLabels)
+}
+
+export function buildSeries(
+    yData: SqlLineYSeries[],
+    visualizationType: ChartDisplayType,
+    showValuesOnSeries = false
+): Series<SqlLineSeriesMeta>[] {
+    const onlyOptedIn = !showValuesOnSeries && yData.some(optsIntoValueLabels)
     return yData.map((series, index) => {
         const settings = series.settings
         const color = settings?.display?.color
         const type = seriesDisplayType(visualizationType, settings)
+        const valueLabels = settings?.display?.valueLabels
+        const hideValueLabel = valueLabels === 'hide' || (onlyOptedIn && valueLabels !== 'show')
 
         return {
             key: getSeriesKey(series, index),
@@ -230,7 +246,7 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             type,
             visibility: {
                 total: isExcludedFromTotal(settings) ? false : undefined,
-                valueLabel: settings?.display?.hideValueLabel ? false : undefined,
+                valueLabel: hideValueLabel ? false : undefined,
             },
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
@@ -426,7 +442,7 @@ function buildValueLabelsConfig(
     chartSettings: ChartSettings,
     ySeriesData: SqlLineYSeries[] | null | undefined
 ): ValueLabelsConfig | undefined {
-    if (!chartSettings.showValuesOnSeries) {
+    if (!hasValueLabels(chartSettings, ySeriesData)) {
         return undefined
     }
     return {

@@ -97,10 +97,6 @@ const AssistantDataVisualizationAxisDisplaySettings = z.object({
             "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
         )
         .optional(),
-    hideValueLabel: z.coerce
-        .boolean()
-        .describe("Hide this series' value labels when chart-level `showValuesOnSeries` is on.")
-        .optional(),
     label: z
         .string()
         .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
@@ -108,6 +104,12 @@ const AssistantDataVisualizationAxisDisplaySettings = z.object({
     trendLine: z.coerce
         .boolean()
         .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+        .optional(),
+    valueLabels: z
+        .enum(['auto', 'show', 'hide'])
+        .describe(
+            'Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.'
+        )
         .optional(),
     yAxisPosition: z
         .enum(['left', 'right'])

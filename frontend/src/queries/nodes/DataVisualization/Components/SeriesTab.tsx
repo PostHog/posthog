@@ -532,7 +532,7 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
     const isPercentColumn = ySeriesLogicProps.series.settings?.formatting?.style === 'percent'
     const seriesSwitches: {
-        name: 'trendLine' | 'excludeFromTotal' | 'hideValueLabel'
+        name: 'trendLine' | 'excludeFromTotal'
         label: string
         info?: string
         disabledReason?: string
@@ -554,14 +554,10 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                       : undefined,
             checked: isPercentColumn || undefined,
         },
-        {
-            name: 'hideValueLabel',
-            label: 'Hide values on series',
-            disabledReason: chartSettings.showValuesOnSeries
-                ? undefined
-                : 'Turn on "Show values on series" to use this',
-        },
     ]
+    const valueLabelsInfo = chartSettings.showValuesOnSeries
+        ? 'Auto shows values, because "Show values on series" is on for the chart.'
+        : 'Auto hides values, because "Show values on series" is off for the chart.'
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="deprecated-space-y-4">
@@ -705,6 +701,29 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                             />
                         )}
                     </LemonField>
+                    {!selectedSeriesBreakdownColumn && (
+                        <LemonField name="valueLabels" label="Values on series" info={valueLabelsInfo}>
+                            {({ value, onChange }) => (
+                                <LemonSegmentedButton
+                                    value={value}
+                                    className="w-full"
+                                    options={[
+                                        { label: 'Auto', value: 'auto' },
+                                        { label: 'Show', value: 'show' },
+                                        { label: 'Hide', value: 'hide' },
+                                    ]}
+                                    onChange={(newValue) => {
+                                        onChange(newValue)
+                                        updateSeriesIndex(
+                                            ySeriesLogicProps.seriesIndex,
+                                            ySeriesLogicProps.series.column.name,
+                                            { display: { valueLabels: newValue as 'auto' | 'show' | 'hide' } }
+                                        )
+                                    }}
+                                />
+                            )}
+                        </LemonField>
+                    )}
                 </>
             )}
         </Form>

@@ -1878,8 +1878,11 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
      * A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack.
      */
     excludeFromTotal?: boolean
-    /** Hide this series' value labels when chart-level `showValuesOnSeries` is on. */
-    hideValueLabel?: boolean
+    /**
+     * Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the
+     * chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.
+     */
+    valueLabels?: 'auto' | 'show' | 'hide'
 }
 
 export interface AssistantDataVisualizationAxisFormatting {

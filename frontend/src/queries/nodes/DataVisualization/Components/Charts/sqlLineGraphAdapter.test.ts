@@ -345,15 +345,25 @@ describe('sqlLineGraphAdapter', () => {
 
         it.each<[string, AxisSeries<number | null>['settings'], Series['visibility']]>([
             ['keeps an excluded series out of the total', { display: { excludeFromTotal: true } }, { total: false }],
-            ['hides value labels for the series', { display: { hideValueLabel: true } }, { valueLabel: false }],
+            ['hides value labels for the series', { display: { valueLabels: 'hide' } }, { valueLabel: false }],
             [
                 'combines both flags',
-                { display: { excludeFromTotal: true, hideValueLabel: true } },
+                { display: { excludeFromTotal: true, valueLabels: 'hide' } },
                 { total: false, valueLabel: false },
             ],
         ])('%s', (_name, settings, expected) => {
-            const [series] = buildSeries([ySeries('target', [5], settings)], ChartDisplayType.ActionsStackedBar)
+            const [series] = buildSeries([ySeries('target', [5], settings)], ChartDisplayType.ActionsStackedBar, true)
             expect(series.visibility).toEqual(expected)
+        })
+
+        it('labels only the series that opted in when the chart setting is off', () => {
+            const [bars, target] = buildSeries(
+                [ySeries('bars', [1]), ySeries('target', [5], { display: { valueLabels: 'show' } })],
+                ChartDisplayType.ActionsStackedBar,
+                false
+            )
+            expect(bars.visibility).toEqual({ valueLabel: false })
+            expect(target.visibility).toEqual({})
         })
 
         it('only pins an explicit color, leaving palette assignment to quill otherwise', () => {
@@ -783,9 +793,12 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.goalLines?.[0]).toMatchObject({ value: 100, label: 'Target' })
         })
 
-        it('omits value labels unless showValuesOnSeries is set', () => {
-            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.valueLabels).toBeUndefined()
+        it.each<[string, SqlLineYSeries[] | undefined, boolean]>([
+            ['no series opts in', [ySeries('a', [1])], false],
+            ['a series opts in', [ySeries('a', [1], { display: { valueLabels: 'show' } })], true],
+        ])('with showValuesOnSeries off, builds value labels only when %s', (_name, ySeriesData, enabled) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(config.valueLabels !== undefined).toBe(enabled)
         })
 
         it('formats each value label from its own series column when showValuesOnSeries is set', () => {

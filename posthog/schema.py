@@ -323,6 +323,7 @@ from posthog.schema_enums import (
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
     ValueDisplay as ValueDisplay,
+    ValueLabels as ValueLabels,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -530,10 +531,6 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
             " for a series drawn over the stack."
         ),
     )
-    hideValueLabel: bool | None = Field(
-        default=None,
-        description=("Hide this series' value labels when chart-level `showValuesOnSeries` is on."),
-    )
     label: str | None = Field(
         default=None,
         description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
@@ -541,6 +538,14 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     trendLine: bool | None = Field(
         default=None,
         description=("Draw a linear trend line for this series. Only meaningful for line, bar, and area charts."),
+    )
+    valueLabels: ValueLabels | None = Field(
+        default=None,
+        description=(
+            "Per-series override of chart-level `showValuesOnSeries`. `show` labels"
+            " this series even when the chart setting is off, `hide` leaves it"
+            " unlabeled when the setting is on, `auto` follows the chart."
+        ),
     )
     yAxisPosition: YAxisPosition | None = Field(
         default=None,
@@ -1119,12 +1124,15 @@ class ChartSettingsDisplay(BaseModel):
         default=None,
         description=("Keep this series out of the tooltip's total row, e.g. a target line over stacked bars."),
     )
-    hideValueLabel: bool | None = Field(
-        default=None,
-        description='Hide this series\' labels when "Show values on series" is on.',
-    )
     label: str | None = None
     trendLine: bool | None = None
+    valueLabels: ValueLabels | None = Field(
+        default=None,
+        description=(
+            'Overrides the chart\'s "Show values on series" for this series. Unset or'
+            " 'auto' follows the chart setting."
+        ),
+    )
     yAxisPosition: YAxisPosition | None = None
 
 
