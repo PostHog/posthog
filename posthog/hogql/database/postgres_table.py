@@ -21,6 +21,8 @@ from posthog.scopes import APIScopeObject
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 
 @cache
 def _pk_column_for_pg_table(postgres_table_name: str) -> Optional[str]:
@@ -178,6 +180,16 @@ class PostgresTable(FunctionCallTable):
         if self.access_control_id_field is not None or self.resource_level_access_only:
             return None
         return self.access_control_creator_id_field
+
+    def blocked_object_ids(self, user_access_control: "UserAccessControl", team_id: Optional[int]) -> frozenset[str]:
+        """Ids in the `access_control_id` column that the user is denied.
+
+        The default reads the rules on the objects of `access_scope`. A table overrides it when a
+        rule on another object also denies its rows, because those rules do not name the rows.
+        """
+        if self.access_scope is None:
+            return frozenset()
+        return user_access_control.blocked_resource_ids_by_scope.get(self.access_scope, frozenset())
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

@@ -88,6 +88,7 @@ __all__ = [
     "resolve_object_by_name",
     "direct_access_table_ids",
     "allowed_table_ids",
+    "denied_table_ids",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
@@ -507,6 +508,33 @@ def _resolve_allowed_table_ids(
     candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
     if ids is not None:
         candidates = candidates.filter(id__in=ids)
+    return _partition_tables_by_access(candidates, user_access_control, required_level)[0]
+
+
+def denied_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    required_level: "AccessControlLevel" = "viewer",
+) -> frozenset[UUID]:
+    """Every table this caller may not reach at ``required_level``.
+
+    Unlike :func:`allowed_table_ids`, this covers soft-deleted tables and tables of a soft-deleted
+    source, for surfaces that list those rows.
+    """
+    if user_access_control.is_organization_admin:
+        return frozenset()
+    return _partition_tables_by_access(
+        _DataWarehouseTable.raw_objects.filter(team_id=team_id), user_access_control, required_level
+    )[1]
+
+
+def _partition_tables_by_access(
+    candidates: QuerySet[_DataWarehouseTable],
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+) -> tuple[frozenset[UUID], frozenset[UUID]]:
+    """The allowed and the denied ids among ``candidates``. A table resolves through its source."""
     tables = list(
         candidates.select_related("external_data_source").only(
             "id", "created_by_id", "external_data_source_id", "external_data_source__id"
@@ -518,9 +546,10 @@ def _resolve_allowed_table_ids(
         if table.external_data_source is not None
     }
     user_access_control.preload_object_access_controls([*tables, *sources.values()])
-    return frozenset(
+    allowed = frozenset(
         table.id for table in tables if user_access_control.check_access_level_for_object(table, required_level)
     )
+    return allowed, frozenset(table.id for table in tables) - allowed
 
 
 def all_queryable_tables(team_id: int) -> list[contracts.DataWarehouseTable]:
