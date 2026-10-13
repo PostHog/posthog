@@ -159,6 +159,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
+    mock_get_source.return_value.requires_team_feature_flag = None
     mock_get_source.return_value.connection_host_fields = []
     mock_get_source.return_value.detects_primary_keys = False
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
@@ -5939,6 +5940,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
         mock_source.get_endpoint_permissions.return_value = {}
         mock_source.detects_primary_keys = False
+        mock_source.requires_team_feature_flag = None
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
