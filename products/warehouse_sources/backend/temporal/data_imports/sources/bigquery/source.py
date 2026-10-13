@@ -506,7 +506,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
                 "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
                 "warehouse. To send PostHog data to BigQuery instead, set up a batch export.\n\n"
                 "To use a service account, select **Choose Google Cloud service account connection**, then "
-                "**Configure new Google Cloud service account**. It shows which access to grant PostHog in Google Cloud."
+                "**Configure new Google Cloud service account**. It shows how to let PostHog use your service account.\n\n"
+                "Your service account also needs these BigQuery roles: **BigQuery Job User** and **BigQuery Read "
+                "Session User** on the project, **BigQuery Data Viewer** on the dataset you sync, and **BigQuery Data "
+                "Editor** on the dataset for temporary tables. Without them, the connection check can pass but the "
+                "sync fails."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
