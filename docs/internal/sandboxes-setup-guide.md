@@ -413,6 +413,12 @@ Each sandbox is created from a template that determines its base image and capab
 
 `VM_BASE` uses the Modal VM runtime (real Linux kernel) instead of gVisor because `dockerd` cannot run under gVisor. When a sandbox is created with `template=SandboxTemplate.VM_BASE`, `ModalSandbox.create` automatically sets `experimental_options={"vm_runtime": True}`.
 
+### Protected dev-stack activation
+
+The two infrastructure models are instance-global: they describe the shared image, not a tenant's sandbox or custom image. They persist targets, attempts, leases, deadlines and active image provenance in Postgres. Explicit rebuild requests are recorded before observing inputs, so a newer routine observation can carry a pending request forward.
+
+Activation locks the target and checks its generation, attempt owner, lease and deadline. A superseded bake can finish its snapshot but cannot change the active pointer. The state layer does not schedule bakes or change the image used by task readers.
+
 ### Optional: local repository mounts (Docker only)
 
 If you already have a repository checked out locally, you can skip cloning by
