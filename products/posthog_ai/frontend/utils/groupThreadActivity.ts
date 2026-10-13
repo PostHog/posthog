@@ -152,6 +152,31 @@ export function groupToolRuns(
     return result
 }
 
+export function reuseActivityGroups(previous: ThreadDisplayItem[], next: ThreadDisplayItem[]): ThreadDisplayItem[] {
+    const previousGroups = new Map<string, ThreadActivityGroup>()
+    for (const item of previous) {
+        if (item.type === 'activity_group') {
+            previousGroups.set(item.id, item)
+        }
+    }
+    if (previousGroups.size === 0) {
+        return next
+    }
+    return next.map((item) => {
+        if (item.type !== 'activity_group') {
+            return item
+        }
+        const old = previousGroups.get(item.id)
+        return old &&
+            old.startedAt === item.startedAt &&
+            old.endedAt === item.endedAt &&
+            old.items.length === item.items.length &&
+            old.items.every((row, index) => row === item.items[index])
+            ? old
+            : item
+    })
+}
+
 /** Groups over 10 items show the first 2 and last 3; the middle opens with one click. */
 export const ACTIVITY_WINDOW_LIMIT = 10
 /** Identical consecutive calls fold into one row only from this many, and only in the hidden middle. */

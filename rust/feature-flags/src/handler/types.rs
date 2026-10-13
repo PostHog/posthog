@@ -103,6 +103,8 @@ pub struct FeatureFlagEvaluationContext {
     pub detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
     pub only_use_override_person_properties: bool,
+    /// Budget shared by all persons DB work in this evaluation. `None` disables the deadline.
+    pub persons_db_deadline: Option<std::time::Duration>,
 }
 
 /// SDK type classification based on user-agent parsing.

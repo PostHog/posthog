@@ -132,13 +132,19 @@ def validate_credentials(host: str, api_key: Optional[str]) -> tuple[bool, str |
     return True, None
 
 
-def _flatten_result_sets(data: Any, requested_window: SyncWindow[str]) -> list[dict[str, Any]]:
-    """Flatten Allocation/Assets result sets (dicts keyed by allocation/asset name) into rows.
+def _flatten_result_sets(
+    data: Any, requested_window: SyncWindow[str], result_set_key: Optional[str] = None
+) -> list[dict[str, Any]]:
+    """Flatten result sets (dicts keyed by allocation/asset/cloud cost name) into rows.
 
-    Windows with no data (e.g. beyond ETL retention) come back as ``data: [null]``,
-    so null/non-dict sets are skipped rather than treated as errors.
+    Windows with no data (e.g. beyond ETL retention) come back as ``data: [null]``
+    (or ``cloudCosts: null`` for Cloud Cost), so null/non-dict sets are skipped
+    rather than treated as errors.
     """
     rows: list[dict[str, Any]] = []
+    if result_set_key is not None:
+        sets = data.get("sets") if isinstance(data, dict) else None
+        data = [s.get(result_set_key) for s in sets if isinstance(s, dict)] if isinstance(sets, list) else None
     if not isinstance(data, list):
         return rows
     for result_set in data:
@@ -225,7 +231,7 @@ def get_rows(
     while day <= today:
         window = _day_window(day)
         data = call(f"{window.start},{window.end}")
-        rows = _flatten_result_sets(data, window)
+        rows = _flatten_result_sets(data, window, config.result_set_key)
         if rows:
             yield rows
 

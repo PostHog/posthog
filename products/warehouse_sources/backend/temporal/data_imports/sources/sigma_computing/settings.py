@@ -1,4 +1,5 @@
 from dataclasses import field
+from typing import Literal
 
 from posthog.dataclasses import frozen
 
@@ -51,13 +52,30 @@ WORKBOOK_FANOUT = DependentEndpointConfig(
     parent_field_renames={"workbookId": "workbookId"},
 )
 
+# Report-scoped child endpoints page with `pageToken`/`pageSize` instead of the `page`/`limit` the
+# parent Reports list takes, so each side's page size is passed as an explicit param rather than
+# through the fan-out helper's shared `page_size_param`.
+REPORT_FANOUT = DependentEndpointConfig(
+    parent_name="Reports",
+    resolve_param="reportId",
+    resolve_field="reportId",
+    include_from_parent=["reportId"],
+    parent_field_renames={"reportId": "reportId"},
+    parent_params={"limit": PAGE_SIZE},
+    child_params={"pageSize": PAGE_SIZE},
+)
+
+# "page" is `page`/`limit` in, `nextPage` out; "page_token" is `pageToken`/`pageSize` in,
+# `nextPageToken` out.
+Pagination = Literal["page", "page_token"]
+
 
 @frozen
 class SigmaComputingEndpointConfig:
     name: str
     path: str
     primary_key: str | list[str]
-    # Elements/pages/queries are workbook-scoped sub-resources with no created/updated
+    # Elements/pages/queries are workbook- and report-scoped sub-resources with no created/updated
     # timestamp of their own, so they carry no partition key.
     partition_key: str | None = "createdAt"
     page_size: int = PAGE_SIZE
@@ -66,6 +84,7 @@ class SigmaComputingEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
     fanout: DependentEndpointConfig | None = None
+    pagination: Pagination = "page"
 
 
 SIGMA_ENDPOINTS: dict[str, SigmaComputingEndpointConfig] = {
@@ -129,6 +148,32 @@ SIGMA_ENDPOINTS: dict[str, SigmaComputingEndpointConfig] = {
         primary_key=["workbookId", "elementId"],
         partition_key=None,
         fanout=WORKBOOK_FANOUT,
+    ),
+    "ReportElements": SigmaComputingEndpointConfig(
+        name="ReportElements",
+        path="/v2/reports/{reportId}/elements",
+        # elementId is only documented unique within its report.
+        primary_key=["reportId", "elementId"],
+        partition_key=None,
+        fanout=REPORT_FANOUT,
+        pagination="page_token",
+    ),
+    "ReportPages": SigmaComputingEndpointConfig(
+        name="ReportPages",
+        path="/v2/reports/{reportId}/pages",
+        primary_key=["reportId", "pageId"],
+        partition_key=None,
+        fanout=REPORT_FANOUT,
+        pagination="page_token",
+    ),
+    "ReportQueries": SigmaComputingEndpointConfig(
+        name="ReportQueries",
+        path="/v2/reports/{reportId}/queries",
+        # Entries carry no dedicated query id; elementId is unique per report.
+        primary_key=["reportId", "elementId"],
+        partition_key=None,
+        fanout=REPORT_FANOUT,
+        pagination="page_token",
     ),
 }
 

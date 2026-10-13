@@ -23,6 +23,8 @@ from posthog.tasks.comment_slack_sync import (
     mirror_comment_reply_to_slack,
 )
 
+from products.canvas.backend.facade import testing as canvas_testing
+
 
 class TestDiscussionCardBlocks(APIBaseTest):
     def _card_text(self, body: str) -> str:
@@ -622,16 +624,14 @@ class TestSlackThreadSerialization(APIBaseTest):
             .objects.unscoped()
             .create(team=self.team, name="mirror-space", channel_type="public", created_by=self.user)
         )
-        canvas = (
-            apps.get_model("canvas", "Canvas")
-            .objects.unscoped()
-            .create(team=self.team, channel=channel, name="Mirrored canvas", created_by=self.user)
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=channel.id, name="Mirrored canvas", created_by_id=self.user.id
         )
-        root = Comment.objects.create(team=self.team, scope="desktop_canvas", item_id=str(canvas.id), content="root")
+        root = Comment.objects.create(team=self.team, scope="desktop_canvas", item_id=str(canvas_id), content="root")
         CommentSlackThread.objects.for_team(self.team.id).create(
             team=self.team,
             scope="canvas",
-            item_id=str(canvas.id),
+            item_id=str(canvas_id),
             source_comment=root,
             integration=self.integration,
             slack_channel_id="C2",
@@ -639,7 +639,7 @@ class TestSlackThreadSerialization(APIBaseTest):
             slack_thread_ts="1700.2",
         )
 
-        res = self.client.get(f"/api/projects/{self.team.id}/comments/?scope=canvas&item_id={canvas.id}")
+        res = self.client.get(f"/api/projects/{self.team.id}/comments/?scope=canvas&item_id={canvas_id}")
 
         assert res.status_code == status.HTTP_200_OK
         results = {r["id"]: r for r in res.json()["results"]}

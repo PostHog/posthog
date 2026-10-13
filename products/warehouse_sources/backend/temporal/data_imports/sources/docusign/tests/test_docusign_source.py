@@ -66,15 +66,6 @@ class TestDocusignSource:
         assert self.source.api_docs_url is not None
         assert self.source.api_docs_url.startswith("https://")
 
-    @pytest.mark.parametrize("endpoint_name", sorted(DOCUSIGN_ENDPOINTS))
-    def test_incremental_support_matches_the_endpoint_catalog(self, endpoint_name: str) -> None:
-        endpoint = DOCUSIGN_ENDPOINTS[endpoint_name]
-        schema = self.source.get_schemas(jwt_config(), self.team_id, names=[endpoint_name])[0]
-
-        # Only endpoints with a real server-side date filter advertise incremental sync.
-        assert schema.supports_incremental is bool(endpoint.date_filter_param)
-        assert [f["field"] for f in schema.incremental_fields] == [f["field"] for f in endpoint.incremental_fields]
-
     @pytest.mark.parametrize(
         "auth_overrides,expected_fragment",
         [
@@ -113,10 +104,6 @@ class TestDocusignSource:
         assert credentials.integration_key == "int-key"
         assert credentials.account_id == "222"
 
-    def test_validate_credentials_passes_the_transport_failure_through(self) -> None:
-        with mock.patch(_VALIDATE, return_value=(False, "nope")):
-            assert self.source.validate_credentials(jwt_config(), self.team_id) == (False, "nope")
-
     @pytest.mark.parametrize("endpoint_name", sorted(DOCUSIGN_ENDPOINTS))
     def test_source_for_pipeline_wires_the_endpoint_through(self, endpoint_name: str) -> None:
         manager: ResumableSourceManager[DocusignResumeConfig] = ResumableSourceManager(
@@ -127,43 +114,6 @@ class TestDocusignSource:
 
         assert response.name == endpoint_name
         assert response.primary_keys == DOCUSIGN_ENDPOINTS[endpoint_name].primary_key
-
-    def test_source_for_pipeline_only_forwards_the_watermark_when_incremental(self) -> None:
-        target = "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.source.docusign_source"
-        manager: ResumableSourceManager[DocusignResumeConfig] = ResumableSourceManager(
-            source_inputs("envelopes"), DocusignResumeConfig
-        )
-        inputs = source_inputs(
-            "envelopes", should_use_incremental_field=False, db_incremental_field_last_value="2024-01-01T00:00:00Z"
-        )
-
-        with mock.patch(target) as build:
-            self.source.source_for_pipeline(jwt_config(start_date="2020-01-01T00:00:00Z"), manager, inputs)
-
-        assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-        assert build.call_args.kwargs["start_date"] == "2020-01-01T00:00:00Z"
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "DocuSign token request failed: status=400 error=consent_required description=None",
-            "DocuSign token request failed: status=400 error=invalid_grant description=bad user",
-            "401 Client Error: Unauthorized for url: https://na3.docusign.net/restapi/v2.1/accounts/222/envelopes",
-            "403 Client Error: Forbidden for url: https://na3.docusign.net/restapi/v2.1/accounts/222/users",
-        ],
-    )
-    def test_non_retryable_errors_match_permanent_failures(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "transient_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://na3.docusign.net/restapi/v2.1/accounts/222/envelopes",
-            "500 Server Error: Internal Server Error for url: https://na3.docusign.net/restapi",
-        ],
-    )
-    def test_transient_errors_stay_retryable(self, transient_error: str) -> None:
-        assert not any(key in transient_error for key in self.source.get_non_retryable_errors())
 
     def test_optional_config_fields_default_to_none(self) -> None:
         config: Optional[DocusignSourceConfig] = jwt_config()

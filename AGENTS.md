@@ -66,7 +66,7 @@ Invoke `/writing-pr-descriptions` before writing the body — it carries the sha
 Always fill the `## 🤖 Agent context` section, including the exact model that wrote the code.
 NEVER put sensitive information in a PR description or comment. A user may share sensitive data in an agent session; none of it belongs on the PR.
 
-**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+**Screenshots:** Show frontend/visual changes with a screenshot, or with a feature reel when `/writing-pr-descriptions` calls for one. Upload with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 
@@ -142,6 +142,11 @@ Examples:
 
 ## Security
 
+Route security-related changes by merge status and disclosure risk: fix problems introduced by an open public PR in that PR, keep fixes that would disclose an existing exploitable weakness private until deployment, and make safe, non-secret fixes in `PostHog/posthog`. See [Routing security fixes](.agents/security.md#routing-security-fixes).
+**Every other change lands in `PostHog/posthog`, also when the session starts in a `PostHog/posthog-private` checkout.**
+The private mirror carries this file, and its `origin` points at the private repo, so a default push or `gh pr create` opens the PR there.
+Before the first push of a branch, run `git remote get-url origin`.
+If it names `posthog-private` and the change is not a security fix, open the PR from a `PostHog/posthog` checkout.
 Do not add new `INTERNAL_API_SECRET` callers.
 Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
@@ -294,7 +299,6 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-with-coderabbit` — before `gh pr create`, or when a branch review is requested, check `test -n "${POSTHOG_TASK_RUN_ID:-}" || test -n "${CI:-}"` first. If true, skip the local review without probing `cr`, loading the skill, or announcing the skip. Otherwise invoke the skill and, if a person can answer, offer setup or a skip when `cr` is missing or signed out. Never substitute `/code-review` or review subagents.
 
 **Invoke when in the area:**
 
@@ -316,7 +320,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/editing-agents-md` — adding, editing or removing a rule in any `AGENTS.md` or `CLAUDE.md`, root or nested
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
-- [`ee/hogai/eval/AGENTS.md`](ee/hogai/eval/AGENTS.md) — writing eval cases or fixture data by hand anywhere (not a skill, and not covered by `/writing-evals`): where that data may come from, and why anonymizing a real conversation does not make it publishable
+- [`products/posthog_ai/evals/AGENTS.md`](products/posthog_ai/evals/AGENTS.md) — read before writing eval cases for the seeded Hedgebox taxonomy and the rules for invented case data
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy

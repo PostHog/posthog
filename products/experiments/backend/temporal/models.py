@@ -35,10 +35,12 @@ METRICS_RECALCULATION_WORKFLOW_NAME = "experiment-metrics-recalculation-workflow
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 
-# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the cluster's
-# at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's 5s
-# exponential schedule.
-CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
+# Retry delay window for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the
+# cluster's at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's
+# 5s exponential schedule. Each bounce picks a random delay in the window, so metrics that bounced in the same
+# burst do not retry at the same moment and hit the same full limit again.
+CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 30
+CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 90
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
@@ -214,3 +216,16 @@ class ExperimentPrecomputeEnrollmentCensusInputs:
     would qualify for precomputation enrollment; it never enrolls anyone."""
 
     window_days: int = 14
+
+
+SCHEDULED_RECALCULATION_WORKFLOW_NAME = "experiment-scheduled-recalculation-workflow"
+
+
+@frozen
+class ScheduledRecalculationStartResult:
+    """Outcome of one experiment's start attempt, for the coordinator's summary counts."""
+
+    experiment_id: int
+    started: bool
+    recalculation_id: str | None = None
+    skip_reason: str | None = None

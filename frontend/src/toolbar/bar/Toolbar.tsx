@@ -18,7 +18,6 @@ import {
     IconLeave,
     IconLive,
     IconLock,
-    IconMessage,
     IconNight,
     IconPieChart,
     IconQuestion,
@@ -48,7 +47,6 @@ import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
-import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import {
     ToolbarFeatureGateStatus,
@@ -103,14 +101,6 @@ const ProductToursToolbarMenu = lazy(() =>
 )
 const HeatmapToolbarMenu = lazy(() =>
     retryImport(() => import('~/toolbar/stats/HeatmapToolbarMenu')).then((m) => ({ default: m.HeatmapToolbarMenu }))
-)
-const SurveySidebar = lazy(() =>
-    retryImport(() => import('~/toolbar/surveys/SurveySidebar')).then((m) => ({ default: m.SurveySidebar }))
-)
-const SurveysToolbarMenu = lazy(() =>
-    retryImport(() => import('~/toolbar/surveys/SurveysToolbarMenu')).then((m) => ({
-        default: m.SurveysToolbarMenu,
-    }))
 )
 const WebVitalsToolbarMenu = lazy(() =>
     retryImport(() => import('~/toolbar/web-vitals/WebVitalsToolbarMenu')).then((m) => ({
@@ -401,9 +391,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
-    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
-    const showSurveys = surveysFlag
-
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
     const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
 
@@ -455,8 +442,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ProductToursToolbarMenu />
     ) : visibleMenu === 'field-notes' && showFieldNotes ? (
         <FieldNotesToolbarMenu />
-    ) : visibleMenu === 'surveys' && showSurveys ? (
-        <SurveysToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -515,13 +500,9 @@ export function Toolbar(): JSX.Element | null {
     const { authenticate, openUiHostConfigModal, closeUiHostConfigModal, closeAuthConfirmModal } =
         useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
-    const { isCreating: isSurveyCreating } = useValues(surveysToolbarLogic)
 
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
-
-    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
-    const showSurveys = surveysFlag
 
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
     const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
@@ -570,7 +551,6 @@ export function Toolbar(): JSX.Element | null {
             <Suspense fallback={null}>
                 {showToursSidebar && <ProductToursSidebar />}
                 {showFieldNotes && <FieldNotesOverlay />}
-                {isSurveyCreating && <SurveySidebar />}
             </Suspense>
             <ToolbarInfoMenu />
             <div
@@ -579,14 +559,9 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
-                    'Toolbar--extra-buttons-3':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
-                    'Toolbar--extra-buttons-4':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
+                    'Toolbar--extra-buttons-1': 1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2': 1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-3': 1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) === 3,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -660,11 +635,6 @@ export function Toolbar(): JSX.Element | null {
                         {showFieldNotes && (
                             <ToolbarButton menuId="heatmap" title={HEATMAP_GATE_TITLES[heatmapGate] ?? 'Heatmaps'}>
                                 <LockableMenuIcon icon={<IconApp />} locked={heatmapGate === 'locked'} />
-                            </ToolbarButton>
-                        )}
-                        {showSurveys && (
-                            <ToolbarButton menuId="surveys" title="Surveys">
-                                <IconMessage />
                             </ToolbarButton>
                         )}
                     </>

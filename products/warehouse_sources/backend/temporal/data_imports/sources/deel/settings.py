@@ -9,6 +9,11 @@ from products.warehouse_sources.backend.types import IncrementalField
 # Several Deel endpoints cap `limit` below 100, so stay safely under every cap.
 PAGE_SIZE = 50
 
+# `v2` is the `/rest/v2` path that sends no version header. `2026-01-01` is Deel's dated baseline,
+# selected per request with the `X-Version` header.
+DEEL_API_VERSION_V2 = "v2"
+DEEL_API_VERSION_2026_01_01 = "2026-01-01"
+
 
 # Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
 # `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's fields
@@ -36,6 +41,12 @@ class DeelEndpointConfig:
     # Extra query params sent on every request to this endpoint.
     params: dict[str, Any] = field(default_factory=dict)
     fanout: Optional[DependentEndpointConfig] = None
+    # `X-Version` sent under a dated pin. Deel versions each endpoint on its own date, and an endpoint
+    # published after the 2026-01-01 baseline rejects any date it was not published under.
+    x_version: str = DEEL_API_VERSION_2026_01_01
+    # Endpoints published after Deel moved to dated versions are documented only under `/rest`, so
+    # the legacy `v2` pin does not list them.
+    on_legacy_v2: bool = True
     # Deel exposes no updated-since filter on the endpoints synced here, so both stay empty —
     # `FanoutEndpointLike` requires them.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -257,6 +268,55 @@ DEEL_ENDPOINTS: dict[str, DeelEndpointConfig] = {
         pagination="none",
         page_size_param=None,
     ),
+    "it_seats": DeelEndpointConfig(
+        name="it_seats",
+        path="/it/seats",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # Deel documents a default of 20 and no maximum.
+        page_size=20,
+        partition_key="created_at",
+        x_version="2026-09-25",
+        on_legacy_v2=False,
+    ),
+    "it_clearance_requests": DeelEndpointConfig(
+        name="it_clearance_requests",
+        path="/it/clearance-requests",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # Deel documents a default of 20 and no maximum.
+        page_size=20,
+        partition_key="created_at",
+        x_version="2026-09-16",
+        on_legacy_v2=False,
+    ),
+    "time_off_policies": DeelEndpointConfig(
+        name="time_off_policies",
+        path="/time-offs/policy",
+        pagination="cursor",
+        cursor_path=("next",),
+        cursor_param="next",
+        has_more_path=("has_next_page",),
+        page_size_param="page_size",
+        partition_key="created_at",
+        x_version="2026-09-09",
+        on_legacy_v2=False,
+    ),
+    "equity_awards": DeelEndpointConfig(
+        name="equity_awards",
+        path="/equity-awards",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        partition_key="created_at",
+        x_version="2026-09-09",
+        on_legacy_v2=False,
+    ),
 }
 
 # `/time_offs/time-off-events` takes its worker profile as a query param, which the shared fan-out
@@ -271,3 +331,11 @@ GROSS_TO_NET_PARENT = "payroll_cycles"
 GROSS_TO_NET_ROOT = "legal_entities"
 
 ENDPOINTS = tuple(DEEL_ENDPOINTS.keys())
+
+
+def endpoints_for_version(api_version: str) -> tuple[str, ...]:
+    if api_version == DEEL_API_VERSION_V2:
+        return tuple(name for name, config in DEEL_ENDPOINTS.items() if config.on_legacy_v2)
+    if api_version == DEEL_API_VERSION_2026_01_01:
+        return ENDPOINTS
+    raise ValueError(f"Unsupported Deel API version: {api_version}")

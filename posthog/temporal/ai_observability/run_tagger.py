@@ -13,7 +13,11 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    GENERATION_NOT_FOUND_MAX_ATTEMPTS,
+    extract_event_io,
+    hydrate_event_reference,
+)
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
@@ -24,6 +28,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
@@ -236,7 +241,7 @@ def _resolve_model(model_configuration: dict[str, Any] | None, team_id: int) -> 
 def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     tagger = inputs.tagger
-    event_data = inputs.event_data
+    event_data = hydrate_event_reference(inputs.event_data)
 
     tagger_config = tagger.get("tagger_config", {})
     prompt = tagger_config.get("prompt")
@@ -347,9 +352,9 @@ Output: {output_data}"""
             type=TAGGER_REQUEST_REJECTED_ERROR_TYPE,
             non_retryable=True,
         ) from e
-    except (OutputTokenLimitError, StructuredOutputParseError) as e:
-        # A reply cut off at the output limit reaches the tagger as unusable output, same as a
-        # malformed one, so both take the parse path.
+    except (OutputTokenLimitError, StructuredOutputParseError, ContentFilteredError) as e:
+        # A reply cut off at the output limit or refused by the content filter reaches the tagger
+        # as unusable output, same as a malformed one, so all take the parse path.
         logger.warning("LLM tagger returned unusable output", tagger_id=tagger["id"], model=model, error=str(e))
         raise ApplicationError(
             str(e),
@@ -490,6 +495,7 @@ async def execute_hog_tagger_activity(tagger: dict[str, Any], event_data: dict[s
 
     tags_def = tagger_config.get("tags", [])
     valid_tag_names = {tag["name"] for tag in tags_def}
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(event_data)
 
     def _execute():
         return run_hog_tagger(bytecode, event_data, valid_tag_names)
@@ -528,7 +534,7 @@ class EmitTaggerEventInputs:
 async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     """Emit $ai_tag event via capture_internal."""
     tagger = inputs.tagger
-    event_data = inputs.event_data
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
@@ -650,12 +656,13 @@ class RunTaggerWorkflow(PostHogWorkflow):
 
         # Activity 2: Execute tagger based on type
         if tagger_type == "hog":
-            # Hog taggers are deterministic — don't retry
+            # Hog errors are non-retryable; the attempts only cover a referenced event that is not
+            # in ai_events yet.
             result = await temporalio.workflow.execute_activity(
                 execute_hog_tagger_activity,
                 args=[tagger, inputs.event_data],
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                schedule_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=GENERATION_NOT_FOUND_MAX_ATTEMPTS),
             )
         else:
             # LLM tagger
@@ -719,7 +726,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 result=result,
                 start_time=start_time,
             ),
-            schedule_to_close_timeout=timedelta(seconds=30),
+            schedule_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 

@@ -101,6 +101,26 @@ class TestRecomputeTask(BaseTest):
         self.assertEqual(progress.current_stage, 1)
         self.assertEqual(progress.state["checkpoint"], checkpoint)
 
+    def test_partial_conversion_checkpoint_stays_due_for_next_sweep(self) -> None:
+        checkpoint: dict[str, object] = {"bootstrap": {"next_start": "2026-01-09T00:00:00+00:00"}}
+        calls = 0
+
+        def conversions(_ctx: EvalContext, _prior: PriorProgress) -> TrackEvaluation:
+            nonlocal calls
+            calls += 1
+            return TrackEvaluation(value=calls, checkpoint=checkpoint, complete=False)
+
+        evaluators = {**make_incremental_evaluators(), "conversions": conversions}
+        self._run_team(evaluators)
+        self._run_team(evaluators)
+
+        progress = self._team_progress("conversions")
+        self.assertEqual(calls, 2)
+        self.assertEqual(progress.progress_value, 0)
+        self.assertEqual(progress.current_stage, 0)
+        self.assertEqual(progress.state["checkpoint"], checkpoint)
+        self.assertIsNone(progress.last_computed_at)
+
     @parameterized.expand([("racing_recompute", True), ("racing_backfill", False)])
     def test_overlapping_team_recompute_keeps_the_first_checkpoint(
         self, _name: str, bumps_last_computed_at: bool

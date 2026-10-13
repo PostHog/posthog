@@ -1619,3 +1619,138 @@ exports[`marketing analytics utils createMarketingTile snapshots TikTokAds - roa
   "timestamp_field": "stat_time_day",
 }
 `;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - clicks 1`] = `
+{
+  "custom_name": "prefix.campaign_stats clicks",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(clicks), 0))",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - cost 1`] = `
+{
+  "custom_name": "prefix.campaign_stats cost",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "(SUM(toFloat(convertCurrency(coalesce(currency, 'USD'), 'USD', toFloat(billed_charge_local_micro / 1000000), coalesce(toDate(date), today())))) + throwIf(countIf(empty(coalesce(currency, ''))) > 0, 'X Ads currency is missing. Fully resync campaign_stats, then try again.'))",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - impressions 1`] = `
+{
+  "custom_name": "prefix.campaign_stats impressions",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_stats reported_conversion",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.campaign_stats reported_conversion",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_stats reported_conversion_value",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.campaign_stats reported_conversion_value",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_stats roas",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots TwitterAds - roas 1`] = `
+{
+  "custom_name": "prefix.campaign_stats roas",
+  "distinct_id_field": "entity_id",
+  "id": "TwitterAds-stats-table-id",
+  "id_field": "entity_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "twitter",
+  "table_name": "prefix.campaign_stats",
+  "timestamp_field": "date",
+}
+`;

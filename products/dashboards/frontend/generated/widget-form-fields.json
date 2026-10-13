@@ -7,6 +7,13 @@
             "formFields": ["limit", "dateRange", "filterTestAccounts"],
             "live": false
         },
+        "canvas_app": {
+            "configSchemaExport": "canvasAppWidgetConfigSchema",
+            "configTypeExport": "CanvasAppWidgetConfig",
+            "formSchemaExport": "canvasAppWidgetFormSchema",
+            "formFields": ["canvasId"],
+            "live": false
+        },
         "conversations_recent_tickets": {
             "configSchemaExport": "conversationsRecentTicketsWidgetConfigSchema",
             "configTypeExport": "ConversationsRecentTicketsWidgetConfig",

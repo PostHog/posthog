@@ -46,6 +46,10 @@ class MCPToolResponse(MCPToolResult):
     error_type: MaxToolErrorType | None = pydantic.Field(
         default=None, description="Failure category for MCP analytics."
     )
+    error_code: str | None = pydantic.Field(
+        default=None,
+        description="Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name.",
+    )
 
 
 class DocsSearchRequestSerializer(serializers.Serializer):
@@ -177,6 +181,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                     "success": False,
                     "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
                     "error_type": e.error_type,
+                    **({"error_code": e.error_code} if e.error_code else {}),
                 }
             )
         except Exception as e:

@@ -1,13 +1,4 @@
-"""Product analytics trends eval cases for the sandboxed coding agent.
-
-Intent mirrors ``ee/hogai/eval/ci/eval_trends.py`` — the CI version asserts
-on the exact ``AssistantTrendsQuery`` Max produces, this version exercises
-the same intents end-to-end through the sandboxed agent + PostHog MCP tools
-and judges the trends query the agent ran via the ``query-trends`` MCP tool.
-
-To run:
-    flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_trends"
-"""
+"""Product analytics trends eval cases for the sandbox agent."""
 
 from __future__ import annotations
 

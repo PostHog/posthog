@@ -6,6 +6,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,6 +28,7 @@ from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
 from products.tasks.backend.facade.agents import TurnPollResult
+from products.tasks.backend.facade.contracts import AgentTaskRunDTO
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
@@ -73,18 +75,18 @@ class _Provider(SandboxProviderStrategy):
         self.cleaned_task_ids.append(task_id)
 
 
-class _TaskRun:
-    id = "run-id"
-
-    def get_workflow_id(self, task_id: str, run_id: str) -> str:
-        return f"{task_id}-{run_id}"
+_TASK_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _patch_runner_boundaries(monkeypatch: pytest.MonkeyPatch, handle: _FakeWorkflowHandle, poll: AsyncMock) -> None:
-    task = SimpleNamespace(id="task-id")
-    task_run = _TaskRun()
+    task_run = AgentTaskRunDTO(
+        task_id=_TASK_ID,
+        run_id=UUID("00000000-0000-0000-0000-000000000002"),
+        team_id=25,
+        workflow_id="eval-task-workflow",
+    )
     client = SimpleNamespace(get_workflow_handle=lambda _workflow_id: handle)
-    monkeypatch.setattr(runner, "create_task_and_trigger", AsyncMock(return_value=(task, task_run)))
+    monkeypatch.setattr(runner, "create_task_and_trigger", AsyncMock(return_value=task_run))
     monkeypatch.setattr(runner, "async_connect", AsyncMock(return_value=client))
     monkeypatch.setattr(runner, "poll_for_turn", poll)
 
@@ -227,7 +229,7 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
 
     assert result.artifacts.exit_code == 0
     assert handle.signals == [["completed", None]]
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 @pytest.mark.asyncio
@@ -244,7 +246,7 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pyt
         )
 
     assert handle.signals[0][0] == "failed"
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 @pytest.mark.asyncio
@@ -273,7 +275,7 @@ async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: py
         await case_task
 
     assert handle.signals[0][0] == "failed"
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 @pytest.mark.asyncio
@@ -300,7 +302,7 @@ async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytes
         )
 
     assert handle.cancelled
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pytest.MonkeyPatch) -> None:

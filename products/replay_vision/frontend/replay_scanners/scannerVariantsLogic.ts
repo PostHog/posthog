@@ -1,0 +1,416 @@
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { getSeriesColor } from 'lib/colors'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { signalsScoutConfigRun } from 'products/signals/frontend/generated/api'
+import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { type ScoutRollup, normalizeRunStatus } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+
+import type { SignalScoutConfig } from '../../../signals/frontend/inbox/logics/scoutFleetLogic'
+import { visionScannersVariantsList } from '../generated/api'
+import {
+    type ExperimentVariantsReadoutApi,
+    ObservationStatusEnumApi,
+    type VariantsAnalysisStateApi,
+} from '../generated/api.schemas'
+import { ReplayScannerTab } from './replayScannerSceneLogic'
+import { isScannerScoutConfig, variantAnalysisScout } from './scannerScout'
+
+/** The observations list's value for observations with no resolved variant. */
+export const UNATTRIBUTED_VARIANT = '__unattributed__'
+
+/**
+ * Where the variant comparison stands:
+ * - `no_scout`: no variant analysis scout is set up.
+ * - `pending`: the scout exists but has not recorded an analysis yet.
+ * - `updating`: the newest analysis covers an older scanner version, so the API hides it.
+ * - `ready`: a current analysis is shown.
+ */
+export type VariantComparisonState = 'no_scout' | 'pending' | 'updating' | 'ready'
+
+/** `hasScout` covers a scout created after the readout loaded, so the CTA does not offer a second one. */
+export function variantComparisonState(
+    analysis: VariantsAnalysisStateApi | null | undefined,
+    hasScout: boolean
+): VariantComparisonState {
+    if (!analysis) {
+        return hasScout ? 'pending' : 'no_scout'
+    }
+    if (!analysis.recorded_at) {
+        return 'pending'
+    }
+    return analysis.current ? 'ready' : 'updating'
+}
+
+export function variantObservationsUrl(scannerId: string, variantKey: string): string {
+    return combineUrl(urls.replayVision(scannerId), {
+        tab: ReplayScannerTab.Observations,
+        variant: variantKey,
+        // The readout counts only succeeded observations, and an observation that has not succeeded has no variant yet.
+        ...(variantKey === UNATTRIBUTED_VARIANT ? { status: ObservationStatusEnumApi.Succeeded } : {}),
+    }).url
+}
+
+/**
+ * The Observations tab's variant filter choices: every variant, each watched variant, and observations
+ * with no variant. A key from the URL that is not in the list stays selectable, so the filter keeps showing it.
+ */
+export function variantFilterOptions(
+    variantKeys: string[],
+    current: string | null
+): { value: string | null; label: string }[] {
+    const keys =
+        current && current !== UNATTRIBUTED_VARIANT && !variantKeys.includes(current)
+            ? [...variantKeys, current]
+            : variantKeys
+    return [
+        { value: null, label: 'All variants' },
+        ...keys.map((key) => ({ value: key, label: key })),
+        { value: UNATTRIBUTED_VARIANT, label: 'No variant' },
+    ]
+}
+
+/** The shortest time between two variant analysis runs that the Variants tab starts. */
+export const VARIANT_ANALYSIS_RUN_COOLDOWN_MS = 60 * 60 * 1000
+const ANALYSIS_RUN_POLL_MS = 30 * 1000
+// Moves the Run now cooldown forward while the tab stays open with nothing else re-rendering it.
+const CLOCK_TICK_MS = 30 * 1000
+// A scout run stops at about 16 minutes, so a run still going after this is not watched any longer.
+const ANALYSIS_RUN_WATCH_MS = 30 * 60 * 1000
+// The run's start time comes from the server clock.
+const CLOCK_SKEW_MS = 60 * 1000
+
+/** Why the Variants tab can't start a variant analysis run now, or null when it can. */
+export function variantAnalysisRunDisabledReason({
+    running,
+    lastRunStartedAt,
+    hasObservations,
+    now,
+}: {
+    running: boolean
+    lastRunStartedAt: string | null
+    hasObservations: boolean
+    now: number
+}): string | null {
+    if (running) {
+        return 'Variant analysis is running. The comparison updates when it finishes.'
+    }
+    if (!hasObservations) {
+        return 'There are no observations to compare yet.'
+    }
+    if (lastRunStartedAt) {
+        const elapsed = now - new Date(lastRunStartedAt).getTime()
+        if (elapsed < VARIANT_ANALYSIS_RUN_COOLDOWN_MS) {
+            const minutesLeft = Math.ceil((VARIANT_ANALYSIS_RUN_COOLDOWN_MS - elapsed) / 60_000)
+            return `Variant analysis ran in the last hour. You can run it again in ${pluralize(minutesLeft, 'minute')}.`
+        }
+    }
+    return null
+}
+
+export interface VariantAnalysisRunRequest {
+    skillName: string
+    requestedAt: number
+}
+
+export interface ScannerVariantsLogicProps {
+    scannerId: string
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface scannerVariantsLogicValues {
+    rollups: Map<string, ScoutRollup> // scoutFleetLogic
+    scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
+    analysisRunInFlight: boolean
+    analysisRunRequest: VariantAnalysisRunRequest | null
+    analysisRunStarting: boolean
+    analysisSkillName: string | null
+    now: number
+    readout: ExperimentVariantsReadoutApi | null
+    readoutFailed: boolean
+    readoutLoading: boolean
+    variantColors: Record<string, string>
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface scannerVariantsLogicActions {
+    loadScoutConfigsSuccess: (
+        scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null,
+        payload?: void | undefined
+    ) => {
+        payload?: void | undefined
+        scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null
+    } // scoutFleetLogic
+    loadScoutRuns: (_?: void | undefined) => void // scoutFleetLogic
+    loadScoutRunsSuccess: (
+        scoutRuns: import('products/signals/frontend/inbox/types').SignalScoutRunSummary[],
+        payload?: void | undefined
+    ) => {
+        payload?: void | undefined
+        scoutRuns: import('products/signals/frontend/inbox/types').SignalScoutRunSummary[]
+    } // scoutFleetLogic
+    analysisRunSettled: () => {
+        value: true
+    }
+    analysisRunStarted: (request: VariantAnalysisRunRequest) => {
+        request: VariantAnalysisRunRequest
+    }
+    checkAnalysisRun: () => {
+        value: true
+    }
+    clockTick: () => {
+        value: true
+    }
+    loadReadout: () => any
+    loadReadoutFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReadoutSuccess: (
+        readout: ExperimentVariantsReadoutApi,
+        payload?: any
+    ) => {
+        readout: ExperimentVariantsReadoutApi
+        payload?: any
+    }
+    runAnalysisNow: (
+        configId: string,
+        skillName: string
+    ) => {
+        configId: string
+        requestedAt: number
+        skillName: string
+    }
+    setupAnalysisClicked: () => {
+        value: true
+    }
+    variantObservationsOpened: (variantKey: string) => {
+        variantKey: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface scannerVariantsLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        analysisSkillName: (
+            scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null
+        ) => string | null
+        analysisRunInFlight: (
+            rollups: Map<string, ScoutRollup>,
+            analysisSkillName: string | null,
+            analysisRunRequest: VariantAnalysisRunRequest | null
+        ) => boolean
+        variantColors: (readout: ExperimentVariantsReadoutApi | null) => Record<string, string>
+    }
+}
+
+export type scannerVariantsLogicType = MakeLogicType<
+    scannerVariantsLogicValues,
+    scannerVariantsLogicActions,
+    ScannerVariantsLogicProps,
+    scannerVariantsLogicMeta
+>
+
+/** The Variants tab of an experiment scanner: the per-variant readout and its comparison. */
+export const scannerVariantsLogic = kea<scannerVariantsLogicType>([
+    path((key) => ['products', 'replay_vision', 'replay_scanners', 'scannerVariantsLogic', key]),
+    props({} as ScannerVariantsLogicProps),
+    key((props) => props.scannerId),
+
+    connect(() => ({
+        values: [scoutFleetLogic, ['rollups', 'scoutConfigs']],
+        actions: [scoutFleetLogic, ['loadScoutRuns', 'loadScoutRunsSuccess', 'loadScoutConfigsSuccess']],
+    })),
+
+    actions({
+        setupAnalysisClicked: true,
+        variantObservationsOpened: (variantKey: string) => ({ variantKey }),
+        runAnalysisNow: (configId: string, skillName: string) => ({ configId, skillName, requestedAt: Date.now() }),
+        analysisRunStarted: (request: VariantAnalysisRunRequest) => ({ request }),
+        analysisRunSettled: true,
+        checkAnalysisRun: true,
+        clockTick: true,
+    }),
+
+    loaders(({ props }) => ({
+        readout: [
+            null as ExperimentVariantsReadoutApi | null,
+            {
+                loadReadout: async () =>
+                    visionScannersVariantsList(String(teamLogic.values.currentTeamId), props.scannerId),
+            },
+        ],
+    })),
+
+    reducers(() => ({
+        now: [Date.now(), { clockTick: () => Date.now() }],
+        readoutFailed: [false, { loadReadout: () => false, loadReadoutFailure: () => true }],
+        analysisRunStarting: [
+            false,
+            { runAnalysisNow: () => true, analysisRunStarted: () => false, analysisRunSettled: () => false },
+        ],
+        // The run this tab started and still waits for. Its run row only appears once the run begins.
+        analysisRunRequest: [
+            null as VariantAnalysisRunRequest | null,
+            { analysisRunStarted: (_, { request }) => request, analysisRunSettled: () => null },
+        ],
+    })),
+
+    selectors(({ props }) => ({
+        analysisSkillName: [
+            (s) => [s.scoutConfigs],
+            (
+                scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null
+            ): string | null =>
+                variantAnalysisScout(
+                    (scoutConfigs ?? []).filter((config) => isScannerScoutConfig(config, props.scannerId))
+                )?.skill_name ?? null,
+        ],
+        // A run this tab asked for, or a run of the scout queued or in progress, wherever it was started.
+        analysisRunInFlight: [
+            (s) => [s.rollups, s.analysisSkillName, s.analysisRunRequest],
+            (
+                rollups: Map<string, ScoutRollup>,
+                analysisSkillName: string | null,
+                analysisRunRequest: VariantAnalysisRunRequest | null
+            ): boolean => {
+                if (analysisRunRequest) {
+                    return true
+                }
+                const run = analysisSkillName ? rollups.get(analysisSkillName)?.latestRun : null
+                const status = run ? normalizeRunStatus(run.status) : null
+                return status === 'running' || status === 'queued'
+            },
+        ],
+        // Series colors in the readout's variant order, the same palette the experiment results use.
+        variantColors: [
+            (s) => [s.readout],
+            (readout: ExperimentVariantsReadoutApi | null): Record<string, string> =>
+                Object.fromEntries(
+                    (readout?.variants ?? []).map((variant, index) => [variant.key, getSeriesColor(index)])
+                ),
+        ],
+    })),
+
+    listeners(({ props, cache, actions, values }) => {
+        const pollAnalysisRuns = (): void => {
+            cache.disposables.add(() => {
+                const interval = window.setInterval(() => actions.loadScoutRuns(), ANALYSIS_RUN_POLL_MS)
+                return () => window.clearInterval(interval)
+            }, 'analysisRunPoll')
+        }
+        // Settling also clears the starting state, so only a request this tab made is settled.
+        const stopWatching = (): void => {
+            if (values.analysisRunRequest) {
+                actions.analysisRunSettled()
+            } else {
+                cache.disposables.dispose('analysisRunPoll')
+            }
+        }
+        return {
+            runAnalysisNow: async ({ configId, skillName, requestedAt }) => {
+                posthog.capture('replay_vision_variant_analysis_run_now_clicked', { scanner_id: props.scannerId })
+                try {
+                    await signalsScoutConfigRun(String(teamLogic.values.currentTeamId), configId)
+                } catch (error: any) {
+                    // The endpoint refuses on purpose when a run is in progress or a limit is reached, and says why.
+                    lemonToast.error(error?.detail || 'Could not start variant analysis. Try again later.')
+                    actions.analysisRunSettled()
+                    return
+                }
+                actions.analysisRunStarted({ skillName, requestedAt })
+                lemonToast.success('Variant analysis started. The comparison updates when it finishes.')
+                actions.loadScoutRuns()
+                pollAnalysisRuns()
+            },
+            loadScoutRunsSuccess: () => actions.checkAnalysisRun(),
+            loadScoutConfigsSuccess: () => actions.checkAnalysisRun(),
+            // Watches the scout's latest run, whether this tab or the schedule started it, and reloads the
+            // comparison when a run it saw in flight finishes.
+            checkAnalysisRun: () => {
+                const request = values.analysisRunRequest
+                const skillName = request?.skillName ?? values.analysisSkillName
+                if (!skillName) {
+                    return
+                }
+                const run = values.rollups.get(skillName)?.latestRun ?? null
+                const status = run ? normalizeRunStatus(run.status) : null
+                const inFlight = status === 'running' || status === 'queued'
+                const isRequestedRun =
+                    !!request &&
+                    !!run?.started_at &&
+                    new Date(run.started_at).getTime() >= request.requestedAt - CLOCK_SKEW_MS
+                const waiting = inFlight || (!!request && !isRequestedRun)
+                if (waiting) {
+                    const since =
+                        inFlight && run?.started_at ? new Date(run.started_at).getTime() : request?.requestedAt
+                    if (since !== undefined && Date.now() - since > ANALYSIS_RUN_WATCH_MS) {
+                        stopWatching()
+                        return
+                    }
+                    if (inFlight && run) {
+                        cache.watchedRunId = run.run_id
+                    }
+                    pollAnalysisRuns()
+                    return
+                }
+                const finishedWatchedRun = !!run && run.run_id === cache.watchedRunId
+                cache.watchedRunId = null
+                stopWatching()
+                if (isRequestedRun && status === 'failed') {
+                    lemonToast.error("Variant analysis didn't finish. Open the scout to see what happened.")
+                }
+                if (isRequestedRun || finishedWatchedRun) {
+                    actions.loadReadout()
+                }
+            },
+            analysisRunSettled: () => {
+                cache.disposables.dispose('analysisRunPoll')
+            },
+            // Once per mount: a reload after a scout is set up is not a second view.
+            loadReadoutSuccess: ({ readout }) => {
+                if (!cache.viewReported && readout) {
+                    cache.viewReported = true
+                    posthog.capture('replay_vision_variants_tab_viewed', {
+                        scanner_id: props.scannerId,
+                        comparison_state: variantComparisonState(readout.analysis, false),
+                        variant_count: readout.variants.length,
+                        total_observations: readout.window.total_observations,
+                        scout_paused: readout.analysis ? !readout.analysis.scout_enabled : null,
+                    })
+                }
+            },
+            setupAnalysisClicked: () => {
+                posthog.capture('replay_vision_variant_analysis_cta_clicked', { scanner_id: props.scannerId })
+            },
+            variantObservationsOpened: ({ variantKey }) => {
+                posthog.capture('replay_vision_variant_observations_opened', {
+                    scanner_id: props.scannerId,
+                    variant: variantKey === UNATTRIBUTED_VARIANT ? 'unattributed' : 'variant',
+                })
+            },
+        }
+    }),
+
+    afterMount(({ actions, cache }) => {
+        actions.loadReadout()
+        actions.clockTick()
+        cache.disposables.add(() => {
+            const interval = window.setInterval(() => actions.clockTick(), CLOCK_TICK_MS)
+            return () => window.clearInterval(interval)
+        }, 'clockTick')
+        // The scout's runs may have loaded before this tab opened, with a run already in progress.
+        actions.checkAnalysisRun()
+    }),
+])

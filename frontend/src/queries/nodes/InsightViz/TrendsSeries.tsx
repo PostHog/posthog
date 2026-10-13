@@ -35,7 +35,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
+    const { updateQuerySource, setFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -75,7 +75,7 @@ export function TrendsSeries(): JSX.Element | null {
         <LemonSwitch
             className="mt-2"
             checked={hasFormula}
-            onChange={() => toggleFormulaMode()}
+            onChange={setFormulaMode}
             disabled={hasFormula && !canDisableFormula}
             label="Formula mode"
             bordered
@@ -130,6 +130,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.AutocaptureEvents,
                     ...(supportsDataWarehouse ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
+                flagCallsFromFlagEvaluations={supportsDataWarehouse}
                 hideDeleteBtn={series?.length === 1}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}

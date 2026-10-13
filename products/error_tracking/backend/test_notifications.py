@@ -5,7 +5,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.facade.testing import create_role
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueAssignment
 from products.error_tracking.backend.notifications import _AssignerExcludingResolver, dispatch_issue_assigned_realtime
 from products.notifications.backend.facade.enums import TargetType
@@ -45,17 +45,17 @@ class TestDispatchIssueAssignedRealtime(BaseTest):
 
     @patch("products.error_tracking.backend.notifications.create_notification")
     def test_role_assignment_uses_role_target_with_assigner_excluding_resolver(self, mock_create_notification):
-        role = Role.objects.create(name="Devs", organization=self.organization)
-        assignment = ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, role=role)
+        role_id = create_role(organization_id=self.organization.id, name="Devs")
+        assignment = ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, role_id=role_id)
         dispatch_issue_assigned_realtime(
             assignment=assignment,
-            assignee={"type": "role", "id": role.id},
+            assignee={"type": "role", "id": role_id},
             assigner=self.assigner,
         )
         mock_create_notification.assert_called_once()
         data = mock_create_notification.call_args.args[0]
         assert data.target_type == TargetType.ROLE
-        assert data.target_id == str(role.id)
+        assert data.target_id == str(role_id)
         assert isinstance(data.resolver, _AssignerExcludingResolver)
         assert data.resolver._assigner_id == self.assigner.id
 

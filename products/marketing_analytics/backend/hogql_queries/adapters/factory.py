@@ -52,6 +52,7 @@ from .google_ads import GoogleAdsAdapter
 from .openai_ads import OpenAIAdsAdapter
 from .rokt_ads import RoktAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
+from .twitter_ads import TwitterAdsAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +86,7 @@ class MarketingSourceFactory:
         "AppleSearchAds": AppleSearchAdsAdapter,
         "OpenAIAds": OpenAIAdsAdapter,
         "RoktAds": RoktAdsAdapter,
+        "TwitterAds": TwitterAdsAdapter,
         "GoogleAds": GoogleAdsAdapter,
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
@@ -109,6 +111,7 @@ class MarketingSourceFactory:
         "AppleSearchAds": (NativeMarketingSource.APPLE_SEARCH_ADS, HierarchicalNativeAdsConfig),
         "OpenAIAds": (NativeMarketingSource.OPEN_AI_ADS, HierarchicalNativeAdsConfig),
         "RoktAds": (NativeMarketingSource.ROKT_ADS, HierarchicalNativeAdsConfig),
+        "TwitterAds": (NativeMarketingSource.TWITTER_ADS, HierarchicalNativeAdsConfig),
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
         "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),

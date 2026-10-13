@@ -69,6 +69,7 @@ interface RecoveryHintInput {
     url?: string | undefined
     /** The HTTP status code, if known. */
     status?: number | undefined
+    retryAfterSeconds?: number | null
 }
 
 /**
@@ -79,7 +80,11 @@ interface RecoveryHintInput {
  * 4xx responses already carry an actionable validation detail and must not be
  * buried under a generic hint.
  */
-export function getToolRecoveryHint({ url, status }: RecoveryHintInput): string | undefined {
+export function getToolRecoveryHint({ url, status, retryAfterSeconds }: RecoveryHintInput): string | undefined {
+    if (status === 503 && retryAfterSeconds != null) {
+        return `The PostHog API is temporarily unavailable. Wait at least ${retryAfterSeconds} seconds before retrying this request.`
+    }
+
     // 4xx is recoverable agent input, already surfaced verbatim upstream.
     if (status !== undefined && status < 500) {
         return undefined

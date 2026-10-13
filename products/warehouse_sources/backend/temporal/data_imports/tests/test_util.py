@@ -22,7 +22,10 @@ from parameterized import parameterized
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
-from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import (
+    QueryFolderPointerHistory,
+    advance_query_folder_pointer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     _INTERNAL_DB_MAX_ATTEMPTS,
     NonRetryableException,
@@ -64,6 +67,7 @@ def _fake_s3(**kwargs):
         "_exists": AsyncMock(return_value=False),
         "_find": AsyncMock(return_value={}),
         "_cp_file": AsyncMock(),
+        "_copy_basic": AsyncMock(),
         "_copy": AsyncMock(),
         "_rm": AsyncMock(),
     }
@@ -326,6 +330,87 @@ class TestPrepareS3FilesForQuerying:
         assert "example-bucket" not in str(raised.value)
         assert raised.value.__cause__ is fatal_error
 
+    @parameterized.expand(
+        [
+            ("small_file", {"part-0.parquet": 1024}, "_copy_basic"),
+            ("file_at_the_threshold", {"part-0.parquet": util_module.MANAGED_COPY_THRESHOLD}, "_copy_basic"),
+            ("file_above_the_threshold", {"part-0.parquet": util_module.MANAGED_COPY_THRESHOLD + 1}, "_cp_file"),
+            ("file_missing_from_the_sizes", {"other.parquet": 1024}, "_cp_file"),
+            ("no_sizes", None, "_cp_file"),
+        ]
+    )
+    async def test_copies_without_a_size_lookup_only_when_the_size_allows_a_single_copy(
+        self, _name: str, file_sizes: dict[str, int] | None, expected_method: str
+    ):
+        # `_cp_file` reads the size with a HEAD before each copy. A file above the threshold, or with
+        # no known size, must keep that path: a single CopyObject of a large object can time out.
+        s3 = _fake_s3()
+        source = f"{settings.BUCKET_URL}/job/my_table/part-0.parquet"
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            folder = await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=[source],
+                delete_existing=False,
+                file_sizes=file_sizes,
+            )
+
+        unexpected_method = "_cp_file" if expected_method == "_copy_basic" else "_copy_basic"
+        getattr(s3, expected_method).assert_awaited_once_with(
+            source, f"{settings.BUCKET_URL}/job/{folder}/part-0.parquet"
+        )
+        getattr(s3, unexpected_method).assert_not_awaited()
+
+    @parameterized.expand(
+        [
+            ("source_reported_as_not_found", FileNotFoundError("part-0.parquet"), None, True),
+            # A store that answers a copy of a missing source with another error must reach the same
+            # retry, so the copy that reads the source first gives the verdict.
+            (
+                "source_gone_on_a_store_with_another_error",
+                OSError(errno.EINVAL, "Copy Source must mention the source bucket and key"),
+                FileNotFoundError("part-0.parquet"),
+                True,
+            ),
+            # A throttled store must get the backoff, not a second request at once.
+            ("throttled", OSError(errno.EBUSY, "Reduce your request rate for this prefix."), None, False),
+        ]
+    )
+    async def test_a_failed_single_copy_reaches_the_same_retry_as_before(
+        self, _name: str, single_copy_error: Exception, cp_file_error: Exception | None, expect_refresh: bool
+    ):
+        copy_basic = AsyncMock(side_effect=[single_copy_error, None])
+        s3 = _fake_s3(_copy_basic=copy_basic, _cp_file=AsyncMock(side_effect=cp_file_error))
+        file_sizes = {"part-0.parquet": 1024}
+        original = f"{settings.BUCKET_URL}/job/my_table/part-0.parquet"
+        compacted = f"{settings.BUCKET_URL}/job/my_table/compacted.parquet"
+
+        async def refresh() -> list[str]:
+            file_sizes.clear()
+            file_sizes["compacted.parquet"] = 2048
+            return [compacted]
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=[original],
+                delete_existing=False,
+                refresh_file_uris=refresh,
+                file_sizes=file_sizes,
+            )
+
+        # The retry copies the refreshed file by its refreshed size, with no size lookup.
+        assert [call.args[0] for call in copy_basic.await_args_list] == [
+            original,
+            compacted if expect_refresh else original,
+        ]
+        assert s3._cp_file.await_count == (1 if cp_file_error is not None else 0)
+
     async def test_tolerates_job_folder_missing_on_first_materialization(self):
         # A brand new table/model has no prior content in S3, so listing the job folder to
         # find old timestamped query folders to clean up raises FileNotFoundError (s3fs's
@@ -393,12 +478,42 @@ def _history(
     )
 
 
+def _rotation(
+    *,
+    fallback_at: datetime | None = None,
+    back_on_slots_at: datetime | None = None,
+    missed_move_at: datetime | None = None,
+    last_move: datetime = _MOMENTS_AGO,
+) -> dict:
+    """The stored record of a table that has rotated through its slots for 30 days, built through the
+    same function that table registration calls. Ends on slot c, unless a fallback changes the path."""
+    config: dict = {}
+
+    def move(previous: str | None, folder: str, at: datetime) -> None:
+        advance_query_folder_pointer(config, previous_folder=previous, queryable_folder=folder, job_id="job", now=at)
+
+    start = _NOW - timedelta(days=30)
+    move(None, _SLOT_A, start)
+    move(_SLOT_A, _SLOT_B, start + timedelta(hours=1))
+    if missed_move_at is not None:
+        move(_SLOT_C, _SLOT_A, missed_move_at)
+        return config
+    if fallback_at is None:
+        move(_SLOT_B, _SLOT_C, last_move)
+        return config
+    timestamped = f"my_table__query_{int(fallback_at.timestamp())}_0badf00d"
+    move(_SLOT_B, timestamped, fallback_at)
+    if back_on_slots_at is not None:
+        move(timestamped, _SLOT_A, back_on_slots_at)
+        if last_move > back_on_slots_at:
+            move(_SLOT_A, _SLOT_B, last_move)
+    return config
+
+
 def _find_returning(listings: dict[str, dict[str, dict]]) -> AsyncMock:
-    async def _find(path: str, detail: bool = True) -> dict[str, dict]:
-        folder = path.rstrip("/").split("/")[-1]
-        if folder not in listings:
-            raise FileNotFoundError(path)
-        return listings[folder]
+    async def _find(path: str, prefix: str = "", detail: bool = True) -> dict[str, dict]:
+        assert path == _JOB_URI
+        return listings.get(prefix.rstrip("/"), {})
 
     return AsyncMock(side_effect=_find)
 
@@ -505,9 +620,12 @@ class TestDoubleBufferedQueryFolders:
         if expected_slot is None:
             assert _TIMESTAMPED_FOLDER.match(folder)
             assert self._copied(s3) == {f"{_JOB_URI}/{folder}/p1", f"{_JOB_URI}/{folder}/p2"}
+            # Both slots are on record as read within the buffer, so a listing cannot make one usable.
+            s3._find.assert_not_awaited()
         else:
             assert folder == expected_slot
             assert self._copied(s3) == {f"{_JOB_URI}/{expected_slot}/p2"}
+            assert s3._find.await_count == 1
 
     async def test_skips_a_recently_read_populated_slot_for_an_empty_one(self):
         # After an unrecorded pointer move the history restarts, so a populated slot with no record
@@ -588,6 +706,71 @@ class TestDoubleBufferedQueryFolders:
         folder = await _prepare_double_buffered(s3, existing=_SLOT_A, history=_history(_SLOT_A), file_uris=_live("p1"))
 
         assert folder == _SLOT_B
+        s3._rm.assert_awaited_once_with(f"{_JOB_KEY}/{stale}", recursive=True)
+
+    @parameterized.expand(
+        [
+            # A table that stays on its slots has no timestamped folder, so most publishes do not scan.
+            ("steady_rotation_on_the_slots", _rotation(), _SLOT_C, False),
+            ("first_publish_of_a_daily_window", _rotation(last_move=_NOW - timedelta(days=2)), _SLOT_C, True),
+            # A fallback folder stays until a scan runs after it has been unread for the buffer.
+            ("pointer_on_a_timestamped_folder", _rotation(fallback_at=_MOMENTS_AGO, back_on_slots_at=None), None, True),
+            (
+                "timestamped_folder_just_stopped_being_read",
+                _rotation(fallback_at=_NOW - timedelta(minutes=5), back_on_slots_at=_MOMENTS_AGO),
+                _SLOT_A,
+                True,
+            ),
+            (
+                "no_scan_yet_since_the_timestamped_folder_became_deletable",
+                _rotation(fallback_at=_NOW - timedelta(days=3), back_on_slots_at=_NOW - timedelta(hours=1)),
+                _SLOT_A,
+                True,
+            ),
+            (
+                "a_scan_ran_after_the_timestamped_folder_became_deletable",
+                _rotation(
+                    fallback_at=_NOW - timedelta(days=3),
+                    back_on_slots_at=_NOW - timedelta(hours=3),
+                    last_move=_MOMENTS_AGO,
+                ),
+                _SLOT_B,
+                False,
+            ),
+            ("pointer_move_that_the_record_missed", _rotation(missed_move_at=_MOMENTS_AGO), _SLOT_A, True),
+            ("no_record", None, _SLOT_C, True),
+        ]
+    )
+    async def test_scans_for_timestamped_folders_only_while_one_can_exist(
+        self, _name: str, config: dict | None, existing: str | None, expect_scan: bool
+    ):
+        # The scan lists the whole job folder. A table that never leaves its slots must not pay for
+        # it on each publish, and a table that fell back must not keep its full copy forever.
+        history = QueryFolderPointerHistory.from_config(config, "my_table__query")
+        existing = existing or (history.active if history is not None else None)
+        s3 = _fake_s3(_find=_find_returning({}))
+
+        folder = await _prepare_double_buffered(s3, existing=existing, history=history, file_uris=_live("p1"))
+
+        assert folder in (_SLOT_A, _SLOT_B, _SLOT_C)
+        assert s3._ls.await_count == (1 if expect_scan else 0)
+
+    async def test_a_fallback_publish_scans_even_on_a_steady_record(self):
+        # A table that syncs faster than the buffer falls back on most publishes. Each fallback
+        # leaves a full copy, so each one must also remove the copies that are old enough.
+        stale = f"my_table__query_{_stale_epoch()}_0badf00d"
+        s3 = _fake_s3(_ls=AsyncMock(return_value=_job_folder_listing(_SLOT_A, _SLOT_B, _SLOT_C, stale)))
+        history = QueryFolderPointerHistory(
+            active=_SLOT_C,
+            active_since=_MOMENTS_AGO,
+            active_job_id="job",
+            history_since=_NOW - timedelta(days=30),
+            inactive_since={_SLOT_A: _MOMENTS_AGO, _SLOT_B: _MOMENTS_AGO},
+        )
+
+        folder = await _prepare_double_buffered(s3, existing=_SLOT_C, history=history, file_uris=_live("p1"))
+
+        assert _TIMESTAMPED_FOLDER.match(folder)
         s3._rm.assert_awaited_once_with(f"{_JOB_KEY}/{stale}", recursive=True)
 
     async def test_a_failed_stale_file_delete_raises_instead_of_returning_the_standby(self):

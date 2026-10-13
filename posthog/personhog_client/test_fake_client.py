@@ -529,6 +529,52 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert self._delete(uuid, uuid) == expected
         assert self._present(uuid) == expect_present
 
+    @pytest.mark.parametrize(
+        "bounds,expected,expect_present",
+        [
+            (
+                [("newer", 3)],
+                person_pb2.DeleteTombstonedPersonsResponse(deleted_count=1, rows_deleted=1, version_guard_applied=True),
+                False,
+            ),
+            (
+                [("newer", 2)],
+                person_pb2.DeleteTombstonedPersonsResponse(skipped_version_count=1, version_guard_applied=True),
+                True,
+            ),
+            (
+                [("newer", 5), ("newer", 2)],
+                person_pb2.DeleteTombstonedPersonsResponse(skipped_version_count=1, version_guard_applied=True),
+                True,
+            ),
+            (
+                [("live", 0)],
+                person_pb2.DeleteTombstonedPersonsResponse(skipped_live_count=1, version_guard_applied=True),
+                True,
+            ),
+        ],
+    )
+    def test_bounded_persons_delete_only_at_or_below_their_bound(self, bounds, expected, expect_present):
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=5,
+            uuid="newer",
+            version=3,
+            distinct_ids=["n-1"],
+            is_deleted=True,
+            tombstoned_distinct_ids=["n-1"],
+        )
+        resp = self.client.delete_tombstoned_persons(
+            person_pb2.DeleteTombstonedPersonsRequest(
+                team_id=self.TEAM_ID,
+                bounded_persons=[
+                    person_pb2.VersionBoundedPerson(person_uuid=uuid, max_version=bound) for uuid, bound in bounds
+                ],
+            )
+        )
+        assert resp == expected
+        assert self._present(bounds[0][0]) == expect_present
+
     def test_a_person_over_the_budget_is_trimmed_across_calls_then_deleted(self):
         pending = person_pb2.DeleteTombstonedPersonsResponse(pending_person_uuids=["big"], rows_deleted=2)
 
@@ -623,21 +669,31 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert resp == person_pb2.DeleteTombstonedPersonsResponse()
         assert self._present("tombstoned")
 
-    def test_delete_persons_still_removes_tombstoned_and_live_alike(self):
-        resp = self.client.delete_persons(
-            person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["tombstoned", "live", "blocked"])
-        )
+    @pytest.mark.parametrize(
+        "mode,message",
+        [
+            (person_pb2.DELETE_PERSONS_MODE_HARD, "HARD"),
+            (99, "Unknown DeletePersonsMode 99"),
+        ],
+    )
+    def test_delete_persons_rejects_hard_and_unknown_modes(self, mode, message):
+        with pytest.raises(ValueError, match=message):
+            self.client.delete_persons(
+                person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["live"], mode=mode)
+            )
 
-        assert resp.deleted_count == 3
-        for uuid in ("tombstoned", "live", "blocked"):
-            assert not self._present(uuid)
+        stored = self.client.stored_person(self.TEAM_ID, "live")
+        assert stored is not None and not stored.is_deleted
 
-    def test_delete_persons_tombstone_mode_keeps_rows_and_reports_versions(self):
+    @pytest.mark.parametrize(
+        "mode", [person_pb2.DELETE_PERSONS_MODE_UNSPECIFIED, person_pb2.DELETE_PERSONS_MODE_TOMBSTONE]
+    )
+    def test_delete_persons_tombstone_mode_keeps_rows_and_reports_versions(self, mode):
         resp = self.client.delete_persons(
             person_pb2.DeletePersonsRequest(
                 team_id=self.TEAM_ID,
                 person_uuids=["live", "tombstoned"],
-                mode=person_pb2.DELETE_PERSONS_MODE_TOMBSTONE,
+                mode=mode,
             )
         )
 
@@ -653,14 +709,83 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert stored is not None and stored.is_deleted
         assert stored.version == 1
 
-        hard = self.client.delete_persons(
-            person_pb2.DeletePersonsRequest(
-                team_id=self.TEAM_ID, person_uuids=["live"], mode=person_pb2.DELETE_PERSONS_MODE_HARD
+
+class TestFakePersonHogClientVersionRpcs:
+    TEAM_ID = 7
+    OTHER_TEAM_ID = 8
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=1,
+            uuid="live",
+            version=2,
+            distinct_ids=["live-did"],
+            distinct_id_versions={"live-did": 1},
+        )
+        self.client.add_person(team_id=self.TEAM_ID, person_id=2, uuid="tomb-low", version=3, is_deleted=True)
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=3,
+            uuid="tomb-high",
+            version=9,
+            is_deleted=True,
+            distinct_ids=["tomb-did"],
+            distinct_id_versions={"tomb-did": 4},
+            tombstoned_distinct_ids=["tomb-did"],
+        )
+        self.client.add_person(
+            team_id=self.OTHER_TEAM_ID, person_id=4, uuid="elsewhere", version=1, distinct_ids=["elsewhere-did"]
+        )
+
+    def _ensure_persons(self, *floors: tuple[str, int]) -> list[person_pb2.PersonVersionFloorResult]:
+        response = self.client.ensure_person_version_floors(
+            person_pb2.EnsurePersonVersionFloorsRequest(
+                team_id=self.TEAM_ID,
+                floors=[person_pb2.PersonVersionFloor(person_uuid=u, min_version=m) for u, m in floors],
             )
         )
-        assert hard.deleted_count == 1
-        assert not hard.tombstoned
-        assert (
-            self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=2)).HasField("person")
-            is False
-        )
+        return list(response.results)
+
+    def test_ensure_person_floors_classifies_each_row_and_raises_only_tombstones_below_the_floor(self):
+        live = person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        raised = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        at_floor = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
+        inserted = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED
+        floors = (("live", 5), ("tomb-low", 5), ("tomb-high", 5), ("missing", 5), ("elsewhere", 5))
+
+        result = person_pb2.PersonVersionFloorResult
+        assert self._ensure_persons(*floors) == [
+            result(person_uuid="live", outcome=live, version=2),
+            result(person_uuid="tomb-low", outcome=raised, version=5),
+            result(person_uuid="tomb-high", outcome=at_floor, version=9),
+            result(person_uuid="missing", outcome=inserted, version=5),
+            result(person_uuid="elsewhere", outcome=inserted, version=5),
+        ]
+        live_person = self.client.stored_person(self.TEAM_ID, "live")
+        assert live_person is not None and (live_person.is_deleted, live_person.version) == (False, 2)
+        missing = self.client.stored_person(self.TEAM_ID, "missing")
+        assert missing is not None and missing.is_deleted
+        other_team = self.client.stored_person(self.OTHER_TEAM_ID, "elsewhere")
+        assert other_team is not None and other_team.version == 1
+        assert [r.outcome for r in self._ensure_persons(*floors)] == [
+            live,
+            at_floor,
+            at_floor,
+            at_floor,
+            at_floor,
+        ]
+
+    @pytest.mark.parametrize(
+        "keys,min_version,error",
+        [
+            ([f"k-{i}" for i in range(251)], 0, "Maximum 250"),
+            (["k", "k"], 0, "Duplicate key"),
+            (["k"], -1, "must not be negative"),
+        ],
+    )
+    def test_rejects_batches_the_replica_rejects(self, keys, min_version, error):
+        with pytest.raises(ValueError, match=error):
+            self._ensure_persons(*((k, min_version) for k in keys))
+        assert self.client.stored_person(self.TEAM_ID, keys[0]) is None

@@ -198,8 +198,8 @@ Before releasing changes to the Vercel integration, manually verify the followin
 - [ ] Installation completes without errors
 - [ ] New organization is created
 - [ ] Existing user is added as Owner of the new organization
-- [ ] Click "Connect Account" → User is prompted to login (security: must prove ownership)
-- [ ] After login, SSO works
+- [ ] Click "Connect Account" → SSO logs in the existing account when Vercel's signed token has a verified, matching email
+- [ ] Accounts with 2FA or enforced SSO, or without a verified matching email, still require PostHog login
 
 #### Scenario 3: Trusted Vercel User (Second Installation)
 
@@ -213,7 +213,7 @@ Before releasing changes to the Vercel integration, manually verify the followin
 - [ ] Installation completes without errors
 - [ ] Second organization is created
 - [ ] Same user is added as Owner of the second organization
-- [ ] Click "Connect Account" → SSO works immediately (user is trusted)
+- [ ] Click "Connect Account" → SSO works immediately with a verified, matching email and no additional account login requirements
 
 #### Scenario 4: Inactive User Reactivation
 

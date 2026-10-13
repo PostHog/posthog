@@ -1,4 +1,5 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -11,7 +12,8 @@ import { initKeaTests } from '~/test/init'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
-import { SignalReport, SignalReportStatus } from '../types'
+import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, SignalReport, SignalReportStatus } from '../types'
+import { inboxFiltersLogic } from './inboxFiltersLogic'
 import { inboxTriageLogic } from './inboxTriageLogic'
 
 jest.mock('../components/shell/DismissReportDialog', () => ({ openDismissReportDialog: jest.fn() }))
@@ -79,7 +81,11 @@ describe('inboxTriageLogic', () => {
         })
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        logic?.unmount()
+        // The list scope persists to localStorage, so a test that changes it would leak into the next.
+        localStorage.clear()
+    })
 
     async function mountAt(searchParams: Record<string, unknown>): Promise<void> {
         router.actions.push(urls.inboxTriage(), searchParams)
@@ -104,6 +110,104 @@ describe('inboxTriageLogic', () => {
         logic.actions.dismissCurrent()
         expect(openResolveReportDialog).toHaveBeenCalledWith(expect.objectContaining({ hasOpenPr: true }))
         expect(openDismissReportDialog).toHaveBeenCalledWith(expect.objectContaining({ hasOpenPr: true }))
+    })
+
+    it.each([
+        { scope: INBOX_SCOPE_FOR_YOU, mine: true, expectedId: 'r-3', stillQueued: false, unassigned: ['r-2'] },
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, mine: true, expectedId: 'r-3', stillQueued: true, unassigned: ['r-2'] },
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, mine: false, expectedId: 'r-2', stillQueued: true, unassigned: [] },
+        { scope: INBOX_SCOPE_FOR_YOU, mine: false, expectedId: 'r-3', stillQueued: false, unassigned: ['r-2'] },
+    ])(
+        'unassigning me under $scope (reviewer: $mine) lands on $expectedId',
+        async ({ scope, mine, expectedId, stillQueued, unassigned }) => {
+            const reports = FIRST_PAGE.slice(0, 5).map((r) => ({ ...r, is_suggested_reviewer: mine }))
+            const deleted: string[] = []
+            useMocks({
+                get: { [REPORTS_URL]: { count: reports.length, next: null, previous: null, results: reports } },
+                delete: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/me/': ({ params }) => {
+                        deleted.push(String(params.id))
+                        return [204, null]
+                    },
+                },
+            })
+            await mountAt({ report: 'r-2', at: 2 })
+            inboxFiltersLogic.actions.setScope(scope)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.unassignCurrent()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.currentReport?.id).toBe(expectedId)
+            expect(logic.values.reports.some((r) => r.id === 'r-2')).toBe(stillQueued)
+            expect(deleted).toEqual(unassigned)
+        }
+    )
+
+    it('sends one unassign request for the last report while the first one is pending', async () => {
+        const report = { ...makeReport('last'), is_suggested_reviewer: true }
+        const deleted: string[] = []
+        let finishDelete: () => void = () => {}
+        useMocks({
+            get: { [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] } },
+            delete: {
+                '/api/projects/:team_id/signals/reports/:id/reviewers/me/': async ({ params }) => {
+                    deleted.push(String(params.id))
+                    await new Promise<void>((resolve) => (finishDelete = resolve))
+                    return [204, null]
+                },
+            },
+        })
+        await mountAt({ report: report.id, at: 0 })
+        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.unassignCurrent()
+        logic.actions.unassignCurrent()
+        expect(logic.values.isUnassigningCurrent).toBe(true)
+        await waitFor(() => expect(deleted).toEqual(['last']))
+        finishDelete()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(deleted).toEqual(['last'])
+        expect(logic.values.isUnassigningCurrent).toBe(false)
+    })
+
+    it('loads the next page when unassigning me moves triage near the end of the loaded reports', async () => {
+        const mine = (reports: SignalReport[]): SignalReport[] =>
+            reports.map((r) => ({ ...r, is_suggested_reviewer: true }))
+        useMocks({
+            get: {
+                [REPORTS_URL]: ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    requestedOffsets.push(offset)
+                    const firstPage = offset === '0' || offset === null
+                    return [
+                        200,
+                        {
+                            count: FIRST_PAGE.length + SECOND_PAGE.length,
+                            next: firstPage
+                                ? `http://localhost/api/projects/997/signals/reports/?offset=${PAGE_SIZE}`
+                                : null,
+                            previous: null,
+                            results: mine(firstPage ? FIRST_PAGE : SECOND_PAGE),
+                        },
+                    ]
+                },
+            },
+            delete: { '/api/projects/:team_id/signals/reports/:id/reviewers/me/': [204, null] },
+        })
+        await mountAt({ report: `r-${PAGE_SIZE - 2}`, at: PAGE_SIZE - 2 })
+        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+        await expectLogic(logic).toFinishAllListeners()
+        requestedOffsets = []
+
+        logic.actions.unassignCurrent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentReport?.id).toBe(`r-${PAGE_SIZE - 1}`)
+        expect(requestedOffsets).toEqual([String(PAGE_SIZE)])
+        expect(logic.values.nextReport?.id).toBe(`r-${PAGE_SIZE}`)
     })
 
     it.each([

@@ -105,7 +105,12 @@ You can generate an API token under **Account settings → Integrations → Mana
     ) -> tuple[bool, str | None]:
         if schema_name is not None and schema_name in SAFETYCULTURE_ENDPOINTS:
             # Per-schema check: the feed this schema syncs must actually be reachable.
-            status, message = check_access(config.api_token, SAFETYCULTURE_ENDPOINTS[schema_name].path)
+            endpoint = SAFETYCULTURE_ENDPOINTS[schema_name]
+            status, message = check_access(
+                config.api_token,
+                endpoint.path,
+                endpoint.structure_types[0] if endpoint.structure_types else None,
+            )
             if status == 200:
                 return True, None
             if status in (401, 403):

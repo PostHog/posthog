@@ -9,7 +9,7 @@ from rest_framework import status
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
-from posthog.taxonomic_search_intent.contracts import EventMatch
+from posthog.taxonomic_search_intent.contracts import EventMatch, EventMatchAnswer, EventMatchOutcome
 from posthog.taxonomic_search_intent.prompt import BUNDLED_SEARCH_INTENT_PROMPT
 
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
@@ -101,12 +101,28 @@ class TestSearchIntentEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @parameterized.expand([("enabled", True, status.HTTP_200_OK), ("flag_off", False, status.HTTP_404_NOT_FOUND)])
-    def test_matches_events_behind_its_own_flag(self, _name, enabled, expected_status) -> None:
+    @parameterized.expand(
+        [
+            ("enabled", True, None, status.HTTP_200_OK, "matched"),
+            ("flag_off", False, None, status.HTTP_404_NOT_FOUND, None),
+            (
+                "model_unreachable",
+                True,
+                SystemOneRequestFailed("timeout"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "unavailable",
+            ),
+        ]
+    )
+    def test_matches_events_behind_its_own_flag(self, _name, enabled, error, expected_status, expected_outcome) -> None:
         match = EventMatch(name="$autocapture", label="Autocapture", probability=0.95)
+        answer = EventMatchAnswer(matches=[match], outcome=EventMatchOutcome.MATCHED)
         with (
             patch(FLAG_CHECK, return_value=enabled) as flag,
-            patch("posthog.api.taxonomic_search_intent.match_core_events", return_value=[match]) as matcher,
+            patch(
+                "posthog.api.taxonomic_search_intent.match_core_events", return_value=answer, side_effect=error
+            ) as matcher,
+            patch("posthog.api.taxonomic_search_intent.report_user_action") as report,
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/taxonomic_search_intent/match_events/",
@@ -116,8 +132,12 @@ class TestSearchIntentEndpoint(APIBaseTest):
 
         assert response.status_code == expected_status
         assert flag.call_args.args[0] == "taxonomic-filter-event-match"
-        if enabled:
+        if expected_status == status.HTTP_200_OK:
             assert response.json() == {
                 "matches": [{"name": "$autocapture", "display_name": "Autocapture", "probability": 0.95}]
             }
             assert matcher.call_args.args[0].project_id == self.team.project_id
+        if expected_outcome:
+            assert report.call_args.args[1:] == ("taxonomic filter event match answered", {"outcome": expected_outcome})
+        else:
+            report.assert_not_called()

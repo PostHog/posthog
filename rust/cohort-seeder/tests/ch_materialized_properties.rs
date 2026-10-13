@@ -49,8 +49,6 @@ const LITERALS: &[&str] = &[
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Residual {
-    /// Every column stores `''` while `serde_json` reads the blob.
-    BlobClickHouseCannotParse,
     /// The column holds the first value, `serde_json` the last.
     RepeatedKey,
     /// Comes back typed and too deep for `serde_json`.
@@ -63,9 +61,7 @@ impl Residual {
     const fn divergence(self) -> Divergence {
         match self {
             Self::UnreadableBlob => Divergence::OverCount,
-            Self::BlobClickHouseCannotParse | Self::StringHoldingDeepJson | Self::RepeatedKey => {
-                Divergence::UnderCount
-            }
+            Self::StringHoldingDeepJson | Self::RepeatedKey => Divergence::UnderCount,
         }
     }
 }
@@ -182,10 +178,7 @@ fn corpus() -> Vec<Case> {
             r#"{"$current_url":"elsewhere","$current_url":"https://example.com/"}"#,
             Residual::RepeatedKey,
         ),
-        Case::residual(
-            r#"{"$current_url":"https://example.com/","n":18446744073709551616}"#,
-            Residual::BlobClickHouseCannotParse,
-        ),
+        Case::exact(r#"{"$current_url":"https://example.com/","n":18446744073709551616}"#),
         Case::residual(
             json!({
                 URL: "https://example.com/",

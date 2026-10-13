@@ -20,10 +20,10 @@ import json
 import base64
 from collections.abc import Callable
 from dataclasses import field, replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from uuid import UUID
 
 from django.core.validators import RegexValidator
-from django.db import models
 
 import structlog
 import posthoganalytics
@@ -35,11 +35,9 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 
+from products.canvas.backend.facade.enums import ConnectorCallStatus, ConnectorKind
 from products.mcp_store.backend.facade import api as mcp_store_facade
 from products.mcp_store.backend.facade.contracts import ConnectorTool as McpConnectorTool
-
-if TYPE_CHECKING:
-    from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -55,28 +53,12 @@ _GITHUB_SOURCE = "canvas_connectors"
 _PERSONAL_INTEGRATIONS_PATH = "/settings/user-personal-integrations"
 
 
-class ConnectorCallStatus(models.TextChoices):
-    OK = "ok"
-    NOT_CONNECTED = "not_connected"
-    NEEDS_REAUTH = "needs_reauth"
-    NEEDS_APPROVAL = "needs_approval"
-    BLOCKED = "blocked"
-    TOOL_MISSING = "tool_missing"
-    WRITE_BLOCKED = "write_blocked"
-    UPSTREAM_ERROR = "upstream_error"
-
-
-class ConnectorKind(models.TextChoices):
-    NATIVE = "native"
-    MCP = "mcp"
-
-
-def canvas_connectors_enabled(team: "Team") -> bool:
+def canvas_connectors_enabled(team_uuid: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 CANVAS_CONNECTORS_FLAG,
-                str(team.uuid),
+                str(team_uuid),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )

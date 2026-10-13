@@ -33,6 +33,10 @@ class InvalidBatchExportFilters(ValueError):
     """Raised when event filters are not a list of filters a batch export can apply."""
 
 
+class UnsupportedDestinationTestError(ValueError):
+    """Raised when a destination type has no connection test."""
+
+
 @dataclass(frozen=True)
 class BatchExportRef:
     """The bare identity of a batch export, for listing it by name."""
@@ -115,6 +119,33 @@ class TeamTotal:
 
     team_id: int
     total: int
+
+
+@dataclass(frozen=True)
+class DestinationTestStepResult:
+    """The outcome of one destination test step. ``message`` explains a failure."""
+
+    status: str
+    message: str | None
+
+
+@dataclass(frozen=True)
+class DestinationTestStep:
+    """One check in a destination's connection test. ``result`` is None until the step runs."""
+
+    name: str
+    description: str
+    result: DestinationTestStepResult | None
+
+
+@dataclass(frozen=True)
+class DestinationTest:
+    """The ordered checks that test a connection to a destination.
+
+    Each step depends on the steps before it, so a client runs them in order.
+    """
+
+    steps: tuple[DestinationTestStep, ...]
 
 
 @stdlib_dataclass(frozen=True)
