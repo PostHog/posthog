@@ -42,6 +42,7 @@ class _SilentHost:
     def send(self, _adapter: HTTPAdapter, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         # The tracked adapter hands urllib3 a `Timeout` whose clone is the timeout of the first try.
         first_try = cast(Timeout, kwargs["timeout"]).clone()
+        first_try.start_connect()
         self.timeouts.append((first_try.connect_timeout, first_try.read_timeout))
         response = requests.Response()
         response.status_code = 200

@@ -67,6 +67,11 @@ _SHORTEST_TRY_SECONDS = 0.001
 _request_deadline: ContextVar[float | None] = ContextVar("warehouse_source_request_deadline", default=None)
 
 
+def current_request_deadline() -> float | None:
+    """The deadline of the enclosing `request_deadline` block, a `time.monotonic()` value, if any."""
+    return _request_deadline.get()
+
+
 @contextmanager
 def request_deadline(deadline: float) -> Iterator[None]:
     """Make requests in the block end by `deadline`, a `time.monotonic()` value.
@@ -102,7 +107,12 @@ class _DeadlineTimeout(Timeout):
 
     def clone(self) -> Timeout:
         left = max(self._deadline - _monotonic(), _SHORTEST_TRY_SECONDS)
-        return Timeout(connect=_cut(self._connect, left), read=_cut(self._read, left), total=_cut(self.total, left))
+        total = _cut(self.total, left)
+        # Connect and read time add up, so a total is what keeps a slow connect from adding to the read.
+        # A timeout that sets no connect or no read stays open, because that is the source's opt-out.
+        if total is None and self._connect is not None and self._read is not None:
+            total = left
+        return Timeout(connect=_cut(self._connect, left), read=_cut(self._read, left), total=total)
 
 
 def _deadline_timeout(timeout: RequestTimeout | Timeout, deadline: float) -> _DeadlineTimeout:

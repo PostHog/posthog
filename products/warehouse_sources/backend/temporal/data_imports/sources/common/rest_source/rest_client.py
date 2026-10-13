@@ -24,6 +24,7 @@ from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     RequestTimeout,
+    current_request_deadline,
     make_tracked_session,
     request_deadline,
     suspend_adapter_retries,
@@ -548,7 +549,7 @@ class RESTClient:
         while True:
             try:
                 response, body = self._send_request(
-                    request, hooks, body_check=malformed_check, deadline=_monotonic() + self._request_budget()
+                    request, hooks, body_check=malformed_check, deadline=self._request_deadline()
                 )
             except IgnoreResponseException:
                 break
@@ -578,8 +579,10 @@ class RESTClient:
             if paginator is None or not paginator.has_next_page:
                 break
 
-    def _request_budget(self) -> float:
-        return retry_budget_seconds() if self._retry_budget is None else self._retry_budget
+    def _request_deadline(self) -> float:
+        deadline = _monotonic() + (retry_budget_seconds() if self._retry_budget is None else self._retry_budget)
+        outer = current_request_deadline()
+        return deadline if outer is None else min(deadline, outer)
 
     def _send(self, prepared: PreparedRequest) -> Response:
         if self._max_retry_attempts <= 1:

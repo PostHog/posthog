@@ -1,6 +1,6 @@
 import time
 from collections.abc import Callable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -13,9 +13,11 @@ from urllib3.util.timeout import Timeout
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    NO_REQUEST_TIMEOUT,
     make_tracked_session,
     request_deadline,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _deadline_timeout
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
@@ -169,6 +171,32 @@ class TestRequestDeadline:
 
         assert [t.started_at for t in run.vendor.tries] == pytest.approx([0, 40], abs=SLACK)
         assert run.elapsed == pytest.approx(50, abs=SLACK)
+
+    def test_a_caller_deadline_bounds_the_client_retries(self) -> None:
+        def send() -> None:
+            with request_deadline(time.monotonic() + 50):
+                _through_rest_client()
+
+        run = _run(send, [])
+
+        assert [t.started_at for t in run.vendor.tries] == pytest.approx([0, 41], abs=SLACK)
+        assert run.elapsed == pytest.approx(50, abs=SLACK)
+
+    @parameterized.expand(
+        [
+            ("tuple", (5.0, 30.0), True),
+            ("number", 30.0, True),
+            ("urllib3_timeout", Timeout(connect=5.0, read=30.0), True),
+            ("no_timeout", NO_REQUEST_TIMEOUT, False),
+            ("no_read_timeout", (5.0, None), False),
+        ]
+    )
+    def test_a_try_has_a_total_unless_the_source_opts_out(self, _name: str, timeout: Any, has_total: bool) -> None:
+        try_timeout = _deadline_timeout(timeout, time.monotonic() + 50).clone()
+
+        assert (try_timeout.total is not None) == has_total
+        if has_total:
+            assert cast(float, try_timeout.total) <= 50
 
     @parameterized.expand(
         [
