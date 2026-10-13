@@ -6,7 +6,7 @@
 mod common;
 
 use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -30,6 +30,7 @@ use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
 use ingestion_consumer::batcher::packer::PackTargets;
+use ingestion_consumer::batcher::state_machine::RequestBudget;
 use ingestion_consumer::batcher::BatcherObserver;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
@@ -51,6 +52,7 @@ use ingestion_worker_proto::ingestion::worker::v1::{
 };
 
 const KAFKA_BROKERS: &str = "localhost:9092";
+const BUDGET_ATTEMPTS: NonZeroU32 = NonZeroU32::new(3).expect("nonzero attempts");
 
 // ── Kafka helpers ──────────────────────────────────────────────────────────
 
@@ -252,10 +254,10 @@ struct FakeWorker {
     /// When true, every sub-batch is nacked without
     /// ingesting anything — a poison batch this worker will never accept.
     pub reject_4xx: Arc<AtomicBool>,
-    /// When set, the first sub-batch with a soft budget that carries this
-    /// distinct_id leaves all of that id's messages unfinished. They are not
-    /// recorded, and the ack is PARTIAL.
-    pub leave_unfinished_once: Arc<Mutex<Option<String>>>,
+    /// When set to `(distinct_id, frames)`, the next `frames` sub-batches with
+    /// a soft budget that carry this distinct_id leave all of that id's
+    /// messages unfinished. They are not recorded, and the ack is PARTIAL.
+    pub leave_unfinished: Arc<Mutex<Option<(String, usize)>>>,
     /// (distinct_id, seq) pairs that arrived in a sub-batch marked as replay.
     pub replayed: Arc<Mutex<Vec<(String, usize)>>>,
     /// When true, a replay sub-batch is dropped without an ack, as a worker
@@ -299,7 +301,7 @@ impl FakeWorker {
         let ack_lost_once = Arc::new(AtomicBool::new(false));
         let reject_4xx = Arc::new(AtomicBool::new(false));
         let underreport_once = Arc::new(AtomicBool::new(false));
-        let leave_unfinished_once = Arc::new(Mutex::new(None));
+        let leave_unfinished = Arc::new(Mutex::new(None));
         let replayed = Arc::new(Mutex::new(Vec::new()));
         let hold_replays = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(AtomicUsize::new(0));
@@ -347,7 +349,7 @@ impl FakeWorker {
             ack_lost_once: Arc::clone(&ack_lost_once),
             reject_4xx: Arc::clone(&reject_4xx),
             underreport_once: Arc::clone(&underreport_once),
-            leave_unfinished_once: Arc::clone(&leave_unfinished_once),
+            leave_unfinished: Arc::clone(&leave_unfinished),
             replayed: Arc::clone(&replayed),
             hold_replays: Arc::clone(&hold_replays),
             arrived: Arc::clone(&arrived),
@@ -377,7 +379,7 @@ impl FakeWorker {
             ack_lost_once,
             reject_4xx,
             underreport_once,
-            leave_unfinished_once,
+            leave_unfinished,
             replayed,
             hold_replays,
             arrived,
@@ -427,7 +429,7 @@ struct FakeWorkerGrpc {
     ack_lost_once: Arc<AtomicBool>,
     reject_4xx: Arc<AtomicBool>,
     underreport_once: Arc<AtomicBool>,
-    leave_unfinished_once: Arc<Mutex<Option<String>>>,
+    leave_unfinished: Arc<Mutex<Option<(String, usize)>>>,
     replayed: Arc<Mutex<Vec<(String, usize)>>>,
     hold_replays: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
@@ -454,7 +456,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let ack_lost_once = Arc::clone(&self.ack_lost_once);
         let reject_4xx = Arc::clone(&self.reject_4xx);
         let underreport_once = Arc::clone(&self.underreport_once);
-        let leave_unfinished_once = Arc::clone(&self.leave_unfinished_once);
+        let leave_unfinished = Arc::clone(&self.leave_unfinished);
         let replayed = Arc::clone(&self.replayed);
         let hold_replays = Arc::clone(&self.hold_replays);
         let arrived = Arc::clone(&self.arrived);
@@ -515,7 +517,11 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     })
                     .collect();
                 let unfinished_id = if sub_batch.soft_budget_ms > 0 {
-                    leave_unfinished_once.lock().unwrap().clone()
+                    leave_unfinished
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .map(|(id, _)| id.clone())
                 } else {
                     None
                 };
@@ -540,7 +546,15 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     log.lock().unwrap().extend(done.iter().cloned());
                 }
                 if !unfinished.is_empty() {
-                    *leave_unfinished_once.lock().unwrap() = None;
+                    let mut frames_left = leave_unfinished.lock().unwrap();
+                    let used_up = frames_left.as_mut().is_some_and(|(_, frames)| {
+                        *frames -= 1;
+                        *frames == 0
+                    });
+                    if used_up {
+                        *frames_left = None;
+                    }
+                    drop(frames_left);
                     let _ = tx.send(Ok(IngestStreamResponse {
                         msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
                             seq: sub_batch.seq,
@@ -602,7 +616,7 @@ struct Harness {
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
     pack_targets: PackTargets,
-    soft_budget: Option<Duration>,
+    budget: Option<RequestBudget>,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -708,7 +722,7 @@ impl Harness {
     }
 
     /// One key-table consumer with one worker, sending a soft budget on every
-    /// request.
+    /// request except an escalated key's resend.
     async fn start_budgeted(topic: &str, partitions: i32) -> Self {
         Self::start_inner(
             SchedulerKind::KeyTable,
@@ -730,7 +744,10 @@ impl Harness {
                 bytes: None,
                 latency_budget: Duration::from_secs(5),
             },
-            Some(Duration::from_millis(500)),
+            Some(RequestBudget {
+                soft_budget: Duration::from_millis(500),
+                attempts: BUDGET_ATTEMPTS,
+            }),
         )
         .await
     }
@@ -820,7 +837,7 @@ impl Harness {
         batch_size_bytes: usize,
         component_options: ComponentOptions,
         pack_targets: PackTargets,
-        soft_budget: Option<Duration>,
+        budget: Option<RequestBudget>,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -863,7 +880,7 @@ impl Harness {
             deferred_flush_timeout,
             Duration::from_millis(200),
             pack_targets,
-            soft_budget,
+            budget,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -909,7 +926,7 @@ impl Harness {
             max_in_flight,
             deferred_flush_timeout,
             pack_targets,
-            soft_budget,
+            budget,
         }
     }
 
@@ -954,7 +971,7 @@ impl Harness {
             self.deferred_flush_timeout,
             Duration::from_millis(200),
             self.pack_targets,
-            self.soft_budget,
+            self.budget,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -1153,7 +1170,7 @@ async fn messages_per_distinct_id_arrive_in_order(
 async fn a_partial_ack_redelivers_only_the_unfinished_messages() {
     let topic = format!("e2e-partial-{}", Uuid::new_v4());
     let harness = Harness::start_budgeted(&topic, 1).await;
-    *harness.workers[0].leave_unfinished_once.lock().unwrap() = Some("visitor-a".to_string());
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-a".to_string(), 1));
 
     produce_keyed_in_one_transaction(
         &topic,
@@ -1194,7 +1211,7 @@ async fn a_partial_ack_redelivers_only_the_unfinished_messages() {
 async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
     let topic = format!("e2e-partial-crash-{}", Uuid::new_v4());
     let mut harness = Harness::start_budgeted(&topic, 1).await;
-    *harness.workers[0].leave_unfinished_once.lock().unwrap() = Some("visitor-a".to_string());
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-a".to_string(), 1));
     // The resend never settles, so it is still in flight at the crash.
     harness.workers[0]
         .hold_replays
@@ -1255,7 +1272,7 @@ async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
 async fn a_partial_ack_after_a_revoke_resends_nothing() {
     let topic = format!("e2e-partial-revoke-{}", Uuid::new_v4());
     let harness = Harness::start_budgeted(&topic, 2).await;
-    *harness.workers[0].leave_unfinished_once.lock().unwrap() = Some("visitor-a".to_string());
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-a".to_string(), 1));
     let partitions = [
         TopicPartition::new(topic.clone(), 0),
         TopicPartition::new(topic.clone(), 1),
@@ -1323,7 +1340,7 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
         harness.deferred_flush_timeout,
         Duration::from_millis(200),
         harness.pack_targets,
-        harness.soft_budget,
+        harness.budget,
     );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
@@ -1380,7 +1397,7 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
     .await;
     assert!(
         harness.workers[0]
-            .leave_unfinished_once
+            .leave_unfinished
             .lock()
             .unwrap()
             .is_none(),
@@ -1395,6 +1412,40 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
     shutdown2.cancel();
     let _ = tokio::time::timeout(Duration::from_secs(3), task2).await;
     probe2.cancel();
+    harness.stop().await;
+}
+
+/// A message that never fits the budget still lands. After its budgeted
+/// attempts it goes out once without a budget, and the partition commits.
+#[tokio::test]
+async fn a_message_that_never_fits_the_budget_lands_without_one() {
+    let topic = format!("e2e-partial-escalate-{}", Uuid::new_v4());
+    let harness = Harness::start_budgeted(&topic, 1).await;
+    *harness.workers[0].leave_unfinished.lock().unwrap() =
+        Some(("visitor-a".to_string(), usize::MAX));
+
+    produce_keyed_in_one_transaction(
+        &topic,
+        "tok",
+        &alternating_visitors(0, "tok:203.0.113.7", 0),
+    )
+    .await;
+    wait_until(Duration::from_secs(15), "the offsets commit", || {
+        harness
+            .committed_offset(0)
+            .is_some_and(|offset| offset >= 4)
+    })
+    .await;
+
+    let worker = &harness.workers[0];
+    assert_eq!(worker.seqs_for("visitor-a"), vec![0, 2]);
+    assert_eq!(worker.seqs_for("visitor-b"), vec![1, 3]);
+    assert_eq!(
+        worker.batch_sizes(),
+        vec![4, 2, 2, 2],
+        "visitor A goes out {BUDGET_ATTEMPTS} times with a budget, then once without"
+    );
+
     harness.stop().await;
 }
 

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use ingestion_consumer::batcher::packer::{PackTargets, Packer};
 use ingestion_consumer::batcher::retry_policy::RetryPolicy;
-use ingestion_consumer::batcher::state_machine::BatcherStateMachine;
+use ingestion_consumer::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use ingestion_consumer::batcher::worker_assigner::WorkerAssigner;
 use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -38,11 +38,11 @@ pub fn batcher(
     stall_timeout: Duration,
     retry_delay: Duration,
     pack_targets: PackTargets,
-    soft_budget: Option<Duration>,
+    budget: Option<RequestBudget>,
 ) -> (Batcher, BatcherOutputs) {
     match kind {
         SchedulerKind::PinStash => {
-            debug_assert!(soft_budget.is_none(), "pin_stash sends no budget");
+            debug_assert!(budget.is_none(), "pin_stash sends no budget");
             Batcher::new(Arc::clone(dispatcher), transport, handle, stall_timeout)
         }
         SchedulerKind::KeyTable => packing_key_table_batcher(
@@ -51,7 +51,7 @@ pub fn batcher(
             stall_timeout,
             retry_delay,
             pack_targets,
-            soft_budget,
+            budget,
         ),
     }
 }
@@ -78,7 +78,7 @@ fn packing_key_table_batcher(
     stall_timeout: Duration,
     retry_delay: Duration,
     pack_targets: PackTargets,
-    soft_budget: Option<Duration>,
+    budget: Option<RequestBudget>,
 ) -> (Batcher, BatcherOutputs) {
     let pool_source = dispatcher.worker_pool_source();
     let assigner =
@@ -93,6 +93,6 @@ fn packing_key_table_batcher(
         Instant::now(),
     )
     .expect("valid stall timeout")
-    .with_request_budget(soft_budget);
+    .with_request_budget(budget);
     Batcher::with_state_machine(state_machine, pool_source, transport)
 }
