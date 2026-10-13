@@ -527,7 +527,14 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
             " chart-level display type."
         ),
     )
-    excludeFromTotal: bool | None = Field(default=None, description="Leave this series out of the tooltip total.")
+    excludeFromTotal: bool | None = Field(
+        default=None,
+        description=(
+            "Keep this series out of the tooltip's total row, e.g. a target line over"
+            " stacked bars. A bar series still stacks, so set `displayType` to `line`"
+            " for a series drawn over the stack."
+        ),
+    )
     label: str | None = Field(
         default=None,
         description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
@@ -536,7 +543,14 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
         default=None,
         description=("Draw a linear trend line for this series. Only meaningful for line, bar, and area charts."),
     )
-    valueLabels: ValueLabels | None = Field(default=None, description="Overrides `showValuesOnSeries` for this series.")
+    valueLabels: ValueLabels | None = Field(
+        default=None,
+        description=(
+            "Per-series override of chart-level `showValuesOnSeries`. `show` labels"
+            " this series even when the chart setting is off, `hide` leaves it"
+            " unlabeled when the setting is on, `auto` follows the chart."
+        ),
+    )
     yAxisPosition: YAxisPosition | None = Field(
         default=None,
         description=("Which Y axis this numeric series should use. Use `right` for a secondary Y axis."),
@@ -604,6 +618,16 @@ class AssistantDataVisualizationBoxPlotSettings(BaseModel):
     xAxisColumn: str | None = Field(
         default=None,
         description=("X-axis category column. Set to `null` for one overall distribution or one box per series."),
+    )
+
+
+class AssistantDataVisualizationColumnSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    formatting: AssistantDataVisualizationAxisFormatting | None = Field(
+        default=None,
+        description="Number-formatting settings for the values in this column.",
     )
 
 
@@ -3891,72 +3915,13 @@ class AssistantDataVisualizationAxis(BaseModel):
     )
 
 
-class AssistantDataVisualizationChartSettings(BaseModel):
+class AssistantDataVisualizationColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    boxPlot: AssistantDataVisualizationBoxPlotSettings | None = Field(
-        default=None,
-        description=(
-            "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
-        ),
-    )
-    goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
-        default=None, description="Horizontal goal lines drawn across the chart."
-    )
-    leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
-        default=None, description="Settings for the left Y axis."
-    )
-    legendPosition: LegendPosition | None = Field(
-        default=None,
-        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
-    )
-    metric: AssistantDataVisualizationMetricSettings | None = Field(
-        default=None,
-        description="Settings for `Metric`. `summary` defaults to `latest`.",
-    )
-    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
-    rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
-        default=None,
-        description=(
-            "Settings for the right Y axis. Only applies when a Y series uses"
-            ' `settings.display.yAxisPosition: "right"`.'
-        ),
-    )
-    seriesBreakdownColumn: str | None = Field(
-        default=None,
-        description=(
-            "Column that splits a single Y series into multiple colored series — e.g."
-            " breaking down a line chart by `country`. Set to `null` or omit to"
-            " disable. A breakdown buckets rows by x value, so it is ignored when"
-            " `display` is `ScatterPlot`."
-        ),
-    )
-    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
-    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
-    showTotalRow: bool | None = Field(
-        default=None,
-        description=("Show a total summing all Y series. Applies to line, bar, and area charts."),
-    )
-    showValuesOnSeries: bool | None = Field(
-        default=None,
-        description="Render each data point's value as a label directly on the series.",
-    )
-    stackBars100: bool | None = Field(
-        default=None,
-        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
-    )
-    xAxis: AssistantDataVisualizationAxis | None = Field(
-        default=None,
-        description=(
-            "Column used as the X axis. Typically a time bucket or categorical column,"
-            " but `ScatterPlot` plots two measures against each other, so it needs a"
-            " numeric column here too."
-        ),
-    )
-    xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
-    yAxis: list[AssistantDataVisualizationAxis] | None = Field(
-        default=None, description="One or more numeric columns plotted as Y series."
+    column: str = Field(..., description="Name of a column returned by the SQL query.")
+    settings: AssistantDataVisualizationColumnSettings | None = Field(
+        default=None, description="Optional number formatting for this column."
     )
 
 
@@ -3964,7 +3929,7 @@ class AssistantDataVisualizationTableSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list[AssistantDataVisualizationAxis] | None = Field(
+    columns: list[AssistantDataVisualizationColumn] | None = Field(
         default=None,
         description=("Columns to display and their order. Omit to show every column returned by the query."),
     )
@@ -10186,6 +10151,75 @@ class AssistantBehavioralPropertyFilter(BaseModel):
         ),
     )
     value: InlineBehavioralType
+
+
+class AssistantDataVisualizationChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    boxPlot: AssistantDataVisualizationBoxPlotSettings | None = Field(
+        default=None,
+        description=(
+            "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+        ),
+    )
+    goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
+        default=None, description="Horizontal goal lines drawn across the chart."
+    )
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
+        default=None, description="Settings for the left Y axis."
+    )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
+        default=None,
+        description=(
+            "Settings for the right Y axis. Only applies when a Y series uses"
+            ' `settings.display.yAxisPosition: "right"`.'
+        ),
+    )
+    seriesBreakdownColumn: str | None = Field(
+        default=None,
+        description=(
+            "Column that splits a single Y series into multiple colored series — e.g."
+            " breaking down a line chart by `country`. Set to `null` or omit to"
+            " disable. A breakdown buckets rows by x value, so it is ignored when"
+            " `display` is `ScatterPlot`."
+        ),
+    )
+    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
+    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
+    showTotalRow: bool | None = Field(
+        default=None,
+        description=("Show a total summing all Y series. Applies to line, bar, and area charts."),
+    )
+    showValuesOnSeries: bool | None = Field(
+        default=None,
+        description="Render each data point's value as a label directly on the series.",
+    )
+    stackBars100: bool | None = Field(
+        default=None,
+        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
+    )
+    xAxis: AssistantDataVisualizationColumn | None = Field(
+        default=None,
+        description=(
+            "Column used as the X axis. Typically a time bucket or categorical column,"
+            " but `ScatterPlot` plots two measures against each other, so it needs a"
+            " numeric column here too."
+        ),
+    )
+    xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
+    yAxis: list[AssistantDataVisualizationAxis] | None = Field(
+        default=None, description="One or more numeric columns plotted as Y series."
+    )
 
 
 class AssistantDataVisualizationNode(BaseModel):

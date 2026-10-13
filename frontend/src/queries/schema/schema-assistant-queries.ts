@@ -1873,9 +1873,15 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     label?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
-    /** Leave this series out of the tooltip total. */
+    /**
+     * Keep this series out of the tooltip's total row, e.g. a target line over stacked bars.
+     * A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack.
+     */
     excludeFromTotal?: boolean
-    /** Overrides `showValuesOnSeries` for this series. */
+    /**
+     * Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the
+     * chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.
+     */
     valueLabels?: 'auto' | 'show' | 'hide'
 }
 
@@ -1908,6 +1914,19 @@ export interface AssistantDataVisualizationAxis {
     column: string
     /** Optional series settings. Only applies to Y-axis series. */
     settings?: AssistantDataVisualizationAxisSettings
+}
+
+export interface AssistantDataVisualizationColumnSettings {
+    /** Number-formatting settings for the values in this column. */
+    formatting?: AssistantDataVisualizationAxisFormatting
+}
+
+/** A column with number formatting only. Series display settings apply only to Y-axis series. */
+export interface AssistantDataVisualizationColumn {
+    /** Name of a column returned by the SQL query. */
+    column: string
+    /** Optional number formatting for this column. */
+    settings?: AssistantDataVisualizationColumnSettings
 }
 
 export interface AssistantDataVisualizationGoalLine {
@@ -1961,7 +1980,7 @@ export interface AssistantDataVisualizationChartSettings {
      * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
      * plots two measures against each other, so it needs a numeric column here too.
      */
-    xAxis?: AssistantDataVisualizationAxis
+    xAxis?: AssistantDataVisualizationColumn
     /** Label rendered under the X axis. */
     xAxisLabel?: string
     /** One or more numeric columns plotted as Y series. */
@@ -2000,7 +2019,7 @@ export interface AssistantDataVisualizationChartSettings {
 
 export interface AssistantDataVisualizationTableSettings {
     /** Columns to display and their order. Omit to show every column returned by the query. */
-    columns?: AssistantDataVisualizationAxis[]
+    columns?: AssistantDataVisualizationColumn[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
     /** Transpose rows and columns. */
