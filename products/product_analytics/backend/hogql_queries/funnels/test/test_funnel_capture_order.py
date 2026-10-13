@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import (
     APIBaseTest,
@@ -9,131 +10,151 @@ from posthog.test.base import (
     flush_persons_and_events,
     materialized,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, FunnelsQuery
+from posthog.schema import EventsNode, FunnelsFilter, FunnelsQuery
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
+BASE = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
 
-class TestFunnelCaptureOrder(ClickhouseTestMixin, APIBaseTest):
-    """A device's two events delivered out of order.
 
-    Step one is captured first but its request is slow, so it is stored later than step two,
-    which was captured second and delivered fast. The funnel sorts on the stored timestamp, so
-    it sees step two first and drops the user. Ordering on the capture instant capture recorded
-    in `$client_capture_time` restores the real sequence.
-    """
+def _iso(at: datetime) -> str:
+    return at.isoformat().replace("+00:00", "Z")
 
-    CAPTURED_FIRST = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
-    CAPTURED_SECOND = CAPTURED_FIRST + timedelta(seconds=5)
 
-    def _given_an_out_of_order_device(self, device_id: str = "dev-a", with_capture_time: bool = True) -> None:
-        _create_person(distinct_ids=["u1"], team_id=self.team.pk)
+class CaptureOrderTestMixin(ClickhouseTestMixin, APIBaseTest):
+    def _event(
+        self,
+        name: str,
+        stored_at: datetime,
+        captured_at: datetime | None,
+        lib: str = "web",
+        device_id: str = "dev-a",
+        device_model: str = "",
+        distinct_id: str = "u1",
+    ) -> None:
+        props: dict[str, Any] = {"$lib": lib}
+        if device_id:
+            props["$device_id"] = device_id
+        if device_model:
+            props["$device_model"] = device_model
+        if captured_at is not None:
+            props["$client_capture_time"] = _iso(captured_at)
+        _create_event(team=self.team, event=name, distinct_id=distinct_id, timestamp=stored_at, properties=props)
 
-        def props(captured_at: datetime) -> dict:
-            out: dict = {}
-            if device_id:
-                out["$device_id"] = device_id
-            if with_capture_time:
-                out["$client_capture_time"] = captured_at.isoformat().replace("+00:00", "Z")
-            return out
-
-        # Captured first, delivered slowly, so it is stored after the step that followed it.
-        _create_event(
-            team=self.team,
-            event="step one",
-            distinct_id="u1",
-            timestamp=self.CAPTURED_SECOND + timedelta(seconds=20),
-            properties=props(self.CAPTURED_FIRST),
-        )
-        # Captured second, delivered promptly.
-        _create_event(
-            team=self.team,
-            event="step two",
-            distinct_id="u1",
-            timestamp=self.CAPTURED_SECOND + timedelta(milliseconds=200),
-            properties=props(self.CAPTURED_SECOND),
-        )
-        flush_persons_and_events()
-
-    def _run(self, use_capture_order: bool) -> list:
-        # The funnel context resolves modifiers from the team, which is how this ships. A
-        # modifier set on the query object alone does not reach it.
+    def _funnel(self, use_capture_order: bool, steps: list[str], viz_type: str = "steps") -> list:
+        # The funnel context resolves modifiers from the team, which is how this ships. A modifier
+        # set on the query object alone does not reach it.
         self.team.modifiers = {"funnelUseClientCaptureOrder": use_capture_order}
         self.team.save()
         query = FunnelsQuery(
-            series=[EventsNode(event="step one"), EventsNode(event="step two")],
-            dateRange={"date_from": "2026-01-15", "date_to": "2026-01-16"},
+            series=[EventsNode(event=step) for step in steps],
+            dateRange={"date_from": "2026-01-15", "date_to": "2026-01-17"},
+            interval="day",
+            funnelsFilter=FunnelsFilter(funnelVizType=viz_type),
         )
-        return FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        return FunnelsQueryRunner(query=query, team=self.team, just_summarize=viz_type == "trends").calculate().results
+
+
+class TestFunnelCaptureOrder(CaptureOrderTestMixin):
+    def _given_an_out_of_order_device(
+        self,
+        captured: bool = True,
+        lib: str = "web",
+        device_id: str = "dev-a",
+        device_model: str = "",
+    ) -> None:
+        _create_person(distinct_ids=["u1"], team_id=self.team.pk)
+        second = BASE + timedelta(seconds=5)
+        common: dict[str, Any] = {"lib": lib, "device_id": device_id, "device_model": device_model}
+        self._event("step one", second + timedelta(seconds=20), BASE if captured else None, **common)
+        self._event("step two", second + timedelta(milliseconds=200), second if captured else None, **common)
+        flush_persons_and_events()
 
     @parameterized.expand(
         [
-            ("stored_timestamp_order_drops_the_user", False, 0),
-            ("capture_order_counts_the_user", True, 1),
+            ("stored_order_drops_the_user", False, "web", "dev-a", "", 0),
+            ("browser_device", True, "web", "dev-a", "", 1),
+            ("browser_without_device_id", True, "web", "", "", 1),
+            ("mobile_without_device_id", True, "posthog-ios", "", "iPhone15,2", 1),
+            ("server_sdk_keeps_stored_order", True, "posthog-python", "dev-a", "", 0),
         ]
     )
-    def test_out_of_order_delivery(self, _name: str, use_capture_order: bool, expected_step_two: int) -> None:
-        self._given_an_out_of_order_device()
+    def test_out_of_order_delivery(
+        self, _name: str, use_capture_order: bool, lib: str, device_id: str, device_model: str, expected_step_two: int
+    ) -> None:
+        self._given_an_out_of_order_device(lib=lib, device_id=device_id, device_model=device_model)
 
-        results = self._run(use_capture_order)
+        results = self._funnel(use_capture_order, ["step one", "step two"])
 
         assert results[0]["count"] == 1
         assert results[1]["count"] == expected_step_two
 
     @parameterized.expand(
         [
-            # Without a device id these rows would pool into one offset partition per person, so
-            # another device's floor latency could be applied to this one's clock.
-            ("no_device_to_anchor_to", "", True),
-            # Capture writes no capture instant when the client sent nothing to derive it from.
-            ("no_capture_instant_recorded", "dev-a", False),
+            ("no_capture_instant_recorded", False, 10_000),
+            ("anchor_group_over_the_cap", True, 1),
         ]
     )
-    def test_falls_back_to_stored_order(self, _name: str, device_id: str, with_capture_time: bool) -> None:
-        self._given_an_out_of_order_device(device_id=device_id, with_capture_time=with_capture_time)
+    def test_falls_back_to_stored_order(self, _name: str, captured: bool, cap: int) -> None:
+        self._given_an_out_of_order_device(captured=captured)
 
-        results = self._run(use_capture_order=True)
+        with patch("products.product_analytics.backend.hogql_queries.funnels.base.MAX_EVENTS_PER_CAPTURE_ANCHOR", cap):
+            results = self._funnel(True, ["step one", "step two"])
 
         assert results[0]["count"] == 1
         assert results[1]["count"] == 0
 
+    def test_trends_use_the_capture_order(self) -> None:
+        self._given_an_out_of_order_device()
 
-class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
-    """One device whose events do not all carry a capture instant.
+        results = self._funnel(True, ["step one", "step two"], viz_type="trends")
 
-    Capture derives `$client_capture_time` from what the client sent, so a device can produce
-    some events with it and some without. Correcting only the events that have it would move
-    those earlier while the rest keep their delivery latency, which can reorder a pair the
-    stored timestamp happened to get right. The key therefore corrects a device only when every
-    one of its events carries the instant.
-    """
+        by_day = {row["timestamp"].date(): row for row in results}
+        assert by_day[BASE.date()]["reached_from_step_count"] == 1
+        assert by_day[BASE.date()]["reached_to_step_count"] == 1
 
-    BASE = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
 
-    def _event(self, name: str, captured_offset: float, stored_offset: float, with_capture: bool) -> None:
-        props: dict = {"$device_id": "dev-a"}
-        if with_capture:
-            captured_at = self.BASE + timedelta(seconds=captured_offset)
-            props["$client_capture_time"] = captured_at.isoformat().replace("+00:00", "Z")
-        _create_event(
-            team=self.team,
-            event=name,
-            distinct_id="u1",
-            timestamp=self.BASE + timedelta(seconds=stored_offset),
-            properties=props,
+class TestFunnelCaptureOrderAnchorGroups(CaptureOrderTestMixin):
+    def test_two_devices_sharing_a_distinct_id_keep_separate_anchors(self) -> None:
+        _create_person(distinct_ids=["u1"], team_id=self.team.pk)
+        # Device A's clock is right. Device B's clock is 60 s slow, which capture's per-request
+        # correction removes from the stored timestamp but not from the capture instant. One shared
+        # anchor would apply A's offset to B and move step two a minute before step one.
+        self._event(
+            "step one", BASE + timedelta(milliseconds=200), BASE, lib="posthog-android", device_id="", device_model="A"
         )
-
-    def _run(self, use_capture_order: bool) -> list:
-        self.team.modifiers = {"funnelUseClientCaptureOrder": use_capture_order}
-        self.team.save()
-        query = FunnelsQuery(
-            series=[EventsNode(event="a"), EventsNode(event="b"), EventsNode(event="c")],
-            dateRange={"date_from": "2026-01-15", "date_to": "2026-01-16"},
+        step_two_at = BASE + timedelta(seconds=5)
+        self._event(
+            "step two",
+            step_two_at + timedelta(milliseconds=200),
+            step_two_at - timedelta(seconds=60),
+            lib="posthog-android",
+            device_id="",
+            device_model="B",
         )
-        return FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        flush_persons_and_events()
+
+        results = self._funnel(True, ["step one", "step two"])
+
+        assert results[1]["count"] == 1
+
+    def test_a_clock_corrected_overnight_anchors_each_day_separately(self) -> None:
+        _create_person(distinct_ids=["u1"], team_id=self.team.pk)
+        # The clock runs 2 h fast on day one and is corrected before day two. One anchor across both
+        # days would take day one's offset and move step two two hours back, ahead of step one.
+        step_one_at = datetime(2026, 1, 15, 23, 0, 0, tzinfo=UTC)
+        step_two_at = datetime(2026, 1, 16, 0, 30, 0, tzinfo=UTC)
+        self._event("step one", step_one_at + timedelta(milliseconds=200), step_one_at + timedelta(hours=2))
+        self._event("step two", step_two_at + timedelta(milliseconds=200), step_two_at)
+        flush_persons_and_events()
+
+        results = self._funnel(True, ["step one", "step two"])
+
+        assert results[1]["count"] == 1
 
     @parameterized.expand(
         [
@@ -145,14 +166,15 @@ class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, use_capture_order: bool, expected_step_three: int
     ) -> None:
         _create_person(distinct_ids=["u1"], team_id=self.team.pk)
-        # a's 1s latency is the smallest the device was seen with, so it sets the anchor
-        # that pulls c back to 12:00:05, ahead of the uncorrected b at 12:00:06.
-        self._event("a", captured_offset=0, stored_offset=1, with_capture=True)
-        self._event("b", captured_offset=2, stored_offset=6, with_capture=False)
-        self._event("c", captured_offset=4, stored_offset=20, with_capture=True)
+        # a's 1 s latency is the smallest in the group, so correcting only the covered rows would
+        # pull c back to 12:00:05, ahead of the uncorrected b at 12:00:06. The whole group therefore
+        # keeps the stored timestamp.
+        self._event("a", BASE + timedelta(seconds=1), BASE)
+        self._event("b", BASE + timedelta(seconds=6), None)
+        self._event("c", BASE + timedelta(seconds=20), BASE + timedelta(seconds=4))
         flush_persons_and_events()
 
-        results = self._run(use_capture_order)
+        results = self._funnel(use_capture_order, ["a", "b", "c"])
 
         assert results[0]["count"] == 1
         assert results[1]["count"] == 1
@@ -160,13 +182,6 @@ class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestFunnelCaptureOrderUsesMaterializedColumn(ClickhouseTestMixin, APIBaseTest):
-    """The capture instant must be read from a column, not dug out of the properties JSON.
-
-    Reading it from JSON forces ClickHouse to decompress the whole properties blob. Measured on
-    one production team over one day, that is the difference between a 407 MiB scan and a 41 GiB
-    one, so the flag is only affordable once the property is materialized.
-    """
-
     def _funnel_sql(self) -> str:
         self.team.modifiers = {"funnelUseClientCaptureOrder": True}
         self.team.save()
