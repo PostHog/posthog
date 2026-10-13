@@ -25,7 +25,7 @@ import json
 import math
 from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
@@ -108,27 +108,36 @@ WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST // 2
 REQUEST_TOKEN_TARGET = 5_000
 
 
+def _text_tokens(text: str) -> int:
+    """Estimated prompt tokens of a piece of request text."""
+    return max(1, len(text) // 4)
+
+
 def _entry_tokens(entry: dict[str, Any]) -> int:
     """Estimated prompt tokens one state entry adds to a request."""
-    return max(1, len(json.dumps(entry, separators=(",", ":"))) // 4)
+    return _text_tokens(json.dumps(entry, separators=(",", ":")))
 
 
-def _pack_chunks(entries: list[tuple[str, dict[str, Any]]]) -> list[list[tuple[str, dict[str, Any]]]]:
-    """Entries packed into request-sized chunks: at most WINDOW_CHUNK_SIZE questions and about
-    REQUEST_TOKEN_TARGET estimated tokens each, so no request can fill a decision-service host by
-    itself however verbose the entries run. An entry over the target alone still ships, alone."""
-    chunks: list[list[tuple[str, dict[str, Any]]]] = []
+def _pack_chunks(
+    entries: list[tuple[str, dict[str, Any]]], tokens_per_question: int
+) -> list[tuple[list[tuple[str, dict[str, Any]]], int]]:
+    """Entries packed into request-sized chunks, each returned with its entries' token estimate: at
+    most WINDOW_CHUNK_SIZE questions and about REQUEST_TOKEN_TARGET estimated tokens each — counting
+    the question each entry brings, since its instructions ride along per question — so no request
+    can fill a decision-service host by itself however verbose the entries run. An entry over the
+    target alone still ships, alone."""
+    chunks: list[tuple[list[tuple[str, dict[str, Any]]], int]] = []
     current: list[tuple[str, dict[str, Any]]] = []
     current_tokens = 0
     for entry_id, entry in entries:
-        tokens = _entry_tokens(entry)
+        tokens = _entry_tokens(entry) + tokens_per_question
         if current and (len(current) >= WINDOW_CHUNK_SIZE or current_tokens + tokens > REQUEST_TOKEN_TARGET):
-            chunks.append(current)
+            chunks.append((current, current_tokens))
             current, current_tokens = [], 0
         current.append((entry_id, entry))
         current_tokens += tokens
     if current:
-        chunks.append(current)
+        chunks.append((current, current_tokens))
     return chunks
 
 
@@ -222,6 +231,13 @@ _REASON_INSTRUCTIONS = (
     "severe one. Use the other scans in the state only as context. Judge only what the recorded "
     "user experienced."
 )
+
+# What one question adds to a request beyond its state entry: the window instructions ride along
+# per yes/no question, and the reason instructions plus the whole criteria list per CHOICE question.
+# Measured per-request sizes grow with question count because of these, so packing and pacing count
+# them; leaving them out undercounted a full chunk by thousands of tokens.
+_WINDOW_QUESTION_TOKENS = _text_tokens(_WINDOW_INSTRUCTIONS)
+_REASON_QUESTION_TOKENS = _text_tokens(_REASON_INSTRUCTIONS) + _text_tokens(json.dumps(_WATCH_REASON_CRITERIA))
 
 _CALLS = Counter(
     "replay_vision_jev_watch_rank_calls",
@@ -440,6 +456,7 @@ def judge_scanner_window(
     rows: list[dict[str, Any]],
     context_rows: list[dict[str, Any]] | None = None,
     pace: Callable[[int], None] | None = None,
+    stop_after: float | None = None,
 ) -> WindowJudgment:
     """Ask Jev which of these observations are worth watching, one probability per row.
 
@@ -448,13 +465,15 @@ def judge_scanner_window(
     against the scanner's routine. Fail-soft per chunk: a failed chunk loses its rows' judgments
     and counts as failed, and the other chunks still land, so one bad request never empties a
     scanner's cache entry. `pace` is called with each request's estimated prompt tokens before it
-    is sent, so a caller can spread its requests at a steady token rate; it may block.
+    is sent, so a caller can spread its requests at a steady token rate; it may block. Chunks are
+    not started past `stop_after` (a time.monotonic deadline): their rows stay unjudged and retry
+    on the next sweep, so a paced window cannot run away past the caller's time budget.
     """
     entries = [(str(row["id"]), entry) for row in rows if (entry := _window_entry(row)) is not None]
     entry_ids = {entry_id for entry_id, _ in entries}
     skipped_no_prose = tuple(str(row["id"]) for row in rows if str(row["id"]) not in entry_ids)
     context = [entry for row in context_rows or [] if (entry := _window_entry(row)) is not None]
-    chunks = _pack_chunks(entries)
+    chunks = _pack_chunks(entries, _WINDOW_QUESTION_TOKENS)
     # One trace per window run, so a window's chunks group in AI observability without merging runs.
     trace_id = str(uuid4())
     probabilities: dict[str, float] = {}
@@ -476,20 +495,25 @@ def judge_scanner_window(
         _INPUT_TOKENS.inc(result.input_tokens)
         _ESTIMATED_COST.inc(chunk_cost)
 
-    for chunk in chunks:
+    context_with_tokens = [(entry, _entry_tokens(entry)) for entry in context]
+    for chunk, packed_tokens in chunks:
+        if stop_after is not None and monotonic() > stop_after:
+            # Like rows cut off by the caller's time budget: unjudged, free to retry next sweep.
+            break
         # Context pads only the room the chunk leaves, by question count and by token budget, so a
         # padded request stays no larger than a full one.
-        budget = REQUEST_TOKEN_TARGET - sum(_entry_tokens(entry) for _, entry in chunk)
+        budget = REQUEST_TOKEN_TARGET - packed_tokens
         chunk_context: list[dict[str, Any]] = []
-        for context_entry in context:
-            tokens = _entry_tokens(context_entry)
+        context_tokens = 0
+        for context_entry, tokens in context_with_tokens:
             if len(chunk) + len(chunk_context) >= WINDOW_CHUNK_SIZE or tokens > budget:
                 break
             chunk_context.append(context_entry)
             budget -= tokens
-        request_tokens = REQUEST_TOKEN_TARGET - budget
+            context_tokens += tokens
+        state_tokens = packed_tokens - len(chunk) * _WINDOW_QUESTION_TOKENS + context_tokens
         if pace is not None:
-            pace(request_tokens)
+            pace(packed_tokens + context_tokens)
         started = perf_counter()
         try:
             chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk, chunk_context)
@@ -528,8 +552,9 @@ def judge_scanner_window(
         if not watchable_ids:
             continue
         if pace is not None:
-            # The reason pick resends the same state, so it pays the same pacing toll.
-            pace(request_tokens)
+            # The reason pick resends the same state, with one criteria-bearing question per
+            # watchable row — usually a few, so this toll is usually smaller than the judgment's.
+            pace(state_tokens + len(watchable_ids) * _REASON_QUESTION_TOKENS)
         started = perf_counter()
         try:
             chunk_reasons, reason_result = _pick_watch_reasons(team_id, trace_id, chunk, chunk_context, watchable_ids)

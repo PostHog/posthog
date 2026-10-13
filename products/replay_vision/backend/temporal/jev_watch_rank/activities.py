@@ -191,7 +191,12 @@ class _TokenPacer:
 
 
 async def _sweep_scanner(
-    team_id: int, scanner_id: UUID, mode: str, window_start: datetime, pace: Callable[[int], None]
+    team_id: int,
+    scanner_id: UUID,
+    mode: str,
+    window_start: datetime,
+    pace: Callable[[int], None],
+    stop_after: float,
 ) -> _ScannerOutcome:
     window_ids = await sync_to_async(_scanner_window_ids)(team_id, scanner_id, window_start)
     if not window_ids:
@@ -220,7 +225,7 @@ async def _sweep_scanner(
     judged_context_ids = [row_id for row_id in window_ids if str(row_id) in judged][:WINDOW_CHUNK_SIZE]
     rows = await sync_to_async(_rows_by_id)(team_id, unjudged_ids)
     context_rows = await sync_to_async(_rows_by_id)(team_id, judged_context_ids)
-    judgment = await asyncio.to_thread(judge_scanner_window, team_id, scanner_id, rows, context_rows, pace)
+    judgment = await asyncio.to_thread(judge_scanner_window, team_id, scanner_id, rows, context_rows, pace, stop_after)
     # Sub-threshold judgments join only the judged set, keeping the watchable key — which
     # the feed loads for every readable scanner on each request — small.
     window_strs = {str(row_id) for row_id in window_ids}
@@ -336,7 +341,10 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             # here: a revocation in between must stop the prose before it reaches the model.
             if not await sync_to_async(is_ai_data_processing_approved)(team_id):
                 return _ScannerOutcome(consent_revoked=True)
-            outcome = await _sweep_scanner(team_id, scanner_id, mode, window_start, pacer.wait)
+            # The deadline passes into the window too: the turn-level check cannot interrupt a
+            # scanner already judging, and a paced window of many chunks could otherwise run long
+            # past the budget toward the activity timeout.
+            outcome = await _sweep_scanner(team_id, scanner_id, mode, window_start, pacer.wait, deadline)
             if outcome.rate_limited:
                 consecutive_rate_limited += 1
                 paused_until = monotonic() + RATE_LIMIT_PAUSE.total_seconds()

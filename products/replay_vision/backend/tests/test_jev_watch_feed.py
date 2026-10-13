@@ -5,6 +5,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -27,6 +28,7 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.jev_watch_feed import (
+    _WINDOW_QUESTION_TOKENS,
     REQUEST_TOKEN_TARGET,
     WINDOW_CHUNK_SIZE,
     _entry_tokens,
@@ -298,7 +300,9 @@ class TestJudgeScannerWindow(SimpleTestCase):
         # Count-only chunking would fit all of these into one request.
         assert len(requests) > 1
         for request in requests:
-            assert sum(_entry_tokens(entry) for entry in request.state["observations"]) <= REQUEST_TOKEN_TARGET
+            # state["observations"] is a dict keyed by index, so size the entries, not the keys.
+            entry_tokens = sum(_entry_tokens(entry) for entry in request.state["observations"].values())
+            assert entry_tokens + len(request.questions) * _WINDOW_QUESTION_TOKENS <= REQUEST_TOKEN_TARGET
 
     def test_each_request_pays_the_pacing_toll_before_it_sends(self) -> None:
         rows = [_prose_row(uuid4(), f"summary {index}") for index in range(3)]
@@ -310,6 +314,15 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert api.decide_when_available.call_count == 2
         assert len(paid) == 2
         assert all(tokens > 0 for tokens in paid)
+
+    def test_a_window_starts_no_chunk_past_its_stop_time(self) -> None:
+        # Rows past the deadline stay unjudged and retry next sweep, charging no retry budget.
+        rows = [_prose_row(uuid4(), "The user hit an error.") for _ in range(2)]
+        with patch(_API) as api:
+            judgment = judge_scanner_window(1, uuid4(), rows, stop_after=monotonic() - 1)
+        api.decide_when_available.assert_not_called()
+        assert judgment.probabilities == {}
+        assert judgment.batch_failed_ids == ()
 
     def test_an_empty_window_makes_no_request(self) -> None:
         with patch(_API) as api:
@@ -339,20 +352,30 @@ def _feed_row(
 
 
 class TestTokenPacer(SimpleTestCase):
+    # The clock and sleep are patched at the activities module, so these assert the reservation
+    # math deterministically instead of timing real sleeps (which flake on a loaded CI machine).
+    _MOD = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+
     def test_a_request_waits_for_the_slot_the_one_before_it_reserved(self) -> None:
-        pacer = _TokenPacer(tokens_per_second=10_000)
-        started = monotonic()
-        pacer.wait(2_000)  # sends at once and reserves the next 0.2 s
-        pacer.wait(1)
-        assert monotonic() - started >= 0.2
-        # The recorded wait is the slot minus the instants between the calls, so just under 0.2 s.
-        assert pacer.waited_seconds > 0.1
+        with (
+            patch(f"{self._MOD}.monotonic", side_effect=[100.0, 100.0, 100.05]),
+            patch(f"{self._MOD}.sleep") as slept,
+        ):
+            pacer = _TokenPacer(tokens_per_second=10_000)
+            pacer.wait(2_000)  # sends at once and reserves until 100.2
+            pacer.wait(1)
+        slept.assert_called_once()
+        assert slept.call_args.args[0] == pytest.approx(0.15)
+        assert pacer.waited_seconds == pytest.approx(0.15)
 
     def test_the_first_request_of_an_idle_run_never_waits(self) -> None:
-        pacer = _TokenPacer(tokens_per_second=1)  # any backlog at this rate would show instantly
-        started = monotonic()
-        pacer.wait(10)
-        assert monotonic() - started < 0.5
+        with (
+            patch(f"{self._MOD}.monotonic", side_effect=[100.0, 200.0]),
+            patch(f"{self._MOD}.sleep") as slept,
+        ):
+            pacer = _TokenPacer(tokens_per_second=1)  # any backlog at this rate would show instantly
+            pacer.wait(10)
+        slept.assert_not_called()
         assert pacer.waited_seconds == 0.0
 
 
