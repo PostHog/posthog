@@ -39,7 +39,12 @@ export function IntroCanvas({ survey }: { survey: Survey | NewSurvey }): JSX.Ele
                     as="p"
                     className="intro-screen-body"
                     value={appearance.introScreenDescription || ''}
-                    onChange={(value) => updateAppearance({ introScreenDescription: value })}
+                    onChange={(value) =>
+                        updateAppearance({
+                            introScreenDescription: value,
+                            introScreenDescriptionContentType: 'text',
+                        })
+                    }
                     placeholder="Add an opening message (optional)"
                     ariaLabel="Intro description"
                     multiline

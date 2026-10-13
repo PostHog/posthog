@@ -86,6 +86,41 @@ describe('HostedSurveyCanvas', () => {
         }
     )
 
+    it('keeps a typed intro description editable when the content type was unset', () => {
+        const survey: Survey = {
+            ...baseSurvey,
+            appearance: {
+                ...baseSurvey.appearance,
+                introScreenDescription: '',
+                introScreenDescriptionContentType: undefined,
+            },
+        }
+        const logic = surveyLogic({ id: survey.id })
+        logic.mount()
+        logic.actions.loadSurveySuccess(survey)
+        const renderCanvas = (): JSX.Element => (
+            <BindLogic logic={surveyLogic} props={{ id: survey.id }}>
+                <HostedSurveyCanvas
+                    survey={logic.values.survey as Survey}
+                    activePageIndex={-1}
+                    pageKind="intro"
+                    viewport="desktop"
+                />
+            </BindLogic>
+        )
+        const { rerender } = render(renderCanvas())
+
+        for (const text of ['First draft', 'Second draft']) {
+            fireEvent.click(screen.getByLabelText('Intro description'))
+            fireEvent.change(screen.getByLabelText('Intro description'), { target: { value: text } })
+            fireEvent.blur(screen.getByLabelText('Intro description'))
+            rerender(renderCanvas())
+        }
+
+        expect(logic.values.survey.appearance?.introScreenDescription).toBe('Second draft')
+        expect(logic.values.survey.appearance?.introScreenDescriptionContentType).toBe('text')
+    })
+
     it.each([
         ['an unset content type', undefined, true],
         ['an html content type', 'html', true],
