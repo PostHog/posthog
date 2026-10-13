@@ -1,4 +1,5 @@
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -42,30 +43,28 @@ export function SkillRow({
     mine: JSX.Element
 }): JSX.Element {
     return (
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2">
-            <div className="flex min-w-48 flex-1 flex-col gap-0.5">
+        <div className="grid grid-cols-1 items-center gap-2 px-4 py-2 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,16rem)] @min-[48rem]:gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-sm font-semibold">{prettifySkillName(skillName)}</span>
-                <Tooltip title={description}>
-                    {/* Focusable, so a keyboard user can open the tooltip that holds the clipped text. */}
-                    <span tabIndex={0} className="line-clamp-1 text-xs text-secondary">
-                        {description}
-                    </span>
-                </Tooltip>
+                <span className="line-clamp-1 text-xs text-secondary" title={description}>
+                    {description}
+                </span>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     {kept !== undefined && <KeptCount kept={kept} />}
-                    <Tooltip title="Changes the skill for everyone in the project">
-                        <Link
-                            to={urls.skill(skillName)}
-                            target="_blank"
-                            className="text-xs"
-                            data-attr="review-hog-edit-skill-text"
-                        >
-                            Edit skill
-                        </Link>
-                    </Tooltip>
+                    <Link
+                        to={urls.skill(skillName)}
+                        target="_blank"
+                        className="inline-flex items-center gap-0.5 text-xs"
+                        data-attr="review-hog-edit-skill-text"
+                    >
+                        Edit text for the project <IconExternal className="size-3" />
+                    </Link>
                 </div>
             </div>
-            <div className="flex max-w-full min-w-0 items-center">{mine}</div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+                <span className="text-xs text-secondary @min-[48rem]:hidden">Mine:</span>
+                {mine}
+            </div>
         </div>
     )
 }

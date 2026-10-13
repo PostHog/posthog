@@ -4,6 +4,7 @@ import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui
 
 import { ReviewHogRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 
+import { PANE_LEFT, PANE_ROW } from './paneClasses'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
@@ -14,23 +15,17 @@ const VIEW_OPTIONS: { value: ReviewHogRepositoryOverviewRetrieveView; label: str
     { value: 'mine', label: 'My choices' },
 ]
 
-export function RepositoryListToolbar({
-    hiddenView,
-}: {
-    /** The one view this list leaves out of its filter. */
-    hiddenView: ReviewHogRepositoryOverviewRetrieveView
-}): JSX.Element {
+export function RepositoryListToolbar(): JSX.Element {
     const { installations } = useValues(reviewHogProjectSettingsLogic)
     const { installation, search, view } = useValues(reviewHogRepositoriesLogic)
     const { selectInstallation, setSearch, setView } = useActions(reviewHogRepositoriesLogic)
-    const options = VIEW_OPTIONS.filter((option) => option.value !== hiddenView)
 
     return (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={`col-span-full flex flex-wrap items-center gap-2 px-4 py-2.5 ${PANE_LEFT} ${PANE_ROW}`}>
             <LemonInput
                 type="search"
                 size="small"
-                className="min-w-48 max-w-80 flex-1"
+                className="min-w-48 flex-1"
                 placeholder="Filter repositories"
                 aria-label="Filter repositories"
                 value={search}
@@ -46,7 +41,7 @@ export function RepositoryListToolbar({
                     onChange={selectInstallation}
                 />
             )}
-            <LemonSegmentedButton size="small" value={view} options={options} onChange={setView} />
+            <LemonSegmentedButton size="small" value={view} options={VIEW_OPTIONS} onChange={setView} />
         </div>
     )
 }

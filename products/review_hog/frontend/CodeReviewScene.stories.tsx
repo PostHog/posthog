@@ -587,7 +587,7 @@ function OpenTab({
 }): JSX.Element {
     useEffect(() => {
         router.actions.replace(urls.codeReview(), {
-            ...(tab !== 'activity' ? { tab } : {}),
+            ...(tab === 'settings' ? { tab } : {}),
             ...(review ? { review } : {}),
         })
     }, [tab, review])
@@ -836,7 +836,7 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(await canvas.findByText('Add retry to the export job')).toBeVisible()
         await expect(canvas.getByText('Mine')).toBeVisible()
-        await expect(canvas.queryByText('Deep review skills')).not.toBeInTheDocument()
+        await expect(canvas.queryByText('Review skills')).not.toBeInTheDocument()
         await expect(canvas.getByText('How we review your PRs')).toBeVisible()
     },
 }
@@ -859,11 +859,14 @@ export const Settings: Story = {
         userLogic.actions.loadUser()
         await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(false))
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Deep review skills')).toBeVisible()
+        await expect(await canvas.findByText('This project reviews example-org:')).toBeVisible()
+        await expect(await canvas.findByText('example-org/web')).toBeVisible()
+        await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
+        await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
+        await expect(canvas.getByText('Review skills')).toBeVisible()
         await expect(canvas.getByText('Kept counts: your last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
-        await expect(canvas.queryByLabelText('Project rule')).not.toBeInTheDocument()
     },
 }
 
@@ -876,32 +879,12 @@ export const SettingsForMember: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Project admins edit')).toBeVisible()
         await expect(
             await canvas.findByText(
-                'This applies to your pull requests in every repository, except 1 where you chose differently.'
+                'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'
             )
         ).toBeVisible()
-    },
-}
-
-export const ProjectSettings: Story = {
-    parameters: { tab: 'project' },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await expect(await canvas.findByLabelText('Repositories of example-org this project reviews')).toBeVisible()
-        await expect(await canvas.findByText('example-org/web')).toBeVisible()
-        await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
-        await expect(canvas.getByLabelText('Project rule')).not.toHaveAttribute('aria-disabled', 'true')
-        await expect(canvas.queryByText('Deep review skills')).not.toBeInTheDocument()
-    },
-}
-
-export const ProjectSettingsForMember: Story = {
-    parameters: { tab: 'project', canEdit: false, claimScope: 'selected' },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Only project admins can change these settings.')).toBeVisible()
-        await expect(canvas.getByLabelText('Project rule')).toHaveAttribute('aria-disabled', 'true')
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
@@ -912,7 +895,7 @@ export const SavedInboxOptIns: Story = {
     parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const inboxLabel = 'Review my Inbox PRs'
+        const inboxLabel = 'Review PRs the agent opens for Inbox reports assigned to me'
         // The Inbox section renders before the settings load and can re-render with new nodes,
         // so query again on every attempt until the saved values arrive.
         await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })

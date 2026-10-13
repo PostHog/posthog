@@ -32,7 +32,7 @@ export function PeopleList({
 
     return (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-secondary">{kind === 'excepted' ? 'Except:' : 'People:'}</span>
+            <span className="text-secondary">{kind === 'excepted' ? 'except:' : 'People:'}</span>
             {listed.map((person) => (
                 <LemonSnack
                     key={person.id}
@@ -44,7 +44,7 @@ export function PeopleList({
                     {person.user.id === user?.id ? ' (you)' : ''}
                 </LemonSnack>
             ))}
-            {listed.length === 0 && <span className="text-tertiary">No one yet</span>}
+            {listed.length === 0 && <span className="text-tertiary">nobody yet</span>}
             {canEdit && (
                 <MemberSelect
                     value={null}
@@ -60,7 +60,7 @@ export function PeopleList({
                             disabledReason={disabledReason}
                             data-attr="review-hog-rule-add-person"
                         >
-                            Add person
+                            Person
                         </LemonButton>
                     )}
                 </MemberSelect>

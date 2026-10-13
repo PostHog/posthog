@@ -4,7 +4,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
-import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
@@ -148,16 +147,6 @@ describe('reviewHogRepositoriesLogic', () => {
             'POST repository {"installation_id":"41","full_name":"example-org/web","github_repo_id":1001,"flash_for":"everyone"}',
             'POST person repo-web {"user_id":202,"kind":"excepted"}',
         ])
-    })
-
-    it('a tab switch clears the list filter, so one settings tab never inherits the other tab filter', async () => {
-        await expectLogic(logic).toDispatchActions(['loadOverviewSuccess'])
-        await expectLogic(logic, () => logic.actions.setView('exceptions')).toDispatchActions(['loadOverviewSuccess'])
-
-        await expectLogic(logic, () => reviewHogSettingsLogic.actions.setActiveTab('settings')).toDispatchActions([
-            'loadOverviewSuccess',
-        ])
-        expect(logic.values.view).toBe('all')
     })
 
     it('changing my default reloads the list, because the default decides every inherited result', async () => {

@@ -49,8 +49,9 @@ import { CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './review
 import { ReviewModeTag } from './ReviewModeTag'
 import { ReviewsFilters } from './ReviewsFilters'
 import { ReviewsTable } from './ReviewsTable'
-import { MyPreferencesTab } from './settings/MyPreferencesTab'
-import { ProjectSettingsTab } from './settings/ProjectSettingsTab'
+import { DeepArea } from './settings/DeepArea'
+import { InboxSection } from './settings/InboxSection'
+import { StandardArea } from './settings/StandardArea'
 import { prettifySkillName } from './skillNames'
 
 // The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
@@ -871,8 +872,7 @@ export function CodeReviewScene(): JSX.Element {
                 onChange={setActiveTab}
                 tabs={[
                     { key: 'activity', label: 'Activity', 'data-attr': 'code-review-tab-activity' },
-                    { key: 'settings', label: 'My preferences', 'data-attr': 'code-review-tab-settings' },
-                    { key: 'project', label: 'Project settings', 'data-attr': 'code-review-tab-project' },
+                    { key: 'settings', label: 'Settings', 'data-attr': 'code-review-tab-settings' },
                 ]}
                 sceneInset
             />
@@ -886,10 +886,11 @@ export function CodeReviewScene(): JSX.Element {
                 {activeTab === 'activity' ? (
                     <ActivityTab />
                 ) : (
-                    // Capped so a control stays close to the label it belongs to on a wide window.
-                    <div className="flex max-w-200 flex-col gap-8">
-                        {activeTab === 'project' ? <ProjectSettingsTab /> : <MyPreferencesTab />}
-                    </div>
+                    <>
+                        <StandardArea />
+                        <DeepArea />
+                        <InboxSection />
+                    </>
                 )}
 
                 {/* Overlays stay mounted on every tab, so a `?review=` deep link opens on any of them. */}

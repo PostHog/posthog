@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { PANE_LEFT, PANE_ROW } from './paneClasses'
 import { REPOSITORIES_PAGE_SIZE, reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 export function RepositoryListPager(): JSX.Element | null {
@@ -13,7 +14,9 @@ export function RepositoryListPager(): JSX.Element | null {
     const first = page * REPOSITORIES_PAGE_SIZE + 1
     const last = Math.min(overview.total, first + overview.results.length - 1)
     return (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-secondary">
+        <div
+            className={`col-span-full flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs text-secondary ${PANE_LEFT} ${PANE_ROW}`}
+        >
             <span>
                 <span translate="no">
                     {first}-{last} of {overview.total}

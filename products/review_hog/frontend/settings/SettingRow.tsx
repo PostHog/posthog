@@ -1,40 +1,32 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 /**
- * One setting: what it is on the left, its control on the right. On a narrow container the control
- * wraps under the text.
+ * One row of a settings table: the setting, the project column, and the viewer's own column. On a
+ * narrow container the columns stack and each one gets its label back.
  */
 export function SettingRow({
     title,
     description,
-    info,
-    children,
+    project,
+    mine,
 }: {
     title: string
     description: string
-    /** Conditions a reader does not need to make the choice, shown on demand next to the title. */
-    info?: string
-    children: React.ReactNode
+    project: JSX.Element
+    mine: JSX.Element
 }): JSX.Element {
     return (
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3">
-            <div className="flex min-w-48 flex-1 flex-col gap-0.5">
-                <span className="flex items-center gap-1 text-sm font-semibold">
-                    {title}
-                    {info && (
-                        <LemonButton
-                            size="xsmall"
-                            noPadding
-                            icon={<IconInfo />}
-                            tooltip={info}
-                            aria-label={`More about: ${title}`}
-                        />
-                    )}
-                </span>
+        <div className="grid grid-cols-1 items-center gap-2 border-t border-primary px-4 py-3 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_minmax(0,18rem)] @min-[48rem]:gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-sm font-semibold">{title}</span>
                 <span className="text-xs text-secondary">{description}</span>
             </div>
-            <div className="flex max-w-full min-w-0 items-center">{children}</div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="text-xs text-secondary @min-[48rem]:hidden">Project:</span>
+                {project}
+            </div>
+            <div className="flex min-w-0 items-center gap-2">
+                <span className="text-xs text-secondary @min-[48rem]:hidden">Mine:</span>
+                {mine}
+            </div>
         </div>
     )
 }

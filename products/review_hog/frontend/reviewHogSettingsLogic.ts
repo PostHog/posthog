@@ -62,8 +62,7 @@ export type ReviewDrawerTab =
     | 'how_it_ran'
     | 'review'
 
-// pinned: `tab` URL values. 'settings' is the "My preferences" tab and keeps its name for old links.
-export type CodeReviewTab = 'activity' | 'settings' | 'project'
+export type CodeReviewTab = 'activity' | 'settings'
 
 /** The personal preferences that fall back to a project default when the user has no own value. */
 export type ProjectDefaultKey = 'urgency_threshold' | 'celebrate_clean_reviews'
@@ -838,7 +837,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 },
             },
         ],
-        // The review skills on the My preferences tab: the viewer's own last Deep reviews, whatever the
+        // The review skills on the Settings tab: the viewer's own last Deep reviews, whatever the
         // Activity tab's Mine / Everyone switch says, because only the person who starts a Deep
         // review picks its skills.
         deepSkillStats: [
@@ -1016,8 +1015,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 },
             },
         ],
-        // The "Mine / Everyone" filter on the reviews table: it scopes the list AND the proof card,
-        // which perspectiveStats feeds. Skill lists and their toggles stay per-user regardless.
+        // The "Mine / Everyone" filter on the reviews table: it scopes the list AND every stat
+        // surface fed by perspectiveStats (proof card, effectiveness cards on the Settings tab).
+        // Skill lists and their toggles stay per-user regardless.
         reviewsScope: [
             ReviewHogReviewsListScope.Mine as ReviewHogReviewsListScope,
             { persist: true },
@@ -1053,7 +1053,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             },
         ],
         creatingSkillKind: [
-            // Guards the "New skill" button against double-submission while the task spins up.
+            // Guards the "Create your own …" buttons against double-submission while the task spins up.
             null as ReviewSkillKind | null,
             {
                 startSkillAuthorTask: (_, { kind }) => kind,
@@ -1448,7 +1448,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             // Min-1 floor, mirrored from the backend so the block is instant (the server still 400s).
             const enabledCount = values.perspectives?.filter((p) => p.enabled).length ?? 0
             if (!enabled && enabledCount <= 1) {
-                lemonToast.info('Keep at least one perspective on')
+                lemonToast.info('Keep at least one perspective enabled')
                 return
             }
             actions.patchPerspectiveLocally(skillName, enabled)
@@ -1505,7 +1505,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             }
         },
         blockSingleActiveDeactivation: ({ kindLabel }) => {
-            lemonToast.info(`One ${kindLabel} always runs. Select another one to switch.`)
+            lemonToast.info(`One ${kindLabel} always runs — switch by selecting another one`)
         },
         openAdoptSkillModal: () => {
             actions.loadAdoptableSkills()
@@ -1547,11 +1547,11 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 } else {
                     await reviewHogResolutionPartialUpdate(currentProjectId(), newName, { active: true })
                 }
-                lemonToast.success('Skill copied. It now runs on your Deep reviews.')
+                lemonToast.success('Skill copied. It now runs on your PR reviews.')
             } catch {
                 // The copy exists even though switching it on failed: close to its new card and let
                 // the user flip it on there.
-                lemonToast.error("Copied the skill, but couldn't switch it on. Turn it on under Review skills.")
+                lemonToast.error("Copied the skill, but couldn't switch it on. Turn it on from its card.")
             }
             if (kind === 'perspective') {
                 actions.loadPerspectives()
@@ -1607,7 +1607,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.
                     lemonToast.success(
-                        'PostHog Review is resolving the comments. Replies and fixes will appear on the pull request.'
+                        'Resolving comments on the pull request. Replies and fixes will land there as threads settle.'
                     )
                 } else {
                     lemonToast.success('Review started. It will appear under Reviews as it runs.')
@@ -1654,7 +1654,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     // can be shared via a link; the default scope keeps the URL clean. The auto-default deliberately
     // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
     // the fallback would silently upgrade it into a permanent explicit choice on reload.
-    // The tab mirrors to `?tab=` so a link can open My preferences or Project settings; Activity keeps the URL clean.
+    // The tab mirrors to `?tab=settings` so a link can open the Settings tab; Activity keeps the URL clean.
     // The table's filters and page mirror to `reviews_*` params the same way, so a filtered view
     // can be shared too; each default keeps its param out of the URL.
     // The drawer mirrors to `?review=<report id>` the same way — a PERMANENT PUBLIC CONTRACT (PR
@@ -1748,8 +1748,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             if (page !== values.reviewsCurrentPage) {
                 actions.setReviewsPage(page)
             }
-            const tab: CodeReviewTab =
-                searchParams.tab === 'settings' || searchParams.tab === 'project' ? searchParams.tab : 'activity'
+            const tab: CodeReviewTab = searchParams.tab === 'settings' ? 'settings' : 'activity'
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }

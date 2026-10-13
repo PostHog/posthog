@@ -1,9 +1,6 @@
-import type {
-    ReviewProjectSettingsApi,
-    ReviewRepositoryOverviewEntryApi,
-} from 'products/review_hog/frontend/generated/api.schemas'
+import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { myChoiceNote, myChoiceOptions, myChoiceValue, projectRuleSummary } from './repositoryChoices'
+import { myChoiceNote, myChoiceOptions, myChoiceValue } from './repositoryChoices'
 
 function entry(overrides: Partial<ReviewRepositoryOverviewEntryApi>): ReviewRepositoryOverviewEntryApi {
     return {
@@ -80,7 +77,7 @@ describe('repositoryChoices', () => {
                 inherited_result: { flash: true, reason: 'own_default' },
                 repository_result: { flash: false, reason: 'repository_opt_in' },
             }),
-            note: 'Your default. Without it: off (repository exception)',
+            note: 'The repository alone gives: no automatic review',
         },
         {
             name: 'an own choice names what applies without it, and where that comes from',
@@ -91,23 +88,9 @@ describe('repositoryChoices', () => {
                 inherited_result: { flash: true, reason: 'repository_everyone' },
                 repository_result: { flash: true, reason: 'repository_everyone' },
             }),
-            note: 'Your choice. Without it: on (repository exception)',
+            note: 'Your choice. Without it: automatic review (repository exception)',
         },
     ])('note: $name', ({ entry: picked, note }) => {
         expect(myChoiceNote(picked)).toEqual(note)
-    })
-
-    it.each([
-        { flashFor: 'everyone', kinds: ['excepted', 'listed'], summary: 'Project rule: everyone, except 1 person.' },
-        { flashFor: 'everyone', kinds: [], summary: 'Project rule: everyone.' },
-        { flashFor: 'listed', kinds: ['listed', 'listed', 'excepted'], summary: 'Project rule: 2 selected people.' },
-        { flashFor: 'off', kinds: ['listed'], summary: 'Project rule: people who opt in.' },
-    ] as const)('project rule summary counts only the list $flashFor reads', ({ flashFor, kinds, summary }) => {
-        const project = {
-            flash_for: flashFor,
-            people: kinds.map((kind, index) => ({ id: `person-${index}`, kind })),
-        } as unknown as ReviewProjectSettingsApi
-
-        expect(projectRuleSummary(project)).toEqual(summary)
     })
 })
