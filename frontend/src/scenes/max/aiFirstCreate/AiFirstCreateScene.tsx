@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconSparkles, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
@@ -20,7 +21,7 @@ export interface AiFirstSuggestion {
 
 export interface AiFirstCreateSceneProps {
     handoff: AiFirstHandoffLogicProps
-    /** Banner copy that says what this page trials. */
+    /** Banner copy that says what this page trials. The person can dismiss it, but not the escape hatch. */
     banner: string
     escapeHatchLabel: string
     onEscapeHatch: () => void
@@ -28,7 +29,8 @@ export interface AiFirstCreateSceneProps {
     suggestionIcon: JSX.Element
     /** Rendered between the composer and the suggestions while no run is active, e.g. a row of starting points. */
     belowComposer?: React.ReactNode
-    // pinned: `data-attr` root. The page, its escape hatch (`-open-editor`) and its cards (`-suggestion`) hang off it.
+    // pinned: `data-attr` root. The page, its escape hatch (`-open-editor`), its banner close (`-dismiss-banner`) and
+    // its cards (`-suggestion`) hang off it.
     dataAttr: string
 }
 
@@ -43,7 +45,8 @@ export function AiFirstCreateScene({
     belowComposer,
     dataAttr,
 }: AiFirstCreateSceneProps): JSX.Element {
-    const { composerShown, escapeHatchClicked, fillComposer } = useActions(aiFirstHandoffLogic(handoff))
+    const { composerShown, escapeHatchClicked, dismissBanner, fillComposer } = useActions(aiFirstHandoffLogic(handoff))
+    const { bannerDismissed } = useValues(aiFirstHandoffLogic(handoff))
     useEffect(() => composerShown(), [composerShown])
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
@@ -51,20 +54,33 @@ export function AiFirstCreateScene({
         // Natural height while drafting so the cards sit under the composer; full page once a run starts.
         <div className="flex flex-col grow min-h-0" data-attr={dataAttr}>
             {/* The escape hatch stays up during a run, so a turn that never creates the entity has a way out. */}
-            <LemonBanner
-                type="ai"
-                className="m-2 shrink-0"
-                action={{
-                    children: escapeHatchLabel,
-                    onClick: () => {
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 shrink-0 px-4 pt-2">
+                {!bannerDismissed && (
+                    <div className="flex items-center gap-1.5 grow basis-80 min-w-0 text-xs text-secondary">
+                        <IconSparkles className="text-ai size-4 shrink-0" />
+                        <span>{banner}</span>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconX />}
+                            onClick={dismissBanner}
+                            aria-label="Dismiss"
+                            className="shrink-0"
+                            data-attr={`${dataAttr}-dismiss-banner`}
+                        />
+                    </div>
+                )}
+                <LemonButton
+                    size="small"
+                    className="shrink-0 ml-auto"
+                    onClick={() => {
                         escapeHatchClicked()
                         onEscapeHatch()
-                    },
-                    'data-attr': `${dataAttr}-open-editor`,
-                }}
-            >
-                {banner}
-            </LemonBanner>
+                    }}
+                    data-attr={`${dataAttr}-open-editor`}
+                >
+                    {escapeHatchLabel}
+                </LemonButton>
+            </div>
             <div className={cn('flex flex-col', activeCreation ? 'grow min-h-0' : 'shrink-0 mt-auto')}>
                 <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
             </div>
