@@ -1004,11 +1004,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
-        draftScannerFromGoal: (goal: string, monthlyCreditBudget?: number, templateKey?: string, freeOnly = false) => ({
+        draftScannerFromGoal: (
+            goal: string,
+            monthlyCreditBudget?: number,
+            templateKey?: string,
+            freeOnly?: boolean
+        ) => ({
             goal,
             monthlyCreditBudget,
             templateKey,
-            freeOnly,
+            freeOnly: freeOnly ?? false,
         }),
         setGoalDraftInput: (goal: string) => ({ goal }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),

@@ -9,6 +9,7 @@ const HEALTHY: ScannerStatusFields = {
     enabled: true,
     sampling_rate: 1,
     limit_reached: false,
+    credit_limit: null,
     sweep_throttle_factor: 1,
     created_at: '2026-05-01T00:00:00Z',
     last_swept_at: NOW.subtract(40, 'minute').toISOString(),
