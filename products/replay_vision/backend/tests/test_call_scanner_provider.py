@@ -1,3 +1,4 @@
+import contextlib
 from collections.abc import Callable, Sequence
 from typing import Any, cast
 
@@ -97,6 +98,56 @@ async def _run(
         trace_id="trace-1",
         look_up=look_up,
     )
+
+
+def _gateway_scan_snapshot() -> MagicMock:
+    snapshot = MagicMock()
+    snapshot.scanner_type.value = "monitor"
+    snapshot.model = "gemini-3-flash-preview"
+    snapshot.provider = "gemini"
+    return snapshot
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mission_fails", [False, True])
+async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_it(mission_fails: bool) -> None:
+    from products.replay_vision.backend.gemini_client import GatewayGeminiClient
+
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    scanner.assemble.return_value = (MagicMock(), [])
+    gateway = MagicMock(spec=GatewayGeminiClient)
+    gateway.aio = MagicMock()
+    gateway.aio.aclose = AsyncMock()
+    create_cache = AsyncMock(return_value=None)
+    attempts = AsyncMock(side_effect=RuntimeError("mission failed") if mission_fails else None, return_value={})
+    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    with (
+        patch(f"{module}.replay_gemini_client", return_value=gateway),
+        patch(f"{module}.genai.AsyncClient") as direct_cls,
+        patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
+        patch(f"{module}._maybe_create_video_cache", new=create_cache),
+        patch(f"{module}._run_mission_attempts", new=attempts),
+        patch(f"{module}.build_events_index", return_value={}),
+        contextlib.suppress(RuntimeError),
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=_gateway_scan_snapshot(),
+            video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+        )
+
+    # The cache and the generations both run on Replay Vision's own key, through the gateway.
+    assert create_cache.call_args.args[0] is gateway
+    assert attempts.call_args.kwargs["run"].keywords["client"] is gateway.aio
+    direct_cls.assert_not_called()
+    direct_cache_cls.assert_not_called()
+    gateway.aio.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio

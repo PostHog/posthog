@@ -91,7 +91,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
 
     files: Any
     if replay_gateway_enabled(asset.team_id) and (gateway := replay_gateway_client()) is not None:
-        # The gateway stores the file in Replay Vision's own Google project, where the sweep below finds it.
+        # The gateway stores the file in Replay Vision's own Google project, the one the cleanup sweep manages.
         uploaded_file = await asyncio.to_thread(
             gateway.upload_file, video_bytes, mime_type=asset.export_format, display_name=workflow_id
         )

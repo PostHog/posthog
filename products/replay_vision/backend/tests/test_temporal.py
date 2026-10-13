@@ -3683,6 +3683,43 @@ class TestUploadedFileNotActive:
         assert exc_info.value.message == f"The AI provider could not process the video (error code {code})"
 
 
+@pytest.mark.django_db(transaction=True)
+class TestUploadThroughTheGateway:
+    @staticmethod
+    def _team() -> Team:
+        org = Organization.objects.create(name="gateway-upload-org")
+        return Team.objects.create(organization=org, name="gateway-upload-team")
+
+    @pytest.mark.asyncio
+    async def test_gateway_mode_stores_the_file_through_the_gateway(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        uri = "https://generativelanguage.googleapis.com/v1beta/files/abc"
+        gateway = MagicMock()
+        gateway.upload_file.return_value = types.File(name="files/abc", state=types.FileState.PROCESSING)
+        gateway.files.get.return_value = types.File(
+            name="files/abc", state=types.FileState.ACTIVE, uri=uri, mime_type="video/mp4"
+        )
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        with (
+            patch(f"{module}.replay_gateway_enabled", return_value=True),
+            patch(f"{module}.replay_gateway_client", return_value=gateway),
+            patch(f"{module}.RawGenAIClient") as raw_client,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+            patch(f"{module}.asyncio.sleep", AsyncMock()),
+        ):
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        gateway.upload_file.assert_called_once()
+        assert gateway.upload_file.call_args.args == (b"mp4-bytes",)
+        assert gateway.upload_file.call_args.kwargs["mime_type"] == "video/mp4"
+        gateway.files.get.assert_called_once_with(name="files/abc")
+        raw_client.assert_not_called()
+        assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
+
+
 class TestGeminiErrorRedaction:
     """`error_reason` is shown to the user verbatim, and a Gemini error body can quote request content
     (prompt text, file references). The provider-facing activities must surface only the fixed summary."""
