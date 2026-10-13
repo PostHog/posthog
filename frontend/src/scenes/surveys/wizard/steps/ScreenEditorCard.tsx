@@ -15,7 +15,7 @@ export function ScreenEditorCard({ title, enabled, onToggle, children }: ScreenE
             {/* Always visible header with toggle */}
             <div className="flex items-center justify-between gap-2 px-3 py-2.5">
                 <span className="text-sm font-medium">{title}</span>
-                <LemonSwitch checked={enabled} onChange={onToggle} />
+                <LemonSwitch checked={enabled} onChange={onToggle} aria-label={title} />
             </div>
 
             {/* Animated expandable content */}
