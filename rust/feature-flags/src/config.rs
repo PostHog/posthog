@@ -952,6 +952,14 @@ pub struct Config {
     #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
     pub skip_pg_team_fallback: FlexBool,
 
+    // Kill switch for legacy Team.secret_api_token auth (PostHog/posthog#66179).
+    // When false, phs_ bearer lookups skip posthog_team and validate against
+    // ProjectSecretAPIKey only; migrated legacy tokens then match their backfilled
+    // mirror rows. Cached legacy entries survive until AUTH_TOKEN_CACHE_TTL_SECONDS,
+    // so a flip (either direction) settles within that window.
+    #[envconfig(from = "ACCEPT_TEAM_SECRET_TOKENS", default = "true")]
+    pub accept_team_secret_tokens: FlexBool,
+
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
 
@@ -1241,6 +1249,7 @@ impl Config {
             team_negative_cache_ttl_seconds: 30,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
+            accept_team_secret_tokens: FlexBool(true),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
@@ -1414,6 +1423,10 @@ mod tests {
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
+        // Legacy tokens must stay accepted by default: a default of false would 401
+        // every legacy token without a mirror row while CI stays green, because the
+        // integration tests build their config from default_test_config() instead.
+        assert_eq!(config.accept_team_secret_tokens, FlexBool(true));
     }
 
     #[test]
