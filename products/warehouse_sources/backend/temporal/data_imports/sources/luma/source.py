@@ -72,6 +72,14 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
 
         return CANONICAL_DESCRIPTIONS
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Luma API error (retryable): status=429": (
+                "Luma's API rate limit ran out before this sync finished. "
+                "Set this table to sync less often, such as every 6 hours, so each run stays within the limit."
+            ),
+        }
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://public-api.luma.com": "Your Luma API key is invalid or has been revoked. Generate a new key under Settings → Developer in Luma, then reconnect.",
