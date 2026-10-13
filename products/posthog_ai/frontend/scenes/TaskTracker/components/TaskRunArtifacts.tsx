@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { KeyboardEvent, useEffect, useMemo, useState } from 'react'
 
 import {
@@ -77,6 +77,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 
+import { taskCommentContextsLogic } from '../../../logics/taskCommentContextsLogic'
 import { isCommentableArtifact, regionAnchorAt, supportsSelectionComments } from '../artifactComments'
 import { withStrictCsp } from '../artifactHtml'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
@@ -124,7 +125,9 @@ function commentLogicProps(
     artifact: RunArtifact | null,
     kind: ArtifactPreviewKind | null
 ): TaskArtifactCommentsLogicProps | null {
-    return isCommentableArtifact(artifact) && kind ? { taskId, artifactId: artifact.id, kind } : null
+    return isCommentableArtifact(artifact) && kind
+        ? { taskId, artifactId: artifact.id, kind, artifactName: artifact.name }
+        : null
 }
 
 /** Size for a file, the object kind for a cited PostHog object, where the agent sent a living document. */
@@ -1245,6 +1248,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
 export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversation: JSX.Element }): JSX.Element {
     const { activeTab, files } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
+    useMountedLogic(taskCommentContextsLogic({ taskId }))
     return (
         <TooltipProvider>
             <Tabs

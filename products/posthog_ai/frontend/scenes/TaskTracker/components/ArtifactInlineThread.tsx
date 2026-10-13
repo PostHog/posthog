@@ -79,7 +79,7 @@ export function ArtifactInlineThread({
                     <ArtifactCommentComposer
                         value={drafts[rootId] ?? ''}
                         onChange={(value) => setDraft(rootId, value)}
-                        onSubmit={() => replyToThread(rootId)}
+                        onSubmit={(addToChat) => replyToThread(rootId, addToChat)}
                         saving={writing === rootId}
                         busy={!!writing && writing !== rootId}
                         label="Reply"

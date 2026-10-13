@@ -45,7 +45,7 @@ export function ArtifactPendingComment({
                 autoFocus
                 value={drafts.pending ?? ''}
                 onChange={(value) => setDraft('pending', value)}
-                onSubmit={() => submitComment('pending')}
+                onSubmit={(addToChat) => submitComment('pending', addToChat)}
                 onCancel={dismissPending}
                 saving={writing === 'pending'}
                 busy={!!writing && writing !== 'pending'}

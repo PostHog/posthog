@@ -23,6 +23,7 @@ import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
+import { taskCommentContextsLogic } from './taskCommentContextsLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from './taskDraftPersistence'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
@@ -360,6 +361,33 @@ describe('runInteractionLogic', () => {
             ...userMessageCommand('queued first\n\nqueued second\n\nlast keystroke')
         )
         expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()).toBeNull()
+    })
+
+    it('restores the saved draft, then adds comment text and sends the comment chips before it', async () => {
+        const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+        comments.mount()
+        new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).save({
+            runId: RUN_ID,
+            draft: 'saved draft',
+            queuedText: '',
+            recovery: null,
+        })
+        comments.actions.addCommentToChat({ label: 'report.md', body: '- **Artifact** report.md' }, 'Fix the title')
+        logic.actions.applyPendingCommentText()
+        expect(logic.values.composerForm.draft).toBe('')
+
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(logic.values.composerForm.draft).toBe('saved draft\n\nFix the title')
+
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+            ...userMessageCommand(
+                '<comment_context label="report.md">\n- **Artifact** report.md\n</comment_context>\nsaved draft\n\nFix the title'
+            )
+        )
+        expect(comments.values.commentContexts).toEqual([])
+        comments.unmount()
     })
 
     it('does not prewarm a recovered terminal draft or copy it into another user or project', async () => {

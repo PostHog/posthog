@@ -16,6 +16,7 @@ import type { ProgressStep, ThreadItem, ToolInvocation } from '../types/streamTy
 import { toolInvocationToMessage } from '../utils/toolCallMessage'
 import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
+import { HumanMessageText } from './HumanMessageText'
 import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
 import { QuillSeparatorRow } from './quill/QuillSeparatorRow'
 import { useQuillThread } from './quill/quillThreadContext'
@@ -131,7 +132,7 @@ export const ThreadRow = memo(function ThreadRow({
                 className="group"
                 action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
             >
-                <MarkdownMessage content={text || '*No text.*'} id={item.id} />
+                <HumanMessageText text={item.text ?? ''} id={item.id} />
                 {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
         )

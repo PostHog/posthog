@@ -1,6 +1,6 @@
-import { ChangeEvent, KeyboardEvent } from 'react'
+import { ChangeEvent, KeyboardEvent, useId, useState } from 'react'
 
-import { Button, Kbd, KbdGroup, Text, Textarea } from '@posthog/quill-primitives'
+import { Button, Checkbox, Kbd, KbdGroup, Label, Text, Textarea } from '@posthog/quill-primitives'
 
 import { isMac } from 'lib/utils/dom'
 
@@ -23,7 +23,7 @@ export function ArtifactCommentComposer({
 }: {
     value: string
     onChange: (value: string) => void
-    onSubmit: () => void
+    onSubmit: (addToChat: boolean) => void
     onCancel?: () => void
     /** This box's write is in flight. */
     saving: boolean
@@ -39,9 +39,11 @@ export function ArtifactCommentComposer({
     showShortcut?: boolean
     dataAttr: string
 }): JSX.Element {
+    const [addToChat, setAddToChat] = useState(false)
+    const addToChatId = useId()
     const submit = (): void => {
         if (value.trim() && !saving && !busy) {
-            onSubmit()
+            onSubmit(addToChat)
         }
     }
     return (
@@ -81,13 +83,26 @@ export function ArtifactCommentComposer({
                 }}
                 data-attr={`${dataAttr}-input`}
             />
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
                 {showShortcut && (
                     <KbdGroup className="mr-auto text-muted-foreground" aria-label="Keyboard shortcut to send">
                         <Kbd>{isMac() ? '⌘' : 'Ctrl'}</Kbd>
                         <Kbd>Enter</Kbd>
                     </KbdGroup>
                 )}
+                <div className="flex items-center gap-1.5">
+                    <Checkbox
+                        id={addToChatId}
+                        size="sm"
+                        checked={addToChat}
+                        disabled={saving}
+                        onCheckedChange={(checked: boolean) => setAddToChat(checked)}
+                        data-attr={`${dataAttr}-add-to-chat`}
+                    />
+                    <Label htmlFor={addToChatId} className="text-xs text-muted-foreground">
+                        Add to chat
+                    </Label>
+                </div>
                 {onCancel && (
                     <Button
                         type="button"

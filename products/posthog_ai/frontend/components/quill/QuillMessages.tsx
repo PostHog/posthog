@@ -13,6 +13,7 @@ import {
 import { MarkdownMessage } from '../../messages/MarkdownMessage'
 import type { ThreadItem } from '../../types/streamTypes'
 import { userMessageDisplayText } from '../../utils/userMessageDisplay'
+import { HumanMessageText } from '../HumanMessageText'
 import { ThreadAttachments } from '../ThreadAttachments'
 import { TurnRevealContext } from '../TurnRevealContext'
 import { footerRevealClass } from './footerReveal'
@@ -100,7 +101,7 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { ite
                 <ChatBubble align="end" className="rounded-lg">
                     <ChatBubbleContent>
                         <ClampedContent>
-                            <MarkdownMessage content={text || '*No text.*'} id={item.id} />
+                            <HumanMessageText text={item.text ?? ''} id={item.id} />
                         </ClampedContent>
                     </ChatBubbleContent>
                 </ChatBubble>
