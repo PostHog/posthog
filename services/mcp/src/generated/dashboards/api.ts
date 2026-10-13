@@ -112,6 +112,8 @@ export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegEx
 export const dashboardsCreateBodyRestrictionLevelMin = 21
 export const dashboardsCreateBodyRestrictionLevelMax = 21
 
+export const dashboardsCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = () => zod
@@ -189,6 +191,12 @@ export const DashboardsCreateBody = () => zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            ),
         use_template: zod
             .string()
             .optional()
@@ -257,6 +265,8 @@ export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = ne
 export const dashboardsPartialUpdateBodyRestrictionLevelMin = 21
 export const dashboardsPartialUpdateBodyRestrictionLevelMax = 21
 
+export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
 
@@ -270,6 +280,8 @@ export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax = 11
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin = 0
 
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax = 12
+
+export const dashboardsPartialUpdateBodyTilesItemGroupKeyMax = 100
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneNotebookShortIdOneMax = 128
 
@@ -432,6 +444,12 @@ export const DashboardsPartialUpdateBody = () => zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsPartialUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            ),
         tiles: zod
             .array(
                 zod.object({
@@ -491,6 +509,24 @@ export const DashboardsPartialUpdateBody = () => zod
                         .optional()
                         .describe(
                             "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard."
+                        ),
+                    group_key: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyTilesItemGroupKeyMax)
+                        .nullish()
+                        .describe(
+                            "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+                        ),
+                    badge: zod
+                        .union([
+                            zod
+                                .enum(['winner', 'cheeky-hog'])
+                                .describe('\* `winner` - Winner\n\* `cheeky-hog` - Cheeky hog'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.\n\n\* `winner` - Winner\n\* `cheeky-hog` - Cheeky hog'
                         ),
                     widget: zod
                         .object({

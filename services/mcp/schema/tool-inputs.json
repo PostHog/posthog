@@ -707,7 +707,6 @@
             "type": "object",
             "properties": {
                 "insightId": {
-                    "description": "The insight to run: its numeric `id` or 8-character `short_id`.",
                     "anyOf": [
                         {
                             "type": "string"
@@ -715,7 +714,8 @@
                         {
                             "type": "number"
                         }
-                    ]
+                    ],
+                    "description": "The insight to run: its numeric `id` or 8-character `short_id`."
                 },
                 "output_format": {
                     "default": "optimized",

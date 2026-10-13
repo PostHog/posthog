@@ -612,8 +612,15 @@ export class ApiClient {
         })
     }
 
-    private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
+    /** Pass `idempotent` for a non-GET request that has no upstream effect, so
+     *  a transport fault retries it like a safe method. */
+    private async fetchJson<T>(
+        url: string,
+        options?: RequestInit,
+        { idempotent = false }: { idempotent?: boolean } = {}
+    ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
+        const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
@@ -627,7 +634,6 @@ export class ApiClient {
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
-                const isSafeMethod = SAFE_HTTP_METHODS.has(method.toUpperCase())
                 const canRetry = !isAbortError(error) && isSafeMethod && transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
                     console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
@@ -757,14 +763,19 @@ export class ApiClient {
     oauth(): Endpoint {
         return {
             introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
-                return this.fetchJson<ApiOAuthIntrospection>(`${this.baseUrl}/oauth/introspect`, {
-                    method: 'POST',
-                    body: JSON.stringify({ token }),
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`,
+                // RFC 7662 introspection only reads the token state.
+                return this.fetchJson<ApiOAuthIntrospection>(
+                    `${this.baseUrl}/oauth/introspect`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ token }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
                     },
-                })
+                    { idempotent: true }
+                )
             },
         }
     }
@@ -1251,7 +1262,7 @@ export class ApiClient {
                 variables_override,
                 filters_override,
             }: {
-                insightId: string
+                insightId: string | number
                 variables_override?: string
                 filters_override?: string
             }): Promise<Result<Schemas.Insight>> => {
@@ -1263,39 +1274,46 @@ export class ApiClient {
                     params.set('filters_override', filters_override)
                 }
 
-                // Check if insightId is a short_id (8 character alphanumeric string)
-                // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
-                if (isShortId(insightId)) {
-                    // The list endpoint accepts ?short_id=... and runs the same
-                    // InsightSerializer.to_representation, which applies
-                    // variables_override / filters_override from query_params. So
-                    // short_id resolution + override application happen in one hop.
-                    params.set('short_id', insightId)
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
+                const retrieveById = (): Promise<Result<Schemas.Insight>> => {
+                    const queryString = params.toString() ? `?${params}` : ''
+                    return this.fetchJson<Schemas.Insight>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
+                    )
+                }
 
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
+                // A number is always a numeric id. Eight-digit ids also match the short_id syntax.
+                if (typeof insightId === 'number' || !isShortId(insightId)) {
+                    return retrieveById()
+                }
 
-                    if (!result.success) {
-                        return result
-                    }
+                // The list endpoint accepts ?short_id=... and runs the same
+                // InsightSerializer.to_representation, which applies
+                // variables_override / filters_override from query_params. So
+                // short_id resolution + override application happen in one hop.
+                const listParams = new URLSearchParams(params)
+                listParams.set('short_id', insightId)
+                const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/?${listParams}`
+                )
 
-                    const insights = result.data.results
-                    const insight = insights[0]
+                if (!result.success) {
+                    return result
+                }
 
-                    if (insights.length === 0 || !insight) {
-                        return {
-                            success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
-                        }
-                    }
-
+                const insight = result.data.results[0]
+                if (insight) {
                     return { success: true, data: insight }
                 }
 
-                const queryString = params.toString() ? `?${params}` : ''
-                return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
-                )
+                // Short ids are random alphanumerics, so an all-digit string can be either kind of id.
+                if (/^\d+$/.test(insightId)) {
+                    return retrieveById()
+                }
+
+                return {
+                    success: false,
+                    error: new Error(`No insight found with short_id: ${insightId}`),
+                }
             },
 
             create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
@@ -1569,11 +1587,13 @@ export class ApiClient {
                 query: Record<string, unknown>
             }): Promise<{
                 results: unknown
+                columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
             }> => {
                 return this.request<{
                     results: unknown
+                    columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
                 }>({

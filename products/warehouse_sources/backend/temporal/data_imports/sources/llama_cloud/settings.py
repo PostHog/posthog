@@ -40,7 +40,7 @@ JOB_ENDPOINT_DESCRIPTION = (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class LlamaCloudEndpointConfig:
     name: str
     path: str
@@ -53,6 +53,10 @@ class LlamaCloudEndpointConfig:
     page_size: int = DEFAULT_PAGE_SIZE
     # False for endpoints that return a bare JSON array with no page_token support.
     paginated: bool = True
+    # Fan-out endpoints are listed once per row of `parent_endpoint`, passing the parent row's
+    # id as `parent_id_param`, and paginate with skip/limit instead of page_token.
+    parent_endpoint: str | None = None
+    parent_id_param: str | None = None
     # /api/v1/beta/usage-metrics requires organization_id; it's resolved at sync time
     # from the key's project (see _resolve_organization_id).
     requires_organization_id: bool = False
@@ -181,6 +185,40 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
                 "purpose",
             }
         ),
+    ),
+    "extraction_agents": LlamaCloudEndpointConfig(
+        name="extraction_agents",
+        # The /api/v1/extraction/extraction-agents listing is deprecated and unpaginated; this
+        # listing returns the same agents with page_token pagination. No timestamp filter.
+        path="/api/v1/beta/extraction-agents",
+    ),
+    "extraction_runs": LlamaCloudEndpointConfig(
+        name="extraction_runs",
+        path="/api/v1/extraction/runs",
+        parent_endpoint="extraction_agents",
+        parent_id_param="extraction_agent_id",
+        # Runs carry the extracted document content (`data`, `extraction_metadata`) and a nested
+        # `file` object, so import only the run metadata. Sampling stays off (the fail-closed default).
+        output_fields=frozenset(
+            {
+                "id",
+                "created_at",
+                "updated_at",
+                "project_id",
+                "extraction_agent_id",
+                "file_id",
+                "job_id",
+                "status",
+                "error",
+                "from_ui",
+                "config",
+            }
+        ),
+    ),
+    "indexes": LlamaCloudEndpointConfig(
+        name="indexes",
+        path="/api/v1/indexes",
+        # The indexes listing has no timestamp filter, so full refresh only.
     ),
     "usage_metrics": LlamaCloudEndpointConfig(
         name="usage_metrics",

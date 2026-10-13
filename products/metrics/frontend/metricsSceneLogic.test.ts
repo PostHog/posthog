@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -299,6 +300,30 @@ describe('metricsSceneLogic', () => {
 
             expect(router.values.searchParams).not.toHaveProperty('dateFrom')
             expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+        })
+
+        it('round-trips a PromQL query through the URL, and a builder link leaves it', async () => {
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.applyQuery({
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'promql',
+                    promql: 'sum(up)',
+                })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).toMatchObject({ language: 'promql', query: 'sum(up)' })
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'queue_depth' })
+            }).toFinishAllListeners()
+            expect(metricsViewerLogic.values.language).toEqual('builder')
+            expect(metricsViewerLogic.values.metricName).toEqual('queue_depth')
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { language: 'sql', query: 'SELECT 1' })
+            }).toFinishAllListeners()
+            expect(metricsViewerLogic.values.language).toEqual('sql')
+            expect(metricsViewerLogic.values.queryText).toEqual('SELECT 1')
         })
 
         // The two URL encodings must never disagree: multi-series/formula state writes

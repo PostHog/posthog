@@ -4,7 +4,6 @@ use crate::{
     utils::assert_at_least_as_long_as,
 };
 
-// NOTE: see posthog/api/error_tracking.py
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceAndMap {
     pub minified_source: String,

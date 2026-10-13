@@ -3541,6 +3541,14 @@ export interface CredentialApi {
  * * `Neo4j` - Neo4j
  * * `TestDino` - TestDino
  * * `ChessCom` - ChessCom
+ * * `Userback` - Userback
+ * * `Rewardful` - Rewardful
+ * * `Tracklution` - Tracklution
+ * * `StackAdapt` - StackAdapt
+ * * `CheckHQ` - CheckHQ
+ * * `RainforestPay` - RainforestPay
+ * * `Wise` - Wise
+ * * `LaravelCloud` - LaravelCloud
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4919,6 +4927,14 @@ export const ExternalDataSourceTypeEnumApi = {
     Neo4j: 'Neo4j',
     TestDino: 'TestDino',
     ChessCom: 'ChessCom',
+    Userback: 'Userback',
+    Rewardful: 'Rewardful',
+    Tracklution: 'Tracklution',
+    StackAdapt: 'StackAdapt',
+    CheckHQ: 'CheckHQ',
+    RainforestPay: 'RainforestPay',
+    Wise: 'Wise',
+    LaravelCloud: 'LaravelCloud',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
