@@ -18,6 +18,7 @@ from products.data_modeling.backend.logic.saved_query_dag_sync import (
     describe_dependents,
     get_dag_id,
     get_dependent_saved_queries,
+    move_saved_query_to_dag,
     sync_saved_query_to_dag,
     update_node_type,
 )
@@ -289,6 +290,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert edge is not None
         self.assertEqual(Edge.objects.filter(target=node).count(), 1)
         self.assertEqual(edge.source.name, "persons")  # not events
+        self.assertFalse(Node.objects.filter(team=self.team, name="events", type=NodeType.TABLE).exists())
 
     def test_a_failed_resolution_leaves_the_previous_edges_in_place(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -500,6 +502,55 @@ class TestDeleteNodeFromDag(BaseTest):
         delete_node_from_dag(saved_query)
 
         self.assertFalse(Edge.objects.filter(target=node).exists())
+        self.assertFalse(Node.objects.filter(team=self.team, name="events", type=NodeType.TABLE).exists())
+
+    def test_delete_keeps_a_table_node_another_view_still_reads(self):
+        deleted_view = DataWarehouseSavedQuery.objects.create(
+            name="deleted_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(deleted_view)
+        remaining_view = DataWarehouseSavedQuery.objects.create(
+            name="remaining_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        remaining_node = sync_saved_query_to_dag(remaining_view)
+
+        delete_node_from_dag(deleted_view)
+
+        events_node = Node.objects.get(team=self.team, name="events", type=NodeType.TABLE)
+        self.assertTrue(Edge.objects.filter(source=events_node, target=remaining_node).exists())
+
+    @parameterized.expand([("last_reader_moves", False, False), ("another_reader_stays", True, True)])
+    def test_move_deletes_the_old_table_node_only_when_nothing_else_reads_it(
+        self, _name: str, another_reader_stays: bool, old_table_node_kept: bool
+    ):
+        moved_view = DataWarehouseSavedQuery.objects.create(
+            name="moved_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        moved_node = sync_saved_query_to_dag(moved_view)
+        assert moved_node is not None
+        if another_reader_stays:
+            sync_saved_query_to_dag(
+                DataWarehouseSavedQuery.objects.create(
+                    name="staying_view",
+                    team=self.team,
+                    query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+                )
+            )
+        destination = DAG.objects.create(team=self.team, name="destination")
+
+        move_saved_query_to_dag(self.team.pk, moved_view.id, destination.id)
+
+        self.assertEqual(
+            Node.objects.filter(team=self.team, dag=moved_node.dag, name="events", type=NodeType.TABLE).exists(),
+            old_table_node_kept,
+        )
+        self.assertTrue(Node.objects.filter(team=self.team, dag=destination, name="events").exists())
 
     def test_delete_handles_nonexistent_node(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

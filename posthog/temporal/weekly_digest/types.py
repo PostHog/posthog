@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, RootModel, field_validator
 
-from posthog.utils import get_instance_region
+from posthog.utils import compact_number, get_instance_region
 
 
 class CommonInput(BaseModel):
@@ -126,14 +126,57 @@ class DigestSurvey(BaseModel):
     start_date: datetime
 
 
+# Keeps a day with any activity visible as a sliver next to a much busier day.
+SPARKLINE_MIN_VISIBLE_PERCENT = 5
+
+# Issue descriptions are exception messages of any length. The email shows one line of it.
+ERROR_ISSUE_DESCRIPTION_MAX_LENGTH = 140
+
+
+def render_sparkline(daily_counts: list[int]) -> list[dict[str, int]]:
+    peak = max(daily_counts, default=0)
+    bars = []
+    for count in daily_counts:
+        height_percent = round(count * 100 / peak) if peak else 0
+        if count > 0:
+            height_percent = max(height_percent, SPARKLINE_MIN_VISIBLE_PERCENT)
+        bars.append({"count": count, "height_percent": height_percent})
+    return bars
+
+
+def _single_line(text: str | None, max_length: int) -> str | None:
+    if not text:
+        return None
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= max_length:
+        return collapsed
+    return collapsed[: max_length - 1].rstrip() + "…"
+
+
 class DigestErrorIssue(BaseModel):
     name: str = "Untitled issue"
     id: UUID
+    description: str | None = None
+    # None when the counts could not be queried.
+    occurrence_count: int | None = None
+    sparkline: list[dict[str, int]] = []
 
     @field_validator("name", mode="before")
     @classmethod
     def _default_name(cls, value: str | None) -> str:
         return value or "Untitled issue"
+
+    def render_payload(self) -> dict[str, str | int | list | None]:
+        return {
+            "id": str(self.id),
+            "name": self.name,
+            "description": _single_line(self.description, ERROR_ISSUE_DESCRIPTION_MAX_LENGTH),
+            "occurrence_count": self.occurrence_count,
+            "occurrence_count_display": (
+                compact_number(self.occurrence_count) if self.occurrence_count is not None else None
+            ),
+            "sparkline": self.sparkline,
+        }
 
 
 class UsageTrendMetric(BaseModel):
@@ -145,10 +188,22 @@ class UsageTrendMetric(BaseModel):
     # False when there was no previous-week activity to compare against, so the template
     # can render "new" instead of conflating 0 -> N growth with "no change".
     has_baseline: bool = True
+    daily: list[int] = []
+
+    def render_payload(self) -> dict[str, str | int | bool | list | None]:
+        return {
+            **self.model_dump(exclude={"daily"}),
+            # The email template (Liquid) has no number formatting filter.
+            "current_display": compact_number(self.current),
+            "sparkline": render_sparkline(self.daily),
+        }
 
 
 class UsageTrends(BaseModel):
     metrics: list[UsageTrendMetric] = []
+
+    def render_payload(self) -> dict[str, list]:
+        return {"metrics": [metric.render_payload() for metric in self.metrics]}
 
 
 class DashboardList(RootModel):
@@ -188,6 +243,9 @@ class SurveyList(RootModel):
 
 class ErrorIssueList(RootModel):
     root: list[DigestErrorIssue]
+
+    def render_payload(self) -> list[dict]:
+        return [issue.render_payload() for issue in self.root]
 
 
 # Shown when the campaign carries no hand-written promo copy. Mirrors the nav card's
@@ -272,8 +330,8 @@ class TeamDigest(BaseModel):
             "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
             "expiring_recordings": self.expiring_recordings.model_dump(),
             "new_surveys_launched": self.surveys_launched.model_dump(),
-            "usage_trends": self.usage_trends.model_dump(),
-            "new_error_issues": self.error_issues.model_dump(),
+            "usage_trends": self.usage_trends.render_payload(),
+            "new_error_issues": self.error_issues.render_payload(),
         }
 
         if product_suggestion:

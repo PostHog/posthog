@@ -6,6 +6,7 @@ import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonT
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -55,7 +56,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
         dashboardWidgetsEnabled,
         addWidgetTileLoading,
     } = useValues(dashboardLogic)
-    const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles } = useActions(dashboardLogic)
+    const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles, closeTileModal } = useActions(dashboardLogic)
     const { updateDashboardSuccess } = useActions(dashboardsModel)
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
@@ -77,6 +78,16 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
     const selectedImageTileId = textRouteHasImage ? (textRouteTile?.id ?? null) : null
     const shouldShowImageTileModal = showImageTileModal || selectedImageTileId !== null
     const hasMissingRouteTile = (textTileId !== null && !textRouteTile) || (buttonTileId !== null && !buttonRouteTile)
+    const closeTile = (): void => {
+        if (
+            removeProjectIdIfPresent(router.values.location.pathname) === urls.dashboard(dashboard.id) &&
+            !router.values.searchParams.tileType
+        ) {
+            closeTileModal()
+        } else {
+            push(urls.dashboard(dashboard.id))
+        }
+    }
 
     useEffect(() => {
         if (hasMissingRouteTile) {
@@ -130,21 +141,21 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                         <ImageTileModal
                             key={selectedImageTileId ?? 'new'}
                             isOpen={shouldShowImageTileModal}
-                            onClose={() => push(urls.dashboard(dashboard.id))}
+                            onClose={closeTile}
                             dashboard={dashboard}
                             imageTileId={selectedImageTileId}
                         />
                     ) : (
                         <TextCardModal
                             isOpen={showTextTileModal && (isCreatingTextTile || !!textRouteTile?.text)}
-                            onClose={() => push(urls.dashboard(dashboard.id))}
+                            onClose={closeTile}
                             dashboard={dashboard}
                             textTileId={textTileId}
                         />
                     )}
                     <ButtonTileCardModal
                         isOpen={showButtonTileModal && (isCreatingButtonTile || !!buttonRouteTile?.button_tile)}
-                        onClose={() => push(urls.dashboard(dashboard.id))}
+                        onClose={closeTile}
                         dashboard={dashboard}
                         buttonTileId={buttonTileId}
                     />

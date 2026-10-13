@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.intercom.template_intercom import (
     template as template_intercom,
     template_send_event as template_intercom_event,
