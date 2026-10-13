@@ -341,6 +341,11 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         self.team.session_recording_trigger_groups = {"version": 2, "groups": ["not-a-group", readable_group]}
         self.team.save()
 
+        prose = StringIO()
+        call_command("repair_replay_linked_flag_keys", "--team-id", str(self.team.id), stdout=prose)
+        assert f"trigger group 1 (id 'group-1'): flag {flag.id} 'replay-gate' -> 'replay-gate-v2'" in prose.getvalue()
+        assert "trigger group 0 (id None) [malformed]: 'not-a-group'" in prose.getvalue()
+
         report = self._run("--live-run", teams=[self.team])
 
         assert report["outcomes"] == {"malformed": 1, "repaired": 1}
@@ -451,12 +456,26 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         assert groups[0]["conditions"]["flag"] == {"id": alpha.id, "key": "alpha-now"}
         assert groups[1]["conditions"]["flag"] == {"id": beta.id, "key": "beta-now"}
 
-    @parameterized.expand([("flag_soft_deleted",), ("flag_in_other_project",)])
-    def test_leaves_trigger_groups_naming_unusable_flags_alone(self, outcome: str) -> None:
+    @parameterized.expand(
+        [
+            ("soft_deleted", "flag_soft_deleted", False, "flag_soft_deleted"),
+            ("in_other_project", "flag_in_other_project", False, "flag_in_other_project"),
+            ("soft_deleted_key_now_live", "flag_soft_deleted", True, "flag_soft_deleted"),
+            ("other_project_key_live_here", "flag_in_other_project", True, "already_correct"),
+        ]
+    )
+    def test_leaves_trigger_groups_naming_unusable_flags_alone(
+        self, _name: str, unusable: str, live_flag_holds_key: bool, outcome: str
+    ) -> None:
         # The group stores the unusable flag's own key, so a check that compared keys before it
         # checked the flag would count this group correct.
-        flag = self._create_unusable_flag(outcome)
-        set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": flag.key}})
+        flag = self._create_unusable_flag(unusable)
+        if live_flag_holds_key:
+            # The API renames a soft-deleted flag before another flag takes its key. A queryset
+            # update skips the relink that rename runs, which is the failure this case covers.
+            FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).update(key=f"tombstone-{flag.pk}")
+            FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
+        set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "replay-gate-v2"}})
         stored_before = self.team.session_recording_trigger_groups
 
         report = self._run("--live-run", teams=[self.team])

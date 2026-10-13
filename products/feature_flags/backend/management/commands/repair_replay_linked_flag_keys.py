@@ -363,8 +363,11 @@ class Command(BaseCommand):
         if ref.flag_id is None:
             return (Outcome.ALREADY_CORRECT if key_resolves else Outcome.KEY_UNRESOLVABLE), resolved
         if (blocked := self._blocked_by(flag_id=ref.flag_id, project_id=project_id, flags=flags)) is not None:
-            # The SDK resolves the key, so a key that resolves still gates recording.
-            return (Outcome.ALREADY_CORRECT if key_resolves else blocked), resolved
+            # A group copied from another project keeps that project's flag id beside a key that
+            # resolves here. A deleted flag's key that resolves belongs to a flag the group never named.
+            if blocked is Outcome.FLAG_IN_OTHER_PROJECT and key_resolves:
+                return Outcome.ALREADY_CORRECT, resolved
+            return blocked, resolved
 
         new_key = flags.by_id[ref.flag_id].key
         if ref.key == new_key:
