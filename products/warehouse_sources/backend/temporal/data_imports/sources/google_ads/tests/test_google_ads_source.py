@@ -22,6 +22,8 @@ from google.ads.googleads.v23.errors.types.authorization_error import Authorizat
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.ads.googleads.v23.resources.types.change_event import ChangeEvent
+from google.ads.googleads.v25.enums.types.google_ads_field_data_type import GoogleAdsFieldDataTypeEnum
+from google.ads.googleads.v25.resources.types.google_ads_field import GoogleAdsField
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
@@ -97,6 +99,59 @@ def test_change_event_date_metadata_preserves_time_in_arrow(version):
     value = column.resolve_value("2026-04-01 12:34:56.123456")
     arrow = pa.Table.from_pylist([{column.name: value}], schema=pa.schema([column.to_arrow_field()]))
     assert arrow.to_pylist() == [{column.name: dt.datetime(2026, 4, 1, 12, 34, 56, 123456)}]
+
+
+@pytest.mark.parametrize(
+    "field, raw_value, expected_type, expected_value",
+    [
+        (
+            GoogleAdsField(
+                name="campaign.example_metric",
+                data_type=GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.INT64,
+            ),
+            42,
+            pa.int64(),
+            42,
+        ),
+        (
+            GoogleAdsField.pb()(
+                name="campaign.example_metric",
+                data_type=GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.INT64,
+            ),
+            42,
+            pa.int64(),
+            42,
+        ),
+        (
+            GoogleAdsField.wrap(GoogleAdsField.pb()(name="campaign.example_metric", data_type=9999)),
+            42,
+            pa.string(),
+            "42",
+        ),
+        (GoogleAdsField.pb()(name="campaign.example_metric", data_type=9999), 42, pa.string(), "42"),
+    ],
+    ids=["proto_plus_member", "raw_protobuf_int", "proto_plus_unrecognized_int", "raw_protobuf_unrecognized_int"],
+)
+def test_get_schemas_accepts_field_data_type_as_member_or_int(field, raw_value, expected_type, expected_value):
+    with (
+        mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client"),
+        mock.patch(
+            f"{_GOOGLE_ADS_MODULE}._search_fields_with_transient_retry", return_value=SimpleNamespace(results=[field])
+        ),
+        mock.patch(
+            f"{_GOOGLE_ADS_MODULE}.RESOURCE_SCHEMAS",
+            {"campaign": {"resource_name": "campaign", "field_names": ["campaign.example_metric"]}},
+        ),
+    ):
+        schemas = get_schemas(
+            GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1), team_id=1, api_version="v25"
+        )
+
+    [column] = list(schemas["campaign"])
+    value = column.resolve_value(raw_value)
+    arrow = pa.Table.from_pylist([{column.name: value}], schema=pa.schema([column.to_arrow_field()]))
+    assert arrow.schema.field(column.name).type == expected_type
+    assert arrow.to_pylist() == [{column.name: expected_value}]
 
 
 class TestCleanCustomerId:

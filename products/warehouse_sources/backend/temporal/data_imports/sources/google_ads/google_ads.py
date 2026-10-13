@@ -275,14 +275,26 @@ class GoogleAdsColumn(Column):
     def __init__(
         self,
         qualified_name: str,
-        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType,
+        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType | int,
         is_repeatable: bool,
         type_url: str,
         output_name: str | None = None,
     ):
         self.name = output_name if output_name is not None else qualified_name.replace(".", "_")
         self.qualified_name = qualified_name
-        self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType(data_type.value)
+        # A raw protobuf response (`use_proto_plus: False`) gives a plain int, and proto-plus also gives
+        # a plain int for a value that the installed enum does not know.
+        raw_data_type = getattr(data_type, "value", data_type)
+        try:
+            self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType(raw_data_type)
+        except ValueError:
+            logger.warning(
+                "Google Ads field has an unrecognized data type, syncing it as a string",
+                field=qualified_name,
+                data_type=raw_data_type,
+            )
+            self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.UNKNOWN
+        self.is_unknown = self.data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.UNKNOWN
         self.type_url = type_url
         # Some types require special handling, so we provide quick access to them
         self.is_repeatable = is_repeatable
@@ -317,6 +329,11 @@ class GoogleAdsColumn(Column):
             if self.is_repeatable:
                 return [dt.date.fromisoformat(v[:10]) if v else None for v in value]
             return dt.date.fromisoformat(value[:10]) if value else None
+
+        if self.is_unknown:
+            if self.is_repeatable:
+                return [str(v) for v in value]
+            return None if value is None else str(value)
 
         return value
 
@@ -357,6 +374,7 @@ class GoogleAdsColumn(Column):
             case (
                 ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.RESOURCE_NAME
                 | ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING
+                | ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.UNKNOWN
             ):
                 arrow_type = pa.string()
             case ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.UINT64:
