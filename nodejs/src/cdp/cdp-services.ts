@@ -483,9 +483,6 @@ export function createCdpCoreServices(
             postgres: deps.postgres,
             teamManager: deps.teamManager,
             teamWorkflowsConfigService,
-            // The CDP pool, not the SES Valkey pool that paces workflow email. The hog workers
-            // that run internal destinations do not open the SES pool.
-            rateLimiter: new RateLimiterService(redis, { name: 'system-email' }),
             transport: createSystemEmailTransport({
                 sesRegion: config.SES_REGION,
                 sesEndpoint: config.SES_ENDPOINT,

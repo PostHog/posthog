@@ -11,32 +11,20 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { ValueMatcher } from '~/types'
 
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AUTO_SUBMITTED_HEADER, sanitizeEmailSubject } from './email.service'
 import { mailDevTransport } from './helpers/maildev'
 import { createSesV2Client } from './helpers/ses-client'
 
 export const SYSTEM_EMAIL_TEMPLATE_ID = 'template-posthog-email'
-export const SYSTEM_EMAIL_MAX_RECIPIENTS = 50
-export const SYSTEM_EMAIL_MAX_SUBJECT_LENGTH = 200
-export const SYSTEM_EMAIL_MAX_BODY_LENGTH = 4000
-export const SYSTEM_EMAIL_SUBJECT_PREFIX = '[PostHog] '
-export const SYSTEM_EMAIL_HOURLY_LIMIT = 20
-export const SYSTEM_EMAIL_DAILY_LIMIT = 100
+// Add an event here only when its producer sets $notify_user_ids and bounds send volume.
+// Keep this list in sync with the API in products/cdp/backend/api/hog_function.py.
+export const SYSTEM_EMAIL_TRIGGER_EVENTS = new Set(['$data_warehouse_sync_failure_digest'])
 
-const MAX_ACTION_LABEL_LENGTH = 60
-const DEFAULT_ACTION_LABEL = 'Open in PostHog'
 const SEND_CONCURRENCY = 10
-
-// Longer than the window each bucket paces. An idle bucket that expires comes back full, so a
-// shorter TTL would hand a team a fresh allowance before the bucket refilled by itself.
-const HOUR_BUCKET_TTL_SECONDS = 6 * 60 * 60
-const DAY_BUCKET_TTL_SECONDS = 3 * 24 * 60 * 60
 
 type SystemEmailOutcome =
     | 'sent'
     | 'failed'
-    | 'rate_limited'
     | 'skipped_no_recipients'
     | 'not_eligible'
     | 'not_enabled'
@@ -85,7 +73,6 @@ export interface SystemEmailServiceDependencies {
     postgres: PostgresRouter
     teamManager: TeamManager
     teamWorkflowsConfigService: TeamWorkflowsConfigService
-    rateLimiter: RateLimiterService
     transport: SystemEmailTransport
 }
 
@@ -183,18 +170,12 @@ export function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;')
 }
 
-// Counts code points, so the cut never splits a surrogate pair.
-function truncate(value: string, maxLength: number): string {
-    const codePoints = Array.from(value)
-    return codePoints.length > maxLength ? codePoints.slice(0, maxLength).join('') : value
-}
-
 function parseUserIds(value: unknown): number[] {
     if (!Array.isArray(value)) {
         return []
     }
     const ids = value.filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0)
-    return Array.from(new Set(ids)).slice(0, SYSTEM_EMAIL_MAX_RECIPIENTS)
+    return Array.from(new Set(ids))
 }
 
 export function renderSystemEmail(
@@ -205,9 +186,10 @@ export function renderSystemEmail(
     const projectName = escapeHtml(footer.projectName)
     const functionName = escapeHtml(footer.functionName)
 
-    const button = content.actionUrl
-        ? `<p style="margin:24px 0 0"><a href="${escapeHtml(content.actionUrl)}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#1d4aff;color:#ffffff;font-weight:600;text-decoration:none">${escapeHtml(content.actionLabel)}</a></p>`
-        : ''
+    const button =
+        content.actionUrl && content.actionLabel
+            ? `<p style="margin:24px 0 0"><a href="${escapeHtml(content.actionUrl)}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#1d4aff;color:#ffffff;font-weight:600;text-decoration:none">${escapeHtml(content.actionLabel)}</a></p>`
+            : ''
     const functionLink = footer.functionUrl ? ` <a href="${escapeHtml(footer.functionUrl)}">View the alert</a>` : ''
     const stopLine = footer.settingsUrl
         ? `To stop these emails, update your <a href="${escapeHtml(footer.settingsUrl)}">notification settings</a>.`
@@ -238,7 +220,7 @@ export function renderSystemEmail(
     ].join('\n')
 
     const textLines = [content.body]
-    if (content.actionUrl) {
+    if (content.actionUrl && content.actionLabel) {
         textLines.push('', `${content.actionLabel}: ${content.actionUrl}`)
     }
     textLines.push(
@@ -316,6 +298,10 @@ export class SystemEmailService {
             )
         }
 
+        if (!SYSTEM_EMAIL_TRIGGER_EVENTS.has(invocation.state.globals.event?.event ?? '')) {
+            return this.finish(result, 'not_eligible', "This alert can't send email for this event.")
+        }
+
         if (!this.isTeamEnabled(invocation.teamId)) {
             return this.finish(result, 'not_enabled', "Email alerts aren't available for this project yet.")
         }
@@ -345,11 +331,6 @@ export class SystemEmailService {
         const recipients = team && userIds.length ? await this.resolveRecipients(team.organization_id, userIds) : []
         if (!team || recipients.length === 0) {
             return this.finish(result, 'skipped_no_recipients', 'There are no project members to notify.')
-        }
-
-        const rateLimitError = await this.claimSendingBudget(invocation.teamId)
-        if (rateLimitError) {
-            return this.finish(result, 'rate_limited', rateLimitError)
         }
 
         const { html, text } = renderSystemEmail(content, {
@@ -422,18 +403,18 @@ export class SystemEmailService {
             return null
         }
 
-        const cleanSubject = truncate(sanitizeEmailSubject(subject), SYSTEM_EMAIL_MAX_SUBJECT_LENGTH)
-        const cleanBody = truncate(body.replace(/\r\n?/g, '\n').trim(), SYSTEM_EMAIL_MAX_BODY_LENGTH)
+        const cleanSubject = sanitizeEmailSubject(subject)
+        const cleanBody = body.replace(/\r\n?/g, '\n').trim()
         if (!cleanSubject || !cleanBody) {
             return null
         }
 
         const label = typeof action_label === 'string' ? sanitizeEmailSubject(action_label) : ''
         return {
-            subject: `${SYSTEM_EMAIL_SUBJECT_PREFIX}${cleanSubject}`,
+            subject: cleanSubject,
             body: cleanBody,
             actionUrl: this.parseActionUrl(action_url, teamId),
-            actionLabel: truncate(label, MAX_ACTION_LABEL_LENGTH) || DEFAULT_ACTION_LABEL,
+            actionLabel: label,
         }
     }
 
@@ -461,44 +442,11 @@ export class SystemEmailService {
              WHERE posthog_organizationmembership.organization_id = $1
                AND posthog_user.id = ANY($2::int[])
                AND posthog_user.is_active
-             ORDER BY posthog_user.id
-             LIMIT $3`,
-            [organizationId, userIds, SYSTEM_EMAIL_MAX_RECIPIENTS],
+             ORDER BY posthog_user.id`,
+            [organizationId, userIds],
             'systemEmailRecipients'
         )
         return rows.map((row) => row.email).filter((email) => typeof email === 'string' && email.length > 0)
-    }
-
-    private async claimSendingBudget(teamId: number): Promise<string | null> {
-        // The `{teamId}` hash tag keeps both keys in one cluster slot, which the two-key claim needs.
-        const claim = await this.deps.rateLimiter.claimAllOrNothingPair(
-            [
-                {
-                    key: `@posthog/system-email/hour/{${teamId}}`,
-                    capacity: SYSTEM_EMAIL_HOURLY_LIMIT,
-                    refillPerSecond: SYSTEM_EMAIL_HOURLY_LIMIT / 3600,
-                    ttlSeconds: HOUR_BUCKET_TTL_SECONDS,
-                },
-                {
-                    key: `@posthog/system-email/day/{${teamId}}`,
-                    capacity: SYSTEM_EMAIL_DAILY_LIMIT,
-                    refillPerSecond: SYSTEM_EMAIL_DAILY_LIMIT / 86400,
-                    ttlSeconds: DAY_BUCKET_TTL_SECONDS,
-                },
-            ],
-            1
-        )
-        if (claim.granted) {
-            return null
-        }
-        // A null index means the limiter failed. The send still stops, because a send that
-        // cannot be counted must not go out.
-        if (claim.deniedIndex === null) {
-            return "Couldn't check the alert email limit for this project. Try again later."
-        }
-        const limit =
-            claim.deniedIndex === 0 ? `${SYSTEM_EMAIL_HOURLY_LIMIT} per hour` : `${SYSTEM_EMAIL_DAILY_LIMIT} per day`
-        return `This project reached its limit of ${limit} for alert emails. Sending resumes when the limit resets.`
     }
 
     private finish(
@@ -509,11 +457,7 @@ export class SystemEmailService {
     ): SystemEmailResult {
         systemEmailTotal.labels(outcome).inc()
         const metricName: MinimalAppMetric['metric_name'] =
-            outcome === 'rate_limited'
-                ? 'email_rate_limited'
-                : outcome === 'skipped_no_recipients'
-                  ? 'skipped_no_recipients'
-                  : 'email_failed'
+            outcome === 'skipped_no_recipients' ? 'skipped_no_recipients' : 'email_failed'
         this.pushMetric(result, metricName, count)
         logger.info('[SystemEmail] Email not sent', {
             teamId: result.invocation.teamId,

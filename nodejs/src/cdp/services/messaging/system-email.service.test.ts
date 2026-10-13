@@ -15,8 +15,6 @@ import {
 } from '~/tests/helpers/sql'
 
 import {
-    SYSTEM_EMAIL_MAX_BODY_LENGTH,
-    SYSTEM_EMAIL_MAX_SUBJECT_LENGTH,
     SYSTEM_EMAIL_TEMPLATE_ID,
     SystemEmailMessage,
     SystemEmailResult,
@@ -34,7 +32,6 @@ describe('SystemEmailService', () => {
     let memberEmail: string
 
     const transport = { send: jest.fn<Promise<void>, [SystemEmailMessage]>() }
-    const rateLimiter = { claimAllOrNothingPair: jest.fn() }
     const teamWorkflowsConfigService = { getEmailSendingSuspension: jest.fn() }
 
     const createUser = async (overrides: Record<string, unknown> = {}): Promise<{ id: number; email: string }> => {
@@ -69,6 +66,7 @@ describe('SystemEmailService', () => {
         options: {
             args?: unknown
             hogFunction?: Partial<HogFunctionType>
+            eventName?: string
             notifyUserIds?: unknown
             actionId?: string
             isTest?: boolean
@@ -94,7 +92,6 @@ describe('SystemEmailService', () => {
                         Promise.resolve({ id: teamId, organization_id: organizationId, name: 'Web <b>shop</b>' }),
                 } as any,
                 teamWorkflowsConfigService: teamWorkflowsConfigService as any,
-                rateLimiter: rateLimiter as any,
                 transport,
             }
         )
@@ -106,6 +103,7 @@ describe('SystemEmailService', () => {
             name: 'Sync <failures>',
             ...options.hogFunction,
         })
+        invocation.state.globals.event.event = options.eventName ?? '$data_warehouse_sync_failure_digest'
         invocation.state.globals.event.properties =
             'notifyUserIds' in options ? { $notify_user_ids: options.notifyUserIds } : { $notify_user_ids: [memberId] }
         invocation.state.actionId = options.actionId
@@ -142,9 +140,6 @@ describe('SystemEmailService', () => {
 
     beforeEach(() => {
         transport.send.mockReset().mockResolvedValue(undefined)
-        rateLimiter.claimAllOrNothingPair
-            .mockReset()
-            .mockResolvedValue({ granted: true, deniedIndex: null, retryAfterMs: null, reserved: false })
         teamWorkflowsConfigService.getEmailSendingSuspension.mockReset().mockResolvedValue(null)
     })
 
@@ -160,29 +155,41 @@ describe('SystemEmailService', () => {
         expect(transport.send.mock.calls[0][0]).toMatchObject({
             from: { email: 'alerts@mail.example.com', name: 'PostHog' },
             replyTo: 'no-reply@mail.example.com',
-            subject: '[PostHog] Sync failed',
+            subject: 'Sync failed',
         })
         expect(result.metrics).toMatchObject([{ metric_kind: 'email', metric_name: 'email_sent', count: 2 }])
         expect(result.invocation.queueParameters).toBeUndefined()
         expect(result.invocation.queue).toEqual('hog')
     })
 
-    it.each([
-        ['a plain destination', { hogFunction: { type: 'destination' as const } }],
-        ['another template', { hogFunction: { template_id: 'template-webhook' } }],
-        ['a function without a template', { hogFunction: { template_id: undefined } }],
-        ['a workflow step', { actionId: 'action_1' }],
-        ['a team outside the allowlist', { config: { enabledTeams: '' } }],
-        ['an instance without a sender address', { config: { fromAddress: '' } }],
-        ['a missing subject', { args: { body: 'The sync failed.' } }],
-        ['an empty body', { args: { subject: 'Sync failed', body: '  ' } }],
-        ['arguments that are not an object', { args: 'Sync failed' }],
-    ])('sends nothing for %s', async (_name, options) => {
+    it('sends to every resolved member in one call', async () => {
+        const members = await Promise.all(Array.from({ length: 60 }, () => createMember(organizationId)))
+
+        const { response, result } = await send({ notifyUserIds: members.map((member) => member.id) })
+
+        expect(response).toEqual({ success: true })
+        expect(transport.send.mock.calls.map(([message]) => message.to).sort()).toEqual(
+            members.map((member) => member.email).sort()
+        )
+        expect(result.metrics).toMatchObject([{ metric_name: 'email_sent', count: 60 }])
+    })
+
+    test.each([
+        ['a plain destination', { hogFunction: { type: 'destination' as const } }, undefined],
+        ['another template', { hogFunction: { template_id: 'template-webhook' } }, undefined],
+        ['a function without a template', { hogFunction: { template_id: undefined } }, undefined],
+        ['a workflow step', { actionId: 'action_1' }, undefined],
+        ['an event outside the allowlist', { eventName: '$pageview' }, "This alert can't send email for this event."],
+        ['a team outside the allowlist', { config: { enabledTeams: '' } }, undefined],
+        ['an instance without a sender address', { config: { fromAddress: '' } }, undefined],
+        ['a missing subject', { args: { body: 'The sync failed.' } }, undefined],
+        ['an empty body', { args: { subject: 'Sync failed', body: '  ' } }, undefined],
+        ['arguments that are not an object', { args: 'Sync failed' }, undefined],
+    ])('sends nothing for %s', async (_name, options, error) => {
         const { response, result } = await send(options)
 
-        expect(response).toEqual({ success: false, error: expect.any(String) })
+        expect(response).toEqual({ success: false, error: error ?? expect.any(String) })
         expect(transport.send).not.toHaveBeenCalled()
-        expect(rateLimiter.claimAllOrNothingPair).not.toHaveBeenCalled()
         expect(metricNames(result)).toEqual(['email_failed'])
     })
 
@@ -191,10 +198,9 @@ describe('SystemEmailService', () => {
 
         expect(response).toEqual({ success: false, error: expect.any(String) })
         expect(transport.send).not.toHaveBeenCalled()
-        expect(rateLimiter.claimAllOrNothingPair).not.toHaveBeenCalled()
     })
 
-    it.each([
+    test.each([
         ['no $notify_user_ids property', undefined],
         ['an empty list', []],
         ['ids that match no user', [2_147_000_001]],
@@ -205,7 +211,6 @@ describe('SystemEmailService', () => {
 
         expect(response).toEqual({ success: false, error: expect.any(String) })
         expect(transport.send).not.toHaveBeenCalled()
-        expect(rateLimiter.claimAllOrNothingPair).not.toHaveBeenCalled()
         expect(metricNames(result)).toEqual(['skipped_no_recipients'])
     })
 
@@ -243,11 +248,13 @@ describe('SystemEmailService', () => {
         expect(JSON.stringify(message)).not.toContain('example.org')
     })
 
-    it('escapes HTML, strips header breaks from the subject and caps the subject and body', async () => {
+    it('escapes HTML, strips header breaks and sends the full subject and body', async () => {
+        const longSubject = 's'.repeat(201)
+        const longBody = 'b'.repeat(4001)
         await send({
             args: {
-                subject: `Failed\r\nBcc: target@example.org ${'s'.repeat(SYSTEM_EMAIL_MAX_SUBJECT_LENGTH)}`,
-                body: `<script>alert("x")</script>\n<a href="https://example.org">link</a>${'b'.repeat(SYSTEM_EMAIL_MAX_BODY_LENGTH)}`,
+                subject: `Failed\r\nBcc: target@example.org ${longSubject}`,
+                body: `<script>alert("x")</script>\r\n<a href="https://example.org">link</a>${longBody}`,
                 action_url: `${SITE_URL}/project/${teamId}/pipeline`,
                 action_label: '<img src=x>',
             },
@@ -255,55 +262,74 @@ describe('SystemEmailService', () => {
 
         const { subject, html, text } = transport.send.mock.calls[0][0]
         expect(subject).not.toMatch(/[\r\n]/)
-        expect(subject).toHaveLength('[PostHog] '.length + SYSTEM_EMAIL_MAX_SUBJECT_LENGTH)
+        expect(subject).toEqual(`Failed Bcc: target@example.org ${longSubject}`)
         expect(html).toContain('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;<br>&lt;a href=')
         expect(html).not.toMatch(/<script|<img|<a href="https:\/\/example\.org/)
         expect(html).toContain('&lt;img src=x&gt;</a>')
         expect(html).toContain('Web &lt;b&gt;shop&lt;/b&gt;')
         expect(html).toContain('Sync &lt;failures&gt;')
-        expect(html).not.toContain('b'.repeat(SYSTEM_EMAIL_MAX_BODY_LENGTH))
+        expect(html).toContain(longBody)
         expect(text).toContain('<script>alert("x")</script>')
-        expect(text).not.toContain('b'.repeat(SYSTEM_EMAIL_MAX_BODY_LENGTH))
+        expect(text).toContain(`<script>alert("x")</script>\n<a href="https://example.org">link</a>${longBody}`)
     })
 
-    it.each([
-        ['a page in this project', (id: number) => `${SITE_URL}/project/${id}/functions/abc?tab=logs`, true],
-        ['another project', (id: number) => `${SITE_URL}/project/${id + 1}/functions/abc`, false],
-        ['a project id that only shares a prefix', (id: number) => `${SITE_URL}/project/${id}0/functions`, false],
-        ['another host', (id: number) => `https://example.org/project/${id}/functions`, false],
-        ['a host that only shares a prefix', (id: number) => `${SITE_URL}.example.org/project/${id}/`, false],
-        ['a path that climbs out of the project', (id: number) => `${SITE_URL}/project/${id}/../../logout`, false],
-        ['a script URL', () => 'javascript:alert(1)', false],
-        ['a value that is not a string', () => ({ href: SITE_URL }), false],
-    ])('renders the button only for a link inside this project: %s', async (_name, buildUrl, kept) => {
+    test.each([
+        [
+            'a page in this project with a label',
+            (id: number) => `${SITE_URL}/project/${id}/functions/abc?tab=logs`,
+            'Open alert',
+            true,
+        ],
+        [
+            'a page in this project with an empty label',
+            (id: number) => `${SITE_URL}/project/${id}/functions/abc`,
+            '',
+            false,
+        ],
+        ['another project', (id: number) => `${SITE_URL}/project/${id + 1}/functions/abc`, 'Open alert', false],
+        [
+            'a project id that only shares a prefix',
+            (id: number) => `${SITE_URL}/project/${id}0/functions`,
+            'Open alert',
+            false,
+        ],
+        ['another host', (id: number) => `https://example.org/project/${id}/functions`, 'Open alert', false],
+        [
+            'a host that only shares a prefix',
+            (id: number) => `${SITE_URL}.example.org/project/${id}/`,
+            'Open alert',
+            false,
+        ],
+        [
+            'a path that climbs out of the project',
+            (id: number) => `${SITE_URL}/project/${id}/../../logout`,
+            'Open alert',
+            false,
+        ],
+        ['a script URL', () => 'javascript:alert(1)', 'Open alert', false],
+        ['a value that is not a string', () => ({ href: SITE_URL }), 'Open alert', false],
+    ])('renders the button only for a valid link and label: %s', async (_name, buildUrl, actionLabel, kept) => {
         const actionUrl = buildUrl(teamId)
 
-        await send({ args: { subject: 'Sync failed', body: 'The sync failed.', action_url: actionUrl } })
+        await send({
+            args: {
+                subject: 'Sync failed',
+                body: 'The sync failed.',
+                action_url: actionUrl,
+                action_label: actionLabel,
+            },
+        })
 
         const { html, text } = transport.send.mock.calls[0][0]
-        expect(html.includes('Open in PostHog')).toEqual(kept)
-        expect(text.includes('Open in PostHog')).toEqual(kept)
+        expect(html.includes('>Open alert</a>')).toEqual(kept)
+        expect(text.includes('Open alert:')).toEqual(kept)
         if (!kept && typeof actionUrl === 'string') {
             expect(html).not.toContain(actionUrl)
+            expect(text).not.toContain(actionUrl)
         }
     })
 
-    it.each([
-        ['the hourly limit', { granted: false, deniedIndex: 0, retryAfterMs: 1000, reserved: false }],
-        ['the daily limit', { granted: false, deniedIndex: 1, retryAfterMs: 1000, reserved: false }],
-        ['a limiter failure', { granted: false, deniedIndex: null, retryAfterMs: null, reserved: false }],
-    ])('blocks the send and reports it on %s', async (_name, claim) => {
-        rateLimiter.claimAllOrNothingPair.mockResolvedValue(claim)
-
-        const { response, result } = await send()
-
-        expect(response).toEqual({ success: false, error: expect.any(String) })
-        expect(transport.send).not.toHaveBeenCalled()
-        expect(metricNames(result)).toEqual(['email_rate_limited'])
-        expect(result.invocation.queueScheduledAt).toBeUndefined()
-    })
-
-    it.each([
+    test.each([
         ['staff', false],
         ['provider', true],
     ])('honors only the staff suspension: %s', async (cause, sent) => {
@@ -332,15 +358,5 @@ describe('SystemEmailService', () => {
             { metric_name: 'email_failed', count: 1 },
         ])
         expect(result.logs.map((log) => log.message).join(' ')).not.toContain('@')
-    })
-
-    it('returns a failure without throwing when a dependency throws', async () => {
-        rateLimiter.claimAllOrNothingPair.mockRejectedValue(new Error('connection reset'))
-
-        const { response, result } = await send()
-
-        expect(response).toEqual({ success: false, error: expect.any(String) })
-        expect(transport.send).not.toHaveBeenCalled()
-        expect(metricNames(result)).toEqual(['email_failed'])
     })
 })
