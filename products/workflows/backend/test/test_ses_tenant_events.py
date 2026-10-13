@@ -106,6 +106,9 @@ class TestAcceptSesEvent(SimpleTestCase):
         sync = patch("products.workflows.backend.services.ses_tenant_events.sync_ses_tenant_state_task")
         self.sync_mock = sync.start()
         self.addCleanup(sync.stop)
+        sender_check = patch("products.workflows.backend.services.ses_tenant_events.EmailSenderVerification")
+        self.sender_check_mock = sender_check.start()
+        self.addCleanup(sender_check.stop)
 
     def test_enqueues_a_sync_for_the_tenant_named_in_the_event(self) -> None:
         accept_ses_event(_delivery(_notification(_eventbridge_event())))
@@ -122,6 +125,18 @@ class TestAcceptSesEvent(SimpleTestCase):
     def test_ignores_events_from_other_sources(self) -> None:
         accept_ses_event(_delivery(_notification(_eventbridge_event(source="aws.health"))))
 
+        assert not self.sync_mock.delay.called
+
+    def test_resolved_advisor_finding_checks_the_senders_on_that_identity(self) -> None:
+        event = _eventbridge_event(
+            **{"detail-type": "Advisor Recommendation Status Resolved"},
+            detail={"version": "1.0.0", "data": "DKIM record was not found."},
+            resources=["arn:aws:ses:us-east-1:123456789012:identity/team-5.example.com"],
+        )
+
+        accept_ses_event(_delivery(_notification(event)))
+
+        self.sender_check_mock.request_domain_check.assert_called_once_with("team-5.example.com")
         assert not self.sync_mock.delay.called
 
     def test_confirms_subscriptions_by_fetching_the_subscribe_url(self) -> None:

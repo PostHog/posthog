@@ -32,7 +32,7 @@ from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
 from .clickup import ClickUpIntegration
 from .common import ERROR_TOKEN_REFRESH_FAILED, META_GRAPH_API_VERSION, IntegrationError, dot_get
 from .databricks import DatabricksIntegration, DatabricksIntegrationError
-from .email import EmailIntegration, cleanup_ses_identity_on_integration_delete
+from .email import EmailIntegration, cleanup_ses_identity_on_integration_delete, mark_verification_requested
 from .external_issues import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     external_issue_url,
@@ -260,4 +260,5 @@ __all__ = [
     "RedshiftIntegration",
     "SnowflakeIntegrationError",
     "SnowflakeIntegration",
+    "mark_verification_requested",
 ]

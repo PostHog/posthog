@@ -41,7 +41,9 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             "DkimAttributes": {domain: {"DkimVerificationStatus": "Success"}}
         }
         provider.ses_client.get_identity_mail_from_domain_attributes.return_value = {
-            "MailFromDomainAttributes": {domain: {"MailFromDomainStatus": "Success"}}
+            "MailFromDomainAttributes": {
+                domain: {"MailFromDomainStatus": "Success", "MailFromDomain": f"feedback.{domain}"}
+            }
         }
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
