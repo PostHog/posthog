@@ -6,7 +6,7 @@ import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
-import { Fragment, Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import type { NodeView } from '@tiptap/pm/view'
 import { EditorContent, Extension } from '@tiptap/react'
@@ -55,6 +55,11 @@ function createSupportCodeBlockView(initialNode: ProseMirrorNode): NodeView {
     copyButton.contentEditable = 'false'
     const pre = document.createElement('pre')
     const code = document.createElement('code')
+    // The language attribute is parsed back from this class when the block is re-read from the DOM.
+    const setLanguageClass = (): void => {
+        code.className = node.attrs.language ? `language-${node.attrs.language}` : ''
+    }
+    setLanguageClass()
     pre.append(code)
     dom.append(copyButton, pre)
 
@@ -76,10 +81,13 @@ function createSupportCodeBlockView(initialNode: ProseMirrorNode): NodeView {
                 return false
             }
             node = updatedNode
+            setLanguageClass()
             return true
         },
         stopEvent: (event) => copyButton.contains(event.target as Node),
-        ignoreMutation: (mutation) => mutation.type !== 'selection' && copyButton.contains(mutation.target),
+        ignoreMutation: (mutation) =>
+            mutation.type !== 'selection' &&
+            (copyButton.contains(mutation.target) || (mutation.type === 'attributes' && mutation.target === code)),
         // Deferred because React warns when a root unmounts while it is still rendering.
         destroy: () => setTimeout(() => root.unmount()),
     }
@@ -87,37 +95,56 @@ function createSupportCodeBlockView(initialNode: ProseMirrorNode): NodeView {
 
 const CODE_LINE_ELEMENTS = new Set(['CODE', 'DIV', 'P', 'LI', 'TR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'])
 
-/** The text of a `<pre>`, with line elements and `<br>` turned into newlines. */
-export function codeTextFromPre(pre: HTMLElement): string {
-    let text = ''
-    const startNewLine = (): void => {
-        if (text && !text.endsWith('\n')) {
-            text += '\n'
+/**
+ * Turns the line elements and `<br>`s in a `<pre>` into newline text, in place. The text nodes stay the same
+ * objects, so ProseMirror can still map the caret into them when it re-reads a block the browser edited.
+ */
+export function flattenCodeLines(pre: HTMLElement): HTMLElement {
+    const ownerDocument = pre.ownerDocument
+    let hasText = false
+    let endsWithNewline = false
+    let trailingSeparator = null as Text | null
+
+    const appended = (text: string): void => {
+        if (text) {
+            hasText = true
+            endsWithNewline = text.endsWith('\n')
+            trailingSeparator = null
         }
     }
-    const walk = (node: Node): void => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            text += node.textContent ?? ''
-            return
-        }
-        if (!(node instanceof HTMLElement)) {
-            return
-        }
-        if (node.tagName === 'BR') {
-            text += '\n'
-            return
-        }
-        const isLine = CODE_LINE_ELEMENTS.has(node.tagName)
-        if (isLine) {
-            startNewLine()
-        }
-        node.childNodes.forEach(walk)
-        if (isLine) {
-            startNewLine()
+    const addSeparator = (reference: ChildNode, position: 'before' | 'after'): void => {
+        const separator = ownerDocument.createTextNode('\n')
+        reference[position](separator)
+        endsWithNewline = true
+        trailingSeparator = separator
+    }
+    const walk = (parent: Node): void => {
+        for (const child of Array.from(parent.childNodes)) {
+            if (child.nodeType === Node.TEXT_NODE) {
+                appended(child.textContent ?? '')
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+                const element = child as Element
+                if (element.tagName === 'BR') {
+                    element.replaceWith(ownerDocument.createTextNode('\n'))
+                    appended('\n')
+                } else if (CODE_LINE_ELEMENTS.has(element.tagName)) {
+                    if (hasText && !endsWithNewline) {
+                        addSeparator(element, 'before')
+                    }
+                    walk(element)
+                    if (hasText && !endsWithNewline) {
+                        addSeparator(element, 'after')
+                    }
+                    element.replaceWith(...Array.from(element.childNodes))
+                } else {
+                    walk(element)
+                }
+            }
         }
     }
-    pre.childNodes.forEach(walk)
-    return text.replace(/\n$/, '')
+    walk(pre)
+    trailingSeparator?.remove()
+    return pre
 }
 
 const SupportCodeBlockExtension = CodeBlockLowlight.extend({
@@ -129,10 +156,7 @@ const SupportCodeBlockExtension = CodeBlockLowlight.extend({
             {
                 tag: 'pre',
                 preserveWhitespace: 'full',
-                getContent: (dom, schema) => {
-                    const text = codeTextFromPre(dom as HTMLElement)
-                    return text ? Fragment.from(schema.text(text)) : Fragment.empty
-                },
+                contentElement: (dom) => flattenCodeLines(dom as HTMLElement),
             },
         ]
     },

@@ -103,21 +103,28 @@ describe('SupportEditor serialization and preview schema', () => {
 
     // Only `content` reaches the server, so a pasted line that leaves the code block or is
     // dropped while parsing never arrives, even though the editor showed the full message.
-    test.each<[string, string]>([
-        ['newlines', `<pre><code>${SQL}</code></pre>`],
-        ['br per line', `<pre><code>${SQL_LINES.join('<br>')}</code></pre>`],
-        ['div per line', `<pre>${SQL_LINES.map((line) => `<div>${line}</div>`).join('')}</pre>`],
-        ['code element per line', `<pre>${SQL_LINES.map((line) => `<code>${line}</code>`).join('')}</pre>`],
+    test.each<[string, string, string]>([
+        ['newlines', `<pre><code>${SQL}</code></pre>`, SQL],
+        ['br per line', `<pre><code>${SQL_LINES.join('<br>')}</code></pre>`, SQL],
+        ['div per line', `<pre>${SQL_LINES.map((line) => `<div>${line}</div>`).join('')}</pre>`, SQL],
+        ['code element per line', `<pre>${SQL_LINES.map((line) => `<code>${line}</code>`).join('')}</pre>`, SQL],
         [
             'div per line with highlight spans',
             `<pre><code>${SQL_LINES.map((line) => `<div><span class="token">${line}</span></div>`).join('')}</code></pre>`,
+            SQL,
         ],
-    ])('pasted code block with %s keeps every line inside the block', (_name, html) => {
+        ['a trailing newline of its own', '<pre><code>alpha\n</code></pre>', 'alpha\n'],
+        [
+            'an empty line as a div with a br',
+            '<pre><div>alpha</div><div><br></div><div>beta</div></pre>',
+            'alpha\n\nbeta',
+        ],
+    ])('pasted code block with %s keeps every line inside the block', (_name, html, code) => {
         const container = document.createElement('div')
         container.innerHTML = `<p>Hi</p>${html}`
         const doc = DOMParser.fromSchema(getSchema([...SUPPORT_EXTENSIONS])).parse(container)
 
-        expect(serializeToMarkdown(doc.toJSON())).toBe(`Hi\n\n\`\`\`\n${SQL}\n\`\`\``)
+        expect(serializeToMarkdown(doc.toJSON())).toBe(`Hi\n\n\`\`\`\n${code}\n\`\`\``)
     })
 
     it('preview schema rejects unknown node types so the plain-content fallback kicks in', () => {
