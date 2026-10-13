@@ -45,4 +45,21 @@ describe('checkPreviousRecipients', () => {
             expect(check.audience.properties).toContainEqual(expect.objectContaining(LEFT_OUT))
         }
     })
+
+    it('keeps the saved exclusion when a count never answers', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(workflowPreviousRecipientsCreate).mockResolvedValue({ cohort_id: 77, people: 4 } as never)
+            jest.mocked(hogFlowsUserBlastRadiusCreate)
+                .mockReset()
+                .mockReturnValue(new Promise(() => {}))
+
+            const check = checkPreviousRecipients('1', audience)
+            await jest.advanceTimersByTimeAsync(5000)
+
+            expect(await check).toMatchObject({ kind: 'some', skipped: null })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

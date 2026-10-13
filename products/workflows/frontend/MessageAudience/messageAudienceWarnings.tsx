@@ -83,15 +83,18 @@ export async function openMessageAudience(
     }
     opening = true
     try {
+        const startedOn = router.values.location.pathname
         const navigate = async (): Promise<void> => {
             if (destination === 'broadcast' && audience.sourceRecord) {
                 const projectId = String(ApiConfig.getCurrentProjectId())
-                await openBroadcastAfterCheck(audience, await checkPreviousRecipients(projectId, audience))
+                const check = await checkPreviousRecipients(projectId, audience)
+                if (router.values.location.pathname === startedOn) {
+                    await openBroadcastAfterCheck(audience, check)
+                }
                 return
             }
             router.actions.push(messageAudienceUrl(audience, destination))
         }
-        const startedOn = router.values.location.pathname
         const warnings = await loadMessageAudienceWarnings(audience, destination)
         if (router.values.location.pathname !== startedOn) {
             // The person left the page while the checks ran.

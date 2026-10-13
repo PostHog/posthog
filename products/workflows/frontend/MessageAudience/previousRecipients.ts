@@ -14,6 +14,15 @@ import {
 import { MessageAudience, messageAudienceUrl } from './messageAudience'
 
 const MAX_COHORT_NAME_LENGTH = 200
+// The exclusion is saved before the counts run, so a slow count only costs the number in the toast.
+const COUNT_TIMEOUT_MS = 5000
+
+function withinCountTimeout<T>(request: Promise<T>): Promise<T> {
+    return Promise.race([
+        request,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Counting timed out')), COUNT_TIMEOUT_MS)),
+    ])
+}
 
 const HAS_EMAIL: AnyPropertyFilter = {
     key: 'email',
@@ -75,12 +84,14 @@ export async function checkPreviousRecipients(
         }
         let before, after
         try {
-            ;[before, after] = await Promise.all(
-                [audience, narrowed].map((target) =>
-                    hogFlowsUserBlastRadiusCreate(projectId, {
-                        filters: { properties: [...target.properties, HAS_EMAIL] },
-                        dedupe_key: 'email',
-                    })
+            ;[before, after] = await withinCountTimeout(
+                Promise.all(
+                    [audience, narrowed].map((target) =>
+                        hogFlowsUserBlastRadiusCreate(projectId, {
+                            filters: { properties: [...target.properties, HAS_EMAIL] },
+                            dedupe_key: 'email',
+                        })
+                    )
                 )
             )
         } catch {

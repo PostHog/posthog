@@ -53,13 +53,24 @@ class TestPreviousRecipients(ClickhouseTestMixin, APIBaseTest):
 
     def test_saves_only_people_this_teams_flows_for_the_record_emailed(self) -> None:
         emailed = [str(create_person(team_id=self.team.pk, distinct_ids=[f"emailed-{i}"]).uuid) for i in range(2)]
-        create_person(team_id=self.team.pk, distinct_ids=["other"])
+        # A second profile with an address already emailed would get the next send, because sends dedupe by email.
+        emailed.append(
+            str(
+                create_person(
+                    team_id=self.team.pk, distinct_ids=["same-address"], properties={"email": " Emailed-0@Example.com"}
+                ).uuid
+            )
+        )
+        create_person(team_id=self.team.pk, distinct_ids=["other"], properties={"email": "other@example.com"})
+        create_person(team_id=self.team.pk, distinct_ids=["deleted-send"])
         first = HogFlow.objects.create(team=self.team, name="First", source_record=RECORD)
         second = HogFlow.objects.create(team=self.team, name="Second", source_record=RECORD)
         other_record = HogFlow.objects.create(team=self.team, name="Other", source_record="cohort:42")
         other_team = Team.objects.create(organization=self.organization)
         other_team_flow = HogFlow.objects.create(team=other_team, name="Elsewhere", source_record=RECORD)
-        self._sent(first, "emailed-0")
+        self._sent(first, "emailed-0", recipient="emailed-0@example.com")
+        self._sent(first, "deleted-send")
+        self._sent(first, "deleted-send", is_deleted=1, version=2)
         # The person this send went to merged into another one since, so the stored person ID is stale.
         self._sent(second, "emailed-1", person_id="00000000-0000-0000-0000-000000000000")
         self._sent(second, "other", asset_status="failed")
@@ -73,7 +84,7 @@ class TestPreviousRecipients(ClickhouseTestMixin, APIBaseTest):
         cohort = Cohort.objects.get(pk=response.json()["cohort_id"])
         assert cohort.is_static and not cohort.is_calculating
         assert cohort.team_id == self.team.pk
-        assert response.json()["people"] == 2
+        assert response.json()["people"] == 3
         assert self._members(cohort.pk) == sorted(emailed)
 
     def test_leaves_out_sends_from_workflows_the_caller_cannot_see(self) -> None:

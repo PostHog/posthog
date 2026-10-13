@@ -123,6 +123,11 @@ class HogFlow(UUIDTModel):
         indexes = [
             models.Index(fields=["status", "team"]),
             models.Index(fields=["version", "team"]),
+            models.Index(
+                fields=["team", "source_record"],
+                name="hogflow_team_source_record_idx",
+                condition=models.Q(source_record__isnull=False),
+            ),
         ]
 
         constraints = [
