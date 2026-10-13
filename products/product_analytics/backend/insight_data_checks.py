@@ -21,6 +21,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -31,6 +32,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.product_analytics.backend.facade.contracts import InsightDataCheck, InsightDataChecks
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckAction,
@@ -130,6 +132,7 @@ class _CheckedQuery:
     # A lifecycle chart leaves out an event with no person profile, and it has no weekday filter.
     is_lifecycle: bool = False
     breakdown_cohorts: tuple[str | int, ...] = ()
+    aggregation_target: str | None = None
     modifiers: HogQLQueryModifiers | None = None
 
     @property
@@ -171,6 +174,9 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
     """
     checked = _checked_query(query)
     if checked is None:
+        return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
+    # A property that is hidden from `user` reads as empty, so a check would count none of what it looks for.
+    if get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk):
         return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
         reader = _EventReader(
@@ -243,26 +249,36 @@ def _checked_query(query: Mapping[str, Any]) -> _CheckedQuery | None:
         filters_internal_users=bool(source.filterTestAccounts),
         is_lifecycle=isinstance(source, LifecycleQuery),
         breakdown_cohorts=_breakdown_cohorts(source),
+        aggregation_target=_funnel_aggregation_target(source),
         modifiers=source.modifiers,
     )
 
 
 def _breakdown_cohorts(source: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery) -> tuple[str | int, ...]:
-    # A funnel keeps the people outside the cohort, as a breakdown value of their own.
-    breakdown_filter = source.breakdownFilter if isinstance(source, TrendsQuery) else None
+    breakdown_filter = source.breakdownFilter if isinstance(source, TrendsQuery | FunnelsQuery) else None
     if breakdown_filter is None or breakdown_filter.breakdown_type != BreakdownType.COHORT:
         return ()
     breakdown = breakdown_filter.breakdown
     if breakdown is None:
         return ()
     cohorts = breakdown if isinstance(breakdown, list) else [breakdown]
-    return () if "all" in cohorts else tuple(cohorts)
+    # A funnel with one cohort keeps the people outside it, as a breakdown value of their own.
+    if "all" in cohorts or (isinstance(source, FunnelsQuery) and len(set(cohorts)) < 2):
+        return ()
+    return tuple(cohorts)
+
+
+def _funnel_aggregation_target(source: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery) -> str | None:
+    if not isinstance(source, FunnelsQuery) or source.aggregation_group_type_index is not None:
+        return None
+    target = source.funnelsFilter.funnelAggregateByHogQL if source.funnelsFilter else None
+    return target if target and target != "person_id" else None
 
 
 def _counted_group_type(
     source: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery, series: EventsNode
 ) -> int | None:
-    if isinstance(source, FunnelsQuery):
+    if isinstance(source, FunnelsQuery | LifecycleQuery):
         return source.aggregation_group_type_index
     if isinstance(source, TrendsQuery):
         counts_groups = is_groups_math(series)
@@ -332,6 +348,13 @@ def _insight_filters(checked: _CheckedQuery, team: Team) -> ast.Expr:
                     )
                     for cohort in checked.breakdown_cohorts
                 ]
+            )
+        )
+    if checked.aggregation_target:
+        conditions.append(
+            parse_expr(
+                "toString({target}) != '' and {target} != null",
+                placeholders={"target": parse_expr(checked.aggregation_target)},
             )
         )
     if checked.is_lifecycle:

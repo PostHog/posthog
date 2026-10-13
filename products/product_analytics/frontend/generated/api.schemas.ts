@@ -9284,7 +9284,7 @@ export interface InsightDataCheckApi {
 }
 
 export interface InsightDataChecksApi {
-    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range, and `unsupported` when the insight has no event series to check, such as a SQL insight.
+    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property of the project is hidden from the caller.
      *
      * * `passed` - No data issues found
      * * `warning` - A check found a small issue

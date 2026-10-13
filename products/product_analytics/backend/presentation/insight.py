@@ -35,7 +35,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
@@ -1731,7 +1731,8 @@ class InsightDataChecksSerializer(serializers.Serializer):
         choices=InsightDataChecksStatus.choices,
         help_text=(
             "The worst result across the checks. `no_events` when no event matches the insight's events, filters "
-            "and date range, and `unsupported` when the insight has no event series to check, such as a SQL insight."
+            "and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, "
+            "and when a property of the project is hidden from the caller."
         ),
     )
     checks = InsightDataCheckSerializer(many=True, help_text="Every check, in a fixed order, whatever its result.")
@@ -2515,7 +2516,7 @@ When set, the specified dashboard's filters and date range override will be appl
         try:
             with query_concurrency_slots(self.team):
                 checks = run_insight_data_checks(query, team=self.team, user=cast(User, self.request.user))
-        except (ExposedHogQLError, ExposedCHQueryError) as error:
+        except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)
 

@@ -144,6 +144,12 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
                 },
                 60,
             ),
+            ("insight_that_counts_groups", {"aggregation_group_type_index": 0}, 60),
+            (
+                "funnel_that_counts_a_property",
+                {"kind": "FunnelsQuery", "funnelsFilter": {"funnelAggregateByHogQL": "properties.$current_url"}},
+                220,
+            ),
             ("shorter_date_range", {"dateRange": {"date_from": "-12h"}}, 0),
             ("date_range_without_a_start", {"dateRange": {}}, 600),
             ("weekdays", {"kind": "StickinessQuery", "dateRange": {"date_from": "-80d", "daysOfWeek": [2]}}, 50),
@@ -165,24 +171,32 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("of_the_cohorts_alone", [], 60),
-            ("of_everyone_when_all_users_is_a_value", ["all"], 630),
+            ("trends_reads_the_cohort", "TrendsQuery", False, [], 60),
+            ("trends_reads_everyone_when_all_users_is_a_value", "TrendsQuery", False, ["all"], 630),
+            ("funnel_with_two_cohorts_reads_them", "FunnelsQuery", True, [], 60),
+            ("funnel_with_one_cohort_reads_everyone", "FunnelsQuery", False, [], 630),
         ]
     )
-    def test_checks_the_people_a_trends_cohort_breakdown_reads(
-        self, _name: str, other_values: list[str], events_checked: int
+    def test_checks_the_people_a_cohort_breakdown_reads(
+        self, _name: str, kind: str, has_second_cohort: bool, other_values: list[str], events_checked: int
     ) -> None:
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="the team",
-            groups=[
-                {"properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]}
-            ],
-        )
-        cohort.calculate_people_ch(pending_version=0)
+        cohorts = [
+            Cohort.objects.create(
+                team=self.team,
+                name=domain,
+                groups=[{"properties": [{"key": "email", "value": domain, "operator": "icontains", "type": "person"}]}],
+            )
+            for domain in ["@posthog.com", "@nobody.example"][: 2 if has_second_cohort else 1]
+        ]
+        for cohort in cohorts:
+            cohort.calculate_people_ch(pending_version=0)
         # Not sent with the test client, which the repo's crossing scan reads as a run of web analytics code.
         query = self._query(
-            kind="TrendsQuery", breakdownFilter={"breakdown_type": "cohort", "breakdown": [cohort.id, *other_values]}
+            kind=kind,
+            breakdownFilter={
+                "breakdown_type": "cohort",
+                "breakdown": [*(cohort.id for cohort in cohorts), *other_values],
+            },
         )
 
         checks = run_insight_data_checks(query, team=self.team, user=self.user)
@@ -265,7 +279,7 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_hides_a_property_the_member_may_not_read(self) -> None:
+    def test_does_not_check_for_a_member_with_a_hidden_property(self) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -289,7 +303,7 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        assert self._check(query)["status"] == "no_events"
+        assert self._check(query)["status"] == "unsupported"
 
     @parameterized.expand(
         [
@@ -336,6 +350,10 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("without_a_query", None),
             ("with_a_filter_that_is_not_valid_sql", {"properties": [{"type": "hogql", "key": "1 +"}]}),
+            (
+                "with_a_filter_on_a_field_that_does_not_exist",
+                {"properties": [{"type": "hogql", "key": "timestamp.day"}]},
+            ),
         ]
     )
     def test_rejects_a_request_it_cannot_check(self, _name: str, source: dict[str, Any] | None) -> None:
