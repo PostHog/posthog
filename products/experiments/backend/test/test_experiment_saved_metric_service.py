@@ -16,25 +16,19 @@ _THRESHOLD_MEAN: dict[str, object] = {
     "source": {"kind": "EventsNode", "event": "$pageview", "math": "sum", "math_property": "amount"},
 }
 
-_WAREHOUSE_NATIVE_METRIC: dict[str, object] = {
+_WAREHOUSE_QUERY_MEAN: dict[str, object] = {
     "kind": "ExperimentMetric",
-    "metric_type": "warehouse_native",
-    "connection_id": "00000000-0000-0000-0000-000000000000",
-    "statistic": "mean",
+    "metric_type": "mean",
     "source": {
+        "kind": "ExperimentWarehouseQueryNode",
+        "connection_id": "00000000-0000-0000-0000-000000000000",
         "query": "SELECT user_id AS entity_id, paid_at AS timestamp, amount AS value FROM payments",
-        "aggregation": "sum",
+        "math": "sum",
     },
 }
 
 _SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
-    ("warehouse_native_not_supported_yet", _WAREHOUSE_NATIVE_METRIC, "warehouse-native metrics are not supported yet"),
-    # The statistic picks the variant, so a ratio is validated against the ratio shape only.
-    (
-        "warehouse_native_ratio_without_denominator",
-        {**_WAREHOUSE_NATIVE_METRIC, "statistic": "ratio"},
-        "'loc': ('warehouse_native', 'ratio', 'denominator')",
-    ),
+    ("warehouse_query_not_supported_yet", _WAREHOUSE_QUERY_MEAN, "warehouse query sources are not supported yet"),
     (
         "funnel_without_steps",
         {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},
@@ -138,7 +132,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
                     "metric_type": "invalid",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
-                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'warehouse_native'",
+                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'",
             ),
             (
                 "conversion_window_on_exposure_start_retention",

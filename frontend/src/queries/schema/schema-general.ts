@@ -169,10 +169,12 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentWarehouseExposureConfig = 'ExperimentWarehouseExposureConfig',
     ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
+    ExperimentWarehouseQueryNode = 'ExperimentWarehouseQueryNode',
     ExperimentExposureNode = 'ExperimentExposureNode',
 
     // Database metadata
@@ -5729,7 +5731,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     fingerprint?: string
 }
 
-export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
+export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig
 
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
@@ -5745,6 +5747,19 @@ export interface ExperimentEventExposureConfig extends Node {
     kind: NodeKind.ExperimentEventExposureConfig
     event: string
     properties: AnyPropertyFilter[]
+}
+
+/** Exposures that live in the customer's warehouse, read through a direct connection. An experiment
+ *  with this exposure runs entirely in the warehouse, so every metric source must be an
+ *  `ExperimentWarehouseQueryNode` on the same connection. */
+export interface ExperimentWarehouseExposureConfig extends Node {
+    kind: NodeKind.ExperimentWarehouseExposureConfig
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`,
+     *  `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies
+     *  the experiment's date range and multiple-variant handling. */
+    query: string
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
@@ -5966,7 +5981,6 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
     RATIO = 'ratio',
     RETENTION = 'retention',
-    WAREHOUSE_NATIVE = 'warehouse_native',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -6002,6 +6016,21 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
+/** Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins
+ *  them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never
+ *  mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from
+ *  `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. Of the inherited fields only
+ *  `math` (`total`, `sum`, `min`, `max`) and `custom_name` apply; property filters cannot apply to SQL
+ *  PostHog does not parse. */
+export interface ExperimentWarehouseQueryNode extends EntityNode {
+    kind: NodeKind.ExperimentWarehouseQueryNode
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`,
+     *  `timestamp` and `value` columns. `value` may be omitted when `math` is `total`. */
+    query: string
+}
+
 // Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
 // can attach without tripping ts-json-schema-generator's dedup (same workaround
 // pattern as `ExperimentMetricUnion = ExperimentMetric`). The alias is the public
@@ -6009,14 +6038,22 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
 /**
  * @discriminator kind
  */
-export type ExperimentMetricSourceUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentMetricSourceUnion =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentWarehouseQueryNode
 
 export type ExperimentMetricSource = ExperimentMetricSourceUnion
 
 /**
  * @discriminator kind
  */
-export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentFunnelMetricStepUnion =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentWarehouseQueryNode
 
 export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
@@ -6037,6 +6074,7 @@ export type ExperimentRetentionStartUnion =
     | EventsNode
     | ActionsNode
     | ExperimentDataWarehouseNode
+    | ExperimentWarehouseQueryNode
     | ExperimentExposureNode
 
 export type ExperimentRetentionStart = ExperimentRetentionStartUnion
@@ -6102,76 +6140,6 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
-export const enum WarehouseMetricAggregation {
-    SUM = 'sum',
-    COUNT = 'count',
-    COUNT_DISTINCT = 'count_distinct',
-    MAX = 'max',
-    MIN = 'min',
-}
-
-export const enum WarehouseMetricStatistic {
-    MEAN = 'mean',
-    PROPORTION = 'proportion',
-    RATIO = 'ratio',
-}
-
-/** Outcome rows for a warehouse-native metric. PostHog joins them to the experiment's exposures
- *  inside the warehouse, so the SQL never mentions variants or exposures. */
-export interface WarehouseRowSource {
-    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with
-     *  `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
-    query: string
-}
-
-/** Outcome rows plus how an entity's rows collapse to one value. */
-export interface WarehouseMetricSource extends WarehouseRowSource {
-    aggregation: WarehouseMetricAggregation
-}
-
-/** A metric computed inside the customer's own warehouse through a direct connection. PostHog wraps the
- *  customer's SQL in the exposure join and aggregation at analysis time, so only per-variant aggregates
- *  leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. */
-type ExperimentWarehouseNativeMetricBase = ExperimentMetricBaseProperties &
-    ExperimentMetricOutlierHandling & {
-        metric_type: ExperimentMetricType.WAREHOUSE_NATIVE
-        /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
-        connection_id: string
-        /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
-        conversion_delay?: integer
-    }
-
-/** Share of exposed entities with at least one outcome row in the window. */
-export type ExperimentWarehouseNativeProportionMetric = ExperimentWarehouseNativeMetricBase & {
-    statistic: WarehouseMetricStatistic.PROPORTION
-    source: WarehouseRowSource
-}
-
-/** One aggregated value per exposed entity. */
-export type ExperimentWarehouseNativeMeanMetric = ExperimentWarehouseNativeMetricBase & {
-    statistic: WarehouseMetricStatistic.MEAN
-    source: WarehouseMetricSource
-}
-
-/** Two aggregated values per exposed entity; the per-variant sums are divided. */
-export type ExperimentWarehouseNativeRatioMetric = ExperimentWarehouseNativeMetricBase & {
-    statistic: WarehouseMetricStatistic.RATIO
-    numerator: WarehouseMetricSource
-    denominator: WarehouseMetricSource
-}
-
-/**
- * @discriminator statistic
- */
-export type ExperimentWarehouseNativeMetric =
-    | ExperimentWarehouseNativeProportionMetric
-    | ExperimentWarehouseNativeMeanMetric
-    | ExperimentWarehouseNativeRatioMetric
-
-export const isExperimentWarehouseNativeMetric = (
-    metric: ExperimentMetric
-): metric is ExperimentWarehouseNativeMetric => metric.metric_type === ExperimentMetricType.WAREHOUSE_NATIVE
-
 // Legacy experiment query type guards
 export const isExperimentTrendsQuery = (
     query: ExperimentTrendsQuery | ExperimentFunnelsQuery
@@ -6185,30 +6153,12 @@ export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof Exp
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
-export type ExperimentWarehouseNativeProportionMetricTypeProps = Omit<
-    ExperimentWarehouseNativeProportionMetric,
-    keyof ExperimentMetricBaseProperties
->
-export type ExperimentWarehouseNativeMeanMetricTypeProps = Omit<
-    ExperimentWarehouseNativeMeanMetric,
-    keyof ExperimentMetricBaseProperties
->
-export type ExperimentWarehouseNativeRatioMetricTypeProps = Omit<
-    ExperimentWarehouseNativeRatioMetric,
-    keyof ExperimentMetricBaseProperties
->
-// Omit is not distributive over a union, so each statistic variant is omitted on its own.
-export type ExperimentWarehouseNativeMetricTypeProps =
-    | ExperimentWarehouseNativeProportionMetricTypeProps
-    | ExperimentWarehouseNativeMeanMetricTypeProps
-    | ExperimentWarehouseNativeRatioMetricTypeProps
 
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
-    | ExperimentWarehouseNativeMetricTypeProps
 
 // Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
 // can attach without colliding with the `NodeKind.ExperimentMetric` enum value
@@ -6222,7 +6172,6 @@ export type ExperimentMetricUnion =
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
-    | ExperimentWarehouseNativeMetric
 
 export type ExperimentMetric = ExperimentMetricUnion
 

@@ -16,6 +16,8 @@ def _get_source_name(source: dict) -> str:
         return source.get("table_name") or "Table"
     if kind == "ExperimentExposureNode":
         return "Exposure"
+    if kind == "ExperimentWarehouseQueryNode":
+        return source.get("custom_name") or "Warehouse query"
     # EventsNode or ActionsNode
     return source.get("name") or source.get("event") or "Event"
 
@@ -42,8 +44,6 @@ def get_default_metric_title(metric_dict: dict) -> str:
         start = metric_dict.get("start_event", {})
         completion = metric_dict.get("completion_event", {})
         return f"{_get_source_name(start)} / {_get_source_name(completion)}"
-    elif metric_type == "warehouse_native":
-        return "Warehouse query"
     return "Metric"
 
 

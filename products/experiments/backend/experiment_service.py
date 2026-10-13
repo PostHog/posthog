@@ -22,7 +22,12 @@ import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureCriteria
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    ExperimentWarehouseExposureConfig,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -773,6 +778,10 @@ class ExperimentService:
         # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+        if kind == "ExperimentWarehouseExposureConfig":
+            # The kind exists so the rest of the product can be built against it; nothing can run it yet.
+            cls._validate_exposure_config_model(ExperimentWarehouseExposureConfig, exposure_config, field_path, kind)
+            raise ValidationError(f"{field_path}: warehouse exposures are not supported yet.")
         if kind not in cls.EXPOSURE_CONFIG_KINDS:
             raise ValidationError(
                 f"{field_path}.kind must be one of "
@@ -781,6 +790,12 @@ class ExperimentService:
             )
 
         model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
+        cls._validate_exposure_config_model(model_cls, exposure_config, field_path, kind)
+
+    @classmethod
+    def _validate_exposure_config_model(
+        cls, model_cls: type[pydantic.BaseModel], exposure_config: dict, field_path: str, kind: object
+    ) -> None:
         try:
             model_cls.model_validate(exposure_config)
         except pydantic.ValidationError as e:

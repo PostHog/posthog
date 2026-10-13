@@ -1467,7 +1467,6 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
-    WAREHOUSE_NATIVE = "warehouse_native"
 
 
 class PrecomputationMode(StrEnum):
@@ -2388,10 +2387,12 @@ class NodeKind(StrEnum):
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    EXPERIMENT_WAREHOUSE_EXPOSURE_CONFIG = "ExperimentWarehouseExposureConfig"
     EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_WAREHOUSE_QUERY_NODE = "ExperimentWarehouseQueryNode"
     EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
@@ -3201,20 +3202,6 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
-
-
-class WarehouseMetricAggregation(StrEnum):
-    SUM = "sum"
-    COUNT = "count"
-    COUNT_DISTINCT = "count_distinct"
-    MAX = "max"
-    MIN = "min"
-
-
-class WarehouseMetricStatistic(StrEnum):
-    MEAN = "mean"
-    PROPORTION = "proportion"
-    RATIO = "ratio"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):

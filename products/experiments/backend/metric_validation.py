@@ -26,7 +26,7 @@ from products.experiments.backend.hogql_queries.retention_validation import rete
 from products.experiments.backend.metric_resolution import (
     METRIC_BUILDERS,
     ExperimentMetric,
-    ExperimentWarehouseNativeMetric,
+    metric_uses_warehouse_query,
 )
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
 
@@ -128,8 +128,7 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}ExperimentMetric requires a metric_type")
     if not isinstance(metric_type, str) or metric_type not in METRIC_BUILDERS:
         raise ValidationError(
-            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', "
-            "or 'warehouse_native'"
+            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
         )
 
     try:
@@ -140,9 +139,9 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
     error = _semantic_error(parsed)
-    if error is None and isinstance(parsed, ExperimentWarehouseNativeMetric):
-        # The type exists so the rest of the product can be built against it; nothing can run it yet.
-        error = "warehouse-native metrics are not supported yet."
+    if error is None and metric_uses_warehouse_query(parsed):
+        # The source kind exists so the rest of the product can be built against it; nothing can run it yet.
+        error = "warehouse query sources are not supported yet."
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed

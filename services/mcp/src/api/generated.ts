@@ -6846,6 +6846,19 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseExposureConfigResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseExposureConfig {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      kind?: 'ExperimentWarehouseExposureConfig';
+      /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
+      query: string;
+      response?: ExperimentWarehouseExposureConfigResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
 
 
@@ -6896,6 +6909,33 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseQueryNodeResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseQueryNode {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      custom_name?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      kind?: 'ExperimentWarehouseQueryNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` may be omitted when `math` is `total`. */
+      query: string;
+      response?: ExperimentWarehouseQueryNodeResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentMeanMetric {
@@ -6913,7 +6953,7 @@ export namespace Schemas {
       name?: string | null;
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
-      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode;
       /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
       threshold?: number | null;
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
@@ -6948,7 +6988,7 @@ export namespace Schemas {
       metric_type: ExperimentFunnelMetricMetricType;
       name?: string | null;
       response?: ExperimentFunnelMetricResponse;
-      series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
+      series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode)[];
       sharedMetricId?: number | null;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
@@ -6976,7 +7016,7 @@ export namespace Schemas {
       breakdownFilter?: BreakdownFilter | null;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode;
       denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
@@ -6984,7 +7024,7 @@ export namespace Schemas {
       kind?: 'ExperimentMetric';
       metric_type: ExperimentRatioMetricMetricType;
       name?: string | null;
-      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode;
       numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
@@ -7021,7 +7061,7 @@ export namespace Schemas {
 
     export interface ExperimentRetentionMetric {
       breakdownFilter?: BreakdownFilter | null;
-      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
       fingerprint?: string | null;
@@ -7035,142 +7075,8 @@ export namespace Schemas {
       retention_window_start: number;
       retention_window_unit: FunnelConversionWindowTimeUnit;
       sharedMetricId?: number | null;
-      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode;
+      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseQueryNode | ExperimentExposureNode;
       start_handling: StartHandling;
-      uuid?: string | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface WarehouseRowSource {
-      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
-      query: string;
-    }
-
-    export type ExperimentWarehouseNativeProportionMetricStatistic = typeof ExperimentWarehouseNativeProportionMetricStatistic[keyof typeof ExperimentWarehouseNativeProportionMetricStatistic];
-
-
-    export const ExperimentWarehouseNativeProportionMetricStatistic = {
-      Proportion: 'proportion',
-    } as const;
-
-    export type ExperimentWarehouseNativeProportionMetricResponse = { [key: string]: unknown } | null;
-
-    export interface ExperimentWarehouseNativeProportionMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
-      connection_id: string;
-      /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
-      conversion_delay?: number | null;
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      ignore_zeros?: boolean | null;
-      isSharedMetric?: boolean | null;
-      kind?: 'ExperimentMetric';
-      /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
-      lower_bound_percentile?: number | null;
-      metric_type?: 'warehouse_native';
-      name?: string | null;
-      response?: ExperimentWarehouseNativeProportionMetricResponse;
-      sharedMetricId?: number | null;
-      source: WarehouseRowSource;
-      statistic: ExperimentWarehouseNativeProportionMetricStatistic;
-      /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
-      upper_bound_percentile?: number | null;
-      uuid?: string | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type WarehouseMetricAggregation = typeof WarehouseMetricAggregation[keyof typeof WarehouseMetricAggregation];
-
-
-    export const WarehouseMetricAggregation = {
-      Sum: 'sum',
-      Count: 'count',
-      CountDistinct: 'count_distinct',
-      Max: 'max',
-      Min: 'min',
-    } as const;
-
-    export interface WarehouseMetricSource {
-      aggregation: WarehouseMetricAggregation;
-      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
-      query: string;
-    }
-
-    export type ExperimentWarehouseNativeMeanMetricStatistic = typeof ExperimentWarehouseNativeMeanMetricStatistic[keyof typeof ExperimentWarehouseNativeMeanMetricStatistic];
-
-
-    export const ExperimentWarehouseNativeMeanMetricStatistic = {
-      Mean: 'mean',
-    } as const;
-
-    export type ExperimentWarehouseNativeMeanMetricResponse = { [key: string]: unknown } | null;
-
-    export interface ExperimentWarehouseNativeMeanMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
-      connection_id: string;
-      /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
-      conversion_delay?: number | null;
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      ignore_zeros?: boolean | null;
-      isSharedMetric?: boolean | null;
-      kind?: 'ExperimentMetric';
-      /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
-      lower_bound_percentile?: number | null;
-      metric_type?: 'warehouse_native';
-      name?: string | null;
-      response?: ExperimentWarehouseNativeMeanMetricResponse;
-      sharedMetricId?: number | null;
-      source: WarehouseMetricSource;
-      statistic: ExperimentWarehouseNativeMeanMetricStatistic;
-      /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
-      upper_bound_percentile?: number | null;
-      uuid?: string | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ExperimentWarehouseNativeRatioMetricStatistic = typeof ExperimentWarehouseNativeRatioMetricStatistic[keyof typeof ExperimentWarehouseNativeRatioMetricStatistic];
-
-
-    export const ExperimentWarehouseNativeRatioMetricStatistic = {
-      Ratio: 'ratio',
-    } as const;
-
-    export type ExperimentWarehouseNativeRatioMetricResponse = { [key: string]: unknown } | null;
-
-    export interface ExperimentWarehouseNativeRatioMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
-      connection_id: string;
-      /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
-      conversion_delay?: number | null;
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      denominator: WarehouseMetricSource;
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      ignore_zeros?: boolean | null;
-      isSharedMetric?: boolean | null;
-      kind?: 'ExperimentMetric';
-      /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
-      lower_bound_percentile?: number | null;
-      metric_type?: 'warehouse_native';
-      name?: string | null;
-      numerator: WarehouseMetricSource;
-      response?: ExperimentWarehouseNativeRatioMetricResponse;
-      sharedMetricId?: number | null;
-      statistic: ExperimentWarehouseNativeRatioMetricStatistic;
-      /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
-      upper_bound_percentile?: number | null;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -7306,7 +7212,7 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentWarehouseNativeProportionMetric | ExperimentWarehouseNativeMeanMetric | ExperimentWarehouseNativeRatioMetric | null;
+      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
       p_value?: number | null;
       probability?: ExperimentQueryResponseProbability;
       significance_code?: ExperimentSignificanceCode | null;
@@ -7321,7 +7227,7 @@ export namespace Schemas {
     export interface ExperimentQuery {
       experiment_id?: number | null;
       kind?: 'ExperimentQuery';
-      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentWarehouseNativeProportionMetric | ExperimentWarehouseNativeMeanMetric | ExperimentWarehouseNativeRatioMetric;
+      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       name?: string | null;
@@ -7334,7 +7240,7 @@ export namespace Schemas {
 
     export interface ExperimentActorsQuery {
       /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
-      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | null;
+      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig | null;
       /** Feature flag key for breakdown filtering. */
       featureFlagKey?: string | null;
       /** Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons. */
@@ -44121,22 +44027,7 @@ export namespace Schemas {
       recommended_sample_size?: number | null;
     }
 
-    export type ExperimentMetricWarehouseNativeMetricType = typeof ExperimentMetricWarehouseNativeMetricType[keyof typeof ExperimentMetricWarehouseNativeMetricType];
-
-
-    export const ExperimentMetricWarehouseNativeMetricType = {
-      WarehouseNative: 'warehouse_native',
-    } as const;
-
-    export type ExperimentMetricWarehouseNative = (ExperimentWarehouseNativeProportionMetric & {
-      metric_type: ExperimentMetricWarehouseNativeMetricType;
-    }) | (ExperimentWarehouseNativeMeanMetric & {
-      metric_type: ExperimentMetricWarehouseNativeMetricType;
-    }) | (ExperimentWarehouseNativeRatioMetric & {
-      metric_type: ExperimentMetricWarehouseNativeMetricType;
-    });
-
-    export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentMetricWarehouseNative;
+    export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
 
     /**
      * A shared metric's link to one experiment, as the experiment API returns it.
@@ -44278,7 +44169,6 @@ export namespace Schemas {
       Mean: 'mean',
       Ratio: 'ratio',
       Retention: 'retention',
-      WarehouseNative: 'warehouse_native',
     } as const;
 
     export type Kind3 = typeof Kind3[keyof typeof Kind3];
@@ -44727,8 +44617,8 @@ export namespace Schemas {
 
     export interface ExperimentExposureCriteria {
       /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
-      activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
-      exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
+      activation_config?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig | null;
+      exposure_config?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseExposureConfig | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
@@ -91920,7 +91810,7 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentWarehouseNativeProportionMetric | ExperimentWarehouseNativeMeanMetric | ExperimentWarehouseNativeRatioMetric | null;
+      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
       p_value?: number | null;
       probability?: QueryResponseAlternative20Probability;
       significance_code?: ExperimentSignificanceCode | null;

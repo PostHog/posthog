@@ -10,7 +10,13 @@ import temporalio.activity
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ExperimentQuery
+from posthog.schema import (
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -27,7 +33,6 @@ from posthog.temporal.experiments.models import (
 from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
 from products.experiments.backend.facade.timeseries import (
-    ExperimentMetric,
     apply_saved_metric_overrides,
     backfill_experiment_timeseries,
     build_metric,
@@ -57,7 +62,7 @@ EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 def _build_metric_validated(
     metric_dict: dict[str, Any],
-) -> ExperimentMetric:
+) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
     """A malformed stored metric dict is a config error, not a transient failure: convert the
     pydantic construction error to the DRF type classify_experiment_query_error marks permanent."""
     try:

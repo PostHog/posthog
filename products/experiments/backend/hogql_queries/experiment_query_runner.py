@@ -80,7 +80,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
-from products.experiments.backend.metric_resolution import ExperimentWarehouseNativeMetric, metric_reads_data_warehouse
+from products.experiments.backend.metric_resolution import metric_reads_data_warehouse, metric_uses_warehouse_query
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -541,16 +541,16 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return sorted_results, response.columns or []
 
     @experiment_error_handler
-    def _computable_metric(
-        self,
-    ) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
-        metric = self.metric
-        if isinstance(metric, ExperimentWarehouseNativeMetric):
-            raise ExposedHogQLError("Warehouse-native metrics cannot be calculated yet.")
-        return metric
+    def _refuse_warehouse_sources(self) -> None:
+        exposure_config = (self.experiment.exposure_criteria or {}).get("exposure_config") or {}
+        if (
+            metric_uses_warehouse_query(self.metric)
+            or exposure_config.get("kind") == "ExperimentWarehouseExposureConfig"
+        ):
+            raise ExposedHogQLError("Warehouse query sources cannot be calculated yet.")
 
     def _calculate(self) -> ExperimentQueryResponse:
-        self._computable_metric()
+        self._refuse_warehouse_sources()
         variant_results = self._prepare_variant_results()
 
         if self._has_breakdown(variant_results):
@@ -580,11 +580,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _calculate_statistics_for_variants(self, variants: list[ExperimentStatsBase]) -> ExperimentQueryResponse:
         control_variant, test_variants = split_baseline_and_test_variants(variants, self.baseline_variant_key)
-        metric = self._computable_metric()
 
         if self.stats_method == "frequentist":
             return get_frequentist_experiment_result(
-                metric=metric,
+                metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
                 stats_config=self.experiment.stats_config,
@@ -594,7 +593,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             )
 
         return get_bayesian_experiment_result(
-            metric=metric,
+            metric=self.metric,
             control_variant=control_variant,
             test_variants=test_variants,
             stats_config=self.experiment.stats_config,

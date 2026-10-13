@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any, cast, get_args
+from typing import Any, cast
 from uuid import uuid4
 
 import unittest
@@ -47,7 +47,6 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
-from products.experiments.backend.metric_resolution import ExperimentWarehouseNativeMetric
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -8934,10 +8933,6 @@ class TestExperimentApiMetricParity(unittest.TestCase):
         "breakdownFilter",
         "breakdownAttributionType",
         "breakdownAttributionValue",
-        # Warehouse-native metrics are behind a flag; they join the write schema when it lifts.
-        "connection_id",
-        "statistic",
-        "conversion_delay",
     }
 
     def test_api_schema_exposes_every_runtime_field(self) -> None:
@@ -8947,7 +8942,6 @@ class TestExperimentApiMetricParity(unittest.TestCase):
             ExperimentFunnelMetric,
             ExperimentRatioMetric,
             ExperimentRetentionMetric,
-            *get_args(ExperimentWarehouseNativeMetric),
         ):
             runtime_fields |= set(metric_model.model_fields)
 

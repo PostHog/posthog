@@ -92,6 +92,9 @@ const convertSourceToQueryNode = (source: ExperimentMetricSource): EventsNode | 
                 id_field: dataWarehouse.data_warehouse_join_key,
             })
         )
+        .with({ kind: NodeKind.ExperimentWarehouseQueryNode }, () => {
+            throw new Error('Warehouse query sources cannot be shown as an insight yet')
+        })
         .exhaustive()
 }
 
@@ -244,6 +247,9 @@ const getFunnelSeries = (
                     properties: dwStep.properties,
                 })
             )
+            .with({ kind: NodeKind.ExperimentWarehouseQueryNode }, () => {
+                throw new Error('Warehouse query sources cannot be shown as an insight yet')
+            })
             .exhaustive()
     )
 
@@ -504,6 +510,9 @@ const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSou
             id_field: dwStep.data_warehouse_join_key,
             aggregation_target_field: dwStep.events_join_key,
         }))
+        .with({ kind: NodeKind.ExperimentWarehouseQueryNode }, () => {
+            throw new Error('Warehouse query sources cannot be shown as an insight yet')
+        })
         .exhaustive()
 
 /**

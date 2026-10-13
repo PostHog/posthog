@@ -7,7 +7,6 @@ and read the effective definition again at the point of use.
 """
 
 import dataclasses
-from collections.abc import Callable
 from typing import Any, Literal
 
 from posthog.schema import (
@@ -16,59 +15,37 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentWarehouseNativeMeanMetric,
-    ExperimentWarehouseNativeProportionMetric,
-    ExperimentWarehouseNativeRatioMetric,
+    ExperimentWarehouseQueryNode,
 )
 
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
-# The schema splits warehouse-native metrics by `statistic`; the rest of the product treats them as one type.
-ExperimentWarehouseNativeMetric = (
-    ExperimentWarehouseNativeProportionMetric
-    | ExperimentWarehouseNativeMeanMetric
-    | ExperimentWarehouseNativeRatioMetric
-)
-WAREHOUSE_NATIVE_METRICS_BY_STATISTIC: dict[str, type[ExperimentWarehouseNativeMetric]] = {
-    "proportion": ExperimentWarehouseNativeProportionMetric,
-    "mean": ExperimentWarehouseNativeMeanMetric,
-    "ratio": ExperimentWarehouseNativeRatioMetric,
-}
-
-ExperimentMetric = (
-    ExperimentMeanMetric
-    | ExperimentFunnelMetric
-    | ExperimentRatioMetric
-    | ExperimentRetentionMetric
-    | ExperimentWarehouseNativeMetric
-)
-
-
-def _build_warehouse_native_metric(**metric_dict: Any) -> ExperimentWarehouseNativeMetric:
-    return WAREHOUSE_NATIVE_METRICS_BY_STATISTIC[metric_dict["statistic"]](**metric_dict)
-
+ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
 
 # Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics carry no
 # metric_type and are filtered out by is_scheduled_metric, so they never reach build_metric.
-METRIC_BUILDERS: dict[str, Callable[..., ExperimentMetric]] = {
+METRIC_BUILDERS: dict[str, type[ExperimentMetric]] = {
     "mean": ExperimentMeanMetric,
     "funnel": ExperimentFunnelMetric,
     "ratio": ExperimentRatioMetric,
     "retention": ExperimentRetentionMetric,
-    "warehouse_native": _build_warehouse_native_metric,
 }
 
 # The daily timeseries activities compute every buildable type. A type the recalculation computes but the
 # daily run skips publishes nothing, so the results panel recomputes on first open every morning for the
 # experiments that use it; a deliberate future exclusion must subtract from METRIC_BUILDERS explicitly.
-# Warehouse-native metrics have no calculation path yet, so the daily run must not attempt them.
-DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS) - {"warehouse_native"}
+DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS)
 
 
 def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:
-    return bool(metric and metric.get("metric_type") in DAILY_TIMESERIES_METRIC_TYPES)
+    return bool(
+        metric
+        and metric.get("metric_type") in DAILY_TIMESERIES_METRIC_TYPES
+        # Warehouse query sources have no calculation path yet, so the daily run must not attempt them.
+        and not metric_dict_uses_warehouse_query(metric)
+    )
 
 
 MetricRole = Literal["primary", "secondary"]
@@ -233,26 +210,19 @@ def build_metric(metric_dict: dict[str, Any]) -> ExperimentMetric:
 # Such metrics never precompute (the precomputed table lacks the join keys). The source-bearing fields
 # are the same across the two readers below: source, series[*], numerator, denominator, start_event,
 # completion_event. Keep the pair in step — one reads the typed metric, the other a raw saved definition.
-def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
-    """Typed check, for callers that already hold a built metric (the query runner)."""
+def metric_source_nodes(metric: ExperimentMetric) -> list[Any]:
     if isinstance(metric, ExperimentMeanMetric):
-        nodes: list[Any] = [metric.source]
-    elif isinstance(metric, ExperimentFunnelMetric):
-        nodes = list(metric.series)
-    elif isinstance(metric, ExperimentRatioMetric):
-        nodes = [metric.numerator, metric.denominator]
-    elif isinstance(metric, ExperimentRetentionMetric):
-        nodes = [metric.start_event, metric.completion_event]
-    else:
-        # A warehouse-native metric runs in the customer's warehouse, not against synced tables.
-        nodes = []
-    return any(isinstance(node, ExperimentDataWarehouseNode) for node in nodes)
+        return [metric.source]
+    if isinstance(metric, ExperimentFunnelMetric):
+        return list(metric.series)
+    if isinstance(metric, ExperimentRatioMetric):
+        return [metric.numerator, metric.denominator]
+    return [metric.start_event, metric.completion_event]
 
 
-def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
-    """Dict check, for callers that only hold a saved definition they may not be able to build (canary
-    sampling). A field absent on a shape is simply missing from the dict."""
-    nodes = [
+def _metric_dict_source_nodes(metric_dict: dict[str, Any]) -> list[Any]:
+    """A field absent on a shape is simply missing from the dict."""
+    return [
         metric_dict.get("source"),
         *(metric_dict.get("series") or []),
         metric_dict.get("numerator"),
@@ -260,4 +230,29 @@ def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
         metric_dict.get("start_event"),
         metric_dict.get("completion_event"),
     ]
-    return any(isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode" for node in nodes)
+
+
+def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
+    """Typed check, for callers that already hold a built metric (the query runner)."""
+    return any(isinstance(node, ExperimentDataWarehouseNode) for node in metric_source_nodes(metric))
+
+
+def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
+    """Dict check, for callers that only hold a saved definition they may not be able to build (canary
+    sampling)."""
+    return any(
+        isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode"
+        for node in _metric_dict_source_nodes(metric_dict)
+    )
+
+
+# A metric with a warehouse query source runs in the customer's warehouse, not in ClickHouse.
+def metric_uses_warehouse_query(metric: ExperimentMetric) -> bool:
+    return any(isinstance(node, ExperimentWarehouseQueryNode) for node in metric_source_nodes(metric))
+
+
+def metric_dict_uses_warehouse_query(metric_dict: dict[str, Any]) -> bool:
+    return any(
+        isinstance(node, dict) and node.get("kind") == "ExperimentWarehouseQueryNode"
+        for node in _metric_dict_source_nodes(metric_dict)
+    )
