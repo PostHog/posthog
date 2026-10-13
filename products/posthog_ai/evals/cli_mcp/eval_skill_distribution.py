@@ -117,8 +117,8 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
         _case(
             name="session_errors_to_traces_and_logs",
             prompt=(
-                "For session 3db8f93b-4c5d-4f1c-aaf1-9c891632eb18, which captured errors have OpenTelemetry "
-                "traces? Find logs with the same trace ID and say which links are missing."
+                "For session 3db8f93b-4c5d-4f1c-aaf1-9c891632eb18, find the traces for its captured errors "
+                "and the logs from each trace. Tell me where a link is missing."
             ),
             skill="linking-errors-to-traces",
             downstream_tools=["execute-sql"],
@@ -153,6 +153,18 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
             ),
             skill="triaging-error-issues",
             downstream_tools=["query-error-tracking-issues-list"],
+            skill_delivery=ctx.skill_delivery,
+            excluded_skill="linking-errors-to-traces",
+            setup=seed_error_tracking_issues,
+        ),
+        _case(
+            name="single_issue_diagnosis_without_trace_request",
+            prompt=(
+                "Investigate the checkout TimeoutError issue. Who is affected, when did it start, "
+                "and what should we check next?"
+            ),
+            skill="investigating-error-issue",
+            downstream_tools=["query-error-tracking-issues-list", "query-error-tracking-issue"],
             skill_delivery=ctx.skill_delivery,
             excluded_skill="linking-errors-to-traces",
             setup=seed_error_tracking_issues,
