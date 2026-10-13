@@ -697,42 +697,42 @@
                             }
                         ]
                     },
-                    "direct_admin": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
-                    "direct_member": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
-                    "direct_none": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
-                    "direct_owner": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
                     "has_rule": {},
                     "member": {},
+                    "member_access": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_admin": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_none": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
                     "member_or_role_override": {},
                     "member_override": {},
+                    "member_owner": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
                     "org_admin": {},
                     "org_member": {},
                     "organization": {
@@ -949,18 +949,6 @@
                 "default_owner": {
                     "this": {}
                 },
-                "direct_admin": {
-                    "this": {}
-                },
-                "direct_member": {
-                    "this": {}
-                },
-                "direct_none": {
-                    "this": {}
-                },
-                "direct_owner": {
-                    "this": {}
-                },
                 "has_rule": {
                     "union": {
                         "child": [
@@ -1049,6 +1037,15 @@
                         ]
                     }
                 },
+                "member_access": {
+                    "this": {}
+                },
+                "member_admin": {
+                    "this": {}
+                },
+                "member_none": {
+                    "this": {}
+                },
                 "member_or_role_override": {
                     "union": {
                         "child": [
@@ -1070,26 +1067,29 @@
                         "child": [
                             {
                                 "computedUserset": {
-                                    "relation": "direct_none"
+                                    "relation": "member_none"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_member"
+                                    "relation": "member_access"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_admin"
+                                    "relation": "member_admin"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_owner"
+                                    "relation": "member_owner"
                                 }
                             }
                         ]
                     }
+                },
+                "member_owner": {
+                    "this": {}
                 },
                 "org_admin": {
                     "tupleToUserset": {
@@ -1156,7 +1156,7 @@
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_admin"
+                                    "relation": "member_admin"
                                 }
                             },
                             {
@@ -1200,7 +1200,7 @@
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_member"
+                                    "relation": "member_access"
                                 }
                             },
                             {
@@ -1239,7 +1239,7 @@
                         "child": [
                             {
                                 "computedUserset": {
-                                    "relation": "direct_owner"
+                                    "relation": "member_owner"
                                 }
                             },
                             {
@@ -1414,43 +1414,43 @@
                             }
                         ]
                     },
-                    "direct_editor": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
-                    "direct_manager": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
-                    "direct_none": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
-                    "direct_viewer": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
                     "editor": {},
                     "has_rule": {},
                     "manager": {},
+                    "member_editor": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_manager": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_none": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
                     "member_or_role_override": {},
                     "member_override": {},
+                    "member_viewer": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
                     "organization": {
                         "directly_related_user_types": [
                             {
@@ -1533,18 +1533,6 @@
                 "default_viewer": {
                     "this": {}
                 },
-                "direct_editor": {
-                    "this": {}
-                },
-                "direct_manager": {
-                    "this": {}
-                },
-                "direct_none": {
-                    "this": {}
-                },
-                "direct_viewer": {
-                    "this": {}
-                },
                 "editor": {
                     "union": {
                         "child": [
@@ -1561,7 +1549,7 @@
                                                 "child": [
                                                     {
                                                         "computedUserset": {
-                                                            "relation": "direct_editor"
+                                                            "relation": "member_editor"
                                                         }
                                                     },
                                                     {
@@ -1646,7 +1634,7 @@
                                     "child": [
                                         {
                                             "computedUserset": {
-                                                "relation": "direct_manager"
+                                                "relation": "member_manager"
                                             }
                                         },
                                         {
@@ -1688,6 +1676,15 @@
                         ]
                     }
                 },
+                "member_editor": {
+                    "this": {}
+                },
+                "member_manager": {
+                    "this": {}
+                },
+                "member_none": {
+                    "this": {}
+                },
                 "member_or_role_override": {
                     "union": {
                         "child": [
@@ -1709,26 +1706,29 @@
                         "child": [
                             {
                                 "computedUserset": {
-                                    "relation": "direct_none"
+                                    "relation": "member_none"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_viewer"
+                                    "relation": "member_viewer"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_editor"
+                                    "relation": "member_editor"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "direct_manager"
+                                    "relation": "member_manager"
                                 }
                             }
                         ]
                     }
+                },
+                "member_viewer": {
+                    "this": {}
                 },
                 "organization": {
                     "this": {}
@@ -1851,7 +1851,7 @@
                                                 "child": [
                                                     {
                                                         "computedUserset": {
-                                                            "relation": "direct_viewer"
+                                                            "relation": "member_viewer"
                                                         }
                                                     },
                                                     {

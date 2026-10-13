@@ -162,14 +162,17 @@ class OrganizationProjection:
                     raise ValueError("Cannot mirror an unsupported access level")
                 if rule.organization_member_id is not None:
                     user = f"{self.key('organization_member', str(rule.organization_member_id))}#user"
-                    subject = "direct"
+                    subject = "member"
                 elif rule.role_id is not None:
                     user = f"{self.key('role', str(rule.role_id))}#member"
                     subject = "role"
                 else:
                     user = "user:*"
                     subject = "default"
-                self.add(user, f"{subject}_{rule.access_level}", policy_key)
+                relation = f"{subject}_{rule.access_level}"
+                if relation == "member_member":
+                    relation = "member_access"
+                self.add(user, relation, policy_key)
         return self.relationships
 
     def owns(self, relationship: Relationship) -> bool:
