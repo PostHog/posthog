@@ -4,6 +4,7 @@ from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
 from django.db import IntegrityError
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
@@ -28,7 +29,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import GroupUsageMetric, PropertyDefinition
+from posthog.models import GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.filters.utils import GroupTypeIndex
@@ -49,7 +50,9 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.event_definitions.backend.models import PropertyType, effective_project_id_expr, group_type_index_key_expr
+from products.groups.backend.facade import api as groups
+from products.groups.backend.facade.contracts import GroupPropertyDefinitionInput
+from products.groups.backend.presentation.exceptions import TriggerGroupIdentifyException
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import (
     build_markdown_notebook_content,
@@ -60,9 +63,7 @@ from products.notebooks.backend.facade.content import (
     create_paragraph_with_text,
     create_text_content,
 )
-
-from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
-from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -89,54 +90,41 @@ def _decode_groups_cursor(cursor: str) -> tuple[int, str]:
         return 0, ""
 
 
-def detect_group_property_type(value):
-    if value is None:
-        return PropertyType.String
-    elif isinstance(value, bool):
-        return PropertyType.Boolean
-    elif isinstance(value, int | float):
-        return PropertyType.Numeric
-    elif isinstance(value, str):
-        if value.lower() in ("true", "false"):
-            return PropertyType.Boolean
-        return PropertyType.String
-    return PropertyType.String
-
-
-def create_property_definition(
-    team_id: int, project_id: int, group_type_index: int, property_name: str, property_value
-):
-    """Create or update PostgreSQL PropertyDefinition for group property"""
-    property_type = detect_group_property_type(property_value)
-    is_numerical = property_type == PropertyType.Numeric
-
-    # Match on the key of posthog_propdef_proj_uniq. Then the lookup is a single index seek, and it finds a
-    # definition that another environment of the project created, so the insert cannot violate that constraint.
-    PropertyDefinition.objects.alias(
-        effective_project_id=effective_project_id_expr(),
-        group_type_index_key=group_type_index_key_expr(),
-    ).filter(effective_project_id=project_id, group_type_index_key=group_type_index).update_or_create(
-        name=property_name,
-        type=PropertyDefinition.Type.GROUP,
-        defaults={
-            "property_type": property_type.value,
-            "is_numerical": is_numerical,
-        },
-        create_defaults={
-            "team_id": team_id,
-            "project_id": project_id,
-            "group_type_index": group_type_index,
-            "property_type": property_type.value,
-            "is_numerical": is_numerical,
-        },
-    )
-
-
 class GroupTypeSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupTypeMapping
         fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
         read_only_fields = ["group_type", "group_type_index"]
+
+
+class GroupTypeMetadataUpdateSerializer(serializers.Serializer):
+    group_type_index = serializers.IntegerField(help_text="Index of the group type to update.")
+    name_singular = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Singular display name of the group type.",
+    )
+    name_plural = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Plural display name of the group type.",
+    )
+
+
+class GroupTypeCreateDetailDashboardSerializer(serializers.Serializer):
+    group_type_index = serializers.IntegerField(help_text="Index of the group type that gets the detail dashboard.")
+
+
+class GroupTypeSetDefaultColumnsSerializer(serializers.Serializer):
+    group_type_index = serializers.IntegerField(help_text="Index of the group type to update.")
+    default_columns = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Columns that the groups list of this group type shows by default.",
+    )
 
 
 def _group_type_row_to_response(row: dict[str, Any]) -> dict[str, Any]:
@@ -172,8 +160,11 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         rows = get_group_types_for_project(self.team.project_id, caller_tag="groups/list")
         return response.Response([_group_type_row_to_response(row) for row in rows])
 
+    @extend_schema(
+        request=GroupTypeMetadataUpdateSerializer(many=True), responses={200: GroupTypeSerializer(many=True)}
+    )
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
-    def update_metadata(self, request: request.Request, *args, **kwargs):
+    def update_metadata(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         for row in cast(list[dict], request.data):
             instance = get_group_type_mapping_instance(
                 self.team.project_id,
@@ -195,8 +186,9 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
 
+    @extend_schema(request=GroupTypeCreateDetailDashboardSerializer, responses={200: GroupTypeSerializer})
     @action(methods=["PUT"], detail=False)
-    def create_detail_dashboard(self, request: request.Request, **kw):
+    def create_detail_dashboard(self, request: request.Request, **kw: Any) -> response.Response:
         try:
             group_type_mapping = get_group_type_mapping_instance(
                 self.team.project_id,
@@ -223,7 +215,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
-    def destroy(self, request: request.Request, *args, **kwargs):
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         group_type_index = int(kwargs[self.lookup_field])
         try:
             instance = get_group_type_mapping_instance(
@@ -239,8 +231,9 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(request=GroupTypeSetDefaultColumnsSerializer, responses={200: GroupTypeSerializer})
     @action(methods=["PUT"], detail=False)
-    def set_default_columns(self, request: request.Request, **kw):
+    def set_default_columns(self, request: request.Request, **kw: Any) -> response.Response:
         try:
             group_type_mapping = get_group_type_mapping_instance(
                 self.team.project_id,
@@ -340,7 +333,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         "default": GroupSerializer,
     }
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         return self.serializer_classes.get(self.action, self.serializer_classes["default"])
 
     @overload
@@ -358,14 +351,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             raise ValidationError({"group_key": ["This query parameter is required."]})
         return group_type_index, group_key
 
-    def safely_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         group_type_index, _ = self._safely_get_query_params()
         return queryset.filter(
             group_type_index=group_type_index,
             group_key__icontains=self.request.GET.get("group_key", ""),
         )
 
-    def safely_get_object(self, queryset):
+    def safely_get_object(self, queryset: QuerySet) -> Group:
         group_type_index, group_key = self._safely_get_query_params(require_group_key=True)
         group = get_group_by_key(self.team.pk, int(group_type_index), group_key)
         if group is None:
@@ -378,7 +371,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 return GroupTypeMappingResult(group_type=m["group_type"], group_type_index=m["group_type_index"])
         raise NotFound()
 
-    def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None):
+    def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None) -> None:
         group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
         properties = {
             "$group_type": group_type_mapping.group_type,
@@ -443,7 +436,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             ),
         ]
     )
-    def list(self, request, *args, **kwargs):
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """
         List all groups of a specific group type. You must pass ?group_type_index= in the URL.
         To get a list of valid group types, call /api/:project_id/groups_types/.
@@ -499,7 +492,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return response.Response({"next": next_url, "previous": None, "results": serializer.data})
 
     @extend_schema(request=CreateGroupSerializer, responses={status.HTTP_201_CREATED: serializer_classes["default"]})
-    def create(self, request, *args, **kwargs):
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_data = CreateGroupSerializer(data=request.data)
         request_data.is_valid(raise_exception=True)
 
@@ -533,12 +526,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             return response.Response(data=exc.exception_data, status=exc.status_code)
 
         for prop_name, prop_value in group.group_properties.items():
-            create_property_definition(
-                team_id=self.team.pk,
-                project_id=self.team.project_id,
-                group_type_index=group.group_type_index,
-                property_name=prop_name,
-                property_value=prop_value,
+            groups.upsert_group_property_definition(
+                GroupPropertyDefinitionInput(
+                    team_id=self.team.pk,
+                    project_id=self.team.project_id,
+                    group_type_index=group.group_type_index,
+                    property_name=prop_name,
+                    property_value=prop_value,
+                )
             )
 
         details = [
@@ -652,12 +647,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group.group_properties[property_key] = property_value
             save_group(group, operation="group_update_property")
 
-            create_property_definition(
-                team_id=self.team.pk,
-                project_id=self.team.project_id,
-                group_type_index=group.group_type_index,
-                property_name=property_key,
-                property_value=property_value,
+            groups.upsert_group_property_definition(
+                GroupPropertyDefinitionInput(
+                    team_id=self.team.pk,
+                    project_id=self.team.project_id,
+                    group_type_index=group.group_type_index,
+                    property_name=property_key,
+                    property_value=property_value,
+                )
             )
 
             # Need to update ClickHouse too
@@ -825,7 +822,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ]
     )
     @action(methods=["GET"], detail=False, required_scopes=["activity_log:read"])
-    def activity(self, request: request.Request, pk=None, **kwargs):
+    def activity(self, request: request.Request, pk: str | None = None, **kwargs: Any) -> response.Response:
         try:
             group = self.get_object()
         except Group.DoesNotExist:
@@ -860,17 +857,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         responses={200: RELATED_ACTORS_SCHEMA},
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
-    def related(self, request: request.Request, pk=None, **kw) -> response.Response:
+    def related(self, request: request.Request, pk: str | None = None, **kw: Any) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
         actor_id = request.GET.get("id")
         if not actor_id:
             raise ValidationError({"id": ["This query parameter is required."]})
 
-        results = RelatedActorsQuery(self.team, group_type_index, actor_id).run()
+        results = groups.get_related_actors(self.team, group_type_index, actor_id)
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
-    def property_values(self, request: request.Request, **kw):
+    def property_values(self, request: request.Request, **kw: Any) -> response.Response:
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
             tracer.start_as_current_span("groups_api_property_values") as span,
@@ -936,7 +933,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             send_feature_flag_events=False,
         )
 
-    def _create_notebook_for_group(self, group: Group):
+    def _create_notebook_for_group(self, group: Group) -> None:
         # A group name is customer data and can hold line breaks. Markdown escapes inline syntax
         # but keeps line breaks, so a second line starts its own block — a heading, a list, or a
         # live component. Collapse the name to one line, which is what a title is anyway.
@@ -1022,7 +1019,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
         model = GroupUsageMetric
         fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
 
-    def validate(self, data):
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         data = super().validate(data)
 
         math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
@@ -1032,7 +1029,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
         source = (filters or {}).get("source") if isinstance(filters, dict) else None
 
         if source == GroupUsageMetric.Source.DATA_WAREHOUSE:
-            self._validate_data_warehouse(filters, math, math_property)
+            self._validate_data_warehouse(cast(dict, filters), math, math_property)
         elif source in (None, GroupUsageMetric.Source.EVENTS):
             self._validate_events(math, math_property)
         else:
@@ -1040,15 +1037,13 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
 
         return data
 
-    def _validate_events(self, math, math_property):
+    def _validate_events(self, math: str, math_property: str | None) -> None:
         if math == GroupUsageMetric.Math.SUM and not math_property:
             raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
         if math == GroupUsageMetric.Math.COUNT and math_property:
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
-    def _validate_data_warehouse(self, filters: dict, math, math_property):
-        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-
+    def _validate_data_warehouse(self, filters: dict, math: str, math_property: str | None) -> None:
         missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
         if missing:
             raise serializers.ValidationError(
@@ -1075,5 +1070,5 @@ class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = GroupUsageMetric.objects.all()
     serializer_class = GroupUsageMetricSerializer
 
-    def perform_create(self, serializer):
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save(team=self.team, group_type_index=self.parents_query_dict["group_type_index"])

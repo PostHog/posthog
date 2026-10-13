@@ -24,7 +24,7 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.test.persons import create_group_type_mapping
 
-from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
+from products.groups.backend.logic.related_actors_query import RelatedActorsQuery
 
 RECENT_DATE = datetime(2025, 2, 15, 12, 0, 0)
 

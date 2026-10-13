@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
@@ -21,6 +21,7 @@ from posthog.hogql_queries.serialized_actors import (
 )
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.property import GroupTypeIndex
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
@@ -37,7 +38,7 @@ class RelatedActorsQuery:
         team: Team,
         group_type_index: Optional[Union[GroupTypeIndex, str]],
         id: str,
-    ):
+    ) -> None:
         self.team = team
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.id = id
@@ -72,8 +73,6 @@ class RelatedActorsQuery:
 
     @cached_property
     def _group_types(self) -> dict[int, dict[str, Any]]:
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
         return {m["group_type_index"]: m for m in get_group_types_for_project(self.team.project_id)}
 
     def _group_key_field(self, group_index: int) -> ast.Expr:
@@ -214,9 +213,9 @@ class RelatedActorsQuery:
         return serialized_results
 
     @cached_property
-    def _after(self):
+    def _after(self) -> datetime:
         return now() - timedelta(days=90)
 
     @cached_property
-    def _before(self):
+    def _before(self) -> datetime:
         return now()
