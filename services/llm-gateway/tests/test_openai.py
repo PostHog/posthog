@@ -91,6 +91,39 @@ class TestChatCompletionsEndpoint:
         assert data["object"] == "chat.completion"
         assert data["usage"]["total_tokens"] == 15
 
+    @pytest.mark.parametrize(
+        "model,extra,temperature_forwarded",
+        [
+            pytest.param("claude-haiku-4-5", {"reasoning_effort": "minimal"}, False, id="anthropic_thinking"),
+            pytest.param("anthropic/claude-haiku-4-5", {"reasoning_effort": "low"}, False, id="prefixed_anthropic"),
+            pytest.param("claude-haiku-4-5", {}, True, id="anthropic_no_effort"),
+            pytest.param("claude-haiku-4-5", {"reasoning_effort": "none"}, True, id="anthropic_effort_none"),
+            pytest.param("gpt-5-mini", {"reasoning_effort": "minimal"}, True, id="openai_effort"),
+        ],
+    )
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_temperature_dropped_when_anthropic_thinking_is_on(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        mock_openai_response: dict,
+        model: str,
+        extra: dict[str, Any],
+        temperature_forwarded: bool,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_openai_response)
+        mock_completion.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={"model": model, "messages": [{"role": "user", "content": "Hi"}], "temperature": 0.2, **extra},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert ("temperature" in mock_completion.call_args.kwargs) is temperature_forwarded
+
     @patch("llm_gateway.api.openai.litellm.acompletion")
     def test_posthog_property_headers_reach_request_context(
         self,
