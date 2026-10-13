@@ -9,16 +9,17 @@ import type {
     SuggestedReviewerApi,
 } from '@/api/reports'
 import type { ReportPageApi, SignalViewApi } from '@/api/today'
-import { calendarDaysBetween, formatActivityTime, formatClock, formatMonthDay, weekdayName } from '@/lib/dates'
+import { formatActivityTime } from '@/lib/dates'
 import { asRecord } from '@/lib/records'
 import { MCP_VIA, POSTHOG_AGENT } from '../agent'
-import { isAuthorSource, isErrorSource, isFeedbackSource, primarySource, sourceInfo, toSourceProduct } from '../sources'
+import { isErrorSource, isFeedbackSource, primarySource, sourceInfo, toSourceProduct } from '../sources'
 import type {
     ActivityEvent,
     EvidenceBlock,
     Fact,
     PullRequestView,
     Quote,
+    ReportOwner,
     ReportPriority,
     ReportStatus,
     ReportView,
@@ -31,7 +32,7 @@ import type {
 } from '../types'
 import { accentFor } from './inbox'
 import { formatMetricValue, metricView, primaryMetric } from './metric'
-import { displayTitle, firstSentence, headlineFor, humanize, plainText, plural, truncate } from './text'
+import { displayTitle, firstSentence, headlineFor, plainText, plural, truncate } from './text'
 
 export const CONTEXT_NOTE = "Sends the report, its evidence and the agent's research as context"
 
@@ -268,51 +269,6 @@ function evidenceFromSignals(signals: readonly SignalNodeApi[], host: string, pr
     return blocks
 }
 
-export function scoutLabel(scoutName: string): string {
-    return `${humanize(scoutName.replace(/^signals[-_]scout[-_]/, ''))} scout`
-}
-
-function relativeMoment(iso: string, now: Date): string {
-    const date = new Date(iso)
-    if (now.getTime() - date.getTime() < 60_000) {
-        return 'just now'
-    }
-    const days = calendarDaysBetween(date, now)
-    if (days === 0) {
-        return formatClock(date)
-    }
-    if (days > 0 && days <= 7) {
-        return `${weekdayName(date)} ${formatClock(date)}`
-    }
-    return formatMonthDay(date)
-}
-
-function sourceFact(report: SignalReportApi): Fact | undefined {
-    const labels = [...new Set(report.source_products.filter((source) => !isAuthorSource(source)).map(sourceLabelOf))]
-    if (report.scout_name) {
-        return {
-            key: 'Source',
-            title: scoutLabel(report.scout_name),
-            tone: 'default',
-            ...(labels.length > 0 ? { sub: labels.join(', ') } : {}),
-        }
-    }
-    const all = labels.length > 0 ? labels : [...new Set(report.source_products.map(sourceLabelOf))]
-    return all.length > 0 ? { key: 'Source', title: all.join(', '), tone: 'default' } : undefined
-}
-
-function sinceFact(report: SignalReportApi, page: ReportPageApi | undefined, now: Date): Fact {
-    const lastSeen = page?.last_seen
-        ? `last seen ${formatActivityTime(page.last_seen, now).replace(/^(Today|Just now)/, (word) => word.toLowerCase())}`
-        : undefined
-    return {
-        key: 'Since',
-        title: formatActivityTime(report.created_at, now),
-        sub: [plural(report.signal_count, 'signal'), lastSeen].filter(Boolean).join(' · '),
-        tone: 'default',
-    }
-}
-
 function impactFact(report: SignalReportApi, page: ReportPageApi | undefined): Fact | undefined {
     const metric = primaryMetric(report.metrics)
     if (metric && metric.value !== null) {
@@ -329,13 +285,11 @@ function impactFact(report: SignalReportApi, page: ReportPageApi | undefined): F
     return undefined
 }
 
-function ownerFact(assignee: ReportAssigneeApi | null, now: Date): Fact {
+function ownerView(assignee: ReportAssigneeApi | null): ReportOwner {
     if (!assignee) {
-        return { key: 'Owner', title: 'Nobody assigned', tone: 'alert' }
+        return { kind: 'none' }
     }
-    const sub = assignee.claimed_at ? `Picked up ${relativeMoment(assignee.claimed_at, now)}` : undefined
-    const name = assigneeName(assignee)
-    return { key: 'Owner', title: name, tone: assignee.kind === 'user' ? 'default' : 'agent', ...(sub ? { sub } : {}) }
+    return { kind: assignee.kind === 'user' ? 'user' : 'agent', name: assigneeName(assignee) }
 }
 
 function assigneeName(assignee: ReportAssigneeApi): string {
@@ -582,12 +536,7 @@ export function reportView(input: ReportViewInput): AdaptedReportView {
     const evidence = page
         ? evidenceFromPage(page, signals, host, projectId)
         : evidenceFromSignals(signals ?? [], host, projectId)
-    const facts = [
-        sourceFact(report),
-        sinceFact(report, page, now),
-        impactFact(report, page),
-        ownerFact(report.assignee, now),
-    ].filter((fact): fact is Fact => fact !== undefined)
+    const impact = impactFact(report, page)
     const metric = metricView(report.metrics, now)
     const taskRun = taskView(reportTaskId(report, artefacts), task)
     const summary = text(report.summary)
@@ -606,7 +555,9 @@ export function reportView(input: ReportViewInput): AdaptedReportView {
         headline,
         lede: ledeFor(report, page, headlineSentence),
         evidence,
-        facts,
+        since: formatActivityTime(report.created_at, now),
+        owner: ownerView(report.assignee),
+        facts: impact ? [impact] : [],
         ...(metric ? { metric } : {}),
         activity: activityFor(report, artefacts, { task }),
         work: workView(report),

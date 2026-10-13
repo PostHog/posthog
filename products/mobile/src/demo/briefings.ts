@@ -1,5 +1,5 @@
 import { MCP_VIA, POSTHOG_AGENT } from '@/model/agent'
-import type { Accent, Fact, SourceProduct } from '@/model/types'
+import type { Accent, Fact, ReportPriority, SourceProduct } from '@/model/types'
 
 export type DemoAgo = { hours: number } | { days: number }
 
@@ -29,6 +29,7 @@ export interface DemoBriefing {
     prompt?: string
     handedStage: string
     owner?: { kind: 'user' | 'task'; name: string }
+    priority?: ReportPriority
 }
 
 export const DEMO_USER_NAME = 'Alex Kim'
@@ -63,6 +64,7 @@ export function demoDecisionMeta(answer: string): string {
 export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
     {
         id: 'demo-guest-404s',
+        priority: 'P2',
         title: 'Shared report links returned 404 for guests',
         sourceProduct: 'signals_scout',
         sourceLabel: 'Report',
@@ -122,6 +124,7 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
     },
     {
         id: DEMO_DECISION_REPORT_ID,
+        priority: 'P0',
         title: '3,721 errors in the report UI since 9 AM',
         sourceProduct: 'error_tracking',
         sourceLabel: 'Error',
@@ -178,6 +181,7 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
     },
     {
         id: 'demo-report-load-time',
+        priority: 'P1',
         title: 'Report load time is up 2.3s for every user',
         sourceProduct: 'pganalyze',
         sourceLabel: 'pganalyze',
@@ -423,7 +427,7 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
             ['Since', 'Thursday', '2 more this morning, both Enterprise', 'default'],
             ['Worth', '$184k ARR across 6 orgs', 'Northwind renews in November', 'default'],
             ['Workaround', '1,320 screenshot keypresses', 'On report pages last week, up 40%', 'default'],
-            ['Owner', 'Unscoped', '', 'agent'],
+            ['Owner', 'Nobody assigned', '', 'alert'],
         ],
         metric: {
             label: 'REQUESTS',
@@ -610,6 +614,7 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
     },
     {
         id: 'demo-dark-mode-requests',
+        priority: 'P3',
         title: '12 customers asked for dark mode in shared dashboards',
         sourceProduct: 'zendesk',
         sourceLabel: 'Zendesk',
@@ -628,10 +633,10 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
         ],
         facts: [
             ['Who', 'Dana R, Lee M and 10 more', 'Initech, Globex, Umbrella, Hooli', 'default'],
-            ['Since', 'Two weeks ago', '5 in the last four days', 'default'],
+            ['Since', '2 weeks ago', '5 in the last four days', 'default'],
             ['Worth', '$96k ARR across 9 orgs', '3 are in a renewal quarter', 'default'],
             ['Workaround', 'Browser extensions', '4 tickets mention a dark reader plugin', 'default'],
-            ['Owner', 'Unscoped', '', 'agent'],
+            ['Owner', 'Nobody assigned', '', 'alert'],
         ],
         metric: {
             label: 'REQUESTS',

@@ -7,7 +7,7 @@ import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
-import type { ReportView, SnoozeChoice } from '@/model/types'
+import type { ReportPriority, ReportView, SnoozeChoice } from '@/model/types'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Sparkline } from '@/ui/Sparkline'
 import { LoadingView, StateView } from '@/ui/StateView'
@@ -20,6 +20,7 @@ import { HandoffSheet } from '../handoff/HandoffSheet'
 import { useDecisionAnswer, useHandoffNotice } from '../handoff/hooks'
 import { useReportWithLiveRun } from '../handoff/useReportWithLiveRun'
 import { useInboxItems, useMarkReadOnOpen } from '../inbox/hooks'
+import { PrioritySheet } from '../priority/PrioritySheet'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
 import { useGithubOnlyReviewerCount } from '../reviewers/hooks'
 import { SnoozeSheet } from '../snooze/SnoozeSheet'
@@ -28,9 +29,10 @@ import { Evidence } from './Evidence'
 import { Facts } from './Facts'
 import { Headline, headlineText } from './Headline'
 import { useReportActions, useReportNeighbors } from './hooks'
+import { ReportMeta } from './ReportMeta'
 import { TOP_CHROME_BOTTOM, TopChrome } from './TopChrome'
 
-type Overlay = 'none' | 'handoff' | 'snooze' | 'assignee'
+type Overlay = 'none' | 'handoff' | 'snooze' | 'assignee' | 'priority'
 
 const CONTENT_TOP = 116
 /** The gap between the chrome and the headline at rest, so the title reveal ends as the headline fully passes under. */
@@ -123,6 +125,10 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
         await actions.handOff()
         closeOverlay()
     }
+    const setPriority = async (priority: ReportPriority): Promise<void> => {
+        await actions.setPriority(priority)
+        closeOverlay()
+    }
 
     return (
         <View style={styles.screen} testID="report-screen">
@@ -133,6 +139,8 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 onBack={goBack}
                 onPrevious={goTo(neighbors.previousId)}
                 onNext={goTo(neighbors.nextId)}
+                onReassign={() => setOverlay('assignee')}
+                onChangePriority={() => setOverlay('priority')}
             />
             <ActionBar
                 report={report}
@@ -166,6 +174,13 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 onSave={actions.setReviewers}
                 pending={actions.pending.reviewers}
             />
+            <PrioritySheet
+                visible={overlay === 'priority'}
+                current={report.priority}
+                onClose={closeOverlay}
+                onSelect={setPriority}
+                pending={actions.pending.priority}
+            />
         </View>
     )
 }
@@ -176,10 +191,20 @@ interface ReportBodyProps {
     onBack: () => void
     onPrevious?: () => void
     onNext?: () => void
+    onReassign: () => void
+    onChangePriority: () => void
 }
 
 // Keyed by report id from the parent, so the scroll offset and the measured headline start fresh for each report.
-function ReportBody({ report, viewerName, onBack, onPrevious, onNext }: ReportBodyProps): ReactElement {
+function ReportBody({
+    report,
+    viewerName,
+    onBack,
+    onPrevious,
+    onNext,
+    onReassign,
+    onChangePriority,
+}: ReportBodyProps): ReactElement {
     const insets = useScreenInsets()
     const [headlineHeight, setHeadlineHeight] = useState(0)
     const scrollY = useSharedValue(0)
@@ -202,6 +227,7 @@ function ReportBody({ report, viewerName, onBack, onPrevious, onNext }: ReportBo
                     lede={report.lede}
                     onHeadlineHeight={setHeadlineHeight}
                 />
+                <ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />
                 <Evidence blocks={report.evidence} />
                 <Facts facts={report.facts} />
                 {report.metric ? (

@@ -20,6 +20,7 @@ function report(work: WorkView = { state: 'unclaimed' }): ReportView {
         headline: { rest: 'Headline' },
         lede: '',
         evidence: [],
+        owner: { kind: 'none' },
         facts: [],
         activity: [],
         work,

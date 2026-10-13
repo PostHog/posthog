@@ -22,6 +22,7 @@ Each interface names the serializer it mirrors.
 | Mark read | `POST signals/reports/read_state/` `{report_ids: [id], read: true}` | same | `task:read` |
 | Signal snooze | `POST signals/reports/{id}/state/` `{state: 'potential', snooze_for: 5}` | `SignalReportSerializer` | `task:write` |
 | Set reviewers | `PUT signals/reports/{id}/reviewers/` `{content: [{user_uuid} or {github_login}]}` | `SignalReportSuggestedReviewersArtefactSerializer` | `task:write` |
+| Set priority | `POST signals/reports/{id}/artefacts/` `{artefact_type: 'priority_judgment', content: {priority, explanation}}` | `SignalReportArtefactLogCreateSerializer`, content `PriorityAssessment` | `task:write` |
 | Reviewer search | `GET signals/reports/available_reviewers/?query=` | `{uuid: {name, email}}` | `task:read` |
 
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
@@ -81,11 +82,8 @@ A failed background refetch keeps the cached report on screen.
 - **Accent and source.** As for inbox rows, from `source_products` and `status`.
 - **Evidence from the Today page.** The first error signal is a `trace`: `error` is its `headline`, frames come from the quiet `preview.block` lines (`file.ts:12  fn`), at most 4, and `footer` is its `meta` when set. Feedback signals become up to 3 `quotes` (`lead`, attributed "{source} · {meta}"). The first signal with a `recording` is the `replay`: meta "at {offset} · {headline}", url `{host}/project/{id}/replay/{session_id}?t={seek_seconds}`, count the larger of the recordings on the page and the distinct `session_id`s in the signals.
 - **Evidence from signals** (no page). The first error signal is a `trace` with its first line and the frames of its fenced stack (`fn in path line N`, closest to the error first). Feedback signals become quotes ("Ticket #N" when `extra.ticket_number` is set). The first signal with `extra.session_id` is the `replay`, without a seek time.
-- **Facts**, in order, each dropped when it has no source:
-  - Source: the scout name ("Error tracking scout") with the other source labels under it, else the source labels.
-  - Since: `created_at`, with "N signals" and the Today page's last seen time under it.
-  - Impact: the primary metric's value and title ("612 affected users", or "612 users" with the title under it when the metric has its own unit) and its caption; else the first Today impact number.
-  - Owner: the user's name; "PostHog" in the agent tone for a task or system claim; the MCP client ("Claude Code") in the agent tone for an external agent claim; "Nobody assigned" in the alert tone when unclaimed. "Picked up …" under it.
+- **Facts**, the rows the byline and chips do not show. The adapter emits only Impact, dropped when it has no source: the primary metric's value and title ("612 affected users", or "612 users" with the title under it when the metric has its own unit) and its caption; else the first Today impact number.
+  The byline takes the source from `sourceProduct` and `sourceLabel`, so the facts carry no Source row.
 - **Sparkline.** The primary metric's `series`, averaged into at most 14 bars. `max` is the tallest bar. The baseline is the median of the first quarter of the bars; a bar departs when it is more than 15% of the series spread away from it, up or down. Every bar from the first departure on is hot, except a tail of two or more bars back at the baseline, which reads as recovered. The range label comes from the metric query's relative `date_from` ("Tue → now"), else from its `interval` times the series length.
 - **Activity**, oldest first, starting with "PostHog created the report" at `created_at`:
   - `work_claim`: "{name} handed off to **PostHog**" for a task claim when the task's creator is known, else "PostHog claimed the report"; "{actor} claimed the report" for users and agents.

@@ -57,6 +57,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
 | `ReportContextMenu` | `features/inbox/ReportContextMenu.tsx` | Inbox row long-press menu on `FloatingCard`; nav menu width; opens 8pt below the row, or above it when the bottom bar is in the way (`contextMenuPlacement.ts`) |
 | `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
+| `ReportMeta` | `features/report/ReportMeta.tsx` | Byline under the lede (source glyph and label · "Since …"), then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
 | `BlurEdge` | `ui/BlurEdge.tsx` | Masked blur of the content under floating top chrome |
@@ -74,14 +75,14 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   Snooze, Chat and, for an unread report, Mark as read; each does what the report's action pill
   does, without leaving the inbox. Loading, empty and error states are separate screens.
 - **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
-- **Report**: top chrome, headline, lede, evidence (trace, quotes, replay), facts, sparkline,
-  activity, and the action bar.
+- **Report**: top chrome, headline, lede, the byline with the Owner and Priority chips (`ReportMeta`),
+  evidence (trace, quotes, replay), facts, sparkline, activity, and the action bar.
 - **Action bar** (`actionBarStateFor`): `idle` (Hand off to PostHog + chevron),
   `handed` (dark "PostHog is on it" card), `decision` (NEEDS YOUR DECISION card, collapsible),
   `decided` (dark card with the answer and Undo), `pr_ready` (READY FOR REVIEW card with one
   full-width Review PR button), `resolved` (action pill only). The Reassign / Snooze / Chat pill
   shows in every state.
-- **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card,
+- **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card, Priority sheet (P0 to P4),
   Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover and a simple thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.

@@ -80,7 +80,7 @@ Choices the build contract left open, with the reason for each.
 - **Fixture times** are computed from the moment demo mode starts. A weekday such as "Mon 7:21 AM"
   is the most recent Monday one to seven days back, so the timeline prints the prototype's text.
 - **Fixture 3** (report load time) starts `unclaimed` so its footer is idle, as in the reference
-  screenshot, even though its Owner fact says Claude Code.
+  screenshot, even though its owner chip says Claude Code.
 - **One agent.** New demo activity says "PostHog". Historic fixture entries keep Codex and Claude
   Code verbatim. All agent marks are `ph`.
 - **Inbox rows** show `{source} • {time}` only, like the prototype template. A snoozed row shows

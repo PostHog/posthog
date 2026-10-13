@@ -29,7 +29,8 @@ products/mobile/
                           demoMode.ts (zustand store), hooks.ts (demo query hooks)
     features/
       inbox/              InboxScreen, InboxRow, InboxHeader, BottomBar, NavMenu, hooks
-      report/             ReportScreen, TopChrome, Headline, Evidence*, ReplayRow, Facts, Activity, hooks
+      report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity, hooks
+      priority/           PrioritySheet, hooks
       handoff/            ActionBar and its cards, HandoffSheet, actionBarState, kickoff, prompt,
                           runStream (reducer), toolPolicy, permissionRequest, commands, useTaskRun,
                           useReportWithLiveRun, handoffStore, hooks
@@ -82,6 +83,7 @@ Hand-off and decision actions resolve on failure and surface the error through
 | Current run | `GET tasks/{taskId}/` then `GET .../runs/{runId}/stream/` (SSE) | Polling the run on stream errors |
 | Chat | `POST conversations/` (SSE) | none |
 | Reviewers | `GET signals/reports/available_reviewers/`, `PUT signals/reports/{id}/reviewers/` | none |
+| Priority | `POST signals/reports/{id}/artefacts/` (`priority_judgment`) | none |
 | Snooze | `POST signals/reports/{id}/state/` for "until more signals"; on-device store for times | none |
 | Read state | `POST signals/reports/read_state/` | none |
 | Push | `POST /api/users/@me/push_tokens/` | unavailable on web and Expo Go |
@@ -97,13 +99,14 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 | `useMarkReadAction(id)`, `useMarkReadOnOpen(id)` | `features/inbox/hooks.ts` | `AsyncAction<[]>`, `void` |
 | `useReport(id)` | `features/report/hooks.ts` | `QueryState<ReportView>` |
 | `useReportWithLiveRun(id)` | `features/handoff/useReportWithLiveRun.ts` | `QueryState<ReportView>` with the live run merged in |
-| `useReportActions(id)` | `features/report/hooks.ts` | `ReportActions` (`handOff`, `answerDecision`, `undoDecision`, `snooze`, `setReviewers`, `markRead`, `pending`) |
+| `useReportActions(id)` | `features/report/hooks.ts` | `ReportActions` (`handOff`, `answerDecision`, `undoDecision`, `snooze`, `setReviewers`, `setPriority`, `markRead`, `pending`) |
 | `useReportNeighbors(items, id)` | `features/report/hooks.ts` | `{ previousId, nextId }`, wrapping |
 | `useHandoffActions(id)`, `useDecisionAnswer(id)`, `useHandoffNotice(id)` | `features/handoff/hooks.ts` | actions, the device-side answer, the footer error line |
 | `useTaskRun(taskId, runId)` | `features/handoff/useTaskRun.ts` | live run state from the stream |
 | `useSnoozeAction(id)`, `useSnoozeEntries()` | `features/snooze/hooks.ts` | `AsyncAction<[SnoozeChoice]>`, active snoozes |
 | `useAvailableReviewers(query)` | `features/reviewers/hooks.ts` | `QueryState<Person[]>` |
 | `useSetReviewersAction(id)` | `features/reviewers/hooks.ts` | `AsyncAction<[string[]]>` (full replace) |
+| `useSetPriorityAction(id)` | `features/priority/hooks.ts` | `AsyncAction<[ReportPriority]>` |
 | `useConversation()` | `features/chat/hooks.ts` | `{ messages, phase, error, title, conversationId, send(text, context), retry, stop, reset }` |
 | `usePushRegistration()`, `useNotificationRouting()` | `features/notifications/` | registers the device, routes taps |
 | `useViewer()` | `auth/useViewer.ts` | `{ name, projectName }` |

@@ -16,6 +16,7 @@ function useDemoView(): DemoView {
             snoozed: state.snoozed,
             read: state.read,
             reviewers: state.reviewers,
+            priorities: state.priorities,
             log: state.log,
         }))
     )

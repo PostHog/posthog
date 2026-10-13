@@ -16,6 +16,7 @@ import type { InboxItem, QueryState, ReportActions, ReportView } from '@/model/t
 import { useHandoffActions } from '../handoff/hooks'
 import { buildReportImplementationPrompt } from '../handoff/prompt'
 import { useMarkReadAction } from '../inbox/hooks'
+import { useSetPriorityAction } from '../priority/hooks'
 import { useSetReviewersAction } from '../reviewers/hooks'
 import { useSnoozeAction } from '../snooze/hooks'
 
@@ -131,18 +132,21 @@ export function useReportActions(reportId: string): ReportActions {
     const snooze = useSnoozeAction(reportId)
     const reviewers = useSetReviewersAction(reportId)
     const markRead = useMarkReadAction(reportId)
+    const priority = useSetPriorityAction(reportId)
     return {
         handOff: handoff.handOff.run,
         answerDecision: handoff.answerDecision.run,
         undoDecision: handoff.undoDecision.run,
         snooze: snooze.run,
         setReviewers: reviewers.run,
+        setPriority: priority.run,
         markRead: markRead.run,
         pending: {
             handOff: handoff.handOff.pending,
             answer: handoff.answerDecision.pending || handoff.undoDecision.pending,
             snooze: snooze.pending,
             reviewers: reviewers.pending,
+            priority: priority.pending,
         },
     }
 }
