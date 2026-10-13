@@ -12,7 +12,7 @@ export const manifest: ProductManifest = {
     name: 'Dashboards',
     scenes: {
         Reports: {
-            name: 'Reports',
+            name: 'Custom dashboards',
             description: 'Organize dashboards, insights, and supporting files in shared project folders.',
             import: () => import('./frontend/ReportsScene'),
             projectBased: true,

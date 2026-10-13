@@ -36,7 +36,7 @@ export function ReportsScene(): JSX.Element {
         <SceneContent className="h-full min-h-0 flex-1 overflow-hidden">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <h1 className="m-0 text-2xl font-semibold">Reports</h1>
+                    <h1 className="m-0 text-2xl font-semibold">Custom dashboards</h1>
                     <p className="mt-1 mb-0 text-secondary">
                         Organize dashboards, insights, and supporting files in shared project folders.
                     </p>
@@ -65,7 +65,7 @@ export function ReportsScene(): JSX.Element {
                             loading={dashboardCreationLoading}
                             data-attr="reports-new-report"
                         >
-                            New report
+                            New
                         </LemonButton>
                     </LemonMenu>
                 </div>

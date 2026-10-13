@@ -72,8 +72,8 @@ export function groupLegacyAnalyticsNavigation(
             }
             result.push({
                 id: 'legacy-navigation/reports',
-                name: 'Reports',
-                displayName: 'Reports',
+                name: 'Custom dashboards',
+                displayName: 'Custom dashboards',
                 icon: (
                     <ProductIconWrapper
                         type="dashboard"
@@ -85,7 +85,7 @@ export function groupLegacyAnalyticsNavigation(
                         <IconDocument />
                     </ProductIconWrapper>
                 ),
-                record: { path: 'Reports', type: 'folder', href: urls.reports(), sceneKey: 'Reports' },
+                record: { path: 'Custom dashboards', type: 'folder', href: urls.reports(), sceneKey: 'Reports' },
                 children: [
                     {
                         id: 'legacy-navigation/folders',

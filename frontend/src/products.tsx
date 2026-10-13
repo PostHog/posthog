@@ -792,7 +792,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_warehouse',
     },
     Reports: {
-        name: 'Reports',
+        name: 'Custom dashboards',
         description: 'Organize dashboards, insights, and supporting files in shared project folders.',
         projectBased: true,
         layout: 'app-full-scene-height',
