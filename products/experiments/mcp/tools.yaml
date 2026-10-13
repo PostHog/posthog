@@ -299,8 +299,8 @@ tools:
                 input_schema: ExperimentVariantNotesSchema
             variant_screenshot_media_ids:
                 input_schema: ExperimentVariantScreenshotMediaIdsSchema
-        hooks: experiments/createExperimentHooks
         ui_app: experiment
+        hooks: experiments/createExperimentHooks
         response:
             include:
                 - id
@@ -571,8 +571,8 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
-        hooks: experiments/getExperimentHooks
         ui_app: experiment
+        hooks: experiments/getExperimentHooks
         response:
             exclude:
                 - saved_metrics.*.effective_query
@@ -789,8 +789,8 @@ tools:
                 cast: string-int
             feature_flag_id:
                 cast: string-int
-        hooks: experiments/listExperimentsHooks
         ui_app: experiment-list
+        hooks: experiments/listExperimentsHooks
         response:
             include:
                 - id
@@ -1595,8 +1595,8 @@ tools:
                 input_schema: ExperimentVariantNotesSchema
             variant_screenshot_media_ids:
                 input_schema: ExperimentVariantScreenshotMediaIdsSchema
-        hooks: experiments/updateExperimentHooks
         ui_app: experiment
+        hooks: experiments/updateExperimentHooks
         response:
             include:
                 - id
