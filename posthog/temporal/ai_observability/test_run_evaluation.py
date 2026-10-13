@@ -3120,7 +3120,7 @@ class TestExecuteHogEvalActivity:
         team = setup_data["team"]
 
         # Compile source to bytecode for the test
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3146,7 +3146,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_returns_false(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return false", "destination")
 
@@ -3171,7 +3171,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_non_bool_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 42", "destination")
 
@@ -3201,7 +3201,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_captures_print_as_reasoning(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         source = "print('checking output'); return true"
         bytecode = compile_hog(source, "destination")
@@ -3268,7 +3268,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_accesses_globals(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         source = """
             return output == 'test output'
@@ -3299,7 +3299,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_runtime_error_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3338,7 +3338,7 @@ class TestExecuteHogEvalActivity:
     )
     async def test_hog_eval_null_comparisons_evaluate_to_false(self, source):
         # A missing value is no match, not a runtime error, so the eval completes with a verdict.
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog(source, "destination")
         evaluation = {
@@ -3380,7 +3380,7 @@ class TestExecuteHogEvalActivity:
         ids=["invalid-regex", "list-regex-input", "array-assignment-index"],
     )
     async def test_hog_eval_vm_user_errors_return_skipped(self, source, properties, expected_reasoning):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog(source, "destination")
         evaluation = {
@@ -3406,7 +3406,7 @@ class TestExecuteHogEvalActivity:
 
     @pytest.mark.asyncio
     async def test_hog_eval_unexpected_error_raises(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3779,7 +3779,7 @@ class TestEvalResultModels:
 class TestRunHogEvalAllowsNA:
     @pytest.fixture(autouse=True)
     def _compile(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         self.compile_hog = compile_hog
 
@@ -3844,7 +3844,7 @@ class TestExecuteHogEvalActivityAllowsNA:
     async def test_hog_eval_null_return_with_allows_na(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return null", "destination")
 
@@ -3871,7 +3871,7 @@ class TestExecuteHogEvalActivityAllowsNA:
     async def test_hog_eval_bool_return_with_allows_na(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3898,7 +3898,7 @@ class TestExecuteHogEvalActivityAllowsNA:
     async def test_hog_eval_null_return_without_allows_na_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return null", "destination")
 
@@ -4234,7 +4234,7 @@ class TestRunLocalEvaluationActivity:
     START_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 
     def _create_hog_evaluation(self, team, source: str):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         return Evaluation.objects.create(
             team=team,

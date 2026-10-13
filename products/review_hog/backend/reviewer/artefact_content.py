@@ -327,7 +327,10 @@ class PRSnapshotArtefact(BaseModel):
     )
     merge_base_sha: str | None = Field(
         default=None,
-        description="The commit GitHub computes the PR diff against. Fetched for single-agent turns only.",
+        description="The commit GitHub computes the PR diff against. None when GitHub did not return it.",
+    )
+    skipped_paths: list[str] = Field(
+        default_factory=list, description="The changed files the review left out (lock, generated, test files)."
     )
 
 
@@ -346,6 +349,16 @@ class TurnMarkerArtefact(BaseModel):
     reviewhog_fingerprint: str = Field(description="Short hash of the turn's mode, model pins, prompts, and skills.")
     fingerprint_inputs: dict[str, Any] = Field(
         default_factory=dict, description="The payload the fingerprint hashes (prompt and skill texts as hashes)."
+    )
+    # The fields below are None on markers written before they existed.
+    publishes: bool | None = Field(default=None, description="Whether the turn posts its result to the PR.")
+    base_branch: str | None = Field(default=None, description="The base branch the reviewed diff was taken against.")
+    base_sha: str | None = Field(default=None, description="The merge base the reviewed diff was taken against.")
+    skipped_paths: list[str] | None = Field(
+        default=None, description="The changed files the turn left out of the review."
+    )
+    review_design: str | None = Field(
+        default=None, description="The design the turn ran on (pipeline or single_agent)."
     )
 
 

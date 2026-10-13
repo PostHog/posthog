@@ -54,7 +54,7 @@ const SurveyCreateSchema = () => {
             'Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks for iframe embedding.'
         ),
         translations: SurveysCreateBody.shape['translations'].describe(
-            "Optional survey-level translations keyed by language code. Use for translated survey name, description, and thank-you message fields. Question text translations belong inside each question's translations object."
+            "Optional survey-level translations keyed by language code. Use for translated survey name, description, thank-you message, and intro screen fields. Question text translations belong inside each question's translations object."
         ),
         form_content: SurveysCreateBody.shape['form_content'].describe(
             'Optional hosted-form content configuration for external_survey forms. Only include this when the user explicitly asks to customize the hosted form content beyond the standard question flow.'

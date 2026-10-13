@@ -322,12 +322,14 @@ export interface maxThreadLogicActions {
         retainedMessage?: string
         runId: string
         taskId: string
+        taskRuntime?: string | null
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
+        taskRuntime?: string | null | undefined
         traceId?: string | undefined
     } // runStreamLogic
     cancelSandboxRun: (
@@ -1201,17 +1203,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         (conversation?.pending_approvals ?? []).map((a) => [a.proposal_id, a])
                     ) as Record<string, PendingApproval>
 
-                    // Merge: existing data takes precedence (streaming approvals are more up-to-date)
-                    // This prevents losing approval cards when setConversation is called during askMax
-                    const hasExistingData = Object.keys(state).length > 0
-                    if (hasExistingData) {
-                        return {
-                            ...incomingApprovals,
-                            ...state,
-                        }
-                    }
-
-                    return incomingApprovals
+                    return { ...state, ...incomingApprovals }
                 },
             },
         ],
@@ -2274,6 +2266,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             const newConversation = {
                 ...values.conversation,
+                pending_approvals: Object.values(values.pendingApprovalsData)
+                    .filter((approval) => approval.proposal_id === values.pendingApprovalProposalId)
+                    .map((approval) => {
+                        const resolved = values.resolvedApprovalStatuses[approval.proposal_id]
+                        return resolved ? { ...approval, decision_status: resolved.status } : approval
+                    }),
                 status: ConversationStatus.Idle,
             }
 

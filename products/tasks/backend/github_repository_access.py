@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Iterable
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,9 @@ def inaccessible_repositories_via_integration(
     if integration is None:
         return names
     try:
-        repositories = GitHubIntegration(integration).list_all_cached_repositories()
+        repositories = GitHubIntegration(
+            integration, source="tasks", priority=Priority.CRITICAL
+        ).list_all_cached_repositories()
     except Exception:
         logger.warning(
             "github_repository_access_check_unavailable",
