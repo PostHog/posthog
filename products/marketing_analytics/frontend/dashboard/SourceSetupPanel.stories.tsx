@@ -123,7 +123,7 @@ export const MissingConnectionAction: Story = {
     args: { state: 'suggestions', suggestions: [{ ...suggestions[0], apply: null }], footer },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        expect(canvas.getByText('Google Ads')).toBeVisible()
+        expect(await canvas.findByText('Google Ads')).toBeVisible()
         expect(canvas.queryByRole('link', { name: 'Connect' })).not.toBeInTheDocument()
     },
 }
@@ -132,7 +132,7 @@ export const DismissedSuggestions: Story = {
     args: { state: 'dismissed', onRestore: () => {}, footer },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        expect(canvas.getByRole('button', { name: 'Restore suggestions' })).toBeVisible()
+        expect(await canvas.findByRole('button', { name: 'Restore suggestions' })).toBeVisible()
         expect(canvas.queryByText(/No ad platforms were detected/)).not.toBeInTheDocument()
     },
 }
