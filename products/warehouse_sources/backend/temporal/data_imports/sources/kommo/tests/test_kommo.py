@@ -1,35 +1,22 @@
-import json
-from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kommo import KommoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.kommo import (
     KommoResumeConfig,
     get_resource,
-    kommo_source,
     normalize_subdomain,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import ENDPOINT_CONFIG, ENDPOINTS
-
-SESSION_FACTORY = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-
-
-def _http_response(body: dict[str, Any] | None, status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response.url = "https://acme.kommo.com/api/v4/leads"
-    if body is None:
-        response._content = b""
-    else:
-        response._content = json.dumps(body).encode()
-        response.headers["Content-Type"] = "application/hal+json"
-    return response
+from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source import KommoSource
 
 
 def _leads_page(ids: list[int], page: int, page_count: int) -> dict[str, Any]:
@@ -100,65 +87,41 @@ class TestGetResource:
 
 
 class TestKommoSourceTransport:
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        *,
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> list[dict[str, Any]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(SESSION_FACTORY) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = kommo_source(
-                api_key="test-token",
-                subdomain="acme",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            list(cast(Iterable[Any], resource))
-
-        return sent_params
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(KommoSource(), KommoSourceConfig(subdomain="acme", api_key="test-token"))
 
     def test_full_refresh_run_checkpoints_the_next_page_after_each_batch(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Leads",
+            [
+                ScriptedResponse(json=_leads_page([1], page=1, page_count=3)),
+                ScriptedResponse(json=_leads_page([2], page=2, page_count=3)),
+                ScriptedResponse(json=_leads_page([3], page=3, page_count=3)),
+            ],
+        )
 
-        responses = [
-            _http_response(_leads_page([1], page=1, page_count=3)),
-            _http_response(_leads_page([2], page=2, page_count=3)),
-            _http_response(_leads_page([3], page=3, page_count=3)),
-        ]
-        self._drive("Leads", manager, responses)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [KommoResumeConfig(page=2), KommoResumeConfig(page=3)]
+        assert result.raised is None
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.params("limit") == ["250", "250", "250"]
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.saved_states == [KommoResumeConfig(page=2), KommoResumeConfig(page=3)]
+        assert result.committed_states == result.saved_states
+        assert result.response is not None
+        assert result.response.name == "Leads"
+        assert result.response.primary_keys == ["id"]
+        assert result.response.sort_mode == "asc"
 
     def test_full_refresh_run_resumes_from_the_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = KommoResumeConfig(page=7)
+        result = self._driver().run(
+            "Leads",
+            [ScriptedResponse(json=_leads_page([9], page=7, page_count=7))],
+            resume_state=KommoResumeConfig(page=7),
+        )
 
-        responses = [_http_response(_leads_page([9], page=7, page_count=7))]
-        sent_params = self._drive("Leads", manager, responses)
-
-        assert [params["page"] for params in sent_params] == [7]
+        assert result.raised is None
+        assert result.params("page") == ["7"]
+        assert [row["id"] for row in result.rows] == [9]
 
 
 class TestValidateCredentials:
@@ -176,14 +139,12 @@ class TestValidateCredentials:
     def test_maps_status_codes_to_actionable_results(
         self, status_code: int, expected_ok: bool, expected_message_fragment: str | None
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.kommo.kommo.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _http_response({}, status_code=status_code)
-
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             is_valid, message = validate_credentials("test-token", "acme")
 
         assert is_valid is expected_ok
+        assert network.requests_log[0].path == "/api/v4/account"
+        assert network.requests_log[0].headers["authorization"] == "Bearer test-token"
         if expected_message_fragment is None:
             assert message is None
         else:

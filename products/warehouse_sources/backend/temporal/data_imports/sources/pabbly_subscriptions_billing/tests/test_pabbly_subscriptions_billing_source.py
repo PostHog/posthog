@@ -1,8 +1,12 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pabblysubscriptionsbilling import (
     PabblySubscriptionsBillingSourceConfig,
 )
@@ -80,16 +84,12 @@ class TestPabblySubscriptionsBillingSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source.validate_credentials"
-    )
-    def test_validate_credentials_delegates_with_both_keys(self, mock_validate: mock.MagicMock) -> None:
-        # The status-to-message mapping lives in the transport module; here we only assert the
-        # source probes with the configured key pair and returns the delegate's verdict unchanged.
-        mock_validate.return_value = (False, "Invalid Pabbly Subscription Billing API key or secret key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("pabbly-key", "pabbly-secret")
+    def test_validate_credentials_delegates_with_both_keys(self) -> None:
+        with scripted_network([ScriptedResponse(status=403)]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id)
         assert result == (False, "Invalid Pabbly Subscription Billing API key or secret key")
+        assert network.requests_log[0].path == "/api/v1/customers"
+        assert network.requests_log[0].headers["authorization"] == "Basic cGFiYmx5LWtleTpwYWJibHktc2VjcmV0"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source.pabbly_source"
@@ -109,7 +109,6 @@ class TestPabblySubscriptionsBillingSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Pabbly Subscription Billing schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Pabbly Subscription Billing schema 'not_a_table'"
