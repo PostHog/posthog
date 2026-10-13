@@ -138,6 +138,7 @@ export interface modelPickerLogicValues {
     failedByokProviderKeyIds: string[]
     generativeByokModels: ModelOption[]
     hasByokKeys: boolean
+    playgroundByokProviderModelGroups: ProviderModelGroup[]
     playgroundModels: ModelOption[]
     playgroundModelsLoading: boolean
     playgroundProviderModelGroups: ProviderModelGroup[]
@@ -228,6 +229,7 @@ export interface modelPickerLogicMeta {
             failedByokProviderKeyIds: string[]
         ) => ProviderModelGroup[]
         providerModelGroups: (evaluationProviderModelGroups: ProviderModelGroup[]) => ProviderModelGroup[]
+        playgroundByokProviderModelGroups: (providerModelGroups: ProviderModelGroup[]) => ProviderModelGroup[]
         evaluationModelNotice: (
             providerKeys: LLMProviderKey[],
             providerKeysLoading: boolean,
