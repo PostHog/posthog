@@ -15,18 +15,14 @@ unreachable group store raises. Scoring an org on inputs we failed to fetch woul
 silently-too-low score, which is worse than writing none — so callers degrade to writing
 firmographics without a score on a raise, and get another chance at the delayed recheck.
 
-The wizard input does not come from a group property. It is read from the wizard's own scan
-events, matched against this module's list of LLM tool kinds.
+The wizard input is true when a stored codebase scan of any of the org's projects finds one of
+this module's LLM tool kinds, or when the organization group still carries the stamp older wizards set.
 """
 
 import dataclasses
 from typing import Any, Optional
 
 from django.conf import settings
-
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
 from posthog.models.group.util import get_group_by_key
@@ -36,13 +32,12 @@ from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.wizard.backend.facade import api as wizard_facade
 
 CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
 CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
-
-# The wizard reports what it found in a codebase with this event, on the organization group.
-WIZARD_SCAN_EVENT = "wizard: warehouse sources detected"
-WIZARD_SCAN_LOOKBACK_DAYS = 365
+# Set by wizards before they reported scans to PostHog. Still read, so those orgs keep the input.
+WIZARD_AI_SDK_DETECTED_PROPERTY = "wizard_ai_sdk_detected"
 # Tool kinds from the wizard's scan that mean the org builds with LLMs. This list is the scoring
 # decision, so it lives here rather than in the wizard's tool catalog.
 LLM_TOOL_KINDS: frozenset[ExternalDataSourceType] = frozenset(
@@ -73,8 +68,6 @@ LLM_TOOL_KINDS: frozenset[ExternalDataSourceType] = frozenset(
         ExternalDataSourceType.ZEP,
     }
 )
-# The wizard's own dependency scan reports this feature when the code imports an LLM SDK.
-LLM_DISCOVERED_FEATURE = "llm"
 
 
 class OrganizationGroupTypeMissing(Exception):
@@ -93,7 +86,7 @@ class ClayBridgeInputs:
 
 @frozen
 class WizardBridgeInputs:
-    """Whether the wizard's codebase scans for one org found an LLM SDK. False when it never scanned."""
+    """Whether the wizard found an LLM SDK in one org's code. False when it never scanned."""
 
     ai_sdk_detected: bool = False
 
@@ -128,8 +121,8 @@ def _organization_group_type_index(team: Team) -> int:
     raise OrganizationGroupTypeMissing(f"no `{ORGANIZATION_GROUP_TYPE}` group type on project {team.project_id}")
 
 
-def read_organization_bridge_inputs(*, organization_id: str, include_wizard: bool = True) -> OrganizationBridgeInputs:
-    """Fetch score inputs from one organization-group read. Raises when the group store cannot be read."""
+def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBridgeInputs:
+    """Fetch score inputs for one org. Raises when the group store or the wizard's scan store cannot be read."""
     # Clay only ever wrote to the US internal project, so outside US there is nothing to read —
     # skip the lookup entirely instead of querying a project the bridge never touched.
     if get_instance_region() != "US":
@@ -137,21 +130,21 @@ def read_organization_bridge_inputs(*, organization_id: str, include_wizard: boo
     # The internal project the enrichment group properties are projected onto, and the same one
     # the ProductLed_Outbound consumer reads them back from (ee/billing/dags/productled_outbound_targets.py).
     team = Team.objects.get(id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID)
-    group_type_index = _organization_group_type_index(team)
-    wizard = (
-        WizardBridgeInputs(
-            ai_sdk_detected=_wizard_found_llm_sdk(
-                team=team, group_type_index=group_type_index, organization_id=organization_id
-            )
-        )
-        if include_wizard
-        else WizardBridgeInputs()
+    group = get_group_by_key(
+        team_id=team.id,
+        group_type_index=_organization_group_type_index(team),
+        group_key=organization_id,
     )
-    group = get_group_by_key(team_id=team.id, group_type_index=group_type_index, group_key=organization_id)
+    properties = (group.group_properties or {}) if group is not None else {}
+    wizard = WizardBridgeInputs(
+        ai_sdk_detected=properties.get(WIZARD_AI_SDK_DETECTED_PROPERTY) is True
+        or wizard_facade.organization_has_detected_tool(
+            organization_id=organization_id, kinds=[kind.value for kind in LLM_TOOL_KINDS]
+        )
+    )
     if group is None:
         return OrganizationBridgeInputs(wizard=wizard)
 
-    properties = group.group_properties or {}
     return OrganizationBridgeInputs(
         clay=ClayBridgeInputs(
             est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
@@ -159,32 +152,3 @@ def read_organization_bridge_inputs(*, organization_id: str, include_wizard: boo
         ),
         wizard=wizard,
     )
-
-
-def _wizard_found_llm_sdk(*, team: Team, group_type_index: int, organization_id: str) -> bool:
-    response = execute_hogql_query(
-        parse_select(
-            """
-            SELECT count() > 0
-            FROM events
-            WHERE event = {event}
-                AND {organization} = {organization_id}
-                AND timestamp > now() - toIntervalDay({lookback_days})
-                AND (
-                    hasAny(JSONExtract(ifNull(properties.warehouse_source_kinds, '[]'), 'Array(String)'), {llm_kinds})
-                    OR has(JSONExtract(ifNull(properties.discovered_features, '[]'), 'Array(String)'), {llm_feature})
-                )
-            """,
-            placeholders={
-                "event": ast.Constant(value=WIZARD_SCAN_EVENT),
-                "organization": ast.Field(chain=[f"$group_{group_type_index}"]),
-                "organization_id": ast.Constant(value=organization_id),
-                "lookback_days": ast.Constant(value=WIZARD_SCAN_LOOKBACK_DAYS),
-                "llm_kinds": ast.Array(exprs=[ast.Constant(value=kind.value) for kind in sorted(LLM_TOOL_KINDS)]),
-                "llm_feature": ast.Constant(value=LLM_DISCOVERED_FEATURE),
-            },
-        ),
-        team,
-        query_type="growth_enrichment_wizard_scans",
-    )
-    return bool(response.results and response.results[0][0])
