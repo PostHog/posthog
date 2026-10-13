@@ -748,7 +748,6 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 type: AuthorizedUrlListType.WEB_ANALYTICS,
                 actionId: null,
                 experimentId: null,
-                productTourId: null,
             }),
             ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
             webAnalyticsFilterLogic(props),
@@ -774,7 +773,6 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 type: AuthorizedUrlListType.WEB_ANALYTICS,
                 actionId: null,
                 experimentId: null,
-                productTourId: null,
             }),
             [
                 'addUrl as addAuthorizedUrl',

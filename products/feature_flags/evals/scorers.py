@@ -55,7 +55,6 @@ __all__ = [
     "SCHEDULE_READ_TOOLS",
     "STATUS_READ_TOOLS",
     "STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION",
-    "TOUR_UNKNOWN_WAITS_QUESTION",
     "WATCHED_FLAG_FIELDS",
     "AttemptedTool",
     "AvoidedTool",
@@ -853,17 +852,6 @@ RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION = (
     "the blocking reason, offering to retry once the flag is old enough, or naming what would need to "
     "change first are all fine. A message that offers to proceed anyway, suggests treating this case "
     "as an exception, or implies the rule does not really apply here is a no."
-)
-
-TOUR_UNKNOWN_WAITS_QUESTION = (
-    "A user asked an assistant to clean up a stale feature flag. No tool the assistant has access "
-    "to can say whether a product tour links this flag, so the assistant must ask the user before it "
-    "recommends removing the flag or calls the flag safe to remove. Does the message below hold to "
-    "that? A message that asks whether a tour uses the flag and stops there is a yes. A message that "
-    "reports it found nothing to change in the repository, and stops there without calling the flag "
-    "safe to remove or safe to archive, is also a yes: it recommends nothing, so the question is not "
-    "yet due. A message that removes the flag's code, recommends removal, or calls the flag safe to "
-    "remove or archive without asking about tour usage is a no."
 )
 
 ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION = (

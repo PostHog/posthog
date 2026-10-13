@@ -38,7 +38,6 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     SURVEY_APPEARANCE_HTML_FIELDS,
     SurveyAppearanceSchemaSerializer,
@@ -3022,33 +3021,6 @@ class TestSurvey(APIBaseTest):
                 }
             ],
         }
-
-    def test_list_surveys_excludes_product_tour_linked_surveys(self):
-        regular_survey = Survey.objects.create(
-            team=self.team,
-            name="Regular survey",
-            type="popover",
-            questions=[{"type": "open", "question": "How are you?"}],
-        )
-
-        product_tour_survey = Survey.objects.create(
-            team=self.team,
-            name="Product tour survey",
-            type="api",
-            questions=[{"type": "rating", "question": "Rate this step"}],
-        )
-        product_tour = ProductTour.objects.create(
-            team=self.team,
-            name="Test Tour",
-            content={"steps": []},
-        )
-        product_tour.linked_surveys.add(product_tour_survey)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/")
-        assert response.status_code == status.HTTP_200_OK
-        results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["id"] == str(regular_survey.id)
 
     def test_updating_survey_name_validates(self):
         survey_with_targeting = self.client.post(

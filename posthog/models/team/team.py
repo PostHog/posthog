@@ -20,6 +20,7 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
+from posthog.migration_helpers import deprecate_field
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
@@ -454,8 +455,7 @@ class Team(UUIDTClassicModel):
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 
-    # Product tours
-    product_tours_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
+    product_tours_opt_in = deprecate_field(models.BooleanField(null=True, blank=True))
 
     # Capture / Autocapture
     capture_console_log_opt_in = field_access_control(

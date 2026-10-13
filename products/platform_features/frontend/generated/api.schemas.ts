@@ -1466,7 +1466,6 @@ export type ActivityLogListParams = {
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
-     * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
@@ -1574,7 +1573,6 @@ export const ActivityLogListScope = {
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
-    ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
@@ -1669,7 +1667,6 @@ export const ActivityLogListScope = {
  * * `LogsRetentionRule` - LogsRetentionRule
  * * `TracesRetentionRule` - TracesRetentionRule
  * * `DashboardWidget` - DashboardWidget
- * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
@@ -1765,7 +1762,6 @@ export const ActivityLogListScopesItem = {
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
-    ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',

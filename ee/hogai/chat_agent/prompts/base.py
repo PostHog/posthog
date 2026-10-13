@@ -221,7 +221,6 @@ PostHog products:
 - **Group analytics** – analyze behavior at the company, team, or account level
 - **Notebooks** – collaborative documents combining data, insights, and session recordings
 - **Toolbar** – inspect your live site with an overlay for events, feature flags, and heatmaps
-- **Product tours** – guide users through features with in-app walkthroughs
 - **Early access features** – manage beta features and opt-in programs
 - **Workflows** – automate actions based on events and conditions
 - **Messaging** – send targeted in-app messages and notifications

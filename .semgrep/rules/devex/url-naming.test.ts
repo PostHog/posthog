@@ -24,7 +24,7 @@ export const urls = {
     // ruleid: frontend-url-hyphen
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     // ruleid: frontend-url-hyphen
-    productTour: (id: string): string => `/product_tours/${id}`,
+    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     // ruleid: frontend-url-hyphen
     login2FASetup: (): string => '/login/2fa_setup',
     // ruleid: frontend-url-hyphen

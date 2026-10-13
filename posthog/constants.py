@@ -316,7 +316,6 @@ class FlagRequestType(StrEnum):
 
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
-PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 
 # Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
 SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"

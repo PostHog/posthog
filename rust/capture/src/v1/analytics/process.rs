@@ -4789,7 +4789,10 @@ mod tests {
         };
         let bad_cookieless = event("user-3", serde_json::json!({"cookieless_mode": "maybe"}));
         let bad_cookieless_again = event("user-4", serde_json::json!({"cookieless_mode": [1]}));
-        let bad_tour = event("user-1", serde_json::json!({"product_tour_id": true}));
+        let bad_skew = event(
+            "user-1",
+            serde_json::json!({"disable_skew_correction": [true]}),
+        );
         let cookieless_ok = event(
             "$posthog_cookieless",
             serde_json::json!({"cookieless_mode": true}),
@@ -4821,7 +4824,7 @@ mod tests {
                 (EventResult::Drop, Some("invalid_options")),
             ),
             (
-                bad_tour.uuid.parse().unwrap(),
+                bad_skew.uuid.parse().unwrap(),
                 (EventResult::Drop, Some("invalid_options")),
             ),
             (cookieless_ok.uuid.parse().unwrap(), (EventResult::Ok, None)),
@@ -4834,7 +4837,7 @@ mod tests {
         let batch = valid_batch(vec![
             bad_cookieless,
             bad_cookieless_again,
-            bad_tour,
+            bad_skew,
             cookieless_ok,
             lenient_ok,
             lenient_placeholder_ok,
@@ -4855,7 +4858,10 @@ mod tests {
         assert_eq!(emitted[0].count, 3);
         assert_eq!(
             emitted[0].extra_details.get("invalidOptions"),
-            Some(&serde_json::json!(["cookieless_mode", "product_tour_id"]))
+            Some(&serde_json::json!([
+                "cookieless_mode",
+                "disable_skew_correction"
+            ]))
         );
     }
 
@@ -5311,7 +5317,6 @@ mod tests {
         let opts = batch.batch[0].options.validate().unwrap();
         assert_eq!(opts.cookieless_mode, None);
         assert_eq!(opts.disable_skew_correction, None);
-        assert_eq!(opts.product_tour_id, None);
         assert_eq!(opts.process_person_profile, None);
     }
 
@@ -5324,7 +5329,6 @@ mod tests {
         let opts = batch.batch[0].options.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
         assert_eq!(opts.disable_skew_correction, Some(true));
-        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-v2"));
         assert_eq!(opts.process_person_profile, Some(false));
     }
 

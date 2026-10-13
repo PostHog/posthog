@@ -143,8 +143,6 @@ export enum Scene {
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
-    ProductTour = 'ProductTour',
-    ProductTours = 'ProductTours',
     ProjectCreateFirst = 'ProjectCreate',
     ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',
@@ -454,10 +452,6 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
-
-    // Product Tours
-    [Scene.ProductTour]: AccessControlResourceType.ProductTour,
-    [Scene.ProductTours]: AccessControlResourceType.ProductTour,
 
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,

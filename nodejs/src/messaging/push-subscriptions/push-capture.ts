@@ -25,7 +25,6 @@ const CAPTURE_V1_INTERNAL_ENDPOINT = '/i/v1/analytics/events'
 const OPTIONS_TO_LEGACY_PROPERTY: Record<string, string> = {
     cookieless_mode: '$cookieless_mode',
     disable_skew_correction: '$ignore_sent_at',
-    product_tour_id: '$product_tour_id',
     process_person_profile: '$process_person_profile',
 }
 const EXTRA_LEGACY_ALIASES: Record<string, string> = {

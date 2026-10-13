@@ -222,7 +222,6 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
         options: Options {
             cookieless_mode: Some(false),
             disable_skew_correction: None,
-            product_tour_id: None,
             process_person_profile: Some(true),
         },
         adjusted_timestamp: Some(
@@ -261,7 +260,6 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
         options: Options {
             cookieless_mode: None,
             disable_skew_correction: None,
-            product_tour_id: None,
             process_person_profile: Some(true),
         },
         adjusted_timestamp: Some(
@@ -300,7 +298,6 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
         options: Options {
             cookieless_mode: None,
             disable_skew_correction: None,
-            product_tour_id: None,
             process_person_profile: Some(true),
         },
         adjusted_timestamp: Some(
@@ -549,7 +546,6 @@ pub fn event_with_all_options() -> Event {
         options: RawOptions(serde_json::json!({
             "cookieless_mode": true,
             "disable_skew_correction": true,
-            "product_tour_id": "tour-v2",
             "process_person_profile": false
         })),
         properties: raw_obj(r#"{"existing":"prop"}"#),

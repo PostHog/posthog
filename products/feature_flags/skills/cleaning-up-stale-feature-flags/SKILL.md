@@ -123,13 +123,6 @@ Exclude a candidate when any of these apply:
   and the code that would react to it is gone
 - depended on by other active flags
 
-One consumer stays invisible to these reads: a product tour can link a flag, and no read tool reports the link.
-Ask the user whether a tour uses the flag, and wait for the answer before recommending removal or editing code.
-An empty response from the other dependency reads does not answer this question.
-Reuse an explicit answer already supplied for this flag and project only when the user gave it in this assessment.
-An older answer names the date the user gave it, and a tour can start to use the flag after that date.
-Ask the user to confirm an older answer before you recommend removal or edit code.
-
 Apply these exclusions to named flags too. A cleanup request does not waive them.
 Do not offer or accept an override. Exceptions are outside this workflow.
 Report the missing evidence or the time remaining before a recent flag qualifies for assessment.

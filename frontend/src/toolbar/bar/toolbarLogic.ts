@@ -14,7 +14,6 @@ import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
-import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { isToolbarFeatureGated, toolbarEntitlementsLogic } from '~/toolbar/toolbarEntitlementsLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
@@ -43,7 +42,6 @@ export type MenuState =
     | 'debugger'
     | 'experiments'
     | 'web-vitals'
-    | 'product-tours'
     | 'field-notes'
 
 export type ToolbarPositionType =
@@ -178,12 +176,6 @@ export interface toolbarLogicActions {
     toggleClickmapsEnabled: (enabled: boolean) => {
         enabled: boolean
     } // heatmapToolbarMenuLogic
-    hideButtonProductTours: () => {
-        value: true
-    } // productToursLogic
-    showButtonProductTours: () => {
-        value: true
-    } // productToursLogic
     logout: () => {
         value: true
     } // toolbarConfigLogic
@@ -380,8 +372,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
-            productToursLogic,
-            ['showButtonProductTours', 'hideButtonProductTours'],
             fieldNotesLogic,
             ['showButtonFieldNotes', 'hideButtonFieldNotes'],
             heatmapToolbarMenuLogic,
@@ -802,7 +792,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
-            actions.hideButtonProductTours()
             actions.hideButtonFieldNotes()
 
             if (visibleMenu === 'heatmap') {
@@ -817,8 +806,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'flags') {
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
-            } else if (visibleMenu === 'product-tours') {
-                actions.showButtonProductTours()
             } else if (visibleMenu === 'field-notes') {
                 actions.showButtonFieldNotes()
             }

@@ -117,7 +117,6 @@ import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflo
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
-import { InferredSelector } from './toolbar/product-tours/elementInference'
 
 export enum ConversionRateInputType {
     MANUAL = 'manual',
@@ -341,7 +340,6 @@ export enum AccessControlResourceType {
     Endpoint = 'endpoint',
     Workflow = 'hog_flow',
     EarlyAccessFeature = 'early_access_feature',
-    ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentHoldout = 'experiment_holdout',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -1024,15 +1022,7 @@ export interface ElementType {
 
 // Keep the union literal so kea-typegen can inline its members; the runtime allowlist below
 // is asserted to satisfy the same members so TypeScript fails the build if either side drifts.
-export type ToolbarUserIntent =
-    | 'add-action'
-    | 'edit-action'
-    | 'heatmaps'
-    | 'add-experiment'
-    | 'edit-experiment'
-    | 'add-product-tour'
-    | 'edit-product-tour'
-    | 'preview-product-tour'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 
 export const TOOLBAR_USER_INTENTS = [
     'add-action',
@@ -1040,9 +1030,6 @@ export const TOOLBAR_USER_INTENTS = [
     'heatmaps',
     'add-experiment',
     'edit-experiment',
-    'add-product-tour',
-    'edit-product-tour',
-    'preview-product-tour',
 ] as const satisfies readonly ToolbarUserIntent[]
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
@@ -1069,7 +1056,6 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     toolbarFlagsKey?: string
-    productTourId?: string
     uiHost?: string /** PostHog app URL, used for OAuth and UI links */
 }
 
@@ -3972,237 +3958,6 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
-// Product Tours
-export type ProductTourSurveyQuestionType = 'open' | 'rating'
-
-export interface ProductTourSurveyQuestion {
-    type: ProductTourSurveyQuestionType
-    questionText: string
-    /** Rating display type - emoji or number */
-    display?: 'emoji' | 'number'
-    /** Rating scale - 3 or 5 for emoji, 5 or 10 for number */
-    scale?: 3 | 5 | 10
-    /** Label for low end of rating scale (e.g., "Not likely") */
-    lowerBoundLabel?: string
-    /** Label for high end of rating scale (e.g., "Very likely") */
-    upperBoundLabel?: string
-    submitButtonText?: string
-    backButtonText?: string
-}
-
-export type ProductTourProgressionTriggerType = 'button' | 'click'
-
-// 'element' is deprecated in favor of all 'modal' steps having the option
-// to be positioned near a given element.
-export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
-
-export interface ProductTourBannerConfig {
-    /**
-     * sticky: injected at top of body, fixed pos, stays visible on scroll
-     * static: injected at top of body, fixed pos, scrolls away with page
-     * custom: injected into a container from user-supplied css selector
-     */
-    behavior: 'sticky' | 'static' | 'custom'
-    selector?: string
-    action?: {
-        type: 'none' | 'link' | 'trigger_tour'
-        link?: string
-        tourId?: string
-    }
-    animation?: {
-        duration: number
-    }
-}
-
-export type ProductTourButtonAction = 'dismiss' | 'link' | 'next_step' | 'previous_step' | 'trigger_tour'
-
-export interface ProductTourStepButton {
-    text: string
-    action: ProductTourButtonAction
-    /** URL to open when action is 'link' */
-    link?: string
-    /** Tour ID to trigger when action is 'trigger_tour' */
-    tourId?: string
-}
-
-export interface ProductTourStepButtons {
-    primary?: ProductTourStepButton
-    secondary?: ProductTourStepButton
-}
-
-/** Preset width options for product tour tooltips */
-export type ProductTourStepWidth = 'compact' | 'default' | 'wide' | 'extra-wide'
-
-/** Width values in pixels for each preset */
-export const PRODUCT_TOUR_STEP_WIDTHS: Record<ProductTourStepWidth, number> = {
-    compact: 280,
-    default: 360,
-    wide: 480,
-    'extra-wide': 700,
-}
-
-export type ProductTourStepTargeting = 'auto' | 'manual'
-
-export interface ProductTourStep {
-    id: string
-    type: ProductTourStepType
-    /** CSS selector for element steps, empty/undefined for modal/survey steps */
-    selector?: string
-    /** Rich text content in tiptap JSONContent format */
-    content: Record<string, any> | null
-    /** Pre-rendered HTML content for SDK consumption. Built from `content` on tour save. */
-    contentHtml?: string
-    /** Tooltip position relative to element - for element steps */
-    position?: 'top' | 'bottom' | 'left' | 'right'
-    /** Modal position on screen - for modal/survey steps */
-    modalPosition?: ScreenPosition
-    /** Inline survey question config - only for survey steps */
-    survey?: ProductTourSurveyQuestion
-    /** ID of the auto-created survey for this step (set by backend) */
-    linkedSurveyId?: string
-    /** how this step progresses, e.g. next button or click trigger */
-    progressionTrigger?: ProductTourProgressionTriggerType
-    /** Custom width for the tooltip - can be a preset name or pixel value */
-    maxWidth?: ProductTourStepWidth | number
-    /** Screenshot media ID from uploaded_media - for element steps */
-    screenshotMediaId?: string
-    /** enhanced element data for more reliable lookup at runtime */
-    inferenceData?: InferredSelector
-    /** SDK-only: derived from elementTargeting on save. Do not read directly in editor code. */
-    useManualSelector?: boolean
-    /** Editor-only: explicit targeting mode. Derived from legacy fields on load via normalizeStep(). */
-    elementTargeting?: ProductTourStepTargeting
-    /** Button configuration for tour steps (modals / announcements) */
-    buttons?: ProductTourStepButtons
-    /** Banner configuration (only for banner steps) */
-    bannerConfig?: ProductTourBannerConfig
-    /** translation data for this tour step, keyed on BCP 47 language code. */
-    translations?: Record<string, ProductTourStepTranslation>
-}
-
-/** all translatable content for a given tour step */
-export interface ProductTourStepTranslation {
-    content?: ProductTourStep['content']
-    contentHtml?: ProductTourStep['contentHtml']
-    buttons?: {
-        primary?: Pick<ProductTourStepButton, 'text'>
-        secondary?: Pick<ProductTourStepButton, 'text'>
-    }
-    survey?: Pick<
-        ProductTourSurveyQuestion,
-        'questionText' | 'lowerBoundLabel' | 'upperBoundLabel' | 'submitButtonText' | 'backButtonText'
-    >
-}
-
-/** Tracks a snapshot of steps at a point in time for funnel analysis */
-export interface StepOrderVersion {
-    id: string
-    /** Full snapshot of steps as they existed when this version was created */
-    steps: ProductTourStep[]
-    /** When this version became active */
-    created_at: string
-}
-
-export type EffectiveProductTourType = 'tour' | 'announcement' | 'banner'
-
-export interface ProductTourWaitPeriod {
-    days: number
-    types: EffectiveProductTourType[]
-}
-
-export interface ProductTourDisplayConditions {
-    url?: string
-    urlMatchType?: SurveyMatchType
-    selector?: string
-    autoShowDelaySeconds?: number
-    actions?: {
-        values: {
-            id: number
-            name: string
-        }[]
-    } | null
-    events?: {
-        values: SurveyEventsWithProperties[]
-    } | null
-    cancelEvents?: {
-        values: SurveyEventsWithProperties[]
-    } | null
-    linkedFlagVariant?: string
-    seenTourWaitPeriod?: ProductTourWaitPeriod
-    deviceTypes?: string[]
-}
-
-export interface ProductTourAppearance {
-    backgroundColor?: string
-    textColor?: string
-    buttonColor?: string
-    borderRadius?: number
-    buttonBorderRadius?: number
-    borderColor?: string
-    fontFamily?: string
-    boxShadow?: string
-    showOverlay?: boolean
-    whiteLabel?: boolean
-    /** defaults to true, auto-set to false for announcements/banners */
-    dismissOnClickOutside?: boolean
-    zIndex?: number
-}
-
-export type ProductTourType = 'tour' | 'announcement'
-
-export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
-
-export interface ProductTourGeneratedStepContent {
-    step_id: string
-    title: string
-    description: string
-}
-
-export interface ProductTourAIGenerationResponse {
-    steps: ProductTourGeneratedStepContent[]
-}
-
-export interface ProductTourContent {
-    type?: ProductTourType
-    steps: ProductTourStep[]
-    appearance?: ProductTourAppearance
-    conditions?: ProductTourDisplayConditions
-    /** History of step order changes for funnel analysis */
-    step_order_history?: StepOrderVersion[]
-    displayFrequency?: ProductTourDisplayFrequency
-    /**
-     * list of supported languages (BCP 47 syntax).
-     *
-     * only used for the builder UX.
-     * sdk reads ProductTourStep.translations[langCode]
-     * */
-    languages?: string[]
-}
-
-export type ProductTourDraftContent = Partial<
-    Pick<ProductTour, 'name' | 'description' | 'content' | 'auto_launch' | 'targeting_flag_filters' | 'linked_flag_id'>
->
-
-export interface ProductTour {
-    id: string
-    name: string
-    description: string
-    internal_targeting_flag: FeatureFlagBasicType | null
-    targeting_flag_filters: FeatureFlagFilters | null
-    linked_flag: FeatureFlagBasicType | null
-    linked_flag_id: number | null
-    content: ProductTourContent
-    auto_launch: boolean
-    start_date: string | null
-    end_date: string | null
-    created_at: string
-    created_by: UserBasicType | null
-    updated_at: string
-    archived: boolean
-    draft_content: ProductTourDraftContent | null
-    has_draft: boolean
-}
-
 export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
@@ -6251,7 +6006,6 @@ export enum ActivityScope {
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
-    PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',

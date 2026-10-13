@@ -2394,7 +2394,6 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         return SurveySerializer
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.exclude(product_tour__isnull=False)
         if self.action == "list":
             search = self.request.GET.get("search")
             if search:

@@ -574,18 +574,15 @@ export interface FeatureFlagExperimentSetMetadataApi {
  * * `surveys` - surveys
  * * `early_access_features` - early_access_features
  * * `web_experiments` - web_experiments
- * * `product_tours` - product_tours
  */
-export type FeatureFlagCreationContextEnumApi =
-    (typeof FeatureFlagCreationContextEnumApi)[keyof typeof FeatureFlagCreationContextEnumApi]
+export type CreationContextEnumApi = (typeof CreationContextEnumApi)[keyof typeof CreationContextEnumApi]
 
-export const FeatureFlagCreationContextEnumApi = {
+export const CreationContextEnumApi = {
     FeatureFlags: 'feature_flags',
     Experiments: 'experiments',
     Surveys: 'surveys',
     EarlyAccessFeatures: 'early_access_features',
     WebExperiments: 'web_experiments',
-    ProductTours: 'product_tours',
 } as const
 
 /**
@@ -660,15 +657,14 @@ export interface FeatureFlagApi {
      * @nullable
      */
     readonly user_access_level: string | null
-    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
+    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.
      *
      * * `feature_flags` - feature_flags
      * * `experiments` - experiments
      * * `surveys` - surveys
      * * `early_access_features` - early_access_features
-     * * `web_experiments` - web_experiments
-     * * `product_tours` - product_tours */
-    creation_context?: FeatureFlagCreationContextEnumApi
+     * * `web_experiments` - web_experiments */
+    creation_context?: CreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */

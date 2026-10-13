@@ -126,7 +126,6 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.product_analytics",
-    "products.product_tours",
     "products.pulse",
     "products.reminders",
     "products.replay",
@@ -493,7 +492,6 @@ depends_on = [
     "products.notifications",
     # An experiment with a funnel metric runs the funnel through product analytics.
     "products.product_analytics",
-    "products.product_tours",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
@@ -789,13 +787,10 @@ from = [
 ]
 
 [[modules]]
+# Retired product. The app keeps its model and migration history so that Django keeps
+# cascading deletes into its tables until a later migration drops them.
 path = "products.product_tours"
-depends_on = [
-    "posthog",
-    "products.approvals",
-    "products.feature_flags",
-    "products.surveys", "products.access_control",
-]
+depends_on = ["posthog"]
 layer = "modules"
 
 [[modules]]
@@ -953,7 +948,7 @@ depends_on = [
     "products.approvals",
     "products.feature_flags",
     "products.product_analytics",
-    "products.product_tours", "products.access_control",
+    "products.access_control",
 ]
 layer = "modules"
 

@@ -205,8 +205,6 @@ person projects/{}/persons/{}
 personActivity projects/{}/persons/activity
 personActivity projects/{}/persons/{}/activity
 persons projects/{}/persons
-productTour projects/{}/product_tours/{}
-productTours projects/{}/product_tours
 projectSecretApiKey projects/{}/project_secret_api_keys/{}
 projectSecretApiKeys projects/{}/project_secret_api_keys
 propertyDefinitionDetail projects/{}/property_definitions/{}

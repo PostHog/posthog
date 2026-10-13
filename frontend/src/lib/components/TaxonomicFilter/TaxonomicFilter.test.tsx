@@ -628,8 +628,8 @@ describe('TaxonomicFilter', () => {
                 expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
             })
 
-            // Live-event surfaces (the survey and product-tour event triggers, live events, ingestion
-            // triggers) opt in with `includeHiddenEvents`.
+            // Live-event surfaces (the survey event triggers, live events, ingestion triggers) opt in
+            // with `includeHiddenEvents`.
             it('keeps offering the event when the picker opts in', async () => {
                 renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events], includeHiddenEvents: true })
 

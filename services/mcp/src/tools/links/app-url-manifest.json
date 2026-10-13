@@ -1369,16 +1369,6 @@
         "params": [],
         "scope": "global"
     },
-    "productTour": {
-        "template": "/product_tours/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "productTours": {
-        "template": "/product_tours",
-        "params": [],
-        "scope": "project"
-    },
     "projectCreateFirst": {
         "template": "/organization/create-project",
         "params": [],

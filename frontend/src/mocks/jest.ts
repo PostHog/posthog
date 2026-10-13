@@ -12,7 +12,6 @@ import { Mocks, mocksToHandlers } from '~/mocks/utils'
 // still overrides them per test.
 const jestOnlyDefaultHandlers = mocksToHandlers({
     get: {
-        '/api/projects/:team_id/product_tours/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/integrations/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
         '/api/environments/:team_id/taggers/': EMPTY_PAGINATED_RESPONSE,

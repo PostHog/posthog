@@ -13,7 +13,6 @@ export const OnboardingWebAnalyticsAuthorizedDomainsStep: OnboardingStepComponen
         authorizedUrlListLogic({
             actionId: null,
             experimentId: null,
-            productTourId: null,
             type: AuthorizedUrlListType.WEB_ANALYTICS,
             allowWildCards: false,
         })

@@ -13,10 +13,6 @@ use uuid::Uuid;
 /// Trait for types that have an event name, used by quota limiting
 pub trait HasEventName {
     fn event_name(&self) -> &str;
-
-    fn has_property(&self, _key: &str) -> bool {
-        false
-    }
 }
 
 /// Information about the library/SDK that sent an event
@@ -431,10 +427,6 @@ impl EventWithLibraryInfo for ClickHouseEvent {
 impl HasEventName for RawEvent {
     fn event_name(&self) -> &str {
         &self.event
-    }
-
-    fn has_property(&self, key: &str) -> bool {
-        self.properties.contains_key(key)
     }
 }
 

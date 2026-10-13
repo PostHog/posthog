@@ -172,7 +172,6 @@ from products.feature_flags.backend.version_history import (
     reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
 )
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 if TYPE_CHECKING:
@@ -527,7 +526,6 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "surveys",
     "early_access_features",
     "web_experiments",
-    "product_tours",
 )
 
 # A flag created to back one of these objects never passes through a form with a tag input, so the
@@ -1358,7 +1356,7 @@ class FeatureFlagSerializer(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
         required=False,
-        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.",
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
@@ -1578,8 +1576,8 @@ class FeatureFlagSerializer(
         named_tags = normalize_tag_names([tag for tag in tags or [] if isinstance(tag, str)])
 
         # Branch on the instance rather than request.method. Products that write a flag as a side
-        # effect of their own request - launching an experiment, saving an early access feature,
-        # editing a product tour - drive this serializer with the real POST request that triggered
+        # effect of their own request - launching an experiment or saving an early access feature -
+        # drive this serializer with the real POST request that triggered
         # them, and those updates carry no tags. Reading POST as "create" would reject them.
         if self.instance is None:
             if not named_tags:
@@ -3498,7 +3496,7 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
 
     Adds `has_experiment` on top of the minimal flag shape. It lives here rather than on
     MinimalFeatureFlagSerializer so the many UI endpoints that embed the minimal serializer
-    (surveys, early access features, product tours, experiments, my_flags) don't each pay a
+    (surveys, early access features, experiments, my_flags) don't each pay a
     per-flag experiment lookup for a field only the SDKs consume.
     """
 
@@ -4079,12 +4077,7 @@ class FeatureFlagViewSet(
             )
 
             survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
-            product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
-                team__project_id=self.project_id, internal_targeting_flag__isnull=False
-            ).values_list("internal_targeting_flag_id", flat=True)
-            queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(
-                Q(id__in=product_tour_internal_targeting_flags)
-            )
+            queryset = queryset.exclude(Q(id__in=survey_flag_ids))
 
             queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
 
@@ -4708,20 +4701,13 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        # Exclude internal flags (survey targeting and product tour internal flags)
+        # Exclude internal survey targeting flags
         # These are auto-generated and not user-editable, same as the main flags list
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
-        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
-            team__project_id=self.project_id, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
 
         flag_keys = request.validated_query_data.get("flag_keys") or None
 
-        flags_qs = (
-            FeatureFlag.objects.filter(team__project_id=self.project_id)
-            .exclude(Q(id__in=survey_flag_ids))
-            .exclude(Q(id__in=product_tour_internal_targeting_flags))
-        )
+        flags_qs = FeatureFlag.objects.filter(team__project_id=self.project_id).exclude(Q(id__in=survey_flag_ids))
         if flag_keys:
             flags_qs = flags_qs.filter(key__in=flag_keys)
 
@@ -4863,10 +4849,7 @@ class FeatureFlagViewSet(
 
         # Exclude internal flags (same as list endpoint)
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
-        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
-            team__project_id=self.project_id, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
-        queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
+        queryset = queryset.exclude(Q(id__in=survey_flag_ids))
 
         queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
 
@@ -4965,10 +4948,7 @@ class FeatureFlagViewSet(
         # The stale-flags health check mirrors this guard's reference checks in
         # products/feature_flags/backend/temporal/health_checks/stale_flags.py. Keep the two in step.
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
-        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
-            team__project_id=self.project_id, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
-        queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
+        queryset = queryset.exclude(Q(id__in=survey_flag_ids))
 
         if filters:
             # Match the list endpoint's semantics: archived flags are not deleted by

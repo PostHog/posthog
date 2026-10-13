@@ -8,7 +8,6 @@ import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/Au
 const AUTHORIZED_URL_LOGIC_PROPS = {
     actionId: null,
     experimentId: null,
-    productTourId: null,
     type: AuthorizedUrlListType.WEB_ANALYTICS,
     allowWildCards: false,
 } as const

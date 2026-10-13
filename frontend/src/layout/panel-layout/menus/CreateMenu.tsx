@@ -28,7 +28,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 const PRIORITY_ORDER = ['Insight', 'Dashboard', 'Notebook', 'Experiment', 'Feature flag']
 
 // Products hidden from the Create menu.
-const HIDDEN = new Set(['Action', 'Cohort', 'Data', 'Early access feature', 'Link', 'Product tour'])
+const HIDDEN = new Set(['Action', 'Cohort', 'Data', 'Early access feature', 'Link'])
 
 // Icon overrides for group (submenu) triggers, keyed by the stable item key.
 const GROUP_ICONS: Record<string, FileSystemIconType> = {

@@ -26,7 +26,6 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import Text
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 from products.product_analytics.backend.facade.models import Insight
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -229,7 +228,6 @@ class TestProductAdminRegistration:
             Experiment,
             ExperimentSavedMetric,
             Insight,
-            ProductTour,
             Survey,
         ],
         ids=lambda m: m.__name__,

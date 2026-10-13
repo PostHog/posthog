@@ -27,11 +27,8 @@ class TestFlagOwnership(APIBaseTest):
     def _own_by_survey_sampling(self, flag: FeatureFlag) -> None:
         Survey.objects.create(team=self.team, name="s", type="popover", internal_response_sampling_flag=flag)
 
-    def _own_by_product_tour(self, flag: FeatureFlag) -> None:
+    def _reference_by_leftover_product_tour(self, flag: FeatureFlag) -> None:
         ProductTour.objects.create(team=self.team, name="t", internal_targeting_flag=flag)
-
-    def _own_by_archived_product_tour(self, flag: FeatureFlag) -> None:
-        ProductTour.objects.create(team=self.team, name="t", internal_targeting_flag=flag, archived=True)
 
     def _own_by_deleted_experiment(self, flag: FeatureFlag) -> None:
         Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
@@ -48,8 +45,7 @@ class TestFlagOwnership(APIBaseTest):
             ("survey targeting flag", "_own_by_survey_targeting", "survey"),
             ("survey internal flag", "_own_by_survey_internal", "survey"),
             ("survey sampling flag", "_own_by_survey_sampling", "survey"),
-            ("product tour", "_own_by_product_tour", "product_tour"),
-            ("archived product tour", "_own_by_archived_product_tour", "product_tour"),
+            ("leftover product tour", "_reference_by_leftover_product_tour", None),
             ("early access feature", "_own_by_early_access", "early_access_feature"),
             ("deleted experiment", "_own_by_deleted_experiment", "experiment"),
             ("survey linked flag", "_reference_by_survey_linked_flag", None),

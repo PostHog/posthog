@@ -16,7 +16,6 @@ import { exportedAssetActivityDescriber } from 'scenes/exports/activityDescripti
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
-import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import {
     legalDocumentActivityDescriber,
@@ -132,8 +131,6 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.ENDPOINT:
         case ActivityScope.ENDPOINT_VERSION:
             return endpointActivityDescriber
-        case ActivityScope.PRODUCT_TOUR:
-            return productTourActivityDescriber
         case ActivityScope.TICKET:
             return ticketActivityDescriber
         case ActivityScope.SIGNAL_SCOUT_CONFIG:

@@ -61,7 +61,6 @@ pub async fn apply_quota_limits(
             }
             let info = EventInfo {
                 name: ev.event_name(),
-                has_product_tour_id: ev.has_property("product_tour_id"),
             };
             if predicate(info) {
                 ev.result = EventResult::Drop;
@@ -269,7 +268,7 @@ mod tests {
         limiter
     }
 
-    fn make_event(name: &str, product_tour_id: Option<&str>) -> WrappedEvent {
+    fn make_event(name: &str) -> WrappedEvent {
         let uuid = Uuid::now_v7();
         WrappedEvent {
             event: Event {
@@ -279,17 +278,13 @@ mod tests {
                 timestamp: "2026-03-26T12:00:00.000Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: match product_tour_id {
-                    Some(id) => RawOptions(serde_json::json!({"product_tour_id": id})),
-                    None => RawOptions::default(),
-                },
+                options: RawOptions::default(),
                 properties: RawValue::from_string("{}".to_owned()).unwrap(),
             },
             uuid,
             options: Options {
                 cookieless_mode: None,
                 disable_skew_correction: None,
-                product_tour_id: product_tour_id.map(String::from),
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(
@@ -307,7 +302,7 @@ mod tests {
     }
 
     fn make_verified_event(name: &str) -> WrappedEvent {
-        let mut ev = make_event(name, None);
+        let mut ev = make_event(name);
         ev.is_gateway_verified = true;
         ev
     }
@@ -352,10 +347,10 @@ mod tests {
     async fn no_limits_all_events_pass() {
         let limiter = build_limiter("tok", false, &[]).await;
         let mut events = vec![
-            make_event("$pageview", None),
-            make_event("$exception", None),
-            make_event("survey sent", None),
-            make_event("$ai_generation", None),
+            make_event("$pageview"),
+            make_event("$exception"),
+            make_event("survey sent"),
+            make_event("$ai_generation"),
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -372,10 +367,10 @@ mod tests {
     async fn global_limit_returns_error_without_marking_events() {
         let limiter = build_limiter("tok", true, &[]).await;
         let mut events = vec![
-            make_event("$pageview", None),
-            make_event("$exception", None),
-            make_event("survey sent", None),
-            make_event("$ai_generation", None),
+            make_event("$pageview"),
+            make_event("$exception"),
+            make_event("survey sent"),
+            make_event("$ai_generation"),
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -389,9 +384,9 @@ mod tests {
     #[tokio::test]
     async fn global_limit_preserves_all_event_states() {
         let limiter = build_limiter("tok", true, &[]).await;
-        let bad = make_event("bad_event", None);
+        let bad = make_event("bad_event");
         let bad_uuid = bad.uuid;
-        let mut events = vec![make_event("$pageview", None), bad];
+        let mut events = vec![make_event("$pageview"), bad];
         // Pre-mark one event as Drop (e.g. from validation)
         let bad_ev = events.iter_mut().find(|e| e.uuid == bad_uuid).unwrap();
         bad_ev.result = EventResult::Drop;
@@ -414,10 +409,7 @@ mod tests {
     #[tokio::test]
     async fn global_limit_different_token_not_affected() {
         let limiter = build_limiter("limited_tok", true, &[]).await;
-        let mut events = vec![
-            make_event("$pageview", None),
-            make_event("$exception", None),
-        ];
+        let mut events = vec![make_event("$pageview"), make_event("$exception")];
 
         let result = apply_quota_limits(&limiter, "other_tok", &mut events).await;
         assert!(result.is_ok());
@@ -432,10 +424,10 @@ mod tests {
     async fn exception_limit_marks_only_exceptions() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
         let mut events = vec![
-            make_event("$pageview", None),
-            make_event("$exception", None),
-            make_event("survey sent", None),
-            make_event("$exception", None),
+            make_event("$pageview"),
+            make_event("$exception"),
+            make_event("survey sent"),
+            make_event("$exception"),
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -456,10 +448,7 @@ mod tests {
     #[tokio::test]
     async fn exception_limit_all_exceptions_returns_error() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
-        let mut events = vec![
-            make_event("$exception", None),
-            make_event("$exception", None),
-        ];
+        let mut events = vec![make_event("$exception"), make_event("$exception")];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_err());
@@ -474,11 +463,11 @@ mod tests {
     async fn survey_limit_marks_only_survey_events() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Surveys]).await;
         let mut events = vec![
-            make_event("$pageview", None),
-            make_event("survey sent", None),
-            make_event("survey shown", None),
-            make_event("survey dismissed", None),
-            make_event("$exception", None),
+            make_event("$pageview"),
+            make_event("survey sent"),
+            make_event("survey shown"),
+            make_event("survey dismissed"),
+            make_event("$exception"),
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -493,24 +482,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn survey_limit_excludes_product_tour_events() {
-        let limiter = build_limiter("tok", false, &[QuotaResource::Surveys]).await;
-        let tour_ev = make_event("survey sent", Some("tour-123"));
-        let tour_uuid = tour_ev.uuid;
-        let mut events = vec![make_event("survey sent", None), tour_ev];
-
-        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
-        assert!(result.is_ok());
-
-        // Product tour survey → Ok, regular survey → Drop (quota exceeded)
-        assert_eq!(
-            events.iter().find(|e| e.uuid == tour_uuid).unwrap().result,
-            EventResult::Ok
-        );
-        assert_eq!(quota_dropped_event_names(&events).len(), 1);
-    }
-
     // -----------------------------------------------------------------------
     // LLM scoped limit
     // -----------------------------------------------------------------------
@@ -519,10 +490,10 @@ mod tests {
     async fn llm_limit_marks_only_ai_events() {
         let limiter = build_limiter("tok", false, &[QuotaResource::LLMEvents]).await;
         let mut events = vec![
-            make_event("$ai_generation", None),
-            make_event("$ai_span", None),
-            make_event("$pageview", None),
-            make_event("$ai_trace", None),
+            make_event("$ai_generation"),
+            make_event("$ai_span"),
+            make_event("$pageview"),
+            make_event("$ai_trace"),
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -539,9 +510,9 @@ mod tests {
     async fn llm_limit_ignores_non_ai_prefix() {
         let limiter = build_limiter("tok", false, &[QuotaResource::LLMEvents]).await;
         let mut events = vec![
-            make_event("$ai_generation", None),
-            make_event("$ainotcounted", None), // no underscore
-            make_event("ai_generation", None), // no $ prefix
+            make_event("$ai_generation"),
+            make_event("$ainotcounted"), // no underscore
+            make_event("ai_generation"), // no $ prefix
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -558,7 +529,7 @@ mod tests {
         let limiter = build_limiter("tok", false, &[QuotaResource::LLMEvents]).await;
         let verified = make_verified_event("$ai_generation");
         let verified_uuid = verified.uuid;
-        let mut events = vec![verified, make_event("$ai_generation", None)];
+        let mut events = vec![verified, make_event("$ai_generation")];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_ok());
@@ -587,10 +558,10 @@ mod tests {
         )
         .await;
         let mut events = vec![
-            make_event("$exception", None),
-            make_event("survey sent", None),
-            make_event("$ai_generation", None),
-            make_event("$pageview", None),
+            make_event("$exception"),
+            make_event("survey sent"),
+            make_event("$ai_generation"),
+            make_event("$pageview"),
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -625,9 +596,9 @@ mod tests {
         )
         .await;
         let mut events = vec![
-            make_event("$exception", None),
-            make_event("survey sent", None),
-            make_event("$ai_generation", None),
+            make_event("$exception"),
+            make_event("survey sent"),
+            make_event("$ai_generation"),
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -643,10 +614,7 @@ mod tests {
     async fn global_limit_short_circuits_before_scoped() {
         // Global limited, plus scoped exception limited
         let limiter = build_limiter("tok", true, &[QuotaResource::Exceptions]).await;
-        let mut events = vec![
-            make_event("$pageview", None),
-            make_event("$exception", None),
-        ];
+        let mut events = vec![make_event("$pageview"), make_event("$exception")];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_err());
@@ -666,9 +634,9 @@ mod tests {
     async fn pre_existing_drop_events_counted_in_post_check() {
         // No global limit, but exceptions limited
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
-        let pv = make_event("$pageview", None);
+        let pv = make_event("$pageview");
         let pv_uuid = pv.uuid;
-        let mut events = vec![make_event("$exception", None), pv];
+        let mut events = vec![make_event("$exception"), pv];
         // Pre-mark pageview as Drop from a prior validation step
         let pv_ev = events.iter_mut().find(|e| e.uuid == pv_uuid).unwrap();
         pv_ev.result = EventResult::Drop;
@@ -681,13 +649,9 @@ mod tests {
     #[tokio::test]
     async fn mixed_pre_existing_and_scoped_still_ok_if_some_remain() {
         let limiter = build_limiter("tok", false, &[QuotaResource::Exceptions]).await;
-        let pv = make_event("$pageview", None);
+        let pv = make_event("$pageview");
         let pv_uuid = pv.uuid;
-        let mut events = vec![
-            make_event("$exception", None),
-            pv,
-            make_event("click", None),
-        ];
+        let mut events = vec![make_event("$exception"), pv, make_event("click")];
         events
             .iter_mut()
             .find(|e| e.uuid == pv_uuid)

@@ -25,7 +25,6 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
@@ -129,12 +128,9 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
 
     def has_activated_feature_flags(self) -> bool:
-        # Get feature flags that have at least one filter group, excluding ones used by experiments, surveys, and product tours
+        # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
         experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
         survey_flags = Survey.objects.filter(team=self.team).values_list("targeting_flag_id", flat=True)
-        product_tour_flags = ProductTour.all_objects.filter(team=self.team).values_list(
-            "internal_targeting_flag_id", flat=True
-        )
 
         feature_flags = (
             FeatureFlag.objects.filter(
@@ -143,7 +139,6 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             )
             .exclude(id__in=experiment_flags)
             .exclude(id__in=survey_flags)
-            .exclude(id__in=product_tour_flags)
             .only("id", "filters")
         )
 

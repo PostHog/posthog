@@ -119,7 +119,6 @@ ActivityScope = Literal[
     "LogsRetentionRule",
     "TracesRetentionRule",
     "DashboardWidget",
-    "ProductTour",
     "Ticket",
     "InstanceSetting",
     "SignalReport",

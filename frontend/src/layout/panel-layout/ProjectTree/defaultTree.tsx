@@ -65,7 +65,6 @@ import {
     IconSend,
     IconServer,
     IconShuffle,
-    IconSpotlight,
     IconStack,
     IconStar,
     IconStethoscope,
@@ -187,10 +186,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     survey: {
         icon: <IconMessage />,
         iconColor: ['var(--color-product-surveys-light)'],
-    },
-    product_tour: {
-        icon: <IconSpotlight />,
-        iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
     },
     home: {
         icon: <IconHome />,

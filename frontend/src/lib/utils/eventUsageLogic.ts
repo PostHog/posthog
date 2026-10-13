@@ -11,7 +11,6 @@ import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
-import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -66,7 +65,6 @@ import {
     FunnelCorrelation,
     MultipleSurveyQuestion,
     OnboardingStepKey,
-    ProductTour,
     PropertyFilterType,
     InsightModel,
     type SDK,
@@ -1513,19 +1511,6 @@ export interface eventUsageLogicActions {
     reportPoEModeUpdated: (mode: string) => {
         mode: string
     }
-    reportProductTourCreated: (
-        tour: ProductTour,
-        creationSource?: 'app' | 'toolbar'
-    ) => {
-        creationSource: 'app' | 'toolbar' | undefined
-        tour: ProductTour
-    }
-    reportProductTourListViewed: () => {
-        value: true
-    }
-    reportProductTourViewed: (tour: ProductTour) => {
-        tour: ProductTour
-    }
     reportProductUnsubscribed: (product: string) => {
         product: string
     }
@@ -2141,12 +2126,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             queryDurations: { aggregate: number; openEnded: number }
         ) => ({ survey, totalDurationMs, queryDurations }),
         reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
-        reportProductTourViewed: (tour: ProductTour) => ({ tour }),
-        reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
-            tour,
-            creationSource,
-        }),
-        reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
             properties,
@@ -2995,30 +2974,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 aggregate_duration: queryDurations.aggregate,
                 open_ended_duration: queryDurations.openEnded,
             })
-        },
-        reportProductTourViewed: ({ tour }) => {
-            posthog.capture(ProductTourEvent.VIEWED, {
-                tour_id: tour.id,
-                tour_name: tour.name,
-                tour_type: tour.content?.type ?? 'tour',
-                step_count: tour.content?.steps?.length ?? 0,
-                start_date: tour.start_date,
-                end_date: tour.end_date,
-            })
-        },
-        reportProductTourCreated: ({ tour, creationSource }) => {
-            posthog.capture(ProductTourEvent.CREATED, {
-                tour_id: tour.id,
-                tour_name: tour.name,
-                tour_type: tour.content?.type ?? 'tour',
-                step_count: tour.content?.steps?.length ?? 0,
-                has_targeting: !!tour.internal_targeting_flag,
-                auto_launch: tour.auto_launch,
-                creation_source: creationSource ?? 'app',
-            })
-        },
-        reportProductTourListViewed: () => {
-            posthog.capture(ProductTourEvent.LIST_VIEWED)
         },
         reportUserFeedbackButtonClicked: ({ source, meta }) => {
             posthog.capture('feedback button clicked', {

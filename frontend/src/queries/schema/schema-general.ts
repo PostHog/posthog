@@ -5474,7 +5474,6 @@ export type FileSystemIconType =
     | 'replay_vision'
     | 'session_profile'
     | 'survey'
-    | 'product_tour'
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
@@ -9326,7 +9325,6 @@ export enum ProductKey {
     POSTHOG_GITHUB = 'posthog_github',
     POSTHOG_SLACK = 'posthog_slack',
     PRODUCT_ANALYTICS = 'product_analytics',
-    PRODUCT_TOURS = 'product_tours',
     PULSE = 'pulse',
     REVENUE_ANALYTICS = 'revenue_analytics',
     REVIEW_HOG = 'review_hog',
@@ -9499,9 +9497,6 @@ export enum ProductIntentContext {
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',
-
-    // Product Tours
-    PRODUCT_TOUR_CREATED = 'product_tour_created',
 
     // Tasks
     TASK_CREATED = 'task_created',

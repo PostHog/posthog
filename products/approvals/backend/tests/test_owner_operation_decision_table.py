@@ -26,7 +26,6 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import flag_owner_kind
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 GATED_ACTION_KEYS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
@@ -43,8 +42,6 @@ OWNERS = (
     "experiment",
     "survey_owned",
     "survey_linked",
-    "tour_owned",
-    "tour_linked",
     "early_access",
     "session_recording_reference",
 )
@@ -66,8 +63,6 @@ EXPECTED_OWNER_KIND: dict[str, Optional[str]] = {
     "experiment": "experiment",
     "survey_owned": "survey",
     "survey_linked": None,
-    "tour_owned": "product_tour",
-    "tour_linked": None,
     "early_access": "early_access_feature",
     "session_recording_reference": None,
 }
@@ -92,8 +87,6 @@ DECISION_TABLE: dict[str, dict[str, Optional[str]]] = {
     "experiment":                  _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  UNGATED),
     "survey_owned":                _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  UNGATED),
     "survey_linked":               _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
-    "tour_owned":                  _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  UNGATED),
-    "tour_linked":                 _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
     "early_access":                _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  REJECTED),
     "session_recording_reference": _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  REJECTED),
 }
@@ -137,10 +130,6 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
             Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
         elif owner == "survey_linked":
             Survey.objects.create(team=self.team, name="s", type="popover", linked_flag=flag)
-        elif owner == "tour_owned":
-            ProductTour.objects.create(team=self.team, name="t", internal_targeting_flag=flag)
-        elif owner == "tour_linked":
-            ProductTour.objects.create(team=self.team, name="t", linked_flag=flag)
         elif owner == "early_access":
             EarlyAccessFeature.objects.create(team=self.team, name="f", stage="beta", feature_flag=flag)
         elif owner == "session_recording_reference":

@@ -9,7 +9,6 @@ Agent steps:
 - Call posthog:feature-flag-get-all with active: "STALE"
 - For the most promising candidates, read status, definition, dependents, and schedules
 - Confirm creation and update dates are older than 30 days and no linked system needs the flag
-- Ask about product-tour usage; the user confirms that neither candidate is used by a tour
 - Present findings:
 
    "I found 4 stale feature flags in your project:

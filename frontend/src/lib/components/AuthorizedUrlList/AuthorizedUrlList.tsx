@@ -9,7 +9,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { ExperimentIdType, ToolbarUserIntent } from '~/types'
+import { ExperimentIdType } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
@@ -19,8 +19,6 @@ export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
-    productTourId?: string | null
-    userIntent?: ToolbarUserIntent
     query?: string | null
     allowWildCards?: boolean
     displaySuggestions?: boolean
@@ -35,8 +33,6 @@ export interface AuthorizedUrlListProps {
 export function AuthorizedUrlList({
     actionId,
     experimentId,
-    productTourId,
-    userIntent,
     query,
     type,
     addText = 'Add new authorized URL',
@@ -50,9 +46,7 @@ export function AuthorizedUrlList({
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
-        productTourId: productTourId ?? null,
         actionId: actionId ?? null,
-        userIntent,
         type,
         query,
         allowWildCards,
@@ -72,7 +66,6 @@ export function AuthorizedUrlList({
             {!hideEmptyState && (
                 <EmptyState
                     experimentId={experimentId}
-                    productTourId={productTourId}
                     actionId={actionId}
                     type={type}
                     displaySuggestions={displaySuggestions}
@@ -85,7 +78,6 @@ export function AuthorizedUrlList({
                         type={type}
                         actionId={actionId}
                         experimentId={experimentId}
-                        productTourId={productTourId}
                         allowWildCards={allowWildCards}
                     />
                 </div>
@@ -128,7 +120,6 @@ export function AuthorizedUrlList({
                             type={type}
                             actionId={actionId}
                             experimentId={experimentId}
-                            productTourId={productTourId}
                             allowWildCards={allowWildCards}
                         />
                     </div>

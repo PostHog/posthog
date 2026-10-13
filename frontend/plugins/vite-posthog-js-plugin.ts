@@ -54,8 +54,6 @@ function copyPostHogJsFiles(): void {
         'dead-clicks-autocapture.js.map',
         'customizations.full.js',
         'customizations.full.js.map',
-        'product-tours.js',
-        'product-tours.js.map',
     ]
 
     filesToCopy.forEach((file) => {

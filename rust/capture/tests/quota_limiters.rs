@@ -204,10 +204,7 @@ fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
 async fn test_exception_predicate() {
     let should_accept_names = vec!["$exception"];
     for name in should_accept_names {
-        let info = EventInfo {
-            name,
-            has_product_tour_id: false,
-        };
+        let info = EventInfo { name };
         assert!(is_exception_event(info), "event {name} should be accepted");
     }
 
@@ -221,10 +218,7 @@ async fn test_exception_predicate() {
         "$exceptable",
     ];
     for name in should_reject_names {
-        let info = EventInfo {
-            name,
-            has_product_tour_id: false,
-        };
+        let info = EventInfo { name };
         assert!(
             !is_exception_event(info),
             "event {name} should not be accepted"
@@ -244,10 +238,7 @@ async fn test_llm_predicate() {
         "$ai_feedback",
     ];
     for name in should_accept_names {
-        let info = EventInfo {
-            name,
-            has_product_tour_id: false,
-        };
+        let info = EventInfo { name };
         assert!(is_llm_event(info), "event {name} should be accepted");
     }
 
@@ -261,23 +252,17 @@ async fn test_llm_predicate() {
         "ai_generation",
     ];
     for name in should_reject_names {
-        let info = EventInfo {
-            name,
-            has_product_tour_id: false,
-        };
+        let info = EventInfo { name };
         assert!(!is_llm_event(info), "event {name} should not be accepted");
     }
 }
 
 #[tokio::test]
 async fn test_survey_predicate() {
-    // Regular survey events (no product tour) should be accepted
+    // Survey events should be accepted
     let should_accept_names = vec!["survey sent", "survey shown", "survey dismissed"];
     for name in should_accept_names {
-        let info = EventInfo {
-            name,
-            has_product_tour_id: false,
-        };
+        let info = EventInfo { name };
         assert!(is_survey_event(info), "event {name} should be accepted");
     }
 
@@ -295,26 +280,10 @@ async fn test_survey_predicate() {
         "survey_dismissed",
     ];
     for name in should_reject_names {
-        let info = EventInfo {
-            name,
-            has_product_tour_id: false,
-        };
+        let info = EventInfo { name };
         assert!(
             !is_survey_event(info),
             "event {name} should not be accepted"
-        );
-    }
-
-    // Product tour survey events should be rejected (free, not billed)
-    let product_tour_survey_names = vec!["survey sent", "survey shown", "survey dismissed"];
-    for name in product_tour_survey_names {
-        let info = EventInfo {
-            name,
-            has_product_tour_id: true,
-        };
-        assert!(
-            !is_survey_event(info),
-            "product tour survey event {name} should not be limited"
         );
     }
 }

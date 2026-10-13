@@ -201,13 +201,6 @@
             "type": "notebook",
             "intents": ["notebooks"]
         },
-        {
-            "path": "Product tours",
-            "category": "Product engineering",
-            "iconType": "product_tour",
-            "type": "product_tour",
-            "intents": ["product_tours"]
-        },
         { "path": "Pulse", "category": "Unreleased", "iconType": "pulse", "type": null, "intents": ["pulse"] },
         {
             "path": "Session replay",

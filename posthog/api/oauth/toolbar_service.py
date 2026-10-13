@@ -96,7 +96,6 @@ class ToolbarOAuthState:
     app_url: str
     action_id: int | None = None
     experiment_id: int | str | None = None
-    product_tour_id: str | None = None
     user_intent: str | None = None
 
 
@@ -215,7 +214,6 @@ def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:
         "app_url": state.app_url,
         "action_id": state.action_id,
         "experiment_id": state.experiment_id,
-        "product_tour_id": state.product_tour_id,
         "user_intent": state.user_intent,
         "iat": int(now.timestamp()),
     }

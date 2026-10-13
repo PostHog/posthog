@@ -2795,7 +2795,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
+                        'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
                     ),
             })
             .optional(),
@@ -5534,7 +5534,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
+                        'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
                     ),
             })
             .optional(),
