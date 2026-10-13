@@ -1,4 +1,5 @@
 import sys
+import difflib
 import inspect
 import dataclasses
 from collections.abc import Sequence
@@ -24,7 +25,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import FieldNotFoundError, NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -239,7 +240,8 @@ class BaseTableType(Type):
                 )
             return FieldType(name=name, table_type=self)
 
-        raise QueryError(f"Field not found: {name}")
+        field_names = self.resolve_database_table(context).fields.keys()
+        raise FieldNotFoundError(name, difflib.get_close_matches(name, field_names, n=3, cutoff=0.6))
 
 
 TableOrSelectType = Union[BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType"]
@@ -312,7 +314,9 @@ class ColumnAliasedTableType(BaseTableType):
             return AsteriskType(table_type=self)
         original = self.alias_to_original.get(name)
         if original is None:
-            raise QueryError(f"Field not found: {name}")
+            raise FieldNotFoundError(
+                name, difflib.get_close_matches(name, self.alias_to_original.keys(), n=3, cutoff=0.6)
+            )
         # Delegate to the underlying table using the original column name,
         # but keep *this* type as the table_type so the printer can detect
         # the column-alias context.

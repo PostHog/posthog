@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from .ast import Expr
@@ -66,6 +66,18 @@ class QueryError(ExposedHogQLError):
     """The query is invalid, though correct syntactically."""
 
     code_name = "hogql_query_error"
+
+
+class FieldNotFoundError(QueryError):
+    """A table has no field with the requested name."""
+
+    suggestions: list[str]
+    """Close matches among the table's field names, best match first."""
+
+    def __init__(self, name: str, suggestions: Optional[list[str]] = None, **kwargs: Any):
+        self.suggestions = suggestions or []
+        suffix = f". Did you mean: {', '.join(self.suggestions)}?" if self.suggestions else ""
+        super().__init__(f"Field not found: {name}{suffix}", **kwargs)
 
 
 class TableAccessDeniedError(QueryError):

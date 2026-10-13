@@ -187,6 +187,24 @@ def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
         return None
 
 
+def suggested_qualified_field_fix(node: ast.Field, qualifier: list[str], suggestion: str) -> Optional[str]:
+    """Replacement text for a qualified field such as `c.payment_intent`, or None when no edit is safe to offer.
+
+    The span covers the whole chain, so the fix repeats the qualifier. The qualifier has to match the
+    query text, because field traversers add segments to the resolved chain that the user never typed.
+    """
+    if node.start is None or node.end is None:
+        return None
+    if [str(segment) for segment in node.chain[:-1]] != qualifier:
+        return None
+    if not all(isinstance(segment, str) for segment in node.chain[:-1]):
+        return None
+    try:
+        return ".".join(escape_hogql_identifier(segment) for segment in [*qualifier, suggestion])
+    except QueryError:
+        return None
+
+
 def lookup_table_by_name(
     scope: ast.SelectQueryType, ctes: dict[str, ast.CTE], node: ast.Field
 ) -> Optional[ast.TableOrSelectType]:
