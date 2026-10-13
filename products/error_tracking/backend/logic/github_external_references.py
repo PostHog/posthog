@@ -8,6 +8,7 @@ from django.core.cache import cache
 from django.db import transaction
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.error_tracking.backend.facade import contracts
@@ -163,9 +164,9 @@ def _actor_lacks_write_permission(integration: Integration, job: contracts.GitHu
     )
     permission = cache.get(cache_key)
     if permission is None:
-        permission = GitHubIntegration(integration).get_collaborator_permission(
-            job.repository_full_name, job.actor_login
-        )
+        permission = GitHubIntegration(
+            integration, source="error_tracking", priority=Priority.CRITICAL
+        ).get_collaborator_permission(job.repository_full_name, job.actor_login)
         ttl = (
             _ACTOR_PERMISSION_ALLOW_CACHE_SECONDS
             if permission in _WRITE_PERMISSIONS
@@ -189,7 +190,9 @@ def link_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
     if integration is None:
         return False
     try:
-        integration_owner = GitHubIntegration(integration).organization()
+        integration_owner = GitHubIntegration(
+            integration, source="error_tracking", priority=Priority.BATCH
+        ).organization()
     except ValueError:
         return False
     if integration_owner.casefold() != owner.casefold():
