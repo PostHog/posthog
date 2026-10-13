@@ -58,6 +58,9 @@ MAX_RETRY_AFTER_SECONDS = 120
 # ~30 minutes as incomplete. Bounding `end` keeps the incremental watermark behind the
 # consistency horizon so late-arriving events aren't skipped on the next sync.
 EVENTS_CONSISTENCY_LAG_SECONDS = 30 * 60
+# Mailgun keeps events for its plan's retention, at most 30 days on standard plans. A sync with no
+# watermark starts there, because the Events API needs an explicit `begin` for an ascending range.
+EVENTS_LOOKBACK_DAYS = 30
 # Backstop for a `paging.next` chain that never terminates and never repeats a URL, which the
 # seen-URL guard below can't catch. Sized far above any real page count (the largest paging
 # endpoint fetches 1000 rows a page) so it only trips on a runaway.
@@ -194,8 +197,11 @@ def _initial_url(
         # Ascending creation order keeps fetched pages stable and lets the incremental
         # watermark advance monotonically.
         params["ascending"] = "yes"
-        end = int(time.time()) - EVENTS_CONSISTENCY_LAG_SECONDS
-        if begin is not None and begin >= end:
+        now = int(time.time())
+        end = now - EVENTS_CONSISTENCY_LAG_SECONDS
+        if begin is None:
+            begin = now - EVENTS_LOOKBACK_DAYS * 24 * 60 * 60
+        elif begin >= end:
             # Watermark is already inside the consistency lag window; nothing safe to fetch.
             return None
         params["begin"] = begin
@@ -297,6 +303,10 @@ def _fetch_page(
 # specific domain (e.g. a subaccount domain, or a restricted key). A global credential failure
 # 401s the `/v4/domains` listing itself, which never reaches this fan-out and stays non-retryable.
 SKIPPABLE_DOMAIN_STATUS_CODES = frozenset({400, 401, 403})
+
+
+class MailgunAllDomainsSkippedError(Exception):
+    pass
 
 
 def _is_skippable_domain_error(config: MailgunEndpointConfig, domain: Optional[str], error: requests.HTTPError) -> bool:
@@ -425,6 +435,10 @@ def get_rows(
     # empty one. Without this guard the chain re-yields the same rows until the activity is killed,
     # and every re-yielded row is billed as a synced row even though the merge dedupes them away.
     seen_urls: set[str] = set()
+    # A resumed run can't see the domains an earlier attempt already read, so it doesn't count.
+    count_domains = resume_config is None and config.domain_scoped
+    queried_domains = 0
+    skipped_domains = 0
 
     while current_url is not None or pending_domains:
         if current_url is None:
@@ -435,6 +449,7 @@ def get_rows(
                 current_domain = None
                 resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
                 continue
+            queried_domains += 1
 
         loop_reason: Optional[str] = None
         if current_url in seen_urls:
@@ -464,6 +479,7 @@ def get_rows(
                 f"request returned {error.response.status_code if error.response is not None else '?'}. "
                 f"url={current_url}"
             )
+            skipped_domains += 1
             current_url = None
             current_domain = None
             resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
@@ -490,6 +506,13 @@ def get_rows(
         if not items:
             # A fan-out over many empty lists or domains yields nothing for a long stretch.
             resumable_source_manager.safe_point()
+
+    if count_domains and queried_domains > 0 and skipped_domains == queried_domains:
+        # Without this, a request Mailgun rejects for every domain ends as a successful sync of 0 rows.
+        raise MailgunAllDomainsSkippedError(
+            f"Mailgun rejected the {endpoint} request for every sending domain ({skipped_domains} domains). "
+            "Check that your sending domains are active and that the API key can read them."
+        )
 
 
 def _to_date(value: Any) -> Optional[date]:
