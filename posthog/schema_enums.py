@@ -675,6 +675,12 @@ class BIDateBucket(StrEnum):
     YEAR = "year"
 
 
+class DatePart(StrEnum):
+    MONTH = "month"
+    QUARTER = "quarter"
+    DAY_OF_WEEK = "day_of_week"
+
+
 class BIFilterOperator(StrEnum):
     EQUALS = "equals"
     NOT_EQUALS = "not_equals"
@@ -721,6 +727,11 @@ class BITableCalculationType(StrEnum):
     PERCENT_CHANGE = "percent_change"
     MOVING_AVERAGE = "moving_average"
     RANK = "rank"
+
+
+class Shelf(StrEnum):
+    ROWS = "rows"
+    COLUMNS = "columns"
 
 
 class BaseMathType(StrEnum):
@@ -1307,6 +1318,7 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    SEVERITY = "severity"
 
 
 class ErrorTrackingQueryIssueSeverity(StrEnum):
@@ -1408,6 +1420,24 @@ class ManualMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN_COUNT = "mean_count"
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
+class ExperimentExposureHealthFindingActionKind(StrEnum):
+    EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
+    ADJUST_DISTRIBUTION = "adjust_distribution"
+    USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+
+
+class ExperimentExposureHealthFindingCode(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+
+
+class ExperimentExposureHealthFindingSeverity(StrEnum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -1636,9 +1666,22 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
+class Calculation(StrEnum):
+    FIXED = "fixed"
+    MEAN = "mean"
+    MEDIAN = "median"
+    MIN = "min"
+    MAX = "max"
+
+
 class Position(StrEnum):
     START = "start"
     END = "end"
+
+
+class Scope(StrEnum):
+    ALL = "all"
+    SERIES = "series"
 
 
 class GoogleAdsDefaultSources(StrEnum):
@@ -2197,6 +2240,12 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsQueryLanguage(StrEnum):
+    BUILDER = "builder"
+    PROMQL = "promql"
+    SQL = "sql"
 
 
 class MetricsRangeFunction(StrEnum):

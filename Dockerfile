@@ -55,6 +55,7 @@ COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
 COPY packages/llm-normalizer/ packages/llm-normalizer/
+COPY packages/agent/packages/agent-contracts/src/ packages/agent/packages/agent-contracts/src/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \

@@ -336,6 +336,9 @@ _AGENT_CHECK_GUIDANCE = """- Use `kind: "agent"` when no single number settles t
   `{{"instructions": "<what a later run must establish>", "probe_hints": ["<issue id>", "<service>"]}}`.
   Say in `instructions` what result means the fix held and what result means it did not."""
 
+_METRIC_ONLY_CHECK_GUIDANCE = """- Only `metric_threshold` checks can run on this project, because it has no scout to run an
+  `agent` check. Do not return an `agent` check. When no metric settles the claim, return no check."""
+
 
 class FixVerificationOutput(BaseModel):
     """Session output for the final, actionable-only fix verification turn."""
@@ -838,6 +841,9 @@ _REPORT_METRICS_GUIDANCE = f"""## Measuring impact
 
 Put reproducible report-level measurements under `metrics`. A metric tells the reader how many people, sessions, occurrences, conversions, errors, milliseconds, or dollars the observation affects. Use at most one `primary` metric for the key observation and `supporting` metrics for the compact impact facts around it. Every metric needs a bounded live query; its saved snapshot is only an optional cached fallback.
 
+- Attach a verified `primary` metric for the main quantitative claim from events, including a single count. A chart is not required. For SQL evidence, run an equivalent supported Trends query before attaching it.
+- Match the claim's filters, population, exclusions, window, and aggregation. Do not use project totals for one issue, event ratios for user funnels, or exposure as confirmed harm.
+- If no useful supported metric can measure the claim, explain why in one short summary sentence. Keep the useful report. Qualitative findings can omit metrics.
 - **Choose the kind by what the reader will ask.**
     - `affected_users` for anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, or a pageview matching a broken URL. One series, `math: "dau"`.
     - `affected_sessions` when the source establishes sessions but not people. Use exactly one event or action series with `math: "unique_session"`. Do not use a formula or group math.
@@ -1265,8 +1271,8 @@ def build_fix_verification_prompt(
 
     The two flags decide whether this turn may schedule its plan as well as write it, and are
     resolved per team: `metric_threshold` needs the report metrics rollout, because the check rides a
-    metric this report already shows, and `agent` needs the team enrolled in scouts, because nothing
-    would ever run a check with no fleet behind it. With neither, the turn writes prose only and the
+    metric this report already shows, and `agent` needs the team enrolled in scouts with a lane that
+    can run it, because nothing would ever run a check with no scout behind it. With neither, the turn writes prose only and the
     `checks` field never reaches the schema, so the model is not offered a channel it cannot use.
     """
     schema_dict = FixVerificationOutput.model_json_schema()
@@ -1275,6 +1281,7 @@ def build_fix_verification_prompt(
         for guidance, enabled in (
             (_METRIC_CHECK_GUIDANCE, metric_checks_enabled),
             (_AGENT_CHECK_GUIDANCE, agent_checks_enabled),
+            (_METRIC_ONLY_CHECK_GUIDANCE, metric_checks_enabled and not agent_checks_enabled),
         )
         if enabled
     ]
@@ -1423,7 +1430,7 @@ async def run_multi_turn_research(
     """
     own_pr_url = "\n".join(target.pr_url for target in implementation_context.candidates) or None
     from products.tasks.backend.facade import api as tasks_facade
-    from products.tasks.backend.facade.agents import MultiTurnSession
+    from products.tasks.backend.facade.agents import MultiTurnSession, turn_failure_error_type
 
     total = len(signals)
     if total == 0:
@@ -1698,7 +1705,7 @@ async def run_multi_turn_research(
         await session.end()
     except (Exception, asyncio.CancelledError) as e:
         # Shield so the session ending cannot itself be canceled - must complete
-        await asyncio.shield(session.end(status="failed", error=str(e)))
+        await asyncio.shield(session.end(status="failed", error=str(e), error_type=turn_failure_error_type(e)))
         raise
 
     new_finding_count = sum(1 for artefact in new_artefacts if isinstance(artefact, SignalFinding))

@@ -95,7 +95,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, deferred event removal, and property removal of event `properties` (below). Not immediate event removal, and not property removal with a HogQL predicate. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event `properties` (below). Neither event removal nor property removal sweeps it when the request carries a HogQL predicate. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
@@ -153,10 +153,11 @@ The copy writes each shard's matching rows to S3 with the named keys dropped and
 That works because `materialize()` creates columns as `DEFAULT <expr>`, so an insert can set the column directly.
 `DeletionTarget.accepts_property_rewrite` marks each table the job sweeps, and the gate refuses while a table without it holds rows a request names.
 
-`person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
-Because the table can no longer hold person properties, only the event-`properties` half of a request applies here.
-`DeletionTarget.stores_person_properties` is `False` on `FLAG_EVALUATIONS`, so the job drops the `person_properties` half for this table, and a request that names only person properties does not touch it.
-That is accurate for rows written since the producer stopped sending `person_properties` (2026-09-05, #95693), and a deliberate blind spot for whatever a row written before then still carries: those values are out of reach until the row's TTL passes.
+`group0..group4_properties` no longer exist on the table: no Insight or Hog function used them as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them. Event `properties` and `person_id` are still sent.
+`person_properties` is on the table again, so test-account filters can read person properties off the row the way they do on `events`.
+The column defaults to `'{}'`, and no row holds real person properties until the producer sends them.
+Until then `DeletionTarget.stores_person_properties` stays `False` on `FLAG_EVALUATIONS`, so the job drops the `person_properties` half for this table, and a request that names only person properties does not touch it.
+`stores_person_properties` has to turn on before or with the producer change, or a person-property removal skips real values on this table and still reports success.
 
 #### Typed columns
 
@@ -209,21 +210,23 @@ The copy carries every other column through unchanged.
 `flag_evaluations` stays absent from `MATERIALIZATION_VALID_TABLES`.
 The job finds typed columns through their comments in `system.columns`, not through that set, and adding the table there enrolls it in `materialize()` and the HogQL property planner, which is a separate change.
 
-### Immediate event removal skips `flag_evaluations`
+### Immediate event removal with a HogQL predicate skips `flag_evaluations`
 
-`get_event_removal_shards` leaves `flag_evaluations` out of its targets, so an immediate request neither sweeps the table nor checks it for matching rows.
+`get_event_removal_shards` leaves `flag_evaluations` out of an immediate request that carries a HogQL predicate, so the request neither sweeps the table nor checks it for matching rows.
 The rows age out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
-Deferred event removal still queues the table's uuids, and `deletes_job` removes them.
-The skip exists because of the HogQL gap below: before it, the gate refused every immediate request with a predicate whose team had matching `$feature_flag_called` rows.
+The skip exists because of the HogQL gap below: without it, the gate refuses every immediate request with a predicate whose team has matching `$feature_flag_called` rows.
+An immediate request without a predicate sweeps the table and verifies it like the events tables, because its delete predicate names only `team_id`, `timestamp` and `event`.
 
 ### Event removal with a HogQL predicate does not reach `flag_evaluations`
 
 `compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
 Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
 Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
-The dag refuses rather than guessing.
+The dag does not guess.
+It never runs a fragment against the table.
+A deferred request with a predicate is refused if the table holds matching rows, and an immediate one skips the table (above).
 A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
-Deferred requests without a predicate are swept normally; deferred requests with one are refused if the table holds matching rows.
+Requests without a predicate, immediate or deferred, are swept normally.
 
 ## Producer prerequisite: person_id parity
 
@@ -252,9 +255,24 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
-`cleanup_old_events_by_partition` stays events-only. It enforces a multi-year retention floor for the teams and partitions each run names, and every other personal-data table already expires sooner under its own TTL.
-In EU, `eu_monthly_old_events_cleanup_schedule` runs it monthly for a fixed team list, over every partition from 202001 through the newest month with 13-month-old rows.
-It is stopped by default. It leaves events dated before 2020 in place, because `sharded_events_json` keeps them in its 202001 partition and the schedule matches on the event's own month.
+`cleanup_old_events_by_partition` stays events-only. It enforces the events retention that staff set for each team, and every other personal-data table already expires sooner under its own TTL.
+It deletes a month only when every event in it is older than the retention. A month that is only partly past the retention waits for a later run, for manual runs too.
+
+Staff set the retention in Django admin, on the team and organization pages:
+
+- `OrganizationEventsRetentionConfig` holds the organization's default, minimum and maximum months.
+- `TeamEventsRetentionConfig` holds a team's own months, which must fall within its organization's range. Saving an organization range that excludes an existing team value fails until that team changes.
+- A team's effective retention is its own value, else its organization's default. A team with neither keeps all its events.
+- This setting is separate from `Team.event_retention_months`, which the billing plan sets and which only hides older events from queries.
+
+`monthly_old_events_cleanup_job` has two steps:
+
+- `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then finds the months that hold events for each team and keeps the ones entirely past that team's retention. It logs the teams due in each month.
+- `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
+
+A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention is ignored.
+`monthly_old_events_cleanup_schedule` starts one run on the 1st of each month, in every region, and skips when no retention is set. It is stopped by default. The job shares the `deletes_job` run queue, so it does not mutate the same partitions at the same time.
+`sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.
 
 ## Adding a table
 

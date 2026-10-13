@@ -7,7 +7,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { commandKSearchLogic } from './commandKSearchLogic'
 
 export function CommandKSearchFooter(): JSX.Element {
-    const { highlightIsFilterRow, chips, mode, selectedChipIndex, tabAsksAi } = useValues(commandKSearchLogic)
+    const { highlightIsFilterRow, chips, mode, chipSelection, tabAsksAi } = useValues(commandKSearchLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
 
     return (
@@ -39,10 +39,11 @@ export function CommandKSearchFooter(): JSX.Element {
             )}
             {chips.length > 0 && (
                 <span className="flex items-center gap-1">
-                    <Kbd>⌫</Kbd> {selectedChipIndex === null ? 'select filter' : 'remove filter'}
+                    <Kbd>⌫</Kbd>{' '}
+                    {chipSelection === 'all' ? 'clear all' : chipSelection === null ? 'select filter' : 'remove filter'}
                 </span>
             )}
-            {selectedChipIndex !== null && (
+            {typeof chipSelection === 'number' && (
                 <span className="flex items-center gap-1">
                     <Kbd>↵</Kbd> edit filter
                 </span>

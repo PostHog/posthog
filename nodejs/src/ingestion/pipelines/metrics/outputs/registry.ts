@@ -1,4 +1,4 @@
-import { APP_METRICS_OUTPUT } from '~/common/outputs'
+import { APP_METRICS_OUTPUT, DLQ_OUTPUT } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
 import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT } from './outputs'
@@ -7,7 +7,8 @@ import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT } from './outputs'
  * Outputs for the metrics ingestion deployment.
  *
  * - `METRICS_OUTPUT` — main metrics data path → topic from `METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC`.
- * - `METRICS_DLQ_OUTPUT` — DLQ for failed messages → topic from `METRICS_INGESTION_CONSUMER_DLQ_TOPIC`.
+ * - `DLQ_OUTPUT` — DLQ for failed messages → topic from `METRICS_INGESTION_CONSUMER_DLQ_TOPIC`.
+ * - `METRICS_DLQ_OUTPUT` — the same topic, for the pre-framework consumer.
  * - `APP_METRICS_OUTPUT` — usage metrics → topic from `METRICS_INGESTION_OUTPUT_APP_METRICS_TOPIC`.
  *
  * Per-output producer is env-controlled (`*_PRODUCER` keys) so the route can be
@@ -22,6 +23,10 @@ export function createMetricsOutputsRegistry() {
         .register(METRICS_OUTPUT, {
             topicKey: 'METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC',
             producerKey: 'METRICS_INGESTION_OUTPUT_METRICS_PRODUCER',
+        })
+        .register(DLQ_OUTPUT, {
+            topicKey: 'METRICS_INGESTION_CONSUMER_DLQ_TOPIC',
+            producerKey: 'METRICS_INGESTION_OUTPUT_DLQ_PRODUCER',
         })
         .register(METRICS_DLQ_OUTPUT, {
             topicKey: 'METRICS_INGESTION_CONSUMER_DLQ_TOPIC',

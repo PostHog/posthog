@@ -1,13 +1,8 @@
-import json
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
-import pytest
-from unittest import mock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
     source_items_are_framework_output,
@@ -20,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     _flatten_analytics_entity_usage,
     _flatten_analytics_user_activity,
     _flatten_rbac_role_permission,
-    anthropic_source,
     check_analytics_access,
     validate_credentials,
 )
@@ -35,71 +29,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the anthropic module.
-ANTHROPIC_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.anthropic import (
+    AnthropicSourceConfig,
 )
 
 
-def _response(body: dict[str, Any], status: int = 200, headers: dict[str, str] | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    resp.url = "https://api.anthropic.com/v1/organizations/users"
-    if headers:
-        resp.headers.update(headers)
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(AnthropicSource(), AnthropicSourceConfig(api_key="sk-ant-admin-test"))
 
 
-def _entity_page(items: list[dict[str, Any]], *, has_more: bool, last_id: str | None) -> Response:
-    return _response({"data": items, "has_more": has_more, "first_id": None, "last_id": last_id})
+def _entity_page(items: list[dict[str, Any]], *, has_more: bool, last_id: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "has_more": has_more, "first_id": None, "last_id": last_id})
 
 
-def _report_page(buckets: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> Response:
-    return _response({"data": buckets, "has_more": has_more, "next_page": next_page})
-
-
-def _make_manager(resume_state: AnthropicResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, last_value: Any = None):
-    return anthropic_source(
-        api_key="sk-ant-admin-test",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        db_incremental_field_last_value=last_value,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _report_page(buckets: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": buckets, "has_more": has_more, "next_page": next_page})
 
 
 class TestReportParams:
@@ -117,11 +66,9 @@ class TestReportParams:
 
 
 class TestReportPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_page_until_has_more_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_follows_next_page_until_has_more_false(self) -> None:
+        result = _driver().run(
+            "usage_report",
             [
                 _report_page(
                     [{"starting_at": "d1", "ending_at": "d2", "results": [{"model": "a"}]}],
@@ -136,24 +83,19 @@ class TestReportPagination:
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("usage_report", manager))
-
-        assert [r["model"] for r in rows] == ["a", "b"]
+        assert result.raised is None
+        assert [r["model"] for r in result.rows] == ["a", "b"]
         # Second request must carry the page token from the first response; the first must not.
-        assert "page" not in params[0]["params"]
-        assert params[1]["params"]["page"] == "PAGE2"
+        assert result.params("page") == [None, "PAGE2"]
         # Checkpoint saved after the first page was yielded, pointing at the next page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == AnthropicResumeConfig(cursor="PAGE2")
+        assert result.saved_states == [AnthropicResumeConfig(cursor="PAGE2")]
+        assert result.committed_states == [AnthropicResumeConfig(cursor="PAGE2")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_has_more_false_even_with_next_page_token(self, MockSession) -> None:
+    def test_stops_when_has_more_false_even_with_next_page_token(self) -> None:
         # `has_more` is the authoritative stop signal — a stray token on the final page must not
         # trigger an extra request.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "cost_report",
             [
                 _report_page(
                     [{"starting_at": "d1", "ending_at": "d2", "results": [{"model": "a"}]}],
@@ -163,29 +105,26 @@ class TestReportPagination:
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("cost_report", manager))
-
-        assert len(rows) == 1
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert len(result.rows) == 1
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
 
 class TestEntityPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_after_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_entity_page([{"id": "user_6"}], has_more=False, last_id="user_6")])
+    def test_resumes_from_saved_after_id(self) -> None:
+        result = _driver().run(
+            "users",
+            [_entity_page([{"id": "user_6"}], has_more=False, last_id="user_6")],
+            resume_state=AnthropicResumeConfig(cursor="user_5"),
+        )
 
-        _rows(_source("users", _make_manager(AnthropicResumeConfig(cursor="user_5"))))
+        assert result.raised is None
+        assert result.params("after_id") == ["user_5"]
 
-        assert params[0]["params"]["after_id"] == "user_5"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_keys_flatten_created_by(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_api_keys_flatten_created_by(self) -> None:
+        result = _driver().run(
+            "api_keys",
             [
                 _entity_page(
                     [{"id": "apikey_1", "created_by": {"id": "user_1", "type": "user"}}],
@@ -195,11 +134,10 @@ class TestEntityPagination:
             ],
         )
 
-        rows = _rows(_source("api_keys", _make_manager()))
-
-        assert rows[0]["created_by_id"] == "user_1"
-        assert rows[0]["created_by_type"] == "user"
-        assert "created_by" not in rows[0]
+        assert result.raised is None
+        assert result.rows[0]["created_by_id"] == "user_1"
+        assert result.rows[0]["created_by_type"] == "user"
+        assert "created_by" not in result.rows[0]
 
 
 class TestWorkspaceMembersFanOut:
@@ -219,26 +157,21 @@ class TestWorkspaceMembersFanOut:
 
 
 class TestRetries:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_without_retry(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "unauthorized"}, status=401)])
+    def test_client_error_raises_without_retry(self) -> None:
+        result = _driver().run("users", [ScriptedResponse(status=401, json={"error": "unauthorized"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("users", _make_manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestUsageReportGroupByFallback:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rejected_query_is_retried_with_a_narrower_group_by(self, MockSession) -> None:
+    def test_rejected_query_is_retried_with_a_narrower_group_by(self) -> None:
         # The usage report 400s a query that groups more finely than it will serve. Narrowing must
         # keep the sync alive and still deliver rows, at the finest breakdown the API accepts.
-        session = MockSession.return_value
-        params = _wire(
-            session,
+        result = _driver().run(
+            "usage_report",
             [
-                _response({"error": "bad request"}, status=400),
+                ScriptedResponse(status=400, json={"error": "bad request"}),
                 _report_page(
                     [{"starting_at": "2025-08-01T00:00:00Z", "results": [{"workspace_id": "wrkspc_1"}]}],
                     has_more=False,
@@ -247,68 +180,64 @@ class TestUsageReportGroupByFallback:
             ],
         )
 
-        source_response = _source("usage_report", _make_manager())
-        rows = _rows(source_response)
-
-        assert [r["workspace_id"] for r in rows] == ["wrkspc_1"]
-        assert [p["params"]["group_by[]"] for p in params] == USAGE_GROUP_BY_FALLBACKS[:2]
+        assert result.raised is None
+        assert [r["workspace_id"] for r in result.rows] == ["wrkspc_1"]
+        assert [request.query.get("group_by[]", ()) for request in result.requests] == [
+            tuple(group_by) for group_by in USAGE_GROUP_BY_FALLBACKS[:2]
+        ]
         # The pipeline gives the framework's safe points only to a `Resource`. Without them a run
         # that waits on a rate limit cannot hand off.
-        assert source_items_are_framework_output(source_response.items())
+        assert result.response is not None
+        assert source_items_are_framework_output(result.response.items())
 
     @parameterized.expand(
         [
             # Every fallback rejected: there is nothing narrower left to try.
             (
                 "all_rejected",
-                [_response({}, status=400) for _ in USAGE_GROUP_BY_FALLBACKS],
+                [ScriptedResponse(status=400, json={}) for _ in USAGE_GROUP_BY_FALLBACKS],
                 len(USAGE_GROUP_BY_FALLBACKS),
             ),
             # A 404 is not the API refusing the breakdown, so narrowing must not paper over it.
-            ("not_a_bad_request", [_response({}, status=404)], 1),
+            ("not_a_bad_request", [ScriptedResponse(status=404, json={})], 1),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_error_propagates_instead_of_narrowing(
-        self, _name: str, responses: list[Response], expected_requests: int, MockSession
+        self, _name: str, responses: list[ScriptedResponse], expected_requests: int
     ) -> None:
-        session = MockSession.return_value
-        _wire(session, responses)
+        result = _driver().run("usage_report", responses)
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("usage_report", _make_manager()))
-        assert session.send.call_count == expected_requests
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == expected_requests
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rejection_after_rows_are_out_is_not_narrowed(self, MockSession) -> None:
+    def test_rejection_after_rows_are_out_is_not_narrowed(self) -> None:
         # Re-running at a coarser grain would re-emit the buckets already yielded under different
         # synthesized ids, so once rows are out the 400 has to fail the sync instead.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "usage_report",
             [
                 _report_page(
                     [{"starting_at": "2025-08-01T00:00:00Z", "results": [{"workspace_id": "wrkspc_1"}]}],
                     has_more=True,
                     next_page="page_2",
                 ),
-                _response({"error": "bad request"}, status=400),
+                ScriptedResponse(status=400, json={"error": "bad request"}),
             ],
         )
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("usage_report", _make_manager()))
-        assert session.send.call_count == 2
+        assert isinstance(result.raised, requests.HTTPError)
+        assert [row["workspace_id"] for row in result.rows] == ["wrkspc_1"]
+        assert len(result.requests) == 2
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key.
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(ANTHROPIC_SESSION_PATCH, return_value=session):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("sk-ant-admin-test") is expected
+        assert network.requests_log[0].path == "/v1/organizations/users"
+        assert network.requests_log[0].param("limit") == "1"
 
 
 class TestNonRetryableErrors:
@@ -341,6 +270,31 @@ class TestNonRetryableErrors:
         non_retryable = AnthropicSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
 
+    @parameterized.expand(
+        [
+            (
+                "long_retry_after",
+                "RESTClientRetryableError: HTTP 429 for https://api.anthropic.com/v1/organizations/usage_report/claude_code"
+                " (the server asked for a wait of 3600 seconds)",
+            ),
+            (
+                "retry_budget_spent",
+                "RESTClientRetryableError: HTTP 429 for https://api.anthropic.com/v1/organizations/usage_report/messages",
+            ),
+        ]
+    )
+    def test_exhausted_rate_limit_stays_retryable_with_sync_frequency_guidance(
+        self, _name: str, observed_error: str
+    ) -> None:
+        source = AnthropicSource()
+        assert not error_message_matches(observed_error, source.get_non_retryable_errors().keys())
+        messages = [
+            message
+            for pattern, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages and "sync less often" in messages[0]
+
 
 def _cc_record(actor_email: str = "dev@example.com") -> dict[str, Any]:
     return {
@@ -362,8 +316,8 @@ def _cc_record(actor_email: str = "dev@example.com") -> dict[str, Any]:
     }
 
 
-def _cc_page(records: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> Response:
-    return _response({"data": records, "has_more": has_more, "next_page": next_page})
+def _cc_page(records: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": records, "has_more": has_more, "next_page": next_page})
 
 
 def _midnight(day: date) -> datetime:
@@ -384,46 +338,51 @@ class TestClaudeCodeStartDay:
 
 
 class TestClaudeCodeDayFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_model_breakdown_endpoint_explodes_per_model(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_model_breakdown_endpoint_explodes_per_model(self) -> None:
         today = datetime.now(UTC).date()
         record = _cc_record()
         record["model_breakdown"] = [
             {"model": "m1", "tokens": {"input": 1}, "estimated_cost": {"amount": "1", "currency": "USD"}},
             {"model": "m2", "tokens": {"input": 2}, "estimated_cost": {"amount": "2", "currency": "USD"}},
         ]
-        _wire(session, [_cc_page([record], has_more=False, next_page=None)])
-        rows = _rows(_source("claude_code_model_breakdown", _make_manager(), last_value=_midnight(today)))
-        assert sorted(r["model"] for r in rows) == ["m1", "m2"]
+        result = _driver().run(
+            "claude_code_model_breakdown",
+            [_cc_page([record], has_more=False, next_page=None)],
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert result.raised is None
+        assert sorted(r["model"] for r in result.rows) == ["m1", "m2"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_within_a_day(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_paginates_within_a_day(self) -> None:
         today = datetime.now(UTC).date()
-        params = _wire(
-            session,
+        result = _driver().run(
+            "claude_code_analytics",
             [
                 _cc_page([_cc_record("a@x.com")], has_more=True, next_page="P2"),
                 _cc_page([_cc_record("b@x.com")], has_more=False, next_page=None),
             ],
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today),
         )
-        rows = _rows(_source("claude_code_analytics", _make_manager(), last_value=_midnight(today)))
-        assert {r["actor_email_address"] for r in rows} == {"a@x.com", "b@x.com"}
-        assert "page" not in params[0]["params"]
-        assert params[1]["params"]["page"] == "P2"
-        assert params[1]["params"]["starting_at"] == today.isoformat()
+        assert result.raised is None
+        assert {r["actor_email_address"] for r in result.rows} == {"a@x.com", "b@x.com"}
+        assert result.params("page") == [None, "P2"]
+        assert result.params("starting_at") == [today.isoformat(), today.isoformat()]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_day_and_page_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_day_and_page_cursor(self) -> None:
         today = datetime.now(UTC).date()
-        manager = _make_manager(AnthropicResumeConfig(day_fanout_state={"date": today.isoformat(), "cursor": "P2"}))
-        params = _wire(session, [_cc_page([_cc_record()], has_more=False, next_page=None)])
-        rows = _rows(_source("claude_code_analytics", manager, last_value=_midnight(today)))
-        assert len(rows) == 1
-        assert params[0]["params"]["page"] == "P2"
-        assert params[0]["params"]["starting_at"] == today.isoformat()
+        result = _driver().run(
+            "claude_code_analytics",
+            [_cc_page([_cc_record()], has_more=False, next_page=None)],
+            resume_state=AnthropicResumeConfig(day_fanout_state={"date": today.isoformat(), "cursor": "P2"}),
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert result.raised is None
+        assert len(result.rows) == 1
+        assert result.params("page") == ["P2"]
+        assert result.params("starting_at") == [today.isoformat()]
 
 
 class TestRetiredEndpoint:
@@ -431,14 +390,14 @@ class TestRetiredEndpoint:
         # A schema row discovered before an endpoint was dropped still names it, and its schedule
         # keeps firing. The run must fail with a message the source classifies as non-retryable, so
         # it disables the schema and pauses the schedule instead of retrying a KeyError forever.
-        with pytest.raises(ValueError) as exc:
-            _source("service_accounts", _make_manager())
-        assert error_message_matches(str(exc.value), AnthropicSource().get_non_retryable_errors().keys())
+        result = _driver().run("service_accounts", [])
+        assert isinstance(result.raised, ValueError)
+        assert error_message_matches(str(result.raised), AnthropicSource().get_non_retryable_errors().keys())
 
 
-def _analytics_page(rows: list[dict[str, Any]], *, next_page: str | None) -> Response:
+def _analytics_page(rows: list[dict[str, Any]], *, next_page: str | None) -> ScriptedResponse:
     # `/organizations/analytics/users` sends no `has_more`: a null `next_page` is the last page.
-    return _response({"data": rows, "next_page": next_page})
+    return ScriptedResponse(json={"data": rows, "next_page": next_page})
 
 
 def _activity_record(email: str = "dev@example.com") -> dict[str, Any]:
@@ -511,27 +470,33 @@ class TestFlattenAnalyticsRows:
 
 class TestAnalyticsFanOut:
     @parameterized.expand([("analytics_user_cost",), ("analytics_user_usage",)])
-    @mock.patch(ANTHROPIC_SESSION_PATCH)
-    def test_report_requests_carry_a_single_day_range_and_daily_buckets(self, endpoint: str, MockSession) -> None:
-        session = MockSession.return_value
+    def test_report_requests_carry_a_single_day_range_and_daily_buckets(self, endpoint: str) -> None:
         today = datetime.now(UTC).date()
-        params = _wire(session, [_report_page([_user_report_row()], has_more=False, next_page=None)])
-        _rows(_source(endpoint, _make_manager(), last_value=_midnight(today)))
+        result = _driver().run(
+            endpoint,
+            [_report_page([_user_report_row()], has_more=False, next_page=None)],
+            incremental_field="starting_at",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert result.raised is None
         # A row only carries its own starting_at when a bucket width is set, and the range has to be
         # one day wide so a row's day is unambiguous and rows arrive in ascending day order.
-        assert params[0]["params"]["starting_at"] == f"{today.isoformat()}T00:00:00Z"
-        assert params[0]["params"]["ending_at"] == f"{(today + timedelta(days=1)).isoformat()}T00:00:00Z"
-        assert params[0]["params"]["bucket_width"] == "1d"
+        assert result.params("starting_at") == [f"{today.isoformat()}T00:00:00Z"]
+        assert result.params("ending_at") == [f"{(today + timedelta(days=1)).isoformat()}T00:00:00Z"]
+        assert result.params("bucket_width") == ["1d"]
 
-    @mock.patch(ANTHROPIC_SESSION_PATCH)
-    def test_resumes_from_the_saved_day(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_the_saved_day(self) -> None:
         today = datetime.now(UTC).date()
         last_day = today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS)
-        manager = _make_manager(AnthropicResumeConfig(analytics_window_state={"start": last_day.isoformat()}))
-        params = _wire(session, [_analytics_page([_activity_record()], next_page=None)])
-        _rows(_source("analytics_user_activity", manager, last_value=_midnight(today - timedelta(days=30))))
-        assert [p["params"]["date"] for p in params] == [last_day.isoformat()]
+        result = _driver().run(
+            "analytics_user_activity",
+            [_analytics_page([_activity_record()], next_page=None)],
+            resume_state=AnthropicResumeConfig(analytics_window_state={"start": last_day.isoformat()}),
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today - timedelta(days=30)),
+        )
+        assert result.raised is None
+        assert result.params("date") == [last_day.isoformat()]
 
 
 class TestAnalyticsAccessProbe:
@@ -547,10 +512,10 @@ class TestAnalyticsAccessProbe:
             ("server_error", 500, None),
         ]
     )
-    @mock.patch(ANTHROPIC_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected: str | None, MockSession) -> None:
-        MockSession.return_value.get.return_value = _response({}, status=status)
-        assert check_analytics_access("sk-ant-admin-test") == expected
+    def test_status_mapping(self, _name: str, status: int, expected: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=status, json={})]) as network:
+            assert check_analytics_access("sk-ant-admin-test") == expected
+        assert network.requests_log[0].path == f"{ANALYTICS_PATH_PREFIX}users"
 
 
 class TestAnalyticsNonRetryableError:
@@ -564,22 +529,20 @@ class TestAnalyticsNonRetryableError:
         assert "read:analytics" in (matched[0] or "")
 
 
-def _token_page(items: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> Response:
+def _token_page(items: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> ScriptedResponse:
     # The RBAC group and role lists page with an opaque `page`/`next_page` token, not an after_id.
-    return _response({"data": items, "has_more": has_more, "next_page": next_page})
+    return ScriptedResponse(json={"data": items, "has_more": has_more, "next_page": next_page})
 
 
 class TestRbacFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_a_role_that_belongs_to_another_organization_is_skipped(self, MockSession) -> None:
+    def test_a_role_that_belongs_to_another_organization_is_skipped(self) -> None:
         # Groups span the enterprise while the role catalog is per-organization, so a role the key
         # cannot read answers 404. Skip that role rather than failing the whole schema.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "rbac_role_permissions",
             [
                 _token_page([{"id": "rbac_role_1"}, {"id": "rbac_role_2"}], has_more=False, next_page=None),
-                _response({"error": "not_found"}, status=404),
+                ScriptedResponse(status=404, json={"error": "not_found"}),
                 _token_page(
                     [{"type": "rbac_role_permission", "action": "chat", "resource": {"type": "organization"}}],
                     has_more=False,
@@ -588,9 +551,8 @@ class TestRbacFanOut:
             ],
         )
 
-        rows = _rows(_source("rbac_role_permissions", _make_manager()))
-
-        assert [r["role_id"] for r in rows] == ["rbac_role_2"]
+        assert result.raised is None
+        assert [r["role_id"] for r in result.rows] == ["rbac_role_2"]
 
 
 class TestFlattenRbacRolePermission:
@@ -636,9 +598,9 @@ class TestFlattenRbacRolePermission:
         assert {key: row[key] for key in expected} == expected
 
 
-def _usage_breakdown_page(rows: list[dict[str, Any]], *, next_page: str | None) -> Response:
+def _usage_breakdown_page(rows: list[dict[str, Any]], *, next_page: str | None) -> ScriptedResponse:
     # The connector/plugin/skill breakdowns send no `has_more`: a null `next_page` is the last page.
-    return _response({"data": rows, "next_page": next_page})
+    return ScriptedResponse(json={"data": rows, "next_page": next_page})
 
 
 class TestFlattenAnalyticsEntityUsage:
@@ -678,24 +640,23 @@ class TestAnalyticsBreakdownFanOut:
             ("analytics_skill_usage", "skill_name", "writing-tests"),
         ]
     )
-    @mock.patch(ANTHROPIC_SESSION_PATCH)
-    def test_fans_out_one_dated_request_per_day(self, endpoint: str, name_field: str, name: str, MockSession) -> None:
-        session = MockSession.return_value
+    def test_fans_out_one_dated_request_per_day(self, endpoint: str, name_field: str, name: str) -> None:
         today = datetime.now(UTC).date()
         watermark = _midnight(today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS + 1))
-        params = _wire(session, [_usage_breakdown_page([{name_field: name}], next_page=None) for _ in range(2)])
-
-        rows = _rows(_source(endpoint, _make_manager(), last_value=watermark))
-
-        assert [p["params"]["date"] for p in params] == [
-            (watermark.date() + timedelta(days=i)).isoformat() for i in range(2)
-        ]
-        assert [r["date"] for r in rows] == [
+        result = _driver().run(
+            endpoint,
+            [_usage_breakdown_page([{name_field: name}], next_page=None) for _ in range(2)],
+            incremental_field="date",
+            db_incremental_field_last_value=watermark,
+        )
+        assert result.raised is None
+        assert result.params("date") == [(watermark.date() + timedelta(days=i)).isoformat() for i in range(2)]
+        assert [r["date"] for r in result.rows] == [
             f"{(watermark.date() + timedelta(days=i)).isoformat()}T00:00:00Z" for i in range(2)
         ]
-        assert [r[name_field] for r in rows] == [name, name]
+        assert [r[name_field] for r in result.rows] == [name, name]
         # A row's day comes from the request, so the request must never carry a range.
-        assert "starting_at" not in params[0]["params"]
+        assert result.requests[0].param("starting_at") is None
 
 
 class TestRbacNonRetryableErrors:

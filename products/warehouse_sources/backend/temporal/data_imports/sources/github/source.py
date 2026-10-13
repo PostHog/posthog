@@ -4,8 +4,10 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
+from posthog.egress.limiter.policies import Priority
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
@@ -134,6 +136,11 @@ GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
 
 
 _REPOSITORY_ACCESS_GUIDANCE = "Check the spelling and that your token has read access."
+
+RATE_LIMITED_MESSAGE = (
+    "This sync used up the GitHub request limit for your connection before it finished. The next "
+    "sync runs on schedule, and if this keeps happening, sync fewer tables or repositories."
+)
 
 
 def _join_validation_failures(failures: list[str]) -> str:
@@ -390,6 +397,14 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "Read timed out",
         }
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a rate limit that outlasts every retry leaves the raw limiter text on the
+        # job, which names an internal budget and the installation id rather than a next step.
+        return {
+            "GitHub egress budget exhausted": RATE_LIMITED_MESSAGE,
+            "GitHub API rate limit exceeded": RATE_LIMITED_MESSAGE,
+        }
+
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:
@@ -406,9 +421,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # query (server-side) and cap the page — the picker searches as the user types rather than
         # loading every repo at once.
         try:
-            repositories, _has_more = GitHubIntegration(integration).list_cached_repositories(
-                search=search or "", limit=100, offset=0
-            )
+            repositories, _has_more = GitHubIntegration(
+                integration, source="warehouse", priority=Priority.CRITICAL
+            ).list_cached_repositories(search=search or "", limit=100, offset=0)
         except GitHubIntegrationError as e:
             # The refresh talks to GitHub, which can reject the credentials, report a suspended
             # installation, or return a transient non-JSON/5xx body from its edge. None of these are
@@ -485,7 +500,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             raise ValueError("Missing GitHub integration ID")
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
 
-        github_integration = GitHubIntegration(integration)
+        github_integration = GitHubIntegration(integration, source="warehouse", priority=Priority.CRITICAL)
         if github_integration.access_token_expired():
             github_integration.refresh_access_token()
 
@@ -502,7 +517,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         if config.auth_method.selection == "pat" or not config.auth_method.github_integration_id:
             return GithubEgressIdentity()
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
-        return GithubEgressIdentity(installation_id=GitHubIntegration(integration).github_installation_id)
+        return GithubEgressIdentity(
+            installation_id=GitHubIntegration(
+                integration, source="warehouse", priority=Priority.BATCH
+            ).github_installation_id
+        )
 
     @staticmethod
     def _schema_for_endpoint(endpoint: str, repository: str | None = None) -> SourceSchema:
@@ -914,8 +933,17 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def get_external_webhook_info(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
-        access_token = self._get_access_token(config, team_id)
-        egress_identity = self._egress_identity(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except ValueError:
+            # Same customer-side state as in delete_webhook: the OAuth integration is gone or the token
+            # is unset. Report it as status so the settings page can say so, instead of raising into
+            # the view's catch-all, which captures it as an exception.
+            return ExternalWebhookInfo(
+                exists=False,
+                error="Couldn't check the GitHub webhook because the connected account is no longer available. Reconnect your GitHub account, then reload.",
+            )
         # exists=True only when every repo carries the hook; partial coverage surfaces the
         # missing repos so the UI can prompt a re-create (which is idempotent per repo).
         missing: list[str] = []

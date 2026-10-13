@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from rest_framework.exceptions import APIException
+
 from posthog.models import Team
 
 
@@ -114,6 +116,14 @@ class BaseAction(ABC):
         Called once when the change request is created and again before it applies, so the two
         answers can be compared. Return None to opt out: the classification is then not recorded
         and the apply path has nothing to compare.
+        """
+        return None
+
+    @classmethod
+    def refuse_change_request(cls, request, intent_data: dict[str, Any]) -> Optional[APIException]:
+        """Return an error that refuses the write instead of opening a change request, or None.
+
+        Called only when a policy requires approval for the change.
         """
         return None
 

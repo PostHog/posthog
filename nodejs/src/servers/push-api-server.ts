@@ -6,6 +6,7 @@ import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres
 import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
+import { capIdleConnections } from '~/messaging/push-subscriptions/idle-connections'
 import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'
 import { DryRunPushCaptureService, PushCaptureService } from '~/messaging/push-subscriptions/push-capture'
 import { createPushSubscriptionsHandler } from '~/messaging/push-subscriptions/push-subscriptions-http'
@@ -15,6 +16,8 @@ import { RegionBlockCheck, createRegionBlockCheck } from '~/messaging/push-subsc
 import { CommonConfig } from '../common/config'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
+
+const MAX_IDLE_CONNECTIONS = 1_000
 
 export type PushApiConfig = {
     PUSH_API_PORT: number
@@ -129,7 +132,15 @@ export class PushApiServer implements NodeServer {
                         resolve()
                         return
                     }
-                    this.pushServer.close(() => resolve())
+                    const server = this.pushServer
+                    // close() ends only the connections idle at that moment. A connection that finishes its
+                    // request afterwards stays open until the keep-alive timeout, which is longer than a pod's
+                    // grace period, so the idle ones are closed until the server stops.
+                    const closeIdle = setInterval(() => server.closeIdleConnections(), 100)
+                    server.close(() => {
+                        clearInterval(closeIdle)
+                        resolve()
+                    })
                 })
             },
             healthcheck: () => this.isHealthy(),
@@ -176,7 +187,11 @@ export class PushApiServer implements NodeServer {
         // endpoint is starved of connections rather than of CPU.
         server.headersTimeout = 10_000
         server.requestTimeout = 15_000
-        server.keepAliveTimeout = 30_000
+        // Envoy keeps an idle upstream connection for up to an hour. If node closes it first, a request
+        // Envoy sends at that moment fails with a 503, so the idle timeout outlasts Envoy's.
+        server.keepAliveTimeout = 65 * 60_000
+        // Envoy pools far fewer connections than this, so only a client piling up idle sockets hits it.
+        capIdleConnections(server, MAX_IDLE_CONNECTIONS)
 
         return new Promise((resolve, reject) => {
             server.once('error', (error) => {

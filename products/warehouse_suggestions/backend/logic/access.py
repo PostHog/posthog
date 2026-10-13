@@ -10,6 +10,7 @@ from posthog.dataclasses import frozen
 from products.data_modeling.backend.facade.api import allowed_saved_query_ids, backing_table_ids_by_saved_query
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
+from ..facade.contracts import SubjectKinds
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from ..models import WarehouseSuggestion
 from .rules import RULES
@@ -59,9 +60,13 @@ def visible_suggestions(
     suggestion_id: UUID | None = None,
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
+    subject_id: UUID | None = None,
+    subject_kinds: SubjectKinds,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
-    suggestions = WarehouseSuggestion.objects.for_team(team_id).exclude(
-        status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True
+    suggestions = (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(subject_kind__in=subject_kinds.readable)
+        .exclude(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
     )
     if suggestion_id is not None:
         suggestions = suggestions.filter(id=suggestion_id)
@@ -69,7 +74,9 @@ def visible_suggestions(
         suggestions = suggestions.filter(kind=kind)
     if status is not None:
         suggestions = suggestions.filter(status=status)
-    access = subject_access(team_id, user_access_control, suggestions)
+    if subject_id is not None:
+        suggestions = suggestions.filter(subject_id=subject_id)
+    access = subject_access(team_id, user_access_control, suggestions, actionable_kinds=subject_kinds.actionable)
     visible = (
         suggestions.filter(access.readable_q())
         .select_related("reviewed_by")
@@ -80,7 +87,11 @@ def visible_suggestions(
 
 
 def subject_access(
-    team_id: int, user_access_control: "UserAccessControl", suggestions: QuerySet[WarehouseSuggestion]
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    suggestions: QuerySet[WarehouseSuggestion],
+    *,
+    actionable_kinds: Collection[WarehouseSuggestionSubjectKind],
 ) -> SubjectAccess:
     subject_ids: defaultdict[WarehouseSuggestionSubjectKind, set[UUID]] = defaultdict(set)
     for subject_kind, subject_id in suggestions.order_by().values_list("subject_kind", "subject_id").distinct():
@@ -88,7 +99,8 @@ def subject_access(
     table_ids = subject_ids[WarehouseSuggestionSubjectKind.TABLE]
     table_ids.difference_update(backing_table_ids_by_saved_query(team_id, table_ids=table_ids))
     readable = _allowed(team_id, user_access_control, "viewer", subject_ids)
-    editable = _allowed(team_id, user_access_control, "editor", readable)
+    actionable = {subject_kind: ids for subject_kind, ids in readable.items() if subject_kind in actionable_kinds}
+    editable = _allowed(team_id, user_access_control, "editor", actionable)
     return SubjectAccess(readable=readable, editable=editable)
 
 

@@ -147,10 +147,9 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_amazon_ads_credentials(config.region, config.client_id, config.client_secret, config.refresh_token):
-            return True, None
-
-        return False, "Invalid Amazon Ads credentials"
+        return validate_amazon_ads_credentials(
+            config.region, config.client_id, config.client_secret, config.refresh_token
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AmazonAdsResumeConfig]:
         return ResumableSourceManager[AmazonAdsResumeConfig](inputs, AmazonAdsResumeConfig)

@@ -689,20 +689,13 @@ export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
 }
 
 export function urlForCohortWorkflow(cohort: CohortType): string {
-    return urlForNewWorkflowWithTrigger({
-        type: 'batch',
-        filters: {
-            properties: [
-                {
-                    key: 'id',
-                    type: PropertyFilterType.Cohort,
-                    value: cohort.id as number,
-                    operator: PropertyOperator.In,
-                    cohort_name: cohort.name,
-                },
-            ],
+    return urlForNewWorkflowWithTrigger(
+        {
+            type: 'batch',
+            filters: { properties: cohortAudienceProperties({ id: cohort.id as number, name: cohort.name }) },
         },
-    })
+        'cohort'
+    )
 }
 
 export const COHORT_MATCHING_DAYS = {

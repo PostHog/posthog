@@ -171,14 +171,14 @@ tools:
             each with its source id, repo (owner/name), table prefix, and a synced flag. A source can sync several
             repositories, so entries can share an id and differ only by repo. Call this first when a team may have more
             than one source or repo, then pass a chosen entry's id as source_id AND its repo as repo to the
-            pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo: omitting repo on
-            a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo you
-            can skip it: the other tools default to the oldest connected source. The prefix also names the underlying
-            warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions when the
-            named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests /
-            github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified: the
-            name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__',
-            lower-cased), e.g. posthog/posthog.com's pull_requests is prefix +
+            pull-requests, workflow-health, ci-cards, pr-lifecycle, or team-ci-health tools to read that specific repo:
+            omitting repo on a multi-repo source reads the source's default repo, not the one you picked. With a single
+            source/repo you can skip it: the other tools default to the oldest connected source. The prefix also names
+            the underlying warehouse tables, which you can query directly with SQL or save as SQL insights and
+            subscriptions when the named tools don't fit. The source's original repo uses bare names (prefix +
+            github_pull_requests / github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source
+            is repo-qualified: the name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each
+            '.' becomes '__', lower-cased), e.g. posthog/posthog.com's pull_requests is prefix +
             github_posthog_posthog__com__pull_requests: so pick the table for the repo you mean (timestamps land as
             strings; parse with parseDateTimeBestEffort).
         feature_flag: engineering-analytics
@@ -229,8 +229,10 @@ tools:
             runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its
             time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the
             latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free
-            GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced
-            yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.
+            GitHub-hosted, non-Linux, or unfinished jobs. Each job carries its steps in run order (name, status,
+            conclusion, timestamps, duration_seconds), so you can find the step that failed or took the time; steps is
+            empty for a Depot CI job. Returns an empty list when the job-level source isn't synced yet. Pass ci_engine
+            with run_id when following an engine-qualified run; ambiguous integer IDs return 400.
         feature_flag: engineering-analytics
     engineering-analytics-workflow-runner-costs:
         operation: engineering_analytics_workflow_runner_costs

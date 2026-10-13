@@ -3,6 +3,10 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opuswatch import (
     OPUSWatchSourceConfig,
@@ -46,17 +50,15 @@ class TestOPUSWatchSource:
     )
     def test_validate_credentials_rejects_bad_start_date_without_calling_api(
         self, start_date: str, expected_error_fragment: str
-    ):
+    ) -> None:
         config = OPUSWatchSourceConfig(api_key="k", start_date=start_date)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source.validate_opuswatch_credentials"
-        ) as mock_validate:
+        with scripted_network([]) as network:
             valid, error = self.source.validate_credentials(config, team_id=1)
 
         assert valid is False
         assert error is not None and expected_error_fragment in error
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize(
         ("start_date", "api_result", "expected_valid"),
@@ -67,18 +69,21 @@ class TestOPUSWatchSource:
             ("20250101", False, False),
         ],
     )
-    def test_validate_credentials_probes_api(self, start_date: Optional[str], api_result: bool, expected_valid: bool):
+    def test_validate_credentials_probes_api(
+        self, start_date: Optional[str], api_result: bool, expected_valid: bool
+    ) -> None:
         config = OPUSWatchSourceConfig(api_key="the-key", start_date=start_date)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source.validate_opuswatch_credentials",
-            return_value=api_result,
-        ) as mock_validate:
+        with scripted_network([ScriptedResponse(status=200 if api_result else 401)]) as network:
             valid, error = self.source.validate_credentials(config, team_id=1)
 
         assert valid is expected_valid
         assert (error is None) is expected_valid
-        mock_validate.assert_called_once_with("the-key")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/ext/master/workers"
+        assert network.requests_log[0].headers["key"] == "the-key"
+        assert network.session_options[0]["redact_values"] == ("the-key",)
+        assert network.session_options[0]["allow_redirects"] is False
 
     @pytest.mark.parametrize(
         ("should_use_incremental_field", "expected_last_value"),

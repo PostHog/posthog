@@ -1,15 +1,18 @@
-import re
 import json
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any
 
 import pytest
-from unittest import mock
-from unittest.mock import MagicMock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.greenhouse import (
+    GreenhouseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse import (
     GREENHOUSE_ENDPOINTS,
     PAGE_SIZE,
@@ -18,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse
     _build_auth,
     _build_initial_params,
     _format_datetime,
-    greenhouse_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import (
@@ -26,44 +28,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse
     GREENHOUSE_V1,
     GREENHOUSE_V3,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the greenhouse module.
-GREENHOUSE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse.make_tracked_session"
-)
-OAUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth"
+from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source import GreenhouseSource
 
 
-def _make_response(body: Any, status_code: int = 200, next_url: str | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    if next_url is not None:
-        # RFC 5988 Link header, as Harvest returns it. requests parses this into `resp.links`.
-        resp.headers["Link"] = f'<{next_url}>; rel="next"'
-    return resp
-
-
-def _make_manager(resume_state: GreenhouseResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _source(endpoint: str, **kwargs: Any) -> Any:
-    # Transport tests run on v1: its HTTP Basic auth needs no token exchange, so the only network
-    # boundary is the patched rest_client session. Version-specific request shape is covered by the
-    # param/auth/url tests below. v3-only endpoints build on v3; the token is minted lazily on the
-    # first request, so building the response needs no network.
-    kwargs.setdefault("resumable_source_manager", _make_manager())
-    kwargs.setdefault("api_version", GREENHOUSE_V3 if GREENHOUSE_ENDPOINTS[endpoint].v3_only else GREENHOUSE_V1)
-    return greenhouse_source(
-        endpoint, team_id=1, job_id="j", api_key="key", client_id="cid", client_secret="csecret", **kwargs
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        GreenhouseSource(), GreenhouseSourceConfig(api_key="key", client_id="cid", client_secret="csecret")
     )
+
+
+def _page(rows: list[dict[str, int]], next_url: str | None = None) -> ScriptedResponse:
+    headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+    return ScriptedResponse(json=rows, headers=headers)
+
+
+def _token() -> ScriptedResponse:
+    return ScriptedResponse(json={"access_token": "test_token", "expires_in": 3600})
 
 
 class TestFormatDatetime:
@@ -137,31 +117,26 @@ class TestValidateCredentials:
             (500, True, False),
         ],
     )
-    @mock.patch(GREENHOUSE_SESSION_PATCH)
-    def test_status_code_mapping(
-        self, mock_session_factory: MagicMock, status_code: int, accept_forbidden: bool, expected_valid: bool
-    ) -> None:
-        mock_session_factory.return_value.get.return_value = MagicMock(status_code=status_code)
-
-        is_valid, error = validate_credentials(GREENHOUSE_V1, api_key="test_key", accept_forbidden=accept_forbidden)
+    def test_status_code_mapping(self, status_code: int, accept_forbidden: bool, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, error = validate_credentials(GREENHOUSE_V1, api_key="test_key", accept_forbidden=accept_forbidden)
 
         assert is_valid is expected_valid
         assert (error is None) is expected_valid
+        assert {request.path for request in network.requests_log} == {"/v1/candidates"}
 
-    @mock.patch(GREENHOUSE_SESSION_PATCH)
-    def test_per_schema_forbidden_surfaces_scope_error(self, mock_session_factory: MagicMock) -> None:
-        mock_session_factory.return_value.get.return_value = MagicMock(status_code=403)
-        is_valid, error = validate_credentials(
-            GREENHOUSE_V1, api_key="test_key", path="/candidates", accept_forbidden=False
-        )
+    def test_per_schema_forbidden_surfaces_scope_error(self) -> None:
+        with scripted_network([ScriptedResponse(status=403)]):
+            is_valid, error = validate_credentials(
+                GREENHOUSE_V1, api_key="test_key", path="/candidates", accept_forbidden=False
+            )
         assert is_valid is False
         assert error is not None and "permission" in error
 
-    @mock.patch(GREENHOUSE_SESSION_PATCH)
-    def test_network_error_is_not_valid(self, mock_session_factory: MagicMock) -> None:
+    def test_network_error_is_not_valid(self) -> None:
         # validate_via_probe swallows transport errors and reports "not validated".
-        mock_session_factory.return_value.get.side_effect = Exception("boom")
-        is_valid, error = validate_credentials(GREENHOUSE_V1, api_key="test_key")
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, error = validate_credentials(GREENHOUSE_V1, api_key="test_key")
         assert is_valid is False
         assert error is not None
 
@@ -172,18 +147,17 @@ class TestValidateCredentials:
             (GREENHOUSE_V3, "https://harvest.greenhouse.io/v3/candidates?per_page=1"),
         ],
     )
-    @mock.patch(f"{OAUTH_MODULE}.OAuth2Auth._obtain_token")
-    @mock.patch(GREENHOUSE_SESSION_PATCH)
-    def test_probes_the_pinned_version(
-        self, mock_session_factory: MagicMock, mock_mint: MagicMock, api_version: str, expected_url: str
-    ) -> None:
+    def test_probes_the_pinned_version(self, api_version: str, expected_url: str) -> None:
         # A v1-pinned source probed on the v3 path (or vice versa) reports a working key as broken.
-        mock_get = mock_session_factory.return_value.get
-        mock_get.return_value = MagicMock(status_code=200)
+        script = [_token(), ScriptedResponse(status=200)] if api_version == GREENHOUSE_V3 else [ScriptedResponse()]
+        with scripted_network(script) as network:
+            is_valid, error = validate_credentials(
+                api_version, api_key="test_key", client_id="cid", client_secret="csecret"
+            )
 
-        validate_credentials(api_version, api_key="test_key", client_id="cid", client_secret="csecret")
-
-        assert mock_get.call_args.args[0] == expected_url
+        assert is_valid is True
+        assert error is None
+        assert network.requests_log[-1].url == expected_url
 
     def test_v3_without_client_credentials_explains_what_to_create(self) -> None:
         is_valid, error = validate_credentials(GREENHOUSE_V3, api_key="test_key")
@@ -198,49 +172,32 @@ class TestGreenhouseSourceResponse:
 
     @pytest.mark.parametrize("endpoint", [name for name, config in GREENHOUSE_ENDPOINTS.items() if config.v3_only])
     def test_v3_only_endpoint_refuses_to_sync_on_v1(self, endpoint: str) -> None:
-        with pytest.raises(ValueError, match=re.escape(V3_ONLY_ENDPOINT_ERROR)):
-            _source(endpoint, api_version=GREENHOUSE_V1)
+        result = _driver().run(endpoint, [], api_version=GREENHOUSE_V1)
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == V3_ONLY_ENDPOINT_ERROR
 
 
 class TestGreenhousePaginationAndResume:
-    """Drive the rest_source transport (via ``greenhouse_source``) with a mocked HTTP session."""
+    """Drive Greenhouse extraction through its real HTTP transport."""
 
-    def _wire(self, session: MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
-        """Snapshot each request's (url, params) at prepare time and feed ``responses`` to send."""
-        session.headers = {}
-        sent: list[tuple[str, dict[str, Any]]] = []
-
-        def _prepare(request: Any) -> MagicMock:
-            sent.append((request.url, dict(request.params or {})))
-            prepared = MagicMock()
-            prepared.url = request.url
-            return prepared
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = responses
-        return sent
-
-    def _rows(self, source_response: Any) -> list[Any]:
-        return [row for page in source_response.items() for row in page]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fresh_run_follows_link_header(self, mock_factory: MagicMock) -> None:
-        session = mock_factory.return_value
+    def test_fresh_run_follows_link_header(self) -> None:
         next_url = "https://harvest.greenhouse.io/v1/candidates?per_page=500&page=2"
-        sent = self._wire(
-            session,
+        result = _driver().run(
+            "candidates",
             [
-                _make_response([{"id": 1}], next_url=next_url),
-                _make_response([{"id": 2}]),  # no Link header -> last page
+                _page([{"id": 1}], next_url=next_url),
+                _page([{"id": 2}]),  # no Link header -> last page
             ],
+            api_version=GREENHOUSE_V1,
         )
 
-        rows = self._rows(_source("candidates"))
-
-        # First request hits the path with params; second follows the Link URL verbatim (no params).
-        assert sent[0] == ("https://harvest.greenhouse.io/v1/candidates", {"per_page": PAGE_SIZE})
-        assert sent[1] == (next_url, {})
-        assert rows == [{"id": 1}, {"id": 2}]
+        # The second request follows the Link URL with no extra params.
+        assert result.raised is None
+        assert result.urls == ["https://harvest.greenhouse.io/v1/candidates?per_page=500", next_url]
+        assert result.params("per_page") == [str(PAGE_SIZE), str(PAGE_SIZE)]
+        assert result.rows == [{"id": 1}, {"id": 2}]
+        assert result.saved_states == [GreenhouseResumeConfig(next_url=next_url)]
 
     @pytest.mark.parametrize(
         "hostile_next_url",
@@ -250,57 +207,51 @@ class TestGreenhousePaginationAndResume:
             "http://harvest.greenhouse.io/v1/candidates?page=2",
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_origin_next_link_is_rejected_before_a_request_is_sent(
-        self, mock_factory: MagicMock, hostile_next_url: str
-    ) -> None:
+    def test_off_origin_next_link_is_rejected_before_a_request_is_sent(self, hostile_next_url: str) -> None:
         # The Link URL is followed verbatim, so a spoofed one would otherwise replay the
         # Authorization header (v3: a freshly minted Bearer token) to another origin.
-        session = mock_factory.return_value
-        self._wire(session, [_make_response([{"id": 1}], next_url=hostile_next_url)])
+        result = _driver().run("candidates", [_page([{"id": 1}], next_url=hostile_next_url)], api_version=GREENHOUSE_V1)
 
-        with pytest.raises(ValueError):
-            self._rows(_source("candidates"))
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/v1/candidates"]
 
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cross_origin_redirect_is_not_followed(self, mock_factory: MagicMock) -> None:
-        session = mock_factory.return_value
-        redirect = _make_response([], status_code=302)
-        redirect.headers["Location"] = "https://evil.example.com/v1/candidates"
-        self._wire(session, [redirect])
-
-        with pytest.raises(ValueError):
-            self._rows(_source("candidates"))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_filter_applied_to_first_request(self, mock_factory: MagicMock) -> None:
-        session = mock_factory.return_value
-        sent = self._wire(session, [_make_response([{"id": 1}])])
-
-        watermark = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        self._rows(
-            _source(
-                "candidates",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
-                incremental_field="updated_at",
-            )
+    def test_cross_origin_redirect_is_not_followed(self) -> None:
+        result = _driver().run(
+            "candidates",
+            [ScriptedResponse(status=302, headers={"Location": "https://evil.example.com/v1/candidates"})],
+            api_version=GREENHOUSE_V1,
         )
 
-        assert sent[0][1] == {"per_page": PAGE_SIZE, "updated_after": "2026-03-04T02:58:14.000Z"}
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/v1/candidates"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_seeds_first_request_with_saved_next_url(self, mock_factory: MagicMock) -> None:
-        session = mock_factory.return_value
+    def test_incremental_filter_applied_to_first_request(self) -> None:
+        watermark = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
+        result = _driver().run(
+            "candidates",
+            [_page([{"id": 1}])],
+            api_version=GREENHOUSE_V1,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+            incremental_field="updated_at",
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("per_page") == str(PAGE_SIZE)
+        assert result.requests[0].param("updated_after") == "2026-03-04T02:58:14.000Z"
+
+    def test_resume_seeds_first_request_with_saved_next_url(self) -> None:
         saved_url = "https://harvest.greenhouse.io/v1/candidates?per_page=500&page=5"
-        sent = self._wire(session, [_make_response([{"id": 9}])])
+        result = _driver().run(
+            "candidates",
+            [_page([{"id": 9}])],
+            resume_state=GreenhouseResumeConfig(next_url=saved_url),
+            api_version=GREENHOUSE_V1,
+        )
 
-        manager = _make_manager(GreenhouseResumeConfig(next_url=saved_url))
-        self._rows(_source("candidates", resumable_source_manager=manager))
-
-        assert sent[0] == (saved_url, {})
+        assert result.raised is None
+        assert result.urls == [saved_url]
+        assert result.rows == [{"id": 9}]
 
 
 class TestResumeConfigSerialization:

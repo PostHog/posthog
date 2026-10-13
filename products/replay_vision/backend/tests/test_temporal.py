@@ -42,7 +42,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionEven
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.api.observation_progress import stream_observation_progress
+from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
     _RELEASE_GRACE_SECONDS,
@@ -2758,6 +2758,7 @@ async def _run_workflow(
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
+        patch("temporalio.workflow.now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -3140,6 +3141,9 @@ async def test_apply_scanner_workflow_exits_when_create_returns_was_created_fals
     assert mocks.child_calls == []
 
 
+_PROGRESS_MODULE = "products.replay_vision.backend.api.observation_progress"
+
+
 def test_workflow_get_progress_advances_through_phases() -> None:
     workflow = ApplyScannerWorkflow()
     assert workflow.get_progress() == {
@@ -3147,16 +3151,21 @@ def test_workflow_get_progress_advances_through_phases() -> None:
         "step": 0,
         "total_steps": 6,
         "rasterizer_workflow_id": None,
+        "phase_started_at": None,
     }
 
-    workflow._advance_phase("rendering", rasterizer_workflow_id="rast-1")
+    rendering_started = dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC)
+    with patch("temporalio.workflow.now", return_value=rendering_started):
+        workflow._advance_phase("rendering", rasterizer_workflow_id="rast-1")
     progress = workflow.get_progress()
     assert progress["phase"] == "rendering"
     assert progress["step"] == 2
     assert progress["rasterizer_workflow_id"] == "rast-1"
+    assert progress["phase_started_at"] == rendering_started.timestamp()
 
     # A later phase without an id keeps the previously recorded rasterizer id.
-    workflow._advance_phase("analyzing")
+    with patch("temporalio.workflow.now", return_value=rendering_started):
+        workflow._advance_phase("analyzing")
     assert workflow.get_progress()["phase"] == "analyzing"
     assert workflow.get_progress()["rasterizer_workflow_id"] == "rast-1"
 
@@ -3168,6 +3177,29 @@ async def test_progress_stream_completes_immediately_for_terminal_observation() 
     assert len(events) == 1
     assert "event: observation-complete" in events[0]
     assert '"status": "succeeded"' in events[0]
+
+
+async def test_progress_stream_repeats_last_tick_when_query_fails() -> None:
+    observation = ReplayObservation(id=uuid.uuid4(), team_id=1, status=ObservationStatus.RUNNING)
+    analyzing = {"phase": "analyzing", "step": 4, "total_steps": 6, "rasterizer_workflow_id": None}
+    states = iter(
+        [
+            _ObservationState(status=ObservationStatus.RUNNING, workflow_id="wf-1"),
+            _ObservationState(status=ObservationStatus.RUNNING, workflow_id="wf-1"),
+            _ObservationState(status=ObservationStatus.SUCCEEDED, workflow_id="wf-1"),
+        ]
+    )
+    with (
+        patch(f"{_PROGRESS_MODULE}.async_connect", AsyncMock(return_value=MagicMock())),
+        patch(f"{_PROGRESS_MODULE}._read_observation_state", AsyncMock(side_effect=lambda *_: next(states))),
+        patch(f"{_PROGRESS_MODULE}._query_progress", AsyncMock(side_effect=[analyzing, None])),
+        patch(f"{_PROGRESS_MODULE}.asyncio.sleep", AsyncMock()),
+    ):
+        events = [event async for event in stream_observation_progress(observation)]
+
+    phases = [json.loads(e.split("data: ", 1)[1])["phase"] for e in events if "observation-progress" in e]
+    assert phases == ["analyzing", "analyzing"]
+    assert "observation-complete" in events[-1]
 
 
 @pytest.mark.asyncio

@@ -80,6 +80,7 @@ import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
@@ -332,7 +333,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 description:
-                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
+                    'Add filters that match the users you want to keep, for example "email does not contain yourcompany.com". When this filter is on, events that do not match every filter are hidden from insights. A destination applies these filters only when "Filter out internal and test users" is turned on in its filters.',
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
@@ -1879,6 +1880,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'opt-in',
                     'opt-out',
                 ],
+            },
+            {
+                id: 'workflows-frequency-cap',
+                title: 'Frequency cap',
+                description:
+                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. A workflow run without a person, for example one triggered by an event without a person profile, is not capped. Leave both fields empty to turn the cap off.',
+                component: <WorkflowsFrequencyCapSettings />,
+                keywords: ['workflows', 'frequency', 'cap', 'limit', 'fatigue', 'marketing', 'broadcast', 'email'],
             },
             {
                 id: 'workflows-ai-task-limits',

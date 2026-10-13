@@ -18,6 +18,8 @@ import tempfile
 import threading
 import subprocess
 from dataclasses import asdict, dataclass
+from fnmatch import fnmatchcase
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +153,27 @@ def git_environment() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name not in _GIT_LOCATION_VARIABLES}
 
 
+def _glob_matches(parts: list[str], pattern: list[str]) -> bool:
+    """Match path segments the way a git :(glob) pathspec does: * stays inside one segment, ** spans any number.
+
+    The glob comes from the model, which PR content can steer, so the match is memoized: its work stays
+    bounded by path depth times pattern length, however many ** segments the glob has.
+    """
+
+    @cache
+    def match(part: int, segment: int) -> bool:
+        if segment == len(pattern):
+            return part == len(parts)
+        if pattern[segment] == "**":
+            if segment == len(pattern) - 1:
+                # A trailing ** matches what is below the prefix, never the prefix itself.
+                return part < len(parts)
+            return match(part, segment + 1) or (part < len(parts) and match(part + 1, segment))
+        return part < len(parts) and fnmatchcase(parts[part], pattern[segment]) and match(part + 1, segment + 1)
+
+    return match(0, 0)
+
+
 class ToolError(Exception):
     """A tool call the model can correct. Its message goes back to the model as the tool output."""
 
@@ -210,7 +233,11 @@ class RepoTools:
     def _is_ignored(self, target: Path) -> bool:
         relative = target.relative_to(self.root).as_posix()
         command = ["git", "check-ignore", "-q", "--", relative]
-        result = subprocess.run(command, cwd=self.root, env=git_environment(), capture_output=True, timeout=10)
+        try:
+            result = subprocess.run(command, cwd=self.root, env=git_environment(), capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            # Without an answer the file could be an ignored secret, so the read is refused.
+            raise ToolError(f"could not check whether {relative} is ignored by git; try again") from None
         return result.returncode == 0
 
     def read_file(self, path: str, offset: int | None, limit: int | None) -> str:
@@ -240,6 +267,8 @@ class RepoTools:
         if glob and target.is_dir():
             prefix = "" if relative == "." else f"{relative}/"
             pathspec = f":(glob){prefix}{glob}" if "/" in glob else f":(glob){prefix}**/{glob}"
+        elif glob and not _glob_matches(relative.split("/"), glob.split("/") if "/" in glob else ["**", glob]):
+            return "(no matches)"
         else:
             pathspec = relative
         # git grep reads the checkout's own index, so it is fast on a large repository, and it never

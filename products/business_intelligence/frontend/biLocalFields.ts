@@ -5,6 +5,9 @@ export function localFieldError(definition: BILocalFieldDefinition): string | un
     if (!definition || typeof definition.expression !== 'string' || !definition.expression.trim()) {
         return 'Choose a source field'
     }
+    if (definition.kind === 'expression') {
+        return typeof definition.aggregate === 'boolean' ? undefined : 'Choose a dimension or measure'
+    }
     if (definition.kind === 'bins') {
         return Number.isFinite(definition.width) && definition.width > 0 && Number.isFinite(definition.origin)
             ? undefined
@@ -48,6 +51,9 @@ export function localFieldError(definition: BILocalFieldDefinition): string | un
 }
 
 export function localFieldExpression(definition: BILocalFieldDefinition): string {
+    if (definition.kind === 'expression') {
+        return definition.expression.trim()
+    }
     if (definition.kind === 'bins') {
         return `(floor(((${definition.expression}) - ${definition.origin}) / ${definition.width}) * ${definition.width} + ${definition.origin})`
     }
@@ -60,13 +66,54 @@ export function localFieldExpression(definition: BILocalFieldDefinition): string
 }
 
 export function upsertBILocalField(config: BIConfig, field: BIField): BIConfig {
-    const replace = (current: BIField): BIField => (current.id === field.id ? field : current)
+    const matches = (current: BIField): boolean => (current.localFieldId ?? current.id) === field.id
+    const replace = (current: BIField): BIField =>
+        matches(current)
+            ? {
+                  ...current,
+                  ...field,
+                  id: current.id,
+                  localFieldId: field.id,
+                  dateBucket: ['date', 'datetime'].includes(field.type) ? current.dateBucket : undefined,
+                  datePart: ['date', 'datetime'].includes(field.type) ? current.datePart : undefined,
+              }
+            : current
     return {
         ...config,
         localFields: [...(config.localFields ?? []).filter((current) => current.id !== field.id), field],
         rows: config.rows.map(replace),
         columns: config.columns.map(replace),
-        values: config.values.map((value) => ({ ...value, field: replace(value.field) })),
+        hierarchies: config.hierarchies?.map((hierarchy) => ({ ...hierarchy, levels: hierarchy.levels.map(replace) })),
+        values: config.values.map((value) => ({
+            ...value,
+            field: replace(value.field),
+            ...(matches(value.field) && field.localDefinition?.kind === 'expression' && field.localDefinition.aggregate
+                ? { aggregation: 'custom' as const, customExpression: field.expression, label: field.name }
+                : {}),
+        })),
         filters: config.filters.map((filter) => ({ ...filter, field: replace(filter.field) })),
+        dateField: config.dateField ? replace(config.dateField) : config.dateField,
     }
+}
+
+export function getBILocalFields(config: BIConfig): BIField[] {
+    const fields = [...(config.localFields ?? [])]
+    for (const value of config.values) {
+        const id = value.field.localFieldId ?? value.field.id
+        if (
+            value.aggregation === 'custom' &&
+            value.label &&
+            value.customExpression?.trim() &&
+            !fields.some((field) => field.id === id)
+        ) {
+            fields.push({
+                ...value.field,
+                id,
+                name: value.label,
+                expression: value.customExpression,
+                localDefinition: { kind: 'expression', aggregate: true, expression: value.customExpression },
+            })
+        }
+    }
+    return fields
 }

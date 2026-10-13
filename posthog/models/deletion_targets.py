@@ -179,6 +179,28 @@ class TargetPlacement:
     cluster: ClickhouseCluster
 
 
+def shards_by_partition(placement: TargetPlacement) -> dict[str, set[int]]:
+    """Every data partition of the target's table, mapped to the shards that hold it.
+
+    Every replica is read because a partition that one replica has not fetched yet still holds rows
+    that a sweep must reach.
+    """
+    query = Query(
+        """
+        SELECT DISTINCT partition_id
+        FROM system.parts
+        WHERE database = %(database)s AND table = %(table)s AND active AND NOT startsWith(partition_id, 'patch-')
+        """,
+        {"database": settings.CLICKHOUSE_DATABASE, "table": placement.target.data_table},
+    )
+    shards_by_partition: dict[str, set[int]] = {}
+    for host, rows in placement.cluster.map_all_hosts(query).result().items():
+        assert host.shard_num is not None
+        for (partition_id,) in rows:
+            shards_by_partition.setdefault(partition_id, set()).add(host.shard_num)
+    return shards_by_partition
+
+
 EVENTS = DeletionTarget(
     data_table=EVENTS_DATA_TABLE(),
     read_table="events",
@@ -205,9 +227,11 @@ EVENTS_JSON = DeletionTarget(
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
 # events-shaped table. Property removal rewrites its event properties. Its producer stopped sending
 # person_properties on 2026-09-05 (#95693); a row the table stored before then is out of property
-# removal's reach until its TTL passes. A HogQL predicate does not compile against the table, which
-# limits immediate event removal and property removal there; both limits are explained in
-# docs/internal/clickhouse-deletion-coverage.md.
+# removal's reach until its TTL passes. A HogQL predicate does not compile against the table, so a
+# request that carries one never sweeps it. Immediate event removal with a predicate leaves the
+# matching rows to the TTL. Deferred event removal and property removal with a predicate refuse
+# while the table holds matching rows. docs/internal/clickhouse-deletion-coverage.md explains these
+# limits.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,

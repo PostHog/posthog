@@ -47,6 +47,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 import pandas as pd
@@ -72,10 +73,13 @@ from products.autoresearch.backend.dataset.labeling import (
     TrainingSampleTooLarge,
     build_inference_anchors_sql,
     build_inference_features_sql,
+    build_prediction_coverage_sql,
     build_random_t0_labeler_sql,
     build_training_features_sql,
     rolling_selection,
+    scored_lookback_days,
 )
+from products.autoresearch.backend.evaluation.segment_thresholds import TRAINING_POPULATION_KEY, TRAINING_POSITIVES_KEY
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import (
     BATCH_QUERY,
@@ -171,6 +175,9 @@ class MaterializedData:
     holdout_rows: list[dict[str, Any]] = field(default_factory=list)
     # The rate the rows were drawn at; the fitted model's scores need its prior correction.
     negative_sample_rate: float = 1.0
+    # The labeled population and its positives before the sample, so the training base rate is not inflated.
+    population: int = 0
+    positives: int = 0
 
 
 @frozen
@@ -223,12 +230,14 @@ def fit_champion_model(
 
     Pass the training run's ``anchor_ts`` so the fit sees the anchor set the agent scored.
     The fit's negative sample rate is saved on the ``model_id`` row before ``model.pkl`` is
-    written, so no scoring run can load the model without the rate its correction needs.
+    written, so no scoring run can load the model without the rate its correction needs. The
+    unsampled training counts go into the row's metrics, so the segment cut points can use the
+    training base rate before any prediction is checked.
 
     ``predict.py`` runs once against the holdout features before the model is persisted,
     so a bundle whose two scripts disagree fails here rather than on the first cadence.
 
-    Returns train.py's metrics (holdout_auc, n_train, n_features). Raises
+    Returns train.py's metrics (holdout_auc, n_train, n_features) and the training counts. Raises
     SandboxInferenceError on any materialization or sandbox failure.
     """
     if bundle is None:
@@ -248,11 +257,10 @@ def fit_champion_model(
         raise SandboxInferenceError("No numeric feature columns produced by feature SQL")
 
     model_bytes, metrics = _run_train_in_sandbox(bundle=bundle, data=data, pipeline=pipeline)
-    metrics = {**metrics, "negative_sample_rate": data.negative_sample_rate}
+    training_counts = {TRAINING_POPULATION_KEY: data.population, TRAINING_POSITIVES_KEY: data.positives}
+    metrics = {**metrics, "negative_sample_rate": data.negative_sample_rate, **training_counts}
     if model_id is not None:
-        AutoresearchModel.objects.for_team(team.pk).filter(pk=model_id).update(
-            negative_sample_rate=data.negative_sample_rate
-        )
+        _record_fit_sample(team_id=team.pk, model_id=model_id, data=data, training_counts=training_counts)
     write_model(prefix, model_bytes)
     write_artifact(prefix, _FEATURE_COLUMNS_JSON, json.dumps(data.feature_cols).encode("utf-8"))
     logger.info(
@@ -264,6 +272,16 @@ def fit_champion_model(
         negative_sample_rate=data.negative_sample_rate,
     )
     return metrics
+
+
+def _record_fit_sample(*, team_id: int, model_id: str, data: MaterializedData, training_counts: dict[str, int]) -> None:
+    with transaction.atomic():
+        model = AutoresearchModel.objects.for_team(team_id).select_for_update().filter(pk=model_id).first()
+        if model is None:
+            return
+        model.negative_sample_rate = data.negative_sample_rate
+        model.metrics = {**(model.metrics or {}), **training_counts}
+        model.save(update_fields=["negative_sample_rate", "metrics"])
 
 
 def score_via_sandbox(
@@ -509,6 +527,8 @@ def materialize_training_data(
         train_rows=train_rows,
         holdout_rows=holdout_rows,
         negative_sample_rate=sample.negative_sample_rate,
+        population=sample.population,
+        positives=sample.positives,
     )
 
 
@@ -655,6 +675,49 @@ def count_inference_anchors(
         what="Anchor count",
         query_context=query_context,
     )
+
+
+def measure_prediction_coverage(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    cutoff_ts: int,
+    eligible: int,
+    user: User | None = None,
+) -> dict[str, Any]:
+    """
+    How much of the inference population has a champion score at ``cutoff_ts``, and how old the scores are.
+
+    ``eligible`` is the population count the run measured. It sets the same prediction window that the
+    rolling ranking reads, so ``never_scored`` holds the people that the next rolling run scores first.
+    """
+    lookback = scored_lookback_days(eligible=eligible, cadence_days=pipeline.cadence_days)
+    sql, values = build_prediction_coverage_sql(
+        lookback_days=_feature_lookback_days(pipeline),
+        inference_population=pipeline.inference_population,
+        cutoff_ts=cutoff_ts,
+        pipeline_id=str(pipeline.pk),
+        scored_lookback_days=lookback,
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
+    )
+    population, with_score, *ages = _count_rows(
+        team=team, sql=sql, values=values, user=user, what="Prediction coverage", query_context=BATCH_QUERY
+    )
+    population, with_score = int(population), int(with_score)
+    # With nobody scored, ClickHouse returns nan or 0 for the ages, and neither is an age.
+    avg, p50, p90, max_age = (round(float(age), 2) if with_score else None for age in ages)
+    return {
+        "population": population,
+        "with_score": with_score,
+        "never_scored": population - with_score,
+        "age_days_avg": avg,
+        "age_days_p50": p50,
+        "age_days_p90": p90,
+        "age_days_max": max_age,
+        "lookback_days": lookback,
+    }
 
 
 def _count(
