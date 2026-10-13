@@ -5,7 +5,9 @@ import { IconCheck, IconWarning } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { pluralize } from 'lib/utils/strings'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -49,6 +51,8 @@ function statusLabel(status: InsightDataChecksStatus, findingCount: number): str
 export function InsightDataChecks({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
     const { status, findings } = useValues(insightDataChecksLogic(insightProps))
     const { reportDataChecksViewed } = useActions(insightDataChecksLogic(insightProps))
+    // The page hides this mark while a chart with nothing to show loads. The result must outlive that.
+    useAttachedLogic(insightDataChecksLogic(insightProps), insightVizDataLogic(insightProps))
 
     if (status === 'unavailable' || status === 'unsupported') {
         return null

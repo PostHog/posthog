@@ -1,0 +1,124 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import type { InsightShortId } from '~/types'
+
+import { insightDataChecksLogic } from './insightDataChecksLogic'
+
+const props = { dashboardItemId: '123' as InsightShortId }
+const checksOf = (status: string): Record<string, unknown> => ({
+    status,
+    checks: [],
+    events_checked: 10,
+    sample_rate: 1,
+})
+
+describe('insightDataChecksLogic', () => {
+    let logic: ReturnType<typeof insightDataChecksLogic.build>
+    let vizData: ReturnType<typeof insightVizDataLogic.build>
+    const dataChecks = jest.fn()
+    let sentSources: Record<string, unknown>[]
+
+    const answer =
+        (response: [number, Record<string, unknown>], held?: Promise<void>, onSent?: () => void) =>
+        async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+            const body = (await request.json()) as { query: { source: Record<string, unknown> } }
+            sentSources.push(body.query.source)
+            onSent?.()
+            await held
+            return response
+        }
+
+    const turnTheFlagOn = (): void => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INSIGHT_DATA_CHECKS], {
+            [FEATURE_FLAGS.INSIGHT_DATA_CHECKS]: true,
+        })
+    }
+
+    beforeEach(() => {
+        dataChecks.mockReset()
+        sentSources = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/trend': [],
+                '/api/environments/:team_id/insights/': { results: [{}] },
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind': { results: [] },
+                '/api/projects/:team_id/insights/data_checks/': dataChecks,
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        insightDataLogic(props).mount()
+        vizData = insightVizDataLogic(props)
+        vizData.mount()
+        logic = insightDataChecksLogic(props)
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('checks the insight when the flag arrives after the chart has loaded', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(dataChecks).not.toHaveBeenCalled()
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(dataChecks).toHaveBeenCalledTimes(1)
+        expect(logic.values.status).toBe('passed')
+    })
+
+    it('runs one check at a time, then checks the latest query', async () => {
+        let markFirstSent: () => void = () => {}
+        let releaseFirst: () => void = () => {}
+        const firstSent = new Promise<void>((resolve) => {
+            markFirstSent = resolve
+        })
+        const firstHeld = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        dataChecks.mockImplementationOnce(answer([200, checksOf('passed')], firstHeld, markFirstSent))
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        turnTheFlagOn()
+        await firstSent
+
+        const firstQuery = logic.values.requestedQuery
+
+        vizData.actions.updateQuerySource({ filterTestAccounts: true })
+        logic.actions.checkData()
+        vizData.actions.updateQuerySource({ dateRange: { date_from: '-30d' } })
+        logic.actions.checkData()
+
+        expect(logic.values.requestedQuery).toBe(firstQuery)
+        expect(logic.values.status).toBe('checking')
+
+        await expectLogic(logic, releaseFirst).toFinishAllListeners()
+
+        expect(sentSources).toEqual([
+            expect.not.objectContaining({ filterTestAccounts: true }),
+            expect.objectContaining({ filterTestAccounts: true, dateRange: { date_from: '-30d' } }),
+        ])
+        expect(logic.values.status).toBe('warning')
+    })
+
+    it.each([
+        ['hides the mark from a person who may not run the checks', 403, 'unavailable'],
+        ['reports a check the server could not finish', 500, 'failed'],
+    ])('%s', async (_name, responseStatus, expected) => {
+        dataChecks.mockImplementation(answer([responseStatus, { detail: 'No.' }]))
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(logic.values.status).toBe(expected)
+    })
+})
