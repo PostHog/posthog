@@ -165,6 +165,7 @@ class TestFetchUsage:
         assert url == USAGE_URL
         headers = mock_requests.request.call_args.kwargs["headers"]
         assert headers["X-Duckgres-Internal-Secret"] == "shh"
+        assert headers["X-Hogtower-Billing-Metrics"] == "logical_bytes_scanned"
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_surfaces_unparseable_rows_instead_of_dropping_silently(self, mock_requests: MagicMock) -> None:
@@ -360,6 +361,7 @@ class TestAckUsage:
         assert mock_requests.request.call_args.kwargs["json"] == {"watermark_high": "2026-07-07T00:00:00Z"}
         headers = mock_requests.request.call_args.kwargs["headers"]
         assert headers["X-Duckgres-Internal-Secret"] == "shh"
+        assert headers["X-Hogtower-Billing-Metrics"] == "logical_bytes_scanned"
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_raises_on_http_error(self, mock_requests: MagicMock) -> None:

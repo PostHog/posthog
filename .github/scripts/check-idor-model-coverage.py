@@ -196,6 +196,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # so team_id here is an attribution label, not an IDOR-lookup key.
         "DuckgresDailyUsage",
         "DuckgresDailyStorageUsage",
+        "DuckgresDailyScanUsage",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",

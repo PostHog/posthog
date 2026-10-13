@@ -77,7 +77,9 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         # re-attribute deleted/unknown-team rows to a billable surrogate and surface
         # any duplicates, value-conflicts, and orphan orgs. The conflict
         # count feeds the ack decision below, so it must be known before should_ack.
-        resolution = await database_sync_to_async(resolve_billing_teams)(response.rows, response.storage_rows)
+        resolution = await database_sync_to_async(resolve_billing_teams)(
+            response.rows, response.storage_rows, response.scan_rows
+        )
 
         recorded = await database_sync_to_async(_read_recorded_watermark)()
         out_of_window = count_out_of_window_rows(response)
@@ -109,6 +111,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             rows_written=persisted.rows_written,
             row_count=len(response.rows),
             storage_row_count=len(response.storage_rows),
+            scan_row_count=len(response.scan_rows),
             watermark_low=response.watermark_low.isoformat(),
             watermark_high=response.watermark_high.isoformat(),
             ack_watermark=ack_watermark,
@@ -177,7 +180,9 @@ def _persist(
     # when it re-serves an identical window after a lost ack. The cursor write only
     # ever advances, which closes the long-stall variant (a zombie recording an
     # older watermark computed before its stall).
-    resolved = dataclasses.replace(response, rows=resolution.compute_rows, storage_rows=resolution.storage_rows)
+    resolved = dataclasses.replace(
+        response, rows=resolution.compute_rows, storage_rows=resolution.storage_rows, scan_rows=resolution.scan_rows
+    )
     recoverable = [anomaly for anomaly in anomalies if anomaly.recoverable]
     block_all = any(anomaly.organization_ids is None for anomaly in recoverable)
     blocked_org_ids = {

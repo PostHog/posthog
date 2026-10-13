@@ -1,1 +1,1 @@
-0005_duckgres_cursor_applied_watermark
+0006_duckgres_daily_scan_usage

@@ -176,3 +176,10 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
      SELECT * FROM ducklake.posthog_data_imports_team_${TEAM_ID}.${SOURCE_TYPE}_${PREFIX}_${TABLE_NAME} LIMIT 10;
    "
    ```
+
+
+## Billing usage
+
+Logical scan reporting depends on the managed warehouse puller in [#69494](https://github.com/PostHog/posthog/pull/69494).
+The worker opts into logical byte counts, commits daily snapshots before acknowledging them, and reports `managed_warehouse_logical_bytes_scanned_in_period` across all query sources.
+See [the billing contract and rollout](../../../docs/internal/managed-warehouse-billing.md) for capability negotiation, date boundaries, and late-data recognition.

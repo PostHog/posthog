@@ -397,3 +397,18 @@ def duckgres_storage_gb_hour_rows_for_period(begin: date, end: date) -> list[dic
         gb_hours = byte_seconds // (10**9 * 3600)
         out.append({"organization_id": row["organization_id"], "team_id": row["team_id"], "total": gb_hours})
     return _fold_rows_onto_report_teams(out)
+
+
+def duckgres_logical_bytes_rows_for_period(begin: date, end: date) -> list[dict]:
+    from django.db.models import Sum  # noqa: PLC0415
+
+    from products.managed_warehouse.backend.models import DuckgresDailyScanUsage  # noqa: PLC0415
+
+    _require_duckgres_usage_fresh_through(end)
+    rows = [
+        {"organization_id": row["organization_id"], "team_id": row["team_id"], "total": int(row["total"])}
+        for row in DuckgresDailyScanUsage.all_teams.filter(date__gte=begin, date__lte=end)
+        .values("organization_id", "team_id")
+        .annotate(total=Sum("logical_bytes_scanned"))
+    ]
+    return _fold_rows_onto_report_teams(rows)

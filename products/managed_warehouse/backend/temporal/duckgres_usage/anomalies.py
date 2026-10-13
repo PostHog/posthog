@@ -98,6 +98,10 @@ class DuckgresMalformedStorage(Exception):
     shared ack would otherwise delete storage buckets we never captured."""
 
 
+class DuckgresMalformedScans(Exception):
+    pass
+
+
 class DuckgresUsageRegression(Exception):
     """A newer snapshot decreased or omitted an org's previously mirrored
     product/day total. The org retained its last-good snapshot and the shared ack
@@ -265,6 +269,15 @@ def detect_anomalies(
                     "duckgres usage response carried no storage list (key absent or not a list); persisted no "
                     "storage and withheld the ack until a well-formed response lands"
                 ),
+            )
+        )
+    if response.scans_malformed:
+        found.append(
+            Anomaly(
+                "scans_malformed",
+                recoverable=True,
+                exception=DuckgresMalformedScans,
+                message="billing scans collection is not a list; withheld ack to retain unmirrored logical bytes",
             )
         )
     return found
