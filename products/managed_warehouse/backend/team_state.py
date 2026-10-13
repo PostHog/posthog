@@ -51,6 +51,7 @@ def _to_membership(row: cp_teams.CPTeam) -> ManagedWarehouseTeamMembership:
             events_table=row.resolved_events_table,
             persons_table=row.resolved_persons_table,
             data_imports_schema=row.resolved_data_imports_schema,
+            groups_table=row.resolved_groups_table,
         ),
         earliest_event_date=row.earliest_event_date,
     )
@@ -77,6 +78,13 @@ def resolve_events_persons_tables(team_id: int) -> DucklingTables:
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------
+
+
+def resolve_groups_table(team_id: int) -> str:
+    row = _get_cp_row(team_id)
+    table = row.resolved_groups_table if row is not None else "groups"
+    validate_duckgres_identifier(table)
+    return table
 
 
 def data_imports_schema(team_id: int) -> str:

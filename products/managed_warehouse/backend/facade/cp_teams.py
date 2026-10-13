@@ -12,18 +12,32 @@ from products.managed_warehouse.backend.facade.contracts import (
 
 
 class _ControlPlaneTeam(Protocol):
-    team_id: int
-    organization_id: str
-    schema_name: str
-    enabled: bool
-    backfill_enabled: bool
-    earliest_event_date: date | None
+    @property
+    def team_id(self) -> int: ...
+
+    @property
+    def organization_id(self) -> str: ...
+
+    @property
+    def schema_name(self) -> str: ...
+
+    @property
+    def enabled(self) -> bool: ...
+
+    @property
+    def backfill_enabled(self) -> bool: ...
+
+    @property
+    def earliest_event_date(self) -> date | None: ...
 
     @property
     def resolved_events_table(self) -> str: ...
 
     @property
     def resolved_persons_table(self) -> str: ...
+
+    @property
+    def resolved_groups_table(self) -> str: ...
 
     @property
     def resolved_data_imports_schema(self) -> str: ...
@@ -50,6 +64,7 @@ def _to_membership(row: _ControlPlaneTeam) -> ManagedWarehouseTeamMembership:
             events_table=row.resolved_events_table,
             persons_table=row.resolved_persons_table,
             data_imports_schema=row.resolved_data_imports_schema,
+            groups_table=row.resolved_groups_table,
         ),
         earliest_event_date=row.earliest_event_date,
     )

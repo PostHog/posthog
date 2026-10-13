@@ -8,7 +8,7 @@ This document describes the Dagster jobs and sensors for backfilling ClickHouse 
 DuckgresServer (Django model) + control-plane team rows
     │ DuckgresServer stores the org connection; control-plane rows gate each team's enablement
     ▼
-ClickHouse (events/person tables)
+ClickHouse (events/person/groups tables)
     │ export via s3() - bucket policy allows ClickHouse EC2 role
     ▼
 Duckling S3 Bucket (parquet files)
@@ -41,6 +41,15 @@ Duckling RDS Catalog (PostgreSQL)
 | `duckling_persons_backfill_job`          | Job wrapping the asset                               |
 | `duckling_persons_daily_backfill_sensor` | Hourly sensor for yesterday's data (top-up)          |
 | `duckling_persons_full_backfill_sensor`  | Sensor for historical backfill (full export)         |
+
+### Groups backfill
+
+`duckling_groups_backfill_job` runs a full snapshot per team using the team ID as its partition key.
+`duckling_groups_full_backfill_sensor` discovers teams with backfills enabled in a ready warehouse and retries failed runs.
+Rerun a team partition manually to refresh its groups; there is no daily groups top-up sensor.
+The export uses the latest group properties from ClickHouse and replaces the team's DuckLake snapshot in a transaction.
+The job shares the events/persons backfill concurrency limit and supports `dry_run` and `skip_ducklake_registration`.
+Groups snapshots require `cleanup_existing_partition_data: true`.
 
 ## Partition Strategy
 

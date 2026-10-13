@@ -217,6 +217,7 @@ class ManagedWarehouseTableNames:
     events_table: str
     persons_table: str
     data_imports_schema: str
+    groups_table: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
