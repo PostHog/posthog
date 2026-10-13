@@ -116,6 +116,13 @@ class PostgresPrinter(BasePrinter):
         return node.name.upper()
 
     def visit_call(self, node: ast.Call):
+        if node.name.lower() == "sha1":
+            if self.DIALECT_NAME == "postgres":
+                raise QueryError(
+                    "SHA1 is not supported in the Postgres dialect because it requires the optional pgcrypto extension."
+                )
+            validate_function_args(node.args, 1, 1, node.name)
+
         if node.name.lower() in {"percentile_cont", "percentile_disc"}:
             return super().visit_call(node)
 
@@ -168,9 +175,6 @@ class PostgresPrinter(BasePrinter):
 
         func_name = node.name.lower()
 
-        if func_name == "sha1":
-            validate_function_args(node.args, 1, 1, node.name)
-
         handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
@@ -216,10 +220,6 @@ class PostgresPrinter(BasePrinter):
             # Use the validated name — never the raw node.name
             return f"{func_name}({args_str})"
 
-        if func_name == "sha1":
-            raise QueryError(
-                "SHA1 is not supported in the Postgres dialect because it requires the optional pgcrypto extension."
-            )
         raise QueryError(f"Function '{node.name}' is not supported in the {self.DIALECT_LABEL} dialect.")
 
     def _get_function_renames(self) -> dict[str, str]:
