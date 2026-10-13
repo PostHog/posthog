@@ -234,8 +234,7 @@ _REASON_INSTRUCTIONS = (
 
 # What one question adds to a request beyond its state entry: the window instructions ride along
 # per yes/no question, and the reason instructions plus the whole criteria list per CHOICE question.
-# Measured per-request sizes grow with question count because of these, so packing and pacing count
-# them; leaving them out undercounted a full chunk by thousands of tokens.
+# Per-request sizes grow with question count because of these, so packing and pacing count them.
 _WINDOW_QUESTION_TOKENS = _text_tokens(_WINDOW_INSTRUCTIONS)
 _REASON_QUESTION_TOKENS = _text_tokens(_REASON_INSTRUCTIONS) + _text_tokens(json.dumps(_WATCH_REASON_CRITERIA))
 
@@ -313,6 +312,7 @@ class WindowJudgment:
     # chunk alike and must not park rows as judged-with-no-score.
     batch_failed_ids: tuple[str, ...]
     model: str | None
+    # Chunks the window actually sent (or tried to); chunks cut off by stop_after are not counted.
     chunks: int
     failed_chunks: int
     # Failed chunks keyed by exception class name. The Prometheus counter carries the same
@@ -322,6 +322,9 @@ class WindowJudgment:
     # The gateway rate-limited a request, so the window stopped there. The rows it did not reach
     # retry free on the next sweep.
     rate_limited: bool
+    # The window hit the caller's stop_after deadline and left chunks unsent; their rows retry
+    # on the next sweep.
+    stopped_early: bool
     input_tokens: int
     estimated_cost_usd: float
 
@@ -473,7 +476,10 @@ def judge_scanner_window(
     entry_ids = {entry_id for entry_id, _ in entries}
     skipped_no_prose = tuple(str(row["id"]) for row in rows if str(row["id"]) not in entry_ids)
     context = [entry for row in context_rows or [] if (entry := _window_entry(row)) is not None]
-    chunks = _pack_chunks(entries, _WINDOW_QUESTION_TOKENS)
+    # Packed with the larger reason-question overhead: the reason pick resends the chunk's state
+    # with a criteria-bearing question per watchable row, so only a chunk sized for the all-watchable
+    # case keeps both requests under the target.
+    chunks = _pack_chunks(entries, max(_WINDOW_QUESTION_TOKENS, _REASON_QUESTION_TOKENS))
     # One trace per window run, so a window's chunks group in AI observability without merging runs.
     trace_id = str(uuid4())
     probabilities: dict[str, float] = {}
@@ -496,9 +502,20 @@ def judge_scanner_window(
         _ESTIMATED_COST.inc(chunk_cost)
 
     context_with_tokens = [(entry, _entry_tokens(entry)) for entry in context]
-    for chunk, packed_tokens in chunks:
+    chunks_started = 0
+    stopped_early = False
+
+    def out_of_time() -> bool:
+        # Checked after each pace() too: the pacing sleep can carry the clock across the deadline,
+        # and a request started past it would overshoot the caller's budget by its whole timeout.
+        nonlocal stopped_early
         if stop_after is not None and monotonic() > stop_after:
             # Like rows cut off by the caller's time budget: unjudged, free to retry next sweep.
+            stopped_early = True
+        return stopped_early
+
+    for chunk, packed_tokens in chunks:
+        if out_of_time():
             break
         # Context pads only the room the chunk leaves, by question count and by token budget, so a
         # padded request stays no larger than a full one.
@@ -511,9 +528,14 @@ def judge_scanner_window(
             chunk_context.append(context_entry)
             budget -= tokens
             context_tokens += tokens
-        state_tokens = packed_tokens - len(chunk) * _WINDOW_QUESTION_TOKENS + context_tokens
+        state_tokens = (
+            packed_tokens - len(chunk) * max(_WINDOW_QUESTION_TOKENS, _REASON_QUESTION_TOKENS) + context_tokens
+        )
         if pace is not None:
-            pace(packed_tokens + context_tokens)
+            pace(state_tokens + len(chunk) * _WINDOW_QUESTION_TOKENS)
+        if out_of_time():
+            break
+        chunks_started += 1
         started = perf_counter()
         try:
             chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk, chunk_context)
@@ -555,6 +577,9 @@ def judge_scanner_window(
             # The reason pick resends the same state, with one criteria-bearing question per
             # watchable row — usually a few, so this toll is usually smaller than the judgment's.
             pace(state_tokens + len(watchable_ids) * _REASON_QUESTION_TOKENS)
+        if out_of_time():
+            # The judgments above still land; only the reasons are left off, as on a failed pick.
+            break
         started = perf_counter()
         try:
             chunk_reasons, reason_result = _pick_watch_reasons(team_id, trace_id, chunk, chunk_context, watchable_ids)
@@ -585,10 +610,11 @@ def judge_scanner_window(
         skipped_no_prose=skipped_no_prose,
         batch_failed_ids=tuple(batch_failed_ids),
         model=model,
-        chunks=len(chunks),
+        chunks=chunks_started,
         failed_chunks=failed_chunks,
         chunk_error_types=chunk_error_types,
         rate_limited=rate_limited,
+        stopped_early=stopped_early,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
     )

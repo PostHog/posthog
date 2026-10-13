@@ -47,8 +47,10 @@ RATE_LIMIT_GIVE_UP_AFTER = 5
 # Judging stops here even under the caps: the wall clock is the binding limit, not the counts, and
 # paced runs are meant to use most of the hour. Capped under the shortest gap between one run and
 # the next (hourly ticks carry up to 10 minutes of jitter, so a late run and an early next tick can
-# sit 50 minutes apart), so the SKIP overlap policy never has to drop a tick. Scanners cut off by
-# the budget wait for the next hourly run, where already-judged rows cost nothing.
+# sit 50 minutes apart). The activity and workflow timeouts below run past that gap, so a run that
+# pathologically overshoots its budget can make the SKIP overlap policy drop one tick — accepted,
+# because its rows just retry. Scanners cut off by the budget wait for the next hourly run, where
+# already-judged rows cost nothing.
 SWEEP_TIME_BUDGET = timedelta(minutes=45)
 
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=55)

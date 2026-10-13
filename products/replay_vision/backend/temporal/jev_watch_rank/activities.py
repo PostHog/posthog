@@ -286,6 +286,7 @@ async def _sweep_scanner(
                 "watchability_max": scores[-1] if scores else None,
                 "top_scored": top_scored,
                 "chunks": judgment.chunks,
+                "stopped_early": judgment.stopped_early,
                 "failed_chunks": judgment.failed_chunks,
                 "chunk_error_types": judgment.chunk_error_types,
                 "watch_reasons": dict(Counter(judgment.reasons.values())),
@@ -299,6 +300,9 @@ async def _sweep_scanner(
     return _ScannerOutcome(
         judged=True,
         rate_limited=judgment.rate_limited,
+        # A window the deadline cut short surfaces as the time budget being hit, like a turn that
+        # never started.
+        out_of_time=judgment.stopped_early,
         observations_judged=len(judgment.probabilities),
         observations_given_up=len(exhausted),
         cache_errors=cache_errors,

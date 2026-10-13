@@ -28,6 +28,7 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.jev_watch_feed import (
+    _REASON_QUESTION_TOKENS,
     _WINDOW_QUESTION_TOKENS,
     REQUEST_TOKEN_TARGET,
     WINDOW_CHUNK_SIZE,
@@ -127,18 +128,19 @@ class TestJudgeScannerWindow(SimpleTestCase):
         with patch(_API) as api:
             api.decide_when_available.side_effect = _answer_every_question(0.7)
             judgment = judge_scanner_window(1, uuid4(), rows)
-        # Each chunk is one yes/no request, then one reason request for its watchable rows.
-        assert api.decide_when_available.call_count == 4
-        assert judgment.chunks == 2
+        # Each chunk is one yes/no request, then one reason request for its watchable rows. How many
+        # rows fit a chunk follows from the token target, so derive the geometry instead of pinning it.
+        assert judgment.chunks >= 2
+        assert api.decide_when_available.call_count == 2 * judgment.chunks
         assert judgment.failed_chunks == 0
         assert len(judgment.probabilities) == len(rows)
         assert judgment.probabilities[str(rows[0]["id"])] == 0.7
-        assert judgment.input_tokens == 480
+        assert judgment.input_tokens == 120 * api.decide_when_available.call_count
         first_request = api.decide_when_available.call_args_list[0].args[0]
         # The chunk travels as shared state with one question per observation, so each judgment is
         # relative to its siblings.
-        assert len(first_request.state["observations"]) == WINDOW_CHUNK_SIZE
-        assert len(first_request.questions) == WINDOW_CHUNK_SIZE
+        assert 1 < len(first_request.state["observations"]) < len(rows)
+        assert len(first_request.questions) == len(first_request.state["observations"])
         assert "0" in first_request.questions["watch_0"].instructions
         # The state carries recording-derived prose, which must stay out of the internal project.
         assert first_request.privacy_mode is True
@@ -158,7 +160,8 @@ class TestJudgeScannerWindow(SimpleTestCase):
             api.decide_when_available.side_effect = _first_chunk_fails
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert judgment.failed_chunks == 1
-        assert len(judgment.probabilities) == 6
+        first_request = api.decide_when_available.call_args_list[0].args[0]
+        assert len(judgment.probabilities) == len(rows) - len(first_request.state["observations"])
         # An unavailable decision service is not the batch's fault, so no retry budget is charged.
         assert judgment.batch_failed_ids == ()
         assert judgment.chunk_error_types == {"DecisionsDisabledError": 1}
@@ -288,21 +291,26 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert judgment.batch_failed_ids == ()
 
     def test_requests_pack_to_the_token_target(self) -> None:
-        # A full-count chunk of verbose entries was still a host-filling request, so chunks are also
-        # bounded by estimated tokens: every request stays small beside the host's admission budget.
+        # A full-count chunk of verbose entries must not become a host-filling request. Every row is
+        # watchable here, the worst case: the reason request resends the state with a criteria-bearing
+        # question per row, so it, not the judgment request, is the largest request a chunk produces.
         rows = [_prose_row(uuid4(), f"entry {index} " + "x" * 1400) for index in range(WINDOW_CHUNK_SIZE)]
         with patch(_API) as api:
-            api.decide_when_available.side_effect = _answer_every_question(0.1)
+            api.decide_when_available.side_effect = _answer_every_question(0.7)
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert judgment.failed_chunks == 0
         assert len(judgment.probabilities) == WINDOW_CHUNK_SIZE
         requests = [call.args[0] for call in api.decide_when_available.call_args_list]
-        # Count-only chunking would fit all of these into one request.
-        assert len(requests) > 1
+        # Count-only chunking would fit all of these into one judgment request.
+        assert len(requests) > 2
         for request in requests:
             # state["observations"] is a dict keyed by index, so size the entries, not the keys.
             entry_tokens = sum(_entry_tokens(entry) for entry in request.state["observations"].values())
-            assert entry_tokens + len(request.questions) * _WINDOW_QUESTION_TOKENS <= REQUEST_TOKEN_TARGET
+            question_tokens = sum(
+                _REASON_QUESTION_TOKENS if question_id.startswith("reason_") else _WINDOW_QUESTION_TOKENS
+                for question_id in request.questions
+            )
+            assert entry_tokens + question_tokens <= REQUEST_TOKEN_TARGET
 
     def test_each_request_pays_the_pacing_toll_before_it_sends(self) -> None:
         rows = [_prose_row(uuid4(), f"summary {index}") for index in range(3)]
@@ -323,6 +331,9 @@ class TestJudgeScannerWindow(SimpleTestCase):
         api.decide_when_available.assert_not_called()
         assert judgment.probabilities == {}
         assert judgment.batch_failed_ids == ()
+        # The cut-off is visible: no chunk counts as attempted, and the window says it stopped early.
+        assert judgment.stopped_early
+        assert judgment.chunks == 0
 
     def test_an_empty_window_makes_no_request(self) -> None:
         with patch(_API) as api:
