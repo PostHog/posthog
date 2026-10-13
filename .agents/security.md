@@ -202,7 +202,7 @@ A refused resource produces no user-visible error, so the feature simply does no
 Three policies exist, and a change lands in whichever one covers the page:
 
 - **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, always stay report-only.
-- **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
+- **The admin policy** governs `/admin/`. It is enforced for every staff member, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
 ### What the app policy forbids
