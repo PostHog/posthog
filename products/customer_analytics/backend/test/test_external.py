@@ -212,6 +212,22 @@ class TestExternalAccountAPI(APIBaseTest):
         accounts = Account.objects.for_team(self.team.id).filter(external_id="acme-2")
         self.assertEqual([account.name for account in accounts], ["Acme Two"])
 
+    @parameterized.expand(
+        [
+            ("organization_deactivated", {"is_active": False}),
+            ("organization_active_null", {"is_active": None}),
+            ("organization_pending_deletion", {"is_pending_deletion": True}),
+        ]
+    )
+    def test_psak_is_invisible_when_the_organization_is_blocked(self, _name: str, changes: dict) -> None:
+        token = self._create_psak_token(scopes=["account:read"])
+        for field, value in changes.items():
+            setattr(self.organization, field, value)
+        self.organization.save()
+
+        response = self._get(token=token)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_project_secret_api_keys_share_a_team_rate_limit(self):
         cache.clear()
         self.addCleanup(cache.clear)
@@ -783,6 +799,25 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
         _, token = create_project_secret_api_key(self.team, label="props", scopes=["account:write"])
         response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}}, token=token)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_project_secret_api_keys_share_a_team_rate_limit(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        first_token = create_project_secret_api_key(self.team, label="first", scopes=["account:write"])[1]
+        second_token = create_project_secret_api_key(self.team, label="second", scopes=["account:write"])[1]
+
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch(
+                "products.customer_analytics.backend.presentation.views.external.ExternalAccountTeamBurstThrottle.rate",
+                "1/minute",
+            ),
+        ):
+            first = self._patch({"external_id": "acme-1", "properties": {}}, token=first_token)
+            second = self._patch({"external_id": "acme-1", "properties": {}}, token=second_token)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_sets_values_by_definition_id(self):
         response = self._patch(

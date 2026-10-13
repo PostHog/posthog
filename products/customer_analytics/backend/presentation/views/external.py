@@ -151,7 +151,13 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
-        if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
+        if result is None:
+            return None
+        team = self.project_secret_api_key.team
+        # These AllowAny views never run ActiveOrganizationPermission, so organization
+        # state must be enforced here or a key outlives its deactivated organization.
+        organization = team.organization
+        if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
             return None
         return result
 
@@ -650,7 +656,12 @@ class ExternalAccountCustomPropertiesView(APIView):
 
     authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+    throttle_classes = [
+        ExternalAccountBurstThrottle,
+        ExternalAccountSustainedThrottle,
+        ExternalAccountTeamBurstThrottle,
+        ExternalAccountTeamSustainedThrottle,
+    ]
 
     @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
     def patch(self, request: Request) -> Response:
