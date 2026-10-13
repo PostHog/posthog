@@ -108,10 +108,6 @@ describe('github event trigger', () => {
             expect(getTriggerType().validate!({ type: 'event', filters: {} } as any)).toBeNull()
         })
 
-        it('is gated behind the github-workflow-triggers feature flag', () => {
-            expect(getTriggerType().featureFlag).toBe('github-workflow-triggers')
-        })
-
         it('defaults to write access, so a drive-by comment cannot start a run', () => {
             expect(decodeGithubFilters(getTriggerType().buildConfig().filters.properties).actorMode).toBe(
                 'write_access'

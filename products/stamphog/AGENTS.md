@@ -204,6 +204,8 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
   a manager paused; that is the requested self-serve direction. A supplied value counts even when it
   matches the stored one, because the view's snapshot of the row is stale by the time the facade
   saves. The digest toggle stays at `editor`. Service credentials are refused at both levels.
+  The model default for `review_mode` is `label`, the narrow mode, so an editor turning reviews on
+  never widens them past opt-in. Do not change the default to `all` without moving that level too.
 - A sync records what the member's own GitHub token lists in the team's `StamphogInstallation`
   snapshot and creates no repo config. `add_repository` binds only a repository in that snapshot,
   taking the installation id and the connecting user from the record, never from the request.
@@ -218,8 +220,8 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
   and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
-  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
-  otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
+  would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let

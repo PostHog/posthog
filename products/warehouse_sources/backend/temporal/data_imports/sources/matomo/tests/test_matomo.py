@@ -1,20 +1,18 @@
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qs
 
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.matomo import MatomoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.matomo import (
     VISITS_PAGE_SIZE,
     MatomoResumeConfig,
-    get_rows,
-    matomo_source,
     normalize_host,
     validate_credentials,
 )
@@ -24,26 +22,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.matomo.matomo"
 
-
-def _make_manager(resume_state: MatomoResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    return resp
-
-
-def _now_ts() -> int:
-    return int(datetime.now(tz=UTC).timestamp())
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        MatomoSource(), MatomoSourceConfig(host="https://m.example.com", site_id="1", api_token="token")
+    )
 
 
 def _final_ts(offset_seconds: int = 0) -> int:
@@ -61,189 +44,138 @@ class TestNormalizeHost:
             ("http://analytics.internal:8080", "http://analytics.internal:8080"),
         ],
     )
-    def test_valid_hosts(self, value, expected):
+    def test_valid_hosts(self, value: str, expected: str) -> None:
         assert normalize_host(value) == expected
 
     @pytest.mark.parametrize("value", ["", "   ", "ftp://example.com", "https://"])
-    def test_invalid_hosts_raise(self, value):
+    def test_invalid_hosts_raise(self, value: str) -> None:
         with pytest.raises(ValueError):
             normalize_host(value)
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_error_envelope_fails_validation(self, mock_session):
-        mock_session.return_value.post.return_value = _response({"result": "error", "message": "bad token"})
+    def test_error_envelope_fails_validation(self) -> None:
+        with scripted_network([ScriptedResponse(json={"result": "error", "message": "bad token"})]) as network:
+            assert validate_credentials("https://myorg.matomo.cloud", "1", "bad") is False
 
-        assert validate_credentials("https://myorg.matomo.cloud", "1", "bad") is False
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/index.php"
+        assert parse_qs((network.requests_log[0].body or b"").decode())["token_auth"] == ["bad"]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_http_error_fails_validation(self, mock_session):
-        mock_session.return_value.post.return_value = _response({}, status_code=403)
+    def test_http_error_fails_validation(self) -> None:
+        with scripted_network([ScriptedResponse(status=403, json={})]) as network:
+            assert validate_credentials("https://myorg.matomo.cloud", "1", "token") is False
 
-        assert validate_credentials("https://myorg.matomo.cloud", "1", "token") is False
+        assert len(network.requests_log) == 1
 
 
-@mock.patch(f"{_MODULE}.time.sleep")
 class TestVisits:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_page_at_one_timestamp_steps_past_cursor(self, mock_session, mock_sleep):
+    def test_full_page_at_one_timestamp_steps_past_cursor(self) -> None:
         # minTimestamp is inclusive, so a full page whose visits all share the
         # same second must step the cursor forward or it would refetch forever.
         ts = _final_ts(10_000)
         first_page = [{"idVisit": str(i), "serverTimestamp": ts} for i in range(VISITS_PAGE_SIZE)]
         second_page = [{"idVisit": "last", "serverTimestamp": ts + 5}]
-        mock_session.return_value.post.side_effect = [
-            _response(first_page),
-            _response(second_page),
-            *[_response([]) for _ in range(10)],
-        ]
-
-        manager = _make_manager()
-        batches = list(
-            get_rows(
-                "https://m.example.com",
-                "1",
-                "token",
-                "visits",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=ts - 60,
-            )
+        result = _driver().run(
+            "visits",
+            [ScriptedResponse(json=first_page), ScriptedResponse(json=second_page)]
+            + [ScriptedResponse(json=[]) for _ in range(10)],
+            incremental_field="serverTimestamp",
+            db_incremental_field_last_value=ts - 60,
         )
 
-        assert [len(batch) for batch in batches] == [VISITS_PAGE_SIZE, 1]
-        assert mock_session.return_value.post.call_args_list[1].kwargs["data"]["minTimestamp"] == ts + 1
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [VISITS_PAGE_SIZE, 1]
+        assert parse_qs((result.requests[1].body or b"").decode())["minTimestamp"] == [str(ts + 1)]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_still_active_visits_are_deferred(self, mock_session, mock_sleep):
+    def test_still_active_visits_are_deferred(self) -> None:
         now = int(datetime.now(tz=UTC).timestamp())
-        mock_session.return_value.post.return_value = _response(
+        result = _driver().run(
+            "visits",
             [
-                {"idVisit": "done", "serverTimestamp": _final_ts()},
-                {"idVisit": "active", "serverTimestamp": now - 10},
-            ]
+                ScriptedResponse(
+                    json=[
+                        {"idVisit": "done", "serverTimestamp": _final_ts()},
+                        {"idVisit": "active", "serverTimestamp": now - 10},
+                    ]
+                ),
+                *[ScriptedResponse(json=[]) for _ in range(4)],
+            ],
+            incremental_field="serverTimestamp",
+            db_incremental_field_last_value=now,
         )
 
-        batches = list(
-            get_rows(
-                "https://m.example.com",
-                "1",
-                "token",
-                "visits",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=_now_ts(),
-            )
-        )
+        assert result.raised is None
+        assert {row["idVisit"] for row in result.rows} == {"done"}
 
-        assert {row["idVisit"] for batch in batches for row in batch} == {"done"}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_day_restarts_the_walk_where_it_stopped(self, mock_session, mock_sleep):
-        mock_session.return_value.post.return_value = _response([])
+    def test_resume_day_restarts_the_walk_where_it_stopped(self) -> None:
         today = datetime.now(tz=UTC).date()
+        result = _driver().run(
+            "visits",
+            [ScriptedResponse(json=[])],
+            resume_state=MatomoResumeConfig(min_timestamp=1, next_date=today.isoformat()),
+        )
 
-        manager = _make_manager(MatomoResumeConfig(min_timestamp=1, next_date=today.isoformat()))
-        list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), manager))
-
-        assert mock_session.return_value.post.call_count == 1
-        assert mock_session.return_value.post.call_args.kwargs["data"]["date"] == today.isoformat()
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert parse_qs((result.requests[0].body or b"").decode())["date"] == [today.isoformat()]
 
 
-@mock.patch(f"{_MODULE}.time.sleep")
 class TestReports:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_walks_days_oldest_first_and_injects_date(self, mock_session, mock_sleep):
-        mock_session.return_value.post.return_value = _response({"nb_visits": 5})
-
-        manager = _make_manager()
-        batches = list(
-            get_rows(
-                "https://m.example.com",
-                "1",
-                "token",
-                "visits_summary",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.now(tz=UTC).date().isoformat(),
-            )
+    def test_walks_days_oldest_first_and_injects_date(self) -> None:
+        result = _driver().run(
+            "visits_summary",
+            [ScriptedResponse(json={"nb_visits": 5}) for _ in range(REPORT_LOOKBACK_DAYS + 1)],
+            incremental_field="_date",
+            db_incremental_field_last_value=datetime.now(tz=UTC).date().isoformat(),
         )
 
         # Lookback window: REPORT_LOOKBACK_DAYS + 1 days, one row per day.
-        assert len(batches) == REPORT_LOOKBACK_DAYS + 1
-        dates = [batch[0]["_date"] for batch in batches]
+        assert result.raised is None
+        assert len(result.items) == REPORT_LOOKBACK_DAYS + 1
+        dates = [batch[0]["_date"] for batch in result.items]
         assert dates == sorted(dates)
-        assert all(batch[0]["nb_visits"] == 5 for batch in batches)
-        first_body = mock_session.return_value.post.call_args_list[0].kwargs["data"]
-        assert first_body["period"] == "day"
-        assert first_body["method"] == "VisitsSummary.get"
+        assert all(batch[0]["nb_visits"] == 5 for batch in result.items)
+        first_body = parse_qs((result.requests[0].body or b"").decode())
+        assert first_body["period"] == ["day"]
+        assert first_body["method"] == ["VisitsSummary.get"]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_list_reports_yield_rows_per_day(self, mock_session, mock_sleep):
-        mock_session.return_value.post.return_value = _response([{"label": "Direct"}, {"label": "Search"}])
-
-        batches = list(
-            get_rows(
-                "https://m.example.com",
-                "1",
-                "token",
-                "referrers",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.now(tz=UTC).date().isoformat(),
-            )
+    def test_list_reports_yield_rows_per_day(self) -> None:
+        result = _driver().run(
+            "referrers",
+            [ScriptedResponse(json=[{"label": "Direct"}, {"label": "Search"}])] * (REPORT_LOOKBACK_DAYS + 1),
+            incremental_field="_date",
+            db_incremental_field_last_value=datetime.now(tz=UTC).date().isoformat(),
         )
 
-        assert all(len(batch) == 2 for batch in batches)
-        assert all("_date" in row for batch in batches for row in batch)
+        assert result.raised is None
+        assert all(len(batch) == 2 for batch in result.items)
+        assert all("_date" in row for row in result.rows)
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_api_error_envelope_raises(self, mock_session, mock_sleep):
-        mock_session.return_value.post.return_value = _response({"result": "error", "message": "no access"})
+    def test_api_error_envelope_raises(self) -> None:
+        result = _driver().run(
+            "visits_summary",
+            [ScriptedResponse(json={"result": "error", "message": "no access"})],
+            resume_state=MatomoResumeConfig(next_date=datetime.now(tz=UTC).date().isoformat()),
+        )
 
-        with pytest.raises(ValueError, match="no access"):
-            list(
-                get_rows(
-                    "https://m.example.com",
-                    "1",
-                    "token",
-                    "visits_summary",
-                    mock.MagicMock(),
-                    _make_manager(MatomoResumeConfig(next_date=datetime.now(tz=UTC).date().isoformat())),
-                )
-            )
+        assert isinstance(result.raised, ValueError)
+        assert "no access" in str(result.raised)
 
 
-@mock.patch(f"{_MODULE}.time.sleep")
-@mock.patch.object(MatomoSource, "is_database_host_valid", return_value=(True, None))
 class TestDrivenEndpoints:
-    @staticmethod
-    def _driver() -> SourceDriver:
-        return SourceDriver(
-            MatomoSource(), MatomoSourceConfig(host="https://m.example.com", site_id="1", api_token="token")
-        )
-
-    @staticmethod
-    def _form(request: Any) -> dict[str, str]:
-        return dict(parse_qsl((request.body or b"").decode()))
-
     @pytest.mark.parametrize(
         "endpoint,method,expected_flat",
         [
             # Without flat=1 page URLs come back as folder rows whose pages hide in subtables.
-            ("pages", "Actions.getPageUrls", "1"),
+            ("pages", "Actions.getPageUrls", ["1"]),
             ("event_names", "Events.getName", None),
         ],
     )
-    def test_report_request_params(self, mock_host_valid, mock_sleep, endpoint, method, expected_flat):
+    def test_report_request_params(self, endpoint: str, method: str, expected_flat: list[str] | None) -> None:
         today = datetime.now(tz=UTC).date().isoformat()
 
-        result = self._driver().run(
+        result = _driver().run(
             endpoint,
             [ScriptedResponse(json=[{"label": "/pricing"}])],
             resume_state=MatomoResumeConfig(next_date=today),
@@ -252,8 +184,13 @@ class TestDrivenEndpoints:
         assert result.raised is None
         assert result.rows == [{"label": "/pricing", "_date": today}]
         [request] = result.requests
-        body = self._form(request)
-        assert (body["method"], body["period"], body["date"], body["filter_limit"]) == (method, "day", today, "-1")
+        body = parse_qs((request.body or b"").decode())
+        assert (body["method"], body["period"], body["date"], body["filter_limit"]) == (
+            [method],
+            ["day"],
+            [today],
+            ["-1"],
+        )
         assert body.get("flat") == expected_flat
 
     @pytest.mark.parametrize(
@@ -264,14 +201,14 @@ class TestDrivenEndpoints:
             {"1": {"idgoal": "1", "name": "Signup"}, "2": {"idgoal": "2", "name": "Purchase"}},
         ],
     )
-    def test_goals_fetched_in_one_undated_call(self, mock_host_valid, mock_sleep, goals):
-        result = self._driver().run("goals", [ScriptedResponse(json=goals)])
+    def test_goals_fetched_in_one_undated_call(self, goals: Any) -> None:
+        result = _driver().run("goals", [ScriptedResponse(json=goals)])
 
         assert result.raised is None
         assert [row["name"] for row in result.rows] == ["Signup", "Purchase"]
         [request] = result.requests
-        body = self._form(request)
-        assert body["method"] == "Goals.getGoals"
+        body = parse_qs((request.body or b"").decode())
+        assert body["method"] == ["Goals.getGoals"]
         assert "period" not in body and "date" not in body
 
 
@@ -286,12 +223,20 @@ class TestMatomoSourceResponse:
             ("referrers", None, None, None),
         ],
     )
-    def test_partition_scheme_per_endpoint(self, endpoint, expected_mode, expected_keys, expected_format):
-        response = matomo_source("https://m.example.com", "1", "token", endpoint, mock.MagicMock(), _make_manager())
+    def test_partition_scheme_per_endpoint(
+        self, endpoint: str, expected_mode: str | None, expected_keys: list[str] | None, expected_format: str | None
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=[] if endpoint == "visits" else {})],
+            resume_state=MatomoResumeConfig(next_date=datetime.now(tz=UTC).date().isoformat()),
+        )
 
-        assert response.partition_mode == expected_mode
-        assert response.partition_keys == expected_keys
-        assert response.partition_format == expected_format
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.partition_mode == expected_mode
+        assert result.response.partition_keys == expected_keys
+        assert result.response.partition_format == expected_format
         # partition_size=1 is what caused the per-row explosion; it must never come back.
-        assert response.partition_size is None
-        assert response.partition_count is None
+        assert result.response.partition_size is None
+        assert result.response.partition_count is None

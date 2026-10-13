@@ -1,69 +1,26 @@
-import json
-from typing import Any
-
-import pytest
-from unittest import mock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
+    UpstashSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.settings import (
     UPSTASH_API_BASE_URL,
     UPSTASH_ROOT_BASE_URL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash import (
-    upstash_source,
-    validate_credentials,
-)
-
-# RESTClient never builds its own session here because upstash always passes a pre-built one; that
-# session is created by make_tracked_session in the upstash module, so patch it there.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash.make_tracked_session"
-# tenacity sleeps between retries; patch it so retry-exhaustion tests don't actually wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash import validate_credentials
 
 
-def _response(status: int, body: Any) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = b"" if body is None else json.dumps(body).encode()
-    # raise_for_status embeds the URL in its message; keep it on the base host so the
-    # get_non_retryable_errors matchers (tested in test_upstash_source) stay accurate.
-    resp.url = f"{UPSTASH_API_BASE_URL}/teams"
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared instead of inspecting the shared dict after the run.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(endpoint: str, responses: list[Response]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    with mock.patch(SESSION_PATCH) as make_session:
-        session = mock.MagicMock()
-        snapshots = _wire(session, responses)
-        make_session.return_value = session
-        rows = _rows(upstash_source(email="e", api_key="k", endpoint=endpoint, team_id=1, job_id="j"))
-    return rows, snapshots
+def _driver() -> SourceDriver:
+    return SourceDriver(UpstashSource(), UpstashSourceConfig(email="e", api_key="k"))
 
 
 class TestListEndpoints:
@@ -77,53 +34,47 @@ class TestListEndpoints:
         ]
     )
     def test_yields_dicts_from_raw_array_at_expected_url(self, endpoint: str, expected_url: str, pk: str) -> None:
-        rows, snapshots = _run(endpoint, [_response(200, [{pk: "a"}, {pk: "b"}])])
-        assert [r[pk] for r in rows] == ["a", "b"]
-        assert [s["url"] for s in snapshots] == [expected_url]
+        result = _driver().run(endpoint, [ScriptedResponse(json=[{pk: "a"}, {pk: "b"}])])
+
+        assert [r[pk] for r in result.rows] == ["a", "b"]
+        assert result.urls == [expected_url]
 
     def test_non_list_response_raises(self) -> None:
         # A malformed body (object instead of array) must fail the sync loudly rather than silently
         # replace the warehouse table with zero rows.
-        with pytest.raises(ValueError):
-            _run("teams", [_response(200, {"unexpected": "shape"})])
+        result = _driver().run("teams", [ScriptedResponse(json={"unexpected": "shape"})])
+
+        assert isinstance(result.raised, ValueError)
 
 
 class TestStatsFanOut:
-    @mock.patch(SLEEP_PATCH)
-    def test_non_404_error_during_fan_out_propagates(self, _sleep: Any) -> None:
+    def test_non_404_error_during_fan_out_propagates(self) -> None:
         # A persistent 5xx while fetching stats fails the sync (after the client's retries) rather
         # than being swallowed like a 404.
-        calls = {"n": 0}
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            # The parent databases list succeeds; every stats fetch after it 500s.
+            if request.path.endswith("/redis/databases"):
+                return ScriptedResponse(json=[{"database_id": "db1"}])
+            return ScriptedResponse(status=500, json={"error": "boom"})
 
-        def _send(*_a: Any, **_k: Any) -> Response:
-            calls["n"] += 1
-            # First call is the parent databases list; every stats fetch after it 500s.
-            if calls["n"] == 1:
-                return _response(200, [{"database_id": "db1"}])
-            return _response(500, {"error": "boom"})
+        result = _driver().run("redis_stats", respond)
 
-        with mock.patch(SESSION_PATCH) as make_session:
-            session = mock.MagicMock()
-            session.headers = {}
-            session.prepare_request.side_effect = lambda request: mock.MagicMock()
-            session.send.side_effect = _send
-            make_session.return_value = session
-            with pytest.raises(Exception):
-                _rows(upstash_source(email="e", api_key="k", endpoint="redis_stats", team_id=1, job_id="j"))
-            # The parent succeeded once; the child 500 was retried several times before failing.
-            assert calls["n"] > 2
+        assert result.raised is not None
+        # The parent succeeded once; the child 500 was retried several times before failing.
+        assert len(result.requests) > 2
 
     def test_database_row_missing_id_raises(self) -> None:
         # The stats sync fans out over every database id; a row missing its id must fail the sync
         # rather than be silently dropped, which would yield partial usage/billing data.
-        with pytest.raises(ValueError):
-            _run(
-                "redis_stats",
-                [
-                    _response(200, [{"database_id": "db1"}, {"not_the_id": "x"}]),
-                    _response(200, {"total_monthly_billing": 1.5}),
-                ],
-            )
+        result = _driver().run(
+            "redis_stats",
+            [
+                ScriptedResponse(json=[{"database_id": "db1"}, {"not_the_id": "x"}]),
+                ScriptedResponse(json={"total_monthly_billing": 1.5}),
+            ],
+        )
+
+        assert isinstance(result.raised, ValueError)
 
 
 class TestHttpSampleCapture:
@@ -131,43 +82,26 @@ class TestHttpSampleCapture:
     # since the generic scrubber does not redact fields named `token`. Other endpoints keep capture on.
     @parameterized.expand([("vector_indexes", False), ("teams", True)])
     def test_capture_flag_tracks_sensitive_endpoints(self, endpoint: str, expected_capture: bool) -> None:
-        recorded: dict[str, Any] = {}
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
 
-        def fake_session(*args: Any, **kwargs: Any) -> Any:
-            recorded["capture"] = kwargs.get("capture", True)
-            return mock.MagicMock(headers={})
-
-        with mock.patch(SESSION_PATCH, fake_session):
-            upstash_source(email="e", api_key="k", endpoint=endpoint, team_id=1, job_id="j")
-        assert recorded["capture"] is expected_capture
+        assert result.session_options[0]["capture"] is expected_capture
 
 
 class TestRetryClassification:
-    @mock.patch(SLEEP_PATCH)
-    def test_persistent_5xx_raises_after_retries(self, _sleep: Any) -> None:
-        with mock.patch(SESSION_PATCH) as make_session:
-            session = mock.MagicMock()
-            session.headers = {}
-            session.prepare_request.side_effect = lambda request: mock.MagicMock()
-            session.send.side_effect = lambda *a, **k: _response(500, {"error": "boom"})
-            make_session.return_value = session
-            with pytest.raises(Exception):
-                _rows(upstash_source(email="e", api_key="k", endpoint="teams", team_id=1, job_id="j"))
-            # The client retries a 5xx several times before giving up (default 5 attempts).
-            assert session.send.call_count > 1
+    def test_persistent_5xx_raises_after_retries(self) -> None:
+        result = _driver().run("teams", always(ScriptedResponse(status=500, json={"error": "boom"})))
+
+        assert result.raised is not None
+        # The client retries a 5xx several times before giving up (default 5 attempts).
+        assert len(result.requests) > 1
 
     @parameterized.expand([(401,), (403,)])
     def test_auth_errors_raise_immediately(self, status: int) -> None:
-        with mock.patch(SESSION_PATCH) as make_session:
-            session = mock.MagicMock()
-            session.headers = {}
-            session.prepare_request.side_effect = lambda request: mock.MagicMock()
-            session.send.side_effect = lambda *a, **k: _response(status, {"error": "denied"})
-            make_session.return_value = session
-            with pytest.raises(requests.HTTPError):
-                _rows(upstash_source(email="e", api_key="k", endpoint="teams", team_id=1, job_id="j"))
-            # A credential error is not retried.
-            assert session.send.call_count == 1
+        result = _driver().run("teams", always(ScriptedResponse(status=status, json={"error": "denied"})))
+
+        assert isinstance(result.raised, requests.HTTPError)
+        # A credential error is not retried.
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:
@@ -175,13 +109,13 @@ class TestValidateCredentials:
     # and must not block source creation during an Upstash outage or rate-limit window.
     @parameterized.expand([(200, True), (401, False), (403, False), (429, True), (500, True)])
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:
-        response = mock.MagicMock(status_code=status)
-        session = mock.MagicMock()
-        session.get.return_value = response
-        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             ok, error = validate_credentials("e", "k")
+
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert network.requests_log[0].url == f"{UPSTASH_API_BASE_URL}/teams"
+        assert network.requests_log[0].headers["authorization"].startswith("Basic ")
 
     # A 403 means the whole account can't use the management API, so it must not read as a bad key
     # and send the customer off to generate another one that fails the same way.
@@ -192,30 +126,27 @@ class TestValidateCredentials:
         ]
     )
     def test_a_bad_key_and_an_unauthorized_account_read_differently(self, status: int, expected: str) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             ok, error = validate_credentials("e", "k")
+
         assert ok is False
         assert expected in (error or "")
 
     def test_a_rejected_credential_reads_the_same_during_setup_and_during_a_sync(self) -> None:
         # Setup and sync reach the message by different routes, so a divergence between them is
         # invisible unless the two are compared.
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=401)
-        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
+        with scripted_network(always(ScriptedResponse(status=401, json={}))):
             _ok, setup_error = validate_credentials("e", "k")
         sync_errors = UpstashSource().get_non_retryable_errors()
+
         assert setup_error == sync_errors["401 Client Error: Unauthorized for url: https://api.upstash.com"]
 
     def test_request_exception_does_not_block_creation(self) -> None:
         # An unreachable API is transient, not a credential rejection; a genuine auth failure still
         # surfaces at sync time.
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             ok, error = validate_credentials("e", "k")
+
         assert ok is True
         assert error is None
 
@@ -231,9 +162,10 @@ class TestUpstashSource:
         ]
     )
     def test_source_response_primary_keys_and_sort(self, endpoint: str, expected_pk: list[str]) -> None:
-        with mock.patch(SESSION_PATCH, lambda *a, **k: mock.MagicMock(headers={})):
-            response = upstash_source(email="e", api_key="k", endpoint=endpoint, team_id=1, job_id="j")
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pk
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_pk
         # Full refresh, replaced wholesale each sync; asc is the pipeline default.
-        assert response.sort_mode == "asc"
+        assert result.response.sort_mode == "asc"

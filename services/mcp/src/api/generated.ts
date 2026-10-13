@@ -44469,7 +44469,7 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -46934,7 +46934,7 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -73938,7 +73938,7 @@ export namespace Schemas {
       readonly installation_id: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
-      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
        *
        * * `all` - All pull requests
        * * `label` - Labeled pull requests */
@@ -80282,7 +80282,7 @@ export namespace Schemas {
       readonly can_freeze_exposure?: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health?: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -84771,7 +84771,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
-      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
        *
        * * `all` - All pull requests
        * * `label` - Labeled pull requests */
@@ -107185,7 +107185,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
-      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
        *
        * * `all` - All pull requests
        * * `label` - Labeled pull requests */

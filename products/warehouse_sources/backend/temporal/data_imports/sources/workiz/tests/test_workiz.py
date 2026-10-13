@@ -1,165 +1,84 @@
-import json
-from typing import Any, Optional
-
-import pytest
-from unittest import mock
+from typing import Any
 
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workiz import WorkizSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.settings import PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source import WorkizSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.workiz import (
     WorkizResumeConfig,
     get_resource,
     validate_credentials,
-    workiz_source,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the workiz module.
-WORKIZ_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.workiz.workiz.make_tracked_session"
-)
-TENACITY_SLEEP_PATCH = "tenacity.nap.time.sleep"
-
-
-def _raw_response(body: Any, *, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = "https://api.workiz.com/api/v1/tok/job/all/"
-    resp._content = b"" if body is None else json.dumps(body).encode()
-    return resp
 
 
 def _job(uuid: str) -> dict[str, Any]:
     return {"flag": True, "data": {"UUID": uuid, "Status": "Submitted"}}
 
 
-def _make_manager(resume_state: Optional[WorkizResumeConfig] = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    `request.params` is one dict mutated in place across pages, so inspecting it after the run
-    shows only the final state -- snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(
-    manager: mock.MagicMock,
-    endpoint: str = "Leads",
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: Optional[str] = None,
-) -> Any:
-    return workiz_source(
-        api_token="tok",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-        incremental_field=incremental_field,
-    )
-
-
-def _rows(resource: Any) -> list[dict[str, Any]]:
-    return [row for page in resource for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(WorkizSource(), WorkizSourceConfig(api_token="tok"))
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_progresses_offset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_paginates_and_progresses_offset(self) -> None:
         full_page = [{"UUID": str(i)} for i in range(PAGE_SIZE)]
-        params = _wire(
-            session,
-            [
-                _raw_response(full_page),
-                _raw_response([{"UUID": "last"}]),
-            ],
+        result = _driver().run(
+            "Leads",
+            [ScriptedResponse(json=full_page), ScriptedResponse(json=[{"UUID": "last"}])],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source(manager))
+        assert [r["UUID"] for r in result.rows] == [*(str(i) for i in range(PAGE_SIZE)), "last"]
+        assert result.requests[0].param("offset") == "0"
+        assert result.requests[0].param("records") == str(PAGE_SIZE)
+        assert result.requests[1].param("offset") == str(PAGE_SIZE)
+        assert result.saved_states == [WorkizResumeConfig(offset=PAGE_SIZE)]
 
-        assert [r["UUID"] for r in rows] == [*(str(i) for i in range(PAGE_SIZE)), "last"]
-        assert params[0]["offset"] == 0
-        assert params[0]["records"] == PAGE_SIZE
-        assert params[1]["offset"] == PAGE_SIZE
-        manager.save_state.assert_called_once_with(WorkizResumeConfig(offset=PAGE_SIZE))
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "Leads",
+            [ScriptedResponse(json=[{"UUID": "x"}])],
+            resume_state=WorkizResumeConfig(offset=PAGE_SIZE),
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_raw_response([{"UUID": "x"}])])
-
-        manager = _make_manager(WorkizResumeConfig(offset=PAGE_SIZE))
-        _rows(_source(manager))
-
-        assert params[0]["offset"] == PAGE_SIZE
+        assert result.requests[0].param("offset") == str(PAGE_SIZE)
 
     @parameterized.expand([("Team",), ("TimeOff",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoints_send_one_request_with_no_offset(
-        self, endpoint: str, MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_raw_response([{"id": "1"}])])
+    def test_unpaginated_endpoints_send_one_request_with_no_offset(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=[{"id": "1"}])])
 
-        rows = _rows(_source(_make_manager(), endpoint=endpoint))
+        assert len(result.rows) == 1
+        assert len(result.requests) == 1
+        assert result.requests[0].param("offset") is None
+        assert result.requests[0].param("records") is None
 
-        assert len(rows) == 1
-        assert session.send.call_count == 1
-        assert "offset" not in params[0]
-        assert "records" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_jobs_unwraps_flag_data_wrapper(self, MockSession: mock.MagicMock) -> None:
+    def test_jobs_unwraps_flag_data_wrapper(self) -> None:
         # Workiz's OpenAPI spec wraps each job/all item as {"flag": bool, "data": Job}.
-        session = MockSession.return_value
-        _wire(session, [_raw_response([_job("a"), _job("b")])])
+        result = _driver().run("Jobs", [ScriptedResponse(json=[_job("a"), _job("b")])])
 
-        rows = _rows(_source(_make_manager(), endpoint="Jobs"))
-
-        assert [r["UUID"] for r in rows] == ["a", "b"]
-        assert all("flag" not in r and "data" not in r for r in rows)
+        assert [r["UUID"] for r in result.rows] == ["a", "b"]
+        assert all("flag" not in r and "data" not in r for r in result.rows)
 
 
 class TestIncrementalParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_sync_uses_last_synced_date(self, MockSession: mock.MagicMock) -> None:
+    def test_incremental_sync_uses_last_synced_date(self) -> None:
         import datetime
 
-        session = MockSession.return_value
-        params = _wire(session, [_raw_response([])])
-
-        _rows(
-            _source(
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.datetime(2024, 3, 15, 9, 0, 0),
-            )
+        result = _driver().run(
+            "Leads",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.datetime(2024, 3, 15, 9, 0, 0),
         )
 
-        assert params[0]["start_date"] == "2024-03-15"
+        assert result.requests[0].param("start_date") == "2024-03-15"
 
     @parameterized.expand([("Team",), ("TimeOff",)])
     def test_unpaginated_endpoints_have_no_start_date_param(self, endpoint: str) -> None:
@@ -171,27 +90,20 @@ class TestIncrementalParams:
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(TENACITY_SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(
-        self, _name: str, status: int, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response(None, status=status), _raw_response([{"UUID": "ok"}])])
+    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int) -> None:
+        result = _driver().run(
+            "Leads",
+            [ScriptedResponse(status=status), ScriptedResponse(json=[{"UUID": "ok"}])],
+        )
 
-        rows = _rows(_source(_make_manager()))
-
-        assert [r["UUID"] for r in rows] == ["ok"]
-        assert session.send.call_count == 2
+        assert [r["UUID"] for r in result.rows] == ["ok"]
+        assert len(result.requests) == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_status_raises(self, _name: str, status: int, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response(None, status=status)])
+    def test_client_error_status_raises(self, _name: str, status: int) -> None:
+        result = _driver().run("Leads", [ScriptedResponse(status=status)])
 
-        with pytest.raises(HTTPError):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, HTTPError)
 
 
 class TestValidateCredentials:
@@ -213,19 +125,16 @@ class TestValidateCredentials:
             ("server_error", 500, False, "Workiz returned HTTP 500."),
         ]
     )
-    @mock.patch(WORKIZ_SESSION_PATCH)
     def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: mock.MagicMock,
     ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("tok") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))):
+            assert validate_credentials("tok") == (expected_valid, expected_message)
 
-    @mock.patch(WORKIZ_SESSION_PATCH)
-    def test_probe_failure_is_not_validated(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("tok") == (False, "Could not reach Workiz to validate the API token.")
+    def test_probe_failure_is_not_validated(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert validate_credentials("tok") == (False, "Could not reach Workiz to validate the API token.")

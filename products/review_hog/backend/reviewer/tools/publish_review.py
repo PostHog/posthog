@@ -90,6 +90,7 @@ def publish_persisted_review(
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     capped_lens_parts: int | None = None,
+    footer: str = "",
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -125,6 +126,7 @@ def publish_persisted_review(
         installation_id=installation_id,
         review_mode=review_mode,
         capped_lens_parts=capped_lens_parts,
+        footer=footer,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -208,6 +210,7 @@ def publish_review(
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     capped_lens_parts: int | None = None,
+    footer: str = "",
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -230,9 +233,10 @@ def publish_review(
     marker = _review_marker(report_id, head_sha, review_mode)
     standard = review_mode == REVIEW_MODE_FLASH
     large_pr_parts = capped_lens_parts if standard else None
-    body = f"{report.report_markdown}\n\n{marker}"
-    if large_pr_parts is not None:
-        body = f"{report.report_markdown}\n\n{large_pr_note(large_pr_parts)}\n\n{marker}"
+    # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
+    footer_block = f"{footer}\n\n" if footer else ""
+    note_block = f"{large_pr_note(large_pr_parts)}\n\n" if large_pr_parts is not None else ""
+    body = f"{report.report_markdown}\n\n{note_block}{footer_block}{marker}"
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
     diff_lines = build_diff_line_map(pr_files)
@@ -260,7 +264,7 @@ def publish_review(
                 owner,
                 repo,
                 pr_number,
-                f"{summary}\n\n{note_marker}",
+                f"{summary}\n\n{footer_block}{note_marker}",
                 [],
                 token=token,
                 head_sha=head_sha,
@@ -277,10 +281,10 @@ def publish_review(
     # a one-line summary, because it has no status comment to connect the comments to the turn.
     inline_body = None
     if len(comments) == len(publishable):
-        inline_body = marker
+        inline_body = f"{footer_block}{marker}"
         if standard:
             summary = render_review_summary(review_mode, head_sha, Counter(publishable), large_pr_parts)
-            inline_body = f"{summary}\n\n{marker}"
+            inline_body = f"{summary}\n\n{footer_block}{marker}"
 
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
     review_url = _post_github_review(
