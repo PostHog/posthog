@@ -653,7 +653,6 @@ export enum PropertyOperator {
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
     IsCleanedPathExact = 'is_cleaned_path_exact',
-    IsCleanedPathNotExact = 'is_cleaned_path_not_exact',
 }
 
 /** Sync with frontend/src/types.ts */
