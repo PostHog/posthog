@@ -3,11 +3,27 @@ use tonic::Status;
 
 use personhog_common::client::RouterClient;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
-    FoldPersonDocumentRequest, FoldPersonDocumentResponse, ReleaseFenceRequest,
-    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    ConsistencyLevel, FencePersonRequest, FencePersonResponse, FencePersonsRequest,
+    FencePersonsResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
+    ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
     UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
+
+/// The leader's view of a person's identified flag; identity's own row lags it through the writer.
+#[async_trait]
+pub trait PersonStateReader: Send + Sync {
+    /// `None` when the leader holds no live person under the id.
+    async fn is_identified(&self, team_id: i64, person_id: i64) -> Result<Option<bool>, Status>;
+}
+
+#[async_trait]
+impl PersonStateReader for RouterClient {
+    async fn is_identified(&self, team_id: i64, person_id: i64) -> Result<Option<bool>, Status> {
+        let person =
+            RouterClient::get_person(self, team_id, person_id, ConsistencyLevel::Strong).await?;
+        Ok(person.map(|person| person.is_identified))
+    }
+}
 
 /// Writes initial person properties on the creation branch. Production goes
 /// through the router (which routes to the owning leader); tests mock this.

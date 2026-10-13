@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
 use personhog_identity::config::IdentityTables;
-use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
+use personhog_identity::leader::{LifecycleLeader, PersonStateReader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
     FencedPersonSeal, FoldPersonDocumentRequest, FoldPersonDocumentResponse, LifecycleOpType,
@@ -140,6 +140,8 @@ pub struct SimLeader {
     /// be ahead of Postgres, which is exactly what the seal-time re-check
     /// exists for.
     sealed_identified: Mutex<HashMap<i64, bool>>,
+    /// Person ids whose identified flag the entrance read, in order.
+    identified_reads: Mutex<Vec<i64>>,
     /// Injected `last_seen_at` per person: leader-side state with no
     /// Postgres column.
     last_seen: Mutex<HashMap<i64, i64>>,
@@ -158,6 +160,7 @@ impl SimLeader {
             deaths: Mutex::new(HashMap::new()),
             scripted: Mutex::new(HashMap::new()),
             sealed_identified: Mutex::new(HashMap::new()),
+            identified_reads: Mutex::new(Vec::new()),
             last_seen: Mutex::new(HashMap::new()),
             batch_rpcs_supported: AtomicBool::new(true),
         }
@@ -191,6 +194,10 @@ impl SimLeader {
             .unwrap()
             .get(&(rpc, person_id))
             .is_none_or(|queue| queue.is_empty())
+    }
+
+    pub fn identified_reads(&self) -> Vec<i64> {
+        self.identified_reads.lock().unwrap().clone()
     }
 
     pub fn set_sealed_identified(&self, person_id: i64, identified: bool) {
@@ -633,6 +640,27 @@ impl LifecycleLeader for SimLeader {
                 ..target
             }),
         })
+    }
+}
+
+/// The leader's flag: the sealed override where one is set, else the live row.
+#[async_trait]
+impl PersonStateReader for SimLeader {
+    async fn is_identified(&self, team_id: i64, person_id: i64) -> Result<Option<bool>, Status> {
+        self.identified_reads.lock().unwrap().push(person_id);
+        if self.deaths.lock().unwrap().contains_key(&person_id) {
+            return Ok(None);
+        }
+        let Some(person) = self.live_person(team_id, person_id).await else {
+            return Ok(None);
+        };
+        let overridden = self
+            .sealed_identified
+            .lock()
+            .unwrap()
+            .get(&person_id)
+            .copied();
+        Ok(Some(overridden.unwrap_or(person.is_identified)))
     }
 }
 

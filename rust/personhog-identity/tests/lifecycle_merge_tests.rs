@@ -1749,6 +1749,7 @@ impl MergeHarness {
             MergeEntrance::new(
                 storage,
                 self.leader.clone(),
+                self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
                     MergeDriver::new(
@@ -1774,6 +1775,7 @@ impl MergeHarness {
             },
             MergeEntrance::new(
                 self.ctx.storage.clone(),
+                self.leader.clone(),
                 self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
@@ -2430,6 +2432,47 @@ async fn a_call_that_lost_the_birth_race_does_not_stamp_its_creator() {
         serde_json::from_slice(&survivor.properties).expect("properties are JSON")
     };
     assert_eq!(properties.get("$creator_event_uuid"), None);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_source_the_leader_marks_identified_is_not_an_eligible_survivor_while_the_row_lags() {
+    // The identity row still says unidentified; only the leader has flipped it.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("lag-ident-source")
+        .await;
+    h.leader.set_sealed_identified(source, true);
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        "lag-target",
+        &["lag-ident-source"],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_ne!(survivor.id, source);
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "lag-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(
+            "lag-ident-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+    assert_eq!(h.leader.identified_reads(), vec![source]);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
