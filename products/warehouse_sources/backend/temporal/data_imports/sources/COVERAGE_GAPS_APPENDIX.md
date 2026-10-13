@@ -9880,14 +9880,14 @@ Note: The official Stoplight operation index and individual operation schemas we
 
 ## QualysVmdr — gaps
 
-Today (4): `host_list_detection`, `hosts`, `knowledge_base`, `scans`
+Today (8): `appliances`, `asset_groups`, `host_list_detection`, `hosts`, `ips`, `knowledge_base`, `reports`, `scans`
 
 Diffed against: <https://cdn2.qualys.com/docs/qualys-api-vmpc-user-guide.pdf>
 
-- [ ] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
-- [ ] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
-- [ ] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
-- [ ] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
+- [x] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
+- [x] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
+- [x] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
+- [x] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
 - [ ] `GET /api/2.0/fo/activity_log/ (action=list)` — user activity log for who ran or changed what, the audit dimension of the platform (medium)
 - [ ] `GET /api/2.0/fo/schedule/scan/ (action=list)` — scheduled scan definitions that explain the cadence behind the scans table (low)
 - [ ] `GET /api/2.0/fo/compliance/posture/info/ (action=list)` — per-host control pass/fail posture for Policy Compliance subscriptions (low)
@@ -11246,10 +11246,10 @@ Today (7): `data_models`, `data_structures`, `failed_event_metrics`, `job_run_st
 
 Diffed against: <https://console.snowplowanalytics.com/api/msc/v1/docs/docs.yaml>
 
-- [ ] `GET /data-products/v2 (plus /metrics and /{dataProductId}/history)` — Data Products are the vendor's headline governance object and /metrics carries their volume numbers (high)
-- [ ] `GET /event-specs/v1 (plus /metrics, /{eventSpecId}/versions, /{eventSpecId}/history)` — event specifications with observed-volume metrics and version history - the tracking-quality core (high)
-- [ ] `GET /source-apps/v1` — lookup table resolving the source app ids referenced by data products and event specs (high)
-- [ ] `GET /data-catalog/v1 (and /data-catalog/v1/search)` — the catalog of events and entities actually observed in the pipeline, the join key between data structures and real traffic (high)
+- [x] `GET /data-products/v2 (plus /metrics and /{dataProductId}/history)` — Data Products are the vendor's headline governance object and /metrics carries their volume numbers (high)
+- [x] `GET /event-specs/v1 (plus /metrics, /{eventSpecId}/versions, /{eventSpecId}/history)` — event specifications with observed-volume metrics and version history - the tracking-quality core (high)
+- [x] `GET /source-apps/v1` — lookup table resolving the source app ids referenced by data products and event specs (high)
+- [x] `GET /data-catalog/v1 (and /data-catalog/v1/search)` — the catalog of events and entities actually observed in the pipeline, the join key between data structures and real traffic (high)
 - [ ] `GET /data-structures/v1/{schemaHash}/deployments` — which schema version is deployed to dev vs prod - deployment state history for structures we already sync (medium)
 - [ ] `GET /metrics/v1/pipelines/{pipelineId}/failed-events/{errorId}` — per-error breakdown behind the failed-event totals already synced (medium)
 - [ ] `GET /tracking-scenarios/v2 (plus /metrics and /{scenarioId}/history)` — tracking scenarios and their conformance metrics for orgs not yet migrated to event specs (medium)

@@ -3,7 +3,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -34,7 +34,7 @@ def _empty_evidence(**overrides: Any) -> RepositoryScanEvidence:
     )
 
 
-class TestShouldScanPath(TestCase):
+class TestShouldScanPath(SimpleTestCase):
     @parameterized.expand(
         [
             ("typescript", "src/index.ts", True),
@@ -65,7 +65,7 @@ class TestShouldScanPath(TestCase):
         assert _should_scan_path(path) == expected
 
 
-class TestCandidatePathScore(TestCase):
+class TestCandidatePathScore(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_keywords", "src/utils.ts", 1),
@@ -87,7 +87,7 @@ class TestCandidatePathScore(TestCase):
         assert _candidate_path_score(path) == expected
 
 
-class TestSelectCandidatePaths(TestCase):
+class TestSelectCandidatePaths(SimpleTestCase):
     def test_filters_unscannable(self) -> None:
         paths = ["src/main.ts", "README.md", "package.json", "src/utils.py"]
         result = _select_candidate_paths(paths)
@@ -104,7 +104,7 @@ class TestSelectCandidatePaths(TestCase):
         assert len(result) == MAX_CANDIDATE_PATHS
 
 
-class TestClassifyRepository(TestCase):
+class TestClassifyRepository(SimpleTestCase):
     @parameterized.expand(
         [
             ("test_repo", "org/test-app", [], _empty_evidence(), "test_or_sandbox", True),
@@ -169,7 +169,7 @@ class TestClassifyRepository(TestCase):
         assert excluded is True
 
 
-class TestApplicableCapabilities(TestCase):
+class TestApplicableCapabilities(SimpleTestCase):
     @parameterized.expand(
         [
             ("excluded", "frontend_js", True, {"tracking": False, "computer_vision": False, "errors": False}),
