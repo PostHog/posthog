@@ -1,15 +1,21 @@
-import json
 import base64
 from datetime import UTC, datetime
 from typing import Any
 
-import pytest
 import time_machine
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailjet import (
+    MailjetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.mailjet import (
     MAILJET_BASE_URL,
     WEBHOOK_PATH,
@@ -31,32 +37,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.se
     STATCOUNTERS_ENDPOINT,
     WEBHOOK_TABLE_NAME,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the mailjet module.
-MAILJET_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source import MailJetSource
 
 
-def _response(rows: list[dict[str, Any]] | None, total: int | None = None, *, drop_data: bool = False) -> Response:
+def _response(
+    rows: list[dict[str, Any]] | None, total: int | None = None, *, drop_data: bool = False
+) -> ScriptedResponse:
     body: dict[str, Any] = {}
     if not drop_data:
         body["Data"] = rows or []
     if total is not None:
         body["Total"] = total
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _error_response(status_code: int) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = b'{"ErrorMessage": "boom"}'
-    return resp
+    return ScriptedResponse(json=body)
 
 
 def _make_manager(resume_state: MailjetResumeConfig | None = None) -> mock.MagicMock:
@@ -66,32 +58,13 @@ def _make_manager(resume_state: MailjetResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Wire a mock session; capture each request's params and the request object AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy per page.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    requests_seen: list[Any] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        requests_seen.append(request)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, requests_seen
-
-
 def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
     kwargs.setdefault("webhook_source_manager", mock.MagicMock())
     return mailjet_source("key", "secret", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
 
 
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(MailJetSource(), MailjetSourceConfig(api_key="key", secret_key="secret"))
 
 
 LIMIT = MAILJET_ENDPOINTS["contact"].page_size
@@ -113,34 +86,26 @@ class TestToUnixTs:
 
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_multi_page_advances_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(
-            session,
+    def test_multi_page_advances_offset(self) -> None:
+        result = _driver().run(
+            "contact",
             [
                 _response([{"ID": i} for i in range(LIMIT)], total=LIMIT + 2),
                 _response([{"ID": i} for i in range(2)], total=LIMIT + 2),
             ],
         )
 
-        rows = _rows(_source("contact", _make_manager()))
-
-        assert len(rows) == LIMIT + 2
-        assert session.send.call_count == 2
-        assert params[0]["Offset"] == 0
-        assert params[0]["Limit"] == LIMIT
-        assert params[1]["Offset"] == LIMIT
+        assert result.raised is None
+        assert len(result.rows) == LIMIT + 2
+        assert result.params("Offset") == ["0", str(LIMIT)]
+        assert result.params("Limit") == [str(LIMIT), str(LIMIT)]
 
     @parameterized.expand([(name,) for name in OFFSET_PAGINATED_ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sort_param_sent(self, endpoint: str, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"ID": 1}], total=1)])
+    def test_sort_param_sent(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_response([{"ID": 1}], total=1)])
 
-        _rows(_source(endpoint, _make_manager()))
-
-        assert params[0]["Sort"] == MAILJET_ENDPOINTS[endpoint].sort
+        assert result.raised is None
+        assert result.requests[0].param("Sort") == MAILJET_ENDPOINTS[endpoint].sort
 
     def test_campaigndraft_does_not_sort_on_created_at(self) -> None:
         # Regression guard for the Sort fallback documented in settings.py.
@@ -148,33 +113,28 @@ class TestOffsetPagination:
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"ID": 1}], total=2000)])
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "contact",
+            [_response([{"ID": 1}], total=2000)],
+            resume_state=MailjetResumeConfig(offset=1000, endpoint="contact"),
+        )
 
-        manager = _make_manager(MailjetResumeConfig(offset=1000, endpoint="contact"))
-        _rows(_source("contact", manager))
-
-        assert params[0]["Offset"] == 1000
+        assert result.raised is None
+        assert result.params("Offset")[0] == "1000"
 
 
 class TestIncremental:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_from_ts_applied_for_statistics_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"ID": 1}], total=1)])
-
-        _rows(
-            _source(
-                "openinformation",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+    def test_from_ts_applied_for_statistics_endpoint(self) -> None:
+        result = _driver().run(
+            "openinformation",
+            [_response([{"ID": 1}], total=1)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert params[0]["FromTS"] == 1767225600
+        assert result.raised is None
+        assert result.requests[0].param("FromTS") == "1767225600"
 
 
 DAY = 24 * 60 * 60
@@ -182,47 +142,37 @@ WINDOW = 90 * DAY
 
 
 class TestStatcounters:
-    def _session(self, mock_session: mock.MagicMock, pages: list[list[dict[str, Any]]]) -> mock.MagicMock:
-        session = mock_session.return_value
-        session.get.side_effect = [_json_response({"Data": rows, "Count": len(rows)}) for rows in pages]
-        return session
-
     @time_machine.travel(datetime.fromtimestamp(STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW + 5 * DAY, tz=UTC), tick=False)
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_full_refresh_walks_non_overlapping_windows_up_to_now(self, mock_session) -> None:
-        session = self._session(
-            mock_session,
+    def test_full_refresh_walks_non_overlapping_windows_up_to_now(self) -> None:
+        result = _driver().run(
+            STATCOUNTERS_ENDPOINT,
             [
-                [{"Timeslice": "2018-04-02T00:00:00Z"}, {"Timeslice": "2018-04-01T00:00:00Z"}],
-                [],
+                _response([{"Timeslice": "2018-04-02T00:00:00Z"}, {"Timeslice": "2018-04-01T00:00:00Z"}]),
+                _response([]),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_source(STATCOUNTERS_ENDPOINT, manager))
-
+        assert result.raised is None
         now = STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW + 5 * DAY
-        windows = [
-            (call.kwargs["params"]["FromTS"], call.kwargs["params"]["ToTS"]) for call in session.get.call_args_list
+        assert list(zip(result.params("FromTS"), result.params("ToTS"))) == [
+            (str(STATCOUNTERS_EARLIEST_UNIX_TS), str(STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW - 1)),
+            (str(STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW), str(now)),
         ]
-        assert windows == [
-            (STATCOUNTERS_EARLIEST_UNIX_TS, STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW - 1),
-            (STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW, now),
-        ]
-        params = session.get.call_args.kwargs["params"]
-        assert (params["CounterSource"], params["CounterTiming"], params["CounterResolution"]) == (
-            "APIKey",
-            "Event",
-            "Day",
-        )
+        request = result.requests[-1]
+        assert (
+            request.param("CounterSource"),
+            request.param("CounterTiming"),
+            request.param("CounterResolution"),
+        ) == ("APIKey", "Event", "Day")
         # sort_mode="asc" relies on rows arriving oldest first.
-        assert [row["Timeslice"] for row in rows] == ["2018-04-01T00:00:00Z", "2018-04-02T00:00:00Z"]
-        assert [call.args[0].from_ts for call in manager.save_state.call_args_list] == [
-            STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW,
-            STATCOUNTERS_EARLIEST_UNIX_TS + 2 * WINDOW,
+        assert [row["Timeslice"] for row in result.rows] == ["2018-04-01T00:00:00Z", "2018-04-02T00:00:00Z"]
+        expected_states = [
+            MailjetResumeConfig(endpoint=STATCOUNTERS_ENDPOINT, from_ts=STATCOUNTERS_EARLIEST_UNIX_TS + WINDOW),
+            MailjetResumeConfig(endpoint=STATCOUNTERS_ENDPOINT, from_ts=STATCOUNTERS_EARLIEST_UNIX_TS + 2 * WINDOW),
         ]
+        assert result.saved_states == expected_states
         # The empty window yields nothing, so it has to give the pipeline a chance to hand off.
-        manager.safe_point.assert_called_once()
+        assert result.committed_states == expected_states
 
     @parameterized.expand(
         [
@@ -247,7 +197,6 @@ class TestStatcounters:
         ]
     )
     @time_machine.travel("2026-01-03T00:00:00Z", tick=False)
-    @mock.patch(MAILJET_SESSION_PATCH)
     def test_first_window_start(
         self,
         _name: str,
@@ -255,27 +204,26 @@ class TestStatcounters:
         last_value: object,
         resume: MailjetResumeConfig | None,
         expected_from_ts: int,
-        mock_session,
     ) -> None:
-        session = mock_session.return_value
-        session.get.return_value = _json_response({"Data": []})
-
-        _rows(
-            _source(
-                STATCOUNTERS_ENDPOINT,
-                _make_manager(resume),
-                should_use_incremental_field=incremental,
-                db_incremental_field_last_value=last_value,
-            )
+        result = _driver().run(
+            STATCOUNTERS_ENDPOINT,
+            always(_response([])),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+            resume_state=resume,
         )
 
-        assert session.get.call_args_list[0].kwargs["params"]["FromTS"] == expected_from_ts
+        assert result.raised is None
+        assert result.params("FromTS")[0] == str(expected_from_ts)
 
 
 class TestSourceResponseShape:
     @parameterized.expand([(name,) for name in MAILJET_ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, always(_response([{"ID": 1}], total=1)))
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         config = MAILJET_ENDPOINTS[endpoint]
 
         assert response.name == endpoint
@@ -291,29 +239,21 @@ class TestSourceResponseShape:
 
 
 class TestRetryable:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_401_does_not_retry_and_raises(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(401)])
+    def test_401_does_not_retry_and_raises(self) -> None:
+        result = _driver().run("contact", [ScriptedResponse(status=401, json={"ErrorMessage": "boom"})])
 
-        with pytest.raises(Exception):
-            _rows(_source("contact", _make_manager()))
-
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, Exception)
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok_200", 200, True), ("unauthorized_401", 401, False), ("server_500", 500, False)])
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_validate_credentials(self, _name: str, status_code: int, expected: bool, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+    def test_validate_credentials(self, _name: str, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("key", "secret") is expected
 
-        assert validate_credentials("key", "secret") is expected
-
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == f"{MAILJET_BASE_URL}/contactmetadata?Limit=1"
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        token = headers["Authorization"].removeprefix("Basic ")
+        assert network.requests_log[0].url == f"{MAILJET_BASE_URL}/contactmetadata?Limit=1"
+        token = network.requests_log[0].headers["authorization"].removeprefix("Basic ")
         assert base64.b64decode(token).decode() == "key:secret"
 
 
@@ -324,140 +264,131 @@ def _callback_row(event: str, url: str, row_id: int = 1, status: str = "alive") 
     return {"ID": row_id, "EventType": event, "Url": url, "Status": status, "Version": 1, "IsBackup": False}
 
 
-def _json_response(body: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.json.return_value = body
-    return response
-
-
 class TestCreateWebhook:
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_partial_failure_still_persists_the_credentials(self, mock_session) -> None:
+    def test_partial_failure_still_persists_the_credentials(self) -> None:
         # Losing the password would leave the registrations that did land unverifiable forever.
-        session = mock_session.return_value
-        ok = _json_response({"Data": []}, 201)
-        bad = _json_response({}, 400)
-        bad.raise_for_status.side_effect = Exception("bad request")
-        session.post.side_effect = [ok, bad, ok, ok, ok, ok, ok]
-
-        result = create_webhook("key", "secret", WEBHOOK_URL)
+        ok = ScriptedResponse(status=201, json={"Data": []})
+        bad = ScriptedResponse(status=400, json={})
+        with scripted_network([ok, bad, ok, ok, ok, ok, ok]) as network:
+            result = create_webhook("key", "secret", WEBHOOK_URL)
 
         assert result.success is True
         assert "authorization_header" in result.extra_inputs
+        assert len(network.requests_log) == len(MAILJET_WEBHOOK_EVENTS)
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_total_failure_reports_an_error(self, mock_session) -> None:
-        session = mock_session.return_value
-        response = _json_response({}, 403)
-        response.raise_for_status.side_effect = Exception("forbidden")
-        session.post.return_value = response
-
-        result = create_webhook("key", "secret", WEBHOOK_URL)
+    def test_total_failure_reports_an_error(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
+            result = create_webhook("key", "secret", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None
         assert result.extra_inputs == {}
+        assert len(network.requests_log) == len(MAILJET_WEBHOOK_EVENTS)
 
 
 class TestSyncWebhookEvents:
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_registers_only_the_missing_events_reusing_stored_credentials(self, mock_session) -> None:
-        session = mock_session.return_value
+    def test_registers_only_the_missing_events_reusing_stored_credentials(self) -> None:
         authed = _authenticated_callback_url(WEBHOOK_URL, "stored-password")
-        session.get.return_value = _json_response({"Data": [_callback_row("open", authed)]})
-        session.post.return_value = _json_response({"Data": []}, 201)
-
-        result = sync_webhook_events("key", "secret", WEBHOOK_URL, ["open", "click"])
+        with scripted_network(
+            [
+                ScriptedResponse(json={"Data": [_callback_row("open", authed)]}),
+                ScriptedResponse(status=201, json={"Data": []}),
+            ]
+        ) as network:
+            result = sync_webhook_events("key", "secret", WEBHOOK_URL, ["open", "click"])
 
         assert result.success is True
-        posted = [call.kwargs["json"] for call in session.post.call_args_list]
+        posted = [request.json() for request in network.requests_log if request.method == "POST"]
         assert [body["EventType"] for body in posted] == ["click"]
         # The password only exists on the stored registration, so it has to be carried over.
         assert posted[0]["Url"] == authed
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_no_op_when_every_event_is_registered(self, mock_session) -> None:
-        session = mock_session.return_value
+    def test_no_op_when_every_event_is_registered(self) -> None:
         authed = _authenticated_callback_url(WEBHOOK_URL, "stored-password")
-        session.get.return_value = _json_response(
-            {"Data": [_callback_row(event, authed, row_id=i) for i, event in enumerate(MAILJET_WEBHOOK_EVENTS)]}
-        )
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "Data": [
+                            _callback_row(event, authed, row_id=i) for i, event in enumerate(MAILJET_WEBHOOK_EVENTS)
+                        ]
+                    }
+                )
+            ]
+        ) as network:
+            assert sync_webhook_events("key", "secret", WEBHOOK_URL, list(MAILJET_WEBHOOK_EVENTS)).success is True
 
-        assert sync_webhook_events("key", "secret", WEBHOOK_URL, list(MAILJET_WEBHOOK_EVENTS)).success is True
-        session.post.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_ignores_callback_urls_belonging_to_other_destinations(self, mock_session) -> None:
-        session = mock_session.return_value
-        session.get.return_value = _json_response({"Data": [_callback_row("open", "https://example.com/hook")]})
+    def test_ignores_callback_urls_belonging_to_other_destinations(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(json={"Data": [_callback_row("open", "https://example.com/hook")]})]
+        ) as network:
+            assert sync_webhook_events("key", "secret", WEBHOOK_URL, ["open"]).success is True
 
-        assert sync_webhook_events("key", "secret", WEBHOOK_URL, ["open"]).success is True
-        session.post.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_api_failure_is_reported_not_raised(self, mock_session) -> None:
-        session = mock_session.return_value
-        session.get.side_effect = Exception("boom")
-
-        result = sync_webhook_events("key", "secret", WEBHOOK_URL, ["open"])
+    def test_api_failure_is_reported_not_raised(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            result = sync_webhook_events("key", "secret", WEBHOOK_URL, ["open"])
 
         assert result.success is False
         assert result.error is not None
 
 
 class TestExternalWebhookInfo:
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_reports_registered_events_without_leaking_the_password(self, mock_session) -> None:
-        session = mock_session.return_value
+    def test_reports_registered_events_without_leaking_the_password(self) -> None:
         authed = _authenticated_callback_url(WEBHOOK_URL, "stored-password")
-        session.get.return_value = _json_response(
-            {"Data": [_callback_row("open", authed, 1), _callback_row("click", authed, 2)]}
-        )
-
-        info = get_external_webhook_info("key", "secret", WEBHOOK_URL)
+        with scripted_network(
+            [ScriptedResponse(json={"Data": [_callback_row("open", authed, 1), _callback_row("click", authed, 2)]})]
+        ):
+            info = get_external_webhook_info("key", "secret", WEBHOOK_URL)
 
         assert info.exists is True
         assert info.enabled_events == ["click", "open"]
         assert info.url == WEBHOOK_URL
         assert "stored-password" not in (info.url or "")
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_asks_for_more_than_mailjets_default_page(self, mock_session) -> None:
+    def test_asks_for_more_than_mailjets_default_page(self) -> None:
         # Mailjet returns 10 callback URLs by default. An account with its own callbacks would
         # push ours off that page and every match would come back empty.
-        session = mock_session.return_value
-        session.get.return_value = _json_response({"Data": []})
+        with scripted_network([ScriptedResponse(json={"Data": []})]) as network:
+            get_external_webhook_info("key", "secret", WEBHOOK_URL)
 
-        get_external_webhook_info("key", "secret", WEBHOOK_URL)
-
-        assert session.get.call_args.kwargs["params"]["Limit"] > 10
+        assert int(network.requests_log[0].param("Limit") or "0") > 10
 
 
 class TestDeleteWebhook:
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_deletes_only_our_callback_urls(self, mock_session) -> None:
-        session = mock_session.return_value
+    def test_deletes_only_our_callback_urls(self) -> None:
         authed = _authenticated_callback_url(WEBHOOK_URL, "stored-password")
-        session.get.return_value = _json_response(
-            {"Data": [_callback_row("open", authed, 1), _callback_row("click", "https://example.com/hook", 2)]}
-        )
-        session.delete.return_value = _json_response({}, 200)
-
-        result = delete_webhook("key", "secret", WEBHOOK_URL)
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "Data": [
+                            _callback_row("open", authed, 1),
+                            _callback_row("click", "https://example.com/hook", 2),
+                        ]
+                    }
+                ),
+                ScriptedResponse(status=200, json={}),
+            ]
+        ) as network:
+            result = delete_webhook("key", "secret", WEBHOOK_URL)
 
         assert result.success is True
-        deleted = [call.args[0] for call in session.delete.call_args_list]
+        deleted = [request.url for request in network.requests_log if request.method == "DELETE"]
         assert deleted == [f"{MAILJET_BASE_URL}{WEBHOOK_PATH}/1"]
 
-    @mock.patch(MAILJET_SESSION_PATCH)
-    def test_reports_a_refused_delete(self, mock_session) -> None:
-        session = mock_session.return_value
+    def test_reports_a_refused_delete(self) -> None:
         authed = _authenticated_callback_url(WEBHOOK_URL, "stored-password")
-        session.get.return_value = _json_response({"Data": [_callback_row("open", authed, 1)]})
-        session.delete.return_value = _json_response({}, 403)
-
-        result = delete_webhook("key", "secret", WEBHOOK_URL)
+        with scripted_network(
+            [
+                ScriptedResponse(json={"Data": [_callback_row("open", authed, 1)]}),
+                ScriptedResponse(status=403, json={}),
+            ]
+        ):
+            result = delete_webhook("key", "secret", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None

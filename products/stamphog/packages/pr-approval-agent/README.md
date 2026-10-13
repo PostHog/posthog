@@ -123,6 +123,12 @@ Wait for in-flight bot reviews (skipped when gates already denied)
   - Human 👀 reactions are not waited on; the LLM refuses over them instead
   - If the wait refetched the PR, classification and gates re-run on the
     fresh data before the LLM sees it
+  - Hosted runs also get external reviewers' status for the head from the
+    server (`review_evidence` in the context, for example PostHog Review). Any
+    pending review is WAIT; each completed one against the current merge base
+    counts as a current-head review only when it skipped no changed file. Each
+    gets its own line in the assurance summary and the verdict, which says why
+    a review with skipped files does not count
   │
   ▼
 LLM Review
@@ -176,16 +182,17 @@ The machine policy, loaded and validated by a strict loader: a malformed or inco
 
 Top-level sections:
 
-| Section       | What it declares                                                     |
-| ------------- | -------------------------------------------------------------------- |
-| `version`     | The policy schema version                                            |
-| `deny`        | The T2 categories and the title/path patterns that match them        |
-| `allow`       | The path patterns and extensions that make a PR eligible for T0      |
-| `size_gate`   | The global `max_lines` and `max_files` ceilings                      |
-| `tiers`       | The T1 sub-class thresholds                                          |
-| `overrides`   | The keys a folder file may override, and each key's ceiling          |
-| `familiarity` | The author-familiarity bands, a judgment input and never a gate      |
-| `ownership`   | The ownership sources that feed the reviewer's advisory team context |
+| Section           | What it declares                                                          |
+| ----------------- | ------------------------------------------------------------------------- |
+| `version`         | The policy schema version                                                 |
+| `deny`            | The T2 categories and the title/path patterns that match them             |
+| `deny_exceptions` | Optional per-pattern or category path exceptions without replacing `deny` |
+| `allow`           | The path patterns and extensions that make a PR eligible for T0           |
+| `size_gate`       | The global `max_lines` and `max_files` ceilings                           |
+| `tiers`           | The T1 sub-class thresholds                                               |
+| `overrides`       | The keys a folder file may override, and each key's ceiling               |
+| `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
+| `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
@@ -198,6 +205,26 @@ That is one more reason every edit to a policy file is a human-reviewed change.
 
 The loader rejects unknown top-level keys.
 The two exceptions are `digest` and `dismiss`, which a hosting server may declare and parse itself; the engine allows them and never reads them.
+
+`deny_exceptions` maps existing category names to non-empty lists of rules.
+Each rule requires `path_prefixes`, a non-empty list of literal repository-relative directory prefixes ending in `/`.
+Absolute paths, traversal, wildcards, regular expressions, and noncanonical prefixes fail validation.
+Optional `extensions` restricts the rule to a non-empty list of literal dot-prefixed file suffixes.
+Optional `keyword` restricts the exception to an existing literal pattern in `match.any` or `match.paths`; title-only patterns and arbitrary regular expressions are not accepted.
+Without `keyword`, the rule exempts every path pattern in that category within the selected paths.
+Rules combine their selectors with AND, and the rules within a category combine with OR.
+Prefix and extension comparisons ignore case.
+An absent or empty `deny_exceptions` mapping leaves matching unchanged.
+
+The matcher skips only matching patterns on matching files.
+Other keywords in the same category, other categories, and non-exempt files in a mixed PR still deny.
+Rename checks keep both real paths, so an exempt destination does not waive a protected source.
+Title scrutiny remains unchanged.
+When these exceptions lift a denial, classification requires `T1-agent` rather than the allow-list or test-only `T0` route.
+All remaining gates and the reviewer still apply.
+The loader rejects unknown rule fields and categories, malformed selectors, and every exception to `stamphog_policy`.
+The hosted default-branch overlay accepts a file containing only this section and keeps the inherited `deny` rules, including future additions.
+See the [repository configuration example](../../README.md#deny-exceptions).
 
 ### `review-guidance.md`
 

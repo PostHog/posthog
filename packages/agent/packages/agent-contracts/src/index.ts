@@ -1,3 +1,11 @@
+export {
+  type AcpConversationNotification,
+  acpNotificationToAgentConversationEvent,
+  agentConversationEventToAcpNotification,
+  agentConversationEventToSessionUpdate,
+  PI_EXTENSION_META_KEY,
+  readPiExtensionMessage,
+} from "./acp-conversation";
 export * from "./adapter";
 export {
   buildActionUrl,
@@ -104,6 +112,7 @@ export {
   type PendingFollowupMessage,
   type StoreSkillStub,
   type Task,
+  type TaskClientProvenance,
   type TaskRun,
   type TaskRunArtifact,
   type TaskRunArtifactMetadata,

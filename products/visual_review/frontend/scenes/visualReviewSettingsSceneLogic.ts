@@ -235,12 +235,12 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 {
                     key: 'visual_review',
                     name: 'Visual review',
-                    path: '/visual_review',
+                    path: '/visual-review',
                 },
                 {
                     key: 'visual_review_settings',
                     name: 'Settings',
-                    path: '/visual_review/settings',
+                    path: '/visual-review/settings',
                 },
             ],
         ],
