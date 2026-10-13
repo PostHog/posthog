@@ -462,7 +462,8 @@ export function AdPerformanceDataAvailable(): JSX.Element {
 AdPerformanceDataAvailable.parameters = { ...AdPerformanceWithoutSources.parameters, mockDate: '2026-09-16' }
 AdPerformanceDataAvailable.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
-    await expect(canvas.findByText('1 suggested connection')).resolves.toBeVisible()
+    await expect(canvas.findByText('Meta Ads')).resolves.toBeVisible()
+    expect(canvas.getByRole('link', { name: 'Connect' })).toBeVisible()
     expect((await canvas.findAllByText('Total Clicks'))[0]).toBeVisible()
     expect(canvas.queryByText('Checking your connections')).not.toBeInTheDocument()
 }
@@ -646,7 +647,20 @@ export function NewDashboardOnboardingDisabledWithSearch(): JSX.Element {
 NewDashboardOnboardingDisabledWithSearch.parameters = {
     featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
 }
-NewDashboardOnboardingDisabledWithSearch.play = SourceOnboardingDisabledWithSearch.play
+NewDashboardOnboardingDisabledWithSearch.play = async ({
+    canvasElement,
+}: {
+    canvasElement: HTMLElement
+}): Promise<void> => {
+    const canvas = within(canvasElement)
+    await expect(canvas.findByText('Visitors over time')).resolves.toBeVisible()
+    expect(canvas.getByLabelText('Acquisition')).toBeVisible()
+    expect(canvas.queryByText('Welcome to Marketing analytics')).not.toBeInTheDocument()
+    expect(
+        canvas.queryByRole('navigation', { name: 'Marketing analytics onboarding progress' })
+    ).not.toBeInTheDocument()
+    expect(canvas.queryByText('Scan again')).not.toBeInTheDocument()
+}
 
 export function LegacySourceConnectionStep(): JSX.Element {
     useDashboardWithoutSourcesMocks()
