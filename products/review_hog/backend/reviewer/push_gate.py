@@ -7,10 +7,12 @@ sees a first review or a human trigger: the workflow calls it only for automatic
 The rules, in order. The first rule that matches gives the reason:
 
 1. `no_new_commits`: the PR has no commit it did not have at the last reviewed head (a force-push back).
-2. `merge_only`: the PR's full diff against its base is the same at both heads (a base merge or a
+2. `reviewhog_commits_only`: the ReviewHog app authored every new commit, for example the fixes the
+   resolution stage pushed. Reviewing them again would review ReviewHog's own answer to its review.
+3. `merge_only`: the PR's full diff against its base is the same at both heads (a base merge or a
    rebase). A merge that changes the PR's own lines runs the review.
-3. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
-4. `system_one_below_threshold`: System One rates the new own commits below a threshold.
+4. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
+5. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
@@ -31,13 +33,15 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
 
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request, matches_app_bot
 from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPARE_FILES_CAP, PRParser
 
 logger = logging.getLogger(__name__)
 
 # A rule that is off only records the skip it would make, so production data can calibrate it first.
 SKIP_NO_NEW_COMMITS = True
+SKIP_REVIEWHOG_COMMITS_ONLY = True
 SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
@@ -85,7 +89,9 @@ _NON_CODE_FILE = re.compile(
     )
 )
 
-SkipReason = Literal["no_new_commits", "merge_only", "docs_only", "system_one_below_threshold"]
+SkipReason = Literal[
+    "no_new_commits", "reviewhog_commits_only", "merge_only", "docs_only", "system_one_below_threshold"
+]
 RunReason = Literal[
     "commits_removed",
     "system_one_above_threshold",
@@ -105,6 +111,8 @@ class PushGateDecision:
     probability: float | None = None
     model: str | None = None
     own_commits: int | None = None
+    # Lines the new own commits change in code files, summed per commit. Set only when the gate read every file.
+    own_code_lines: int | None = None
 
 
 @frozen
@@ -112,6 +120,13 @@ class _ChangedFile:
     filename: str
     changes: int
     patch: str | None
+
+
+@frozen
+class _CommitFiles:
+    files: list[_ChangedFile]
+    # GitHub lists at most one page of files per commit, so a full page may hide more files.
+    complete: bool
 
 
 @frozen
@@ -127,11 +142,14 @@ class _PRDiff:
     commit_shas: list[str]
     merge_shas: set[str]
     files: list[_ChangedFile]
+    reviewhog_shas: set[str]
 
 
 def _rule_enabled(reason: SkipReason) -> bool:
     if reason == "no_new_commits":
         return SKIP_NO_NEW_COMMITS
+    if reason == "reviewhog_commits_only":
+        return SKIP_REVIEWHOG_COMMITS_ONLY
     if reason == "merge_only":
         return SKIP_MERGE_ONLY
     if reason == "docs_only":
@@ -140,7 +158,12 @@ def _rule_enabled(reason: SkipReason) -> bool:
 
 
 def _matched(
-    reason: SkipReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
+    reason: SkipReason,
+    *,
+    own_commits: int | None = None,
+    probability: float | None = None,
+    model: str | None = None,
+    own_code_lines: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=_rule_enabled(reason),
@@ -149,11 +172,17 @@ def _matched(
         probability=probability,
         model=model,
         own_commits=own_commits,
+        own_code_lines=own_code_lines,
     )
 
 
 def _runs(
-    reason: RunReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
+    reason: RunReason,
+    *,
+    own_commits: int | None = None,
+    probability: float | None = None,
+    model: str | None = None,
+    own_code_lines: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=False,
@@ -162,6 +191,7 @@ def _runs(
         probability=probability,
         model=model,
         own_commits=own_commits,
+        own_code_lines=own_code_lines,
     )
 
 
@@ -189,6 +219,17 @@ def _own_lines(files: list[_ChangedFile]) -> dict[str, list[_ChangedLine]] | Non
 def _same_full_diff(previous: _PRDiff, current: _PRDiff) -> bool:
     previous_lines = _own_lines(previous.files)
     return previous_lines is not None and previous_lines == _own_lines(current.files)
+
+
+def _is_own_commit(commit: dict[str, Any], app_login: str | None) -> bool:
+    # Anyone can put the app's noreply email on a commit, so only a GitHub-verified commit with the
+    # app as both author and committer counts. Those are the commits the app creates through the API.
+    verified = bool(((commit.get("commit") or {}).get("verification") or {}).get("verified"))
+    return (
+        verified
+        and matches_app_bot(commit.get("author"), app_login)
+        and matches_app_bot(commit.get("committer"), app_login)
+    )
 
 
 class PushGate:
@@ -222,6 +263,7 @@ class PushGate:
         if comparison is None:
             return None
         commits: list[dict[str, Any]] = comparison.get("commits") or []
+        app_login = posthog_app_login()
         files = _changed_files(comparison)
         if comparison.get("total_commits", 0) > len(commits) or len(files) >= GITHUB_COMPARE_FILES_CAP:
             return None
@@ -229,23 +271,28 @@ class PushGate:
             commit_shas=[commit["sha"] for commit in commits],
             merge_shas={commit["sha"] for commit in commits if len(commit.get("parents") or []) > 1},
             files=files,
+            reviewhog_shas={commit["sha"] for commit in commits if _is_own_commit(commit, app_login)},
         )
 
-    def _commit_files(self, shas: list[str]) -> list[_ChangedFile] | None:
+    def _commit_files(self, shas: list[str]) -> _CommitFiles | None:
         files: list[_ChangedFile] = []
+        complete = True
         for sha in shas:
             commit = self._get(f"/commits/{sha}", endpoint="/commits/{ref}")
             if commit is None:
                 return None
-            files.extend(_changed_files(commit))
-        return files
+            commit_files = _changed_files(commit)
+            complete = complete and len(commit_files) < GITHUB_COMPARE_FILES_CAP
+            files.extend(commit_files)
+        return _CommitFiles(files=files, complete=complete)
 
-    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int) -> PushGateDecision:
+    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int, lines_known: bool) -> PushGateDecision:
+        lines = sum(file.changes for file in code_files) if lines_known else None
         if any(file.patch is None for file in code_files):
-            return _runs("interdiff_too_large", own_commits=own_commits)
+            return _runs("interdiff_too_large", own_commits=own_commits, own_code_lines=lines)
         state = "\n\n".join(f"--- {file.filename}\n{file.patch}" for file in code_files)
         if len(state) > MAX_STATE_CHARS:
-            return _runs("interdiff_too_large", own_commits=own_commits)
+            return _runs("interdiff_too_large", own_commits=own_commits, own_code_lines=lines)
         try:
             client = build_system_one_client(
                 model=PUSH_GATE_MODEL,
@@ -256,19 +303,24 @@ class PushGate:
             result = client.decide(state=state, questions={_QUESTION_ID: _ALTERS_QUESTION})
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("Push gate could not reach System One: %s", type(error).__name__)
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            return _runs("system_one_unavailable", own_commits=own_commits, own_code_lines=lines)
         answer = result.answers[_QUESTION_ID]
         if not isinstance(answer, NoulAnswer):
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            return _runs("system_one_unavailable", own_commits=own_commits, own_code_lines=lines)
         if answer.probability < SYSTEM_ONE_SKIP_BELOW:
             return _matched(
                 "system_one_below_threshold",
                 own_commits=own_commits,
                 probability=answer.probability,
                 model=result.model,
+                own_code_lines=lines,
             )
         return _runs(
-            "system_one_above_threshold", own_commits=own_commits, probability=answer.probability, model=result.model
+            "system_one_above_threshold",
+            own_commits=own_commits,
+            probability=answer.probability,
+            model=result.model,
+            own_code_lines=lines,
         )
 
     def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
@@ -287,6 +339,8 @@ class PushGate:
             # A force-push back to an earlier commit adds no commit but removes changes the last review saw.
             return _runs("commits_removed")
         own_shas = [sha for sha in new_shas if sha not in current.merge_shas]
+        if all(sha in current.reviewhog_shas for sha in new_shas):
+            return _matched("reviewhog_commits_only", own_commits=len(own_shas))
         if _same_full_diff(previous, current):
             return _matched("merge_only", own_commits=len(own_shas))
         if not own_shas:
@@ -297,7 +351,7 @@ class PushGate:
         own_files = self._commit_files(own_shas)
         if own_files is None:
             return _runs("compare_unavailable", own_commits=len(own_shas))
-        code_files = [file for file in own_files if not _NON_CODE_FILE.search(file.filename)]
+        code_files = [file for file in own_files.files if not _NON_CODE_FILE.search(file.filename)]
         if not code_files:
-            return _matched("docs_only", own_commits=len(own_shas))
-        return self._ask_system_one(code_files, own_commits=len(own_shas))
+            return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0 if own_files.complete else None)
+        return self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     RAILWAY_PROXY_CONNECTION_MESSAGE,
     SYNC_RUN_STALLED_MESSAGE,
     SYNC_RUN_TOO_LONG_MESSAGE,
+    TRANSIENT_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_EGRESS_MESSAGE,
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
@@ -332,10 +334,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
         ) as mock_update_job_status,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.emit_sync_alert"
+        ) as mock_emit_sync_alert,
     ):
         asyncio.run(env.run(update_external_data_job_model, inputs))
 
     assert mock_update_should_sync.called is expect_disabled
+    paused_alerts = [
+        (call.kwargs["event"].value, call.kwargs["kind"].value) for call in mock_emit_sync_alert.call_args_list
+    ]
+    assert paused_alerts == ([("$data_warehouse_sync_failed", "schema_paused")] if expect_disabled else [])
     customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
     assert ("tries to write to your database" in customer_message) is expect_disabled
 
@@ -347,10 +356,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         # psycopg's connect-time wrapper around a dropped TLS session. The address is a
         # documentation-reserved one, standing in for the host the driver echoes back.
         (
-            "postgres_ssl_drop",
+            "postgres_ssl_drop_at_connect",
             ExternalDataSourceType.POSTGRES,
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
+            TRANSIENT_CONNECT_DROPPED_MESSAGE,
+        ),
+        # The same drop on an established connection, which keeps the idle-connection copy.
+        (
+            "postgres_server_closed_mid_stream",
+            ExternalDataSourceType.POSTGRES,
+            "consuming input failed: server closed the connection unexpectedly",
             TRANSIENT_SOURCE_CONNECTION_MESSAGE,
         ),
         # A connect-time capacity refusal. The generic map has no entry for it, so the Postgres
@@ -420,6 +436,20 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             ExternalDataSourceType.APPLESEARCHADS,
             "503 Server Error: Service Temporarily Unavailable for url: https://api.up.railway.app/v1/things",
             TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+        ),
+        # A hand-rolled transport's own retryable marker, which no map names for this source.
+        (
+            "retryable_status_marker",
+            ExternalDataSourceType.HUBSPOT,
+            "Hubspot search error (retryable): status=500, url=https://api.example.com/v3/things/search",
+            TRANSIENT_SOURCE_ERROR_MESSAGE,
+        ),
+        # A source that names its vendor for the same marker keeps that copy over the generic one.
+        (
+            "retryable_status_marker_with_source_copy",
+            ExternalDataSourceType.MATOMO,
+            "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
+            MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
         ),
     ]
 )

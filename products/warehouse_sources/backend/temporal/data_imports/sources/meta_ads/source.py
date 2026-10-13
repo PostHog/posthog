@@ -182,6 +182,15 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # with a fresh cursor) can recover. `meta_ads._raise_meta_api_error` raises this
             # message for that code.
             META_INVALID_CURSOR_ERROR_MESSAGE: META_INVALID_CURSOR_ERROR_MESSAGE,
+            # The schema's sync type wants an incremental cursor (incremental/append) but no
+            # incremental field is stored in its config, so `meta_ads_source.get_rows` raises this
+            # before any request. The stored config stays fixed until the customer edits it, so
+            # every retry hits the same error.
+            "incremental_field and incremental_field_type can't be None": (
+                "This table is set to sync incrementally but has no incremental field selected. "
+                "Choose date_start as the incremental field in the table's sync settings, or switch "
+                "it to full refresh, then run the sync again."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

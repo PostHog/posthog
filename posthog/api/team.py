@@ -14,7 +14,7 @@ from django.utils.dateparse import parse_datetime
 
 import re2
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import (
     RootModel as PydanticRootModel,
@@ -70,6 +70,7 @@ from posthog.models.event_ingestion_restriction_config import (
 )
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
+from posthog.models.integration.model import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
@@ -100,9 +101,10 @@ from posthog.permissions import (
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
     posthog_feature_flag_enabled,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported, scopes_not_covered
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -492,6 +494,9 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
     context_name = normalize_context_name(context_name)
     if not context_name:
         return response.Response({"error": "context_name is required"}, status=400)
+
+    if len(context_name) > 255:
+        return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
     hidden = request.method == "POST"
 
@@ -993,6 +998,36 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             f"{MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}."
         ),
     )
+    marketing_frequency_cap_max_messages = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=1000,
+        help_text=(
+            "Most marketing messages one person can get in the window, across all workflows. "
+            "Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off."
+        ),
+    )
+    marketing_frequency_cap_window_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=30,
+        help_text=(
+            "Length of the rolling frequency cap window in days. "
+            "Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
+        ),
+    )
+
+    default_email_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of the verified email integration that new broadcasts and workflow email steps use as "
+            "their sender. Null means no default. Set automatically when the project's first email "
+            "sender is verified, and cleared when that integration is deleted."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
@@ -1001,6 +1036,9 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "default_email_integration_id",
+            "marketing_frequency_cap_max_messages",
+            "marketing_frequency_cap_window_days",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -1030,6 +1068,42 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         return self._enforce_self_serve_ceiling(
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
         )
+
+    def validate_default_email_integration_id(self, value: int | None) -> int | None:
+        if self.parent or value is None:
+            return value
+        sender = (
+            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
+            if self.instance is not None
+            else None
+        )
+        if sender is None:
+            raise serializers.ValidationError("Choose an email sender from this project.")
+        if not sender.config.get("verified"):
+            raise serializers.ValidationError("Verify this sender's domain before making it the default.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # As a nested field of the team serializer there is no stored row to merge a partial update with.
+        # validate_team_workflows_config runs this serializer again with the row, and that run does the check.
+        if self.parent:
+            return attrs
+        cap_fields = ("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
+        cap = {field: attrs[field] for field in cap_fields if field in attrs}
+        if len(cap) == 1 and self.instance is not None:
+            # Read the stored row, because `Team.workflows_config` is a cached_property on the Team instance
+            # and can hold values from before an earlier update.
+            stored = TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values(*cap_fields).first() or {}
+            cap = {**stored, **cap}
+        # The worker treats either null as no cap, so a half-set cap would save but never apply.
+        if cap:
+            missing = [field for field in cap_fields if cap.get(field) is None]
+            if len(missing) == 1:
+                other = next(field for field in cap_fields if field != missing[0])
+                raise serializers.ValidationError(
+                    {missing[0]: f"Set this together with {other}, or set both to null to turn the frequency cap off."}
+                )
+        return attrs
 
 
 def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1373,6 +1447,15 @@ class ConversationsSettingsField(serializers.JSONField):
     pass
 
 
+def live_events_token_for_request(team: Team, request: request.Request | None) -> str | None:
+    if request is None or not request.user.is_authenticated:
+        return None
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
+        return None
+    return get_or_mint_live_events_token(team, request.user.id)
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1512,9 +1595,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
-        request = self.context.get("request")
-        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        return get_or_mint_live_events_token(team, user_id)
+        return live_events_token_for_request(team, self.context.get("request"))
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:
@@ -2964,15 +3045,7 @@ class TeamViewSet(
     )
     @extend_schema(
         methods=["DELETE"],
-        parameters=[
-            OpenApiParameter(
-                name="context_name",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="Name of the evaluation context to restore to suggestions.",
-            )
-        ],
+        parameters=[EvaluationContextSuggestionRequestSerializer],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )

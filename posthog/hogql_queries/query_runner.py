@@ -3414,6 +3414,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Apply an opaque cursor for paginating through results. Override in subclasses."""
         pass
 
+    def _accepts_dashboard_compare_filter(self) -> bool:
+        """Override to keep a dashboard-level compareFilter off displays that cannot render a comparison."""
+        return True
+
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversibly update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
@@ -3493,6 +3497,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
             self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
+
+        if (
+            dashboard_filter.compareFilter is not None
+            and hasattr(self.query, "compareFilter")
+            and self._accepts_dashboard_compare_filter()
+        ):
+            self.query.compareFilter = dashboard_filter.compareFilter
+
+        if (
+            hasattr(self.query, "compareFilter")
+            and self.query.compareFilter is not None
+            and self.query.compareFilter.compare
+            and self.query.dateRange is not None
+            and self.query.dateRange.date_from == "all"
+        ):
+            # "All time" has no earlier period to compare against, so no query kind should run a
+            # previous-period comparison once the resolved range is "all" - regardless of whether
+            # `compare` was already set before this call or just arrived via `dashboard_filter`.
+            self.query.compareFilter = self.query.compareFilter.model_copy(update={"compare": False})
 
         self.__post_init__()
 

@@ -2,20 +2,27 @@
 
 ## Routing security fixes
 
-**A fix for an exploitable vulnerability is developed in private, never in this public repo.**
-A public PR, branch, issue, or comment about a live vulnerability discloses it before the fix is deployed.
+**Security fixes land in `PostHog/posthog` by default.**
+`PostHog/posthog-private` is only for severe vulnerabilities that need an embargo.
+An embargo is expensive: team-security pauses the private sync, disables the merge queue, and ships the fix through the security sync flow.
+Most security fixes do not justify that cost.
 
-- **What goes private:** a change that closes a hole someone could exploit in production today, if they read the PR while it is open.
-  Examples: an access-control or IDOR gap, an injection (SQL, HogQL, command, path), SSRF, an auth, session, or token weakness, secret exposure, XSS, CSRF, or an open redirect.
-- **What stays public:** security work that discloses no exploitable hole.
-  Examples: defense-in-depth hardening, a new semgrep rule, a dependency bump for a CVE the code cannot reach, or a fix for a weakness that is not reachable in any deployed code path.
-- **Ask before you route privately.** Before you create a branch, push, or open a PR in **`PostHog/posthog-private`**, stop and ask the user.
-  Say why the change looks exploitable while public, and let the user decide.
-  Never open a `posthog-private` PR without that confirmation in the current conversation.
-- **If unsure whether it is exploitable**, do not push anywhere yet. Ask the user before you push to either repo.
-- **When the user confirms private:** open the change against `PostHog/posthog-private`, on a branch that starts with **`security/`**, for example `security/idor-dashboards`.
-  Put no PR, branch, issue, or reproducer test for that vulnerability on `PostHog/posthog`.
-- **Reporting:** keep audit and review findings in the session or private channels; never paste exploit details or vulnerable paths into a public PR, issue, or comment.
+Before you create a branch or PR, choose the route:
+
+- **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit live code today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution, or exposure of credentials or secrets. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, and missing rate limits.
+
+A public security fix is a normal fix with a neutral description.
+Describe what the change does, not how to exploit the old behavior.
+Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
+
+Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
+When you ask, say why the finding looks severe enough for an embargo.
+If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
+
+Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
 
 This section is about where the fix lands; the rest of this doc is about writing secure code.
 

@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -7,8 +6,18 @@ from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicenow import (
+    ServiceNowAuthMethodConfig,
+    ServiceNowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow import servicenow as servicenow_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.servicenow import (
     SERVICENOW_API_VERSION_V1,
@@ -18,71 +27,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow
     _format_datetime,
     _table_api_url,
     normalize_instance_url,
-    servicenow_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import SERVICENOW_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source import ServiceNowSource
 
 
-class FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: Any = None, text: str = ""):
-        self.status_code = status_code
-        self._json = json_data if json_data is not None else {"result": []}
-        self.text = text
-
-    @property
-    def ok(self) -> bool:
-        return self.status_code < 400
-
-    def json(self) -> Any:
-        return self._json
-
-
-def _patch_session(get_mock: mock.Mock) -> mock.MagicMock:
-    session = mock.MagicMock()
-    session.get = get_mock
-    return session
-
-
-def _result_response(rows: list[dict[str, Any]]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps({"result": rows}).encode()
-    return resp
-
-
-def _make_manager(resume_state: ServiceNowResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Snapshot each request's params and URL AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    url_snapshots: list[str] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        url_snapshots.append(request.url)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, url_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _result_response(rows: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"result": rows})
 
 
 class TestNormalizeInstanceUrl:
@@ -159,8 +111,7 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, table: str | None, expected_valid: bool) -> None:
-        get_mock = mock.Mock(return_value=FakeResponse(status_code=status))
-        with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
+        with scripted_network(always(ScriptedResponse(status=status, json={"result": []}))):
             valid, _ = validate_credentials(
                 "https://acme.service-now.com",
                 ServiceNowAuth(api_key="x"),
@@ -171,8 +122,9 @@ class TestValidateCredentials:
         assert valid is expected_valid
 
     def test_redirect_is_rejected(self) -> None:
-        get_mock = mock.Mock(return_value=FakeResponse(status_code=302))
-        with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://internal.example/api"})]
+        ) as network:
             valid, error = validate_credentials(
                 "https://acme.service-now.com",
                 ServiceNowAuth(api_key="x"),
@@ -182,7 +134,7 @@ class TestValidateCredentials:
         assert valid is False
         assert error is not None
         # redirects must not be followed (SSRF guard)
-        assert get_mock.call_args.kwargs["allow_redirects"] is False
+        assert len(network.requests_log) == 1
 
     def test_invalid_instance_url(self) -> None:
         valid, error = validate_credentials(
@@ -192,8 +144,7 @@ class TestValidateCredentials:
         assert error is not None
 
     def test_network_error_is_handled(self) -> None:
-        get_mock = mock.Mock(side_effect=requests.ConnectionError("boom"))
-        with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             valid, error = validate_credentials(
                 "https://acme.service-now.com",
                 ServiceNowAuth(api_key="x"),
@@ -205,67 +156,54 @@ class TestValidateCredentials:
 
 
 class TestServiceNowSourcePagination:
-    def _source(self, manager: mock.MagicMock, **kwargs: Any):
-        return servicenow_source(
+    def _run(
+        self,
+        script: list[ScriptedResponse],
+        resume_state: ServiceNowResumeConfig | None = None,
+        api_version: str = SERVICENOW_API_VERSION_V1,
+        **inputs: Any,
+    ) -> DriveResult:
+        config = ServiceNowSourceConfig(
             instance_url="https://acme.service-now.com",
-            auth=ServiceNowAuth(api_key="x"),
-            endpoint="incidents",
-            resumable_source_manager=manager,
-            team_id=1,
-            job_id="job-1",
-            **kwargs,
+            auth_method=ServiceNowAuthMethodConfig(selection="api_key", api_key="x"),
+        )
+        return SourceDriver(ServiceNowSource(), config).run(
+            "incidents", script, resume_state=resume_state, api_version=api_version, **inputs
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_paginates_until_short_page(self) -> None:
         # limit=2: a full page continues, the short page terminates iteration.
-        params, _ = _wire(
-            session, [_result_response([{"sys_id": "1"}, {"sys_id": "2"}]), _result_response([{"sys_id": "3"}])]
-        )
-
         with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
-            manager = _make_manager()
-            rows = _rows(self._source(manager))
-
-        assert [r["sys_id"] for r in rows] == ["1", "2", "3"]
-        assert params[0]["sysparm_offset"] == 0
-        assert params[0]["sysparm_limit"] == 2
-        assert params[1]["sysparm_offset"] == 2
-        # Static Table API params ride on every request.
-        assert params[0]["sysparm_display_value"] == "false"
-        assert params[0]["sysparm_exclude_reference_link"] == "true"
-        # Checkpoint saved after the first full page (points at the next offset); the short page ends it.
-        manager.save_state.assert_called_once_with(ServiceNowResumeConfig(offset=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_result_response([{"sys_id": "5"}])])
-
-        with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
-            manager = _make_manager(ServiceNowResumeConfig(offset=4))
-            rows = _rows(self._source(manager))
-
-        assert [r["sys_id"] for r in rows] == ["5"]
-        assert params[0]["sysparm_offset"] == 4
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_query_in_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_result_response([])])
-
-        with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
-            _rows(
-                self._source(
-                    _make_manager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-                    incremental_field="sys_updated_on",
-                )
+            result = self._run(
+                [_result_response([{"sys_id": "1"}, {"sys_id": "2"}]), _result_response([{"sys_id": "3"}])]
             )
 
-        assert params[0]["sysparm_query"] == "sys_updated_on>=2024-01-01 00:00:00^ORDERBYsys_updated_on"
+        assert [r["sys_id"] for r in result.rows] == ["1", "2", "3"]
+        assert result.params("sysparm_offset") == ["0", "2"]
+        assert result.requests[0].param("sysparm_limit") == "2"
+        # Static Table API params ride on every request.
+        assert result.requests[0].param("sysparm_display_value") == "false"
+        assert result.requests[0].param("sysparm_exclude_reference_link") == "true"
+        # Checkpoint saved after the first full page (points at the next offset); the short page ends it.
+        assert result.saved_states == [ServiceNowResumeConfig(offset=2)]
+
+    def test_resumes_from_saved_offset(self) -> None:
+        with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
+            result = self._run([_result_response([{"sys_id": "5"}])], ServiceNowResumeConfig(offset=4))
+
+        assert [r["sys_id"] for r in result.rows] == ["5"]
+        assert result.requests[0].param("sysparm_offset") == "4"
+
+    def test_incremental_query_in_params(self) -> None:
+        with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
+            result = self._run(
+                [_result_response([])],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+                incremental_field="sys_updated_on",
+            )
+
+        assert result.requests[0].param("sysparm_query") == "sys_updated_on>=2024-01-01 00:00:00^ORDERBYsys_updated_on"
 
     @parameterized.expand(
         [
@@ -273,28 +211,26 @@ class TestServiceNowSourcePagination:
             (SERVICENOW_API_VERSION_V2, "https://acme.service-now.com/api/now/v2/table/incident"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_version_selects_request_url(self, api_version: str, expected_url: str, MockSession) -> None:
-        session = MockSession.return_value
-        _, urls = _wire(session, [_result_response([{"sys_id": "1"}])])
-
+    def test_version_selects_request_url(self, api_version: str, expected_url: str) -> None:
         with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
-            _rows(self._source(_make_manager(), api_version=api_version))
+            result = self._run([_result_response([{"sys_id": "1"}])], api_version=api_version)
 
-        assert urls[0] == expected_url
+        assert result.requests[0].url.split("?")[0] == expected_url
 
 
 class TestServiceNowSourceShape:
     @parameterized.expand(list(SERVICENOW_ENDPOINTS.keys()))
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = servicenow_source(
+        config = ServiceNowSourceConfig(
             instance_url="https://acme.service-now.com",
-            auth=ServiceNowAuth(api_key="x"),
-            endpoint=endpoint,
-            resumable_source_manager=_make_manager(),
-            team_id=1,
-            job_id="job-1",
+            auth_method=ServiceNowAuthMethodConfig(selection="api_key", api_key="x"),
         )
+        result = SourceDriver(ServiceNowSource(), config).run(
+            endpoint, [_result_response([])], api_version=SERVICENOW_API_VERSION_V1
+        )
+
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["sys_id"]
         assert response.partition_keys == ["sys_created_on"]

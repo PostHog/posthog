@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+import { InboxMcpBanner } from '../InboxMcpBanner'
 import { LoopDiagram } from './LoopDiagram'
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
@@ -150,6 +151,9 @@ export function InboxWelcome(): JSX.Element {
 
     return (
         <div className="InboxWelcome flex min-h-full flex-col justify-center py-10">
+            <div className="mx-auto mb-8 w-full max-w-4xl px-6">
+                <InboxMcpBanner />
+            </div>
             <div className="px-6 pb-12">
                 <div className="mx-auto flex max-w-[720px] flex-col items-center text-center">
                     <div className="mb-7">

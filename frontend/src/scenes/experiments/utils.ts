@@ -75,7 +75,7 @@ export function filterLowMultipleVariant<T extends { variant: string; percentage
 
 /**
  * Resolves the effective multi-variant handling, applying the backend default when unset.
- * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ * See products/experiments/backend/hogql_queries/exposure_query_logic.py (default = `EXCLUDE`).
  */
 export function resolveMultipleVariantHandling(
     handling: 'exclude' | 'first_seen' | undefined
@@ -1260,26 +1260,3 @@ export const metricResults =
             metricIndex: index,
         }))
     }
-
-/**
- * {@link metricResults} over both sections' arrays, picking one. Kept for the legacy per-metric
- * results path and its selectors.
- */
-export function getOrderedMetricsWithResults(
-    experiment: Experiment,
-    primaryMetricsResults: CachedNewExperimentQueryResponse[],
-    primaryMetricsResultsErrors: any[],
-    secondaryMetricsResults: CachedNewExperimentQueryResponse[],
-    secondaryMetricsResultsErrors: any[],
-    isSecondary: boolean
-): Array<{
-    metric: ExperimentMetric
-    result: any
-    error: any
-    displayIndex: number
-    metricIndex: number
-}> {
-    return isSecondary
-        ? metricResults(experiment)(secondaryMetricsResults, secondaryMetricsResultsErrors, 'secondary')
-        : metricResults(experiment)(primaryMetricsResults, primaryMetricsResultsErrors, 'primary')
-}

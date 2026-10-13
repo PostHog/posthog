@@ -130,6 +130,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.AutocaptureEvents,
                     ...(supportsDataWarehouse ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
+                flagCallsFromFlagEvaluations={supportsDataWarehouse}
                 hideDeleteBtn={series?.length === 1}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}

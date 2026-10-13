@@ -237,6 +237,7 @@ export type DefinitionPopoverRendererProps = {
     group: TaxonomicFilterGroup
     defaultView: JSX.Element
 }
+/** Return `defaultView` itself for an item the renderer does not handle. The popover compares it by reference. */
 export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {

@@ -214,6 +214,52 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         run.refresh_from_db()
         assert run.negative_sample_rate == 0.25
 
+    @parameterized.expand(
+        [
+            ("fixed_cut_point", 0, 0, {"likely_count": 2, "likely_threshold": 0.6}),
+            ("base_rate_cut_point", 10, 0, {"likely_count": 3, "likely_threshold": 0.3}),
+            ("backfill_records_nothing", 0, 30, {}),
+        ]
+    )
+    def test_a_live_run_records_its_likely_count(self, _name, checked_positives, days_back, expected):
+        pipeline, model = self._make_pipeline_and_model()
+        model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
+        model.save(update_fields=["artifact_prefix"])
+        if checked_positives:
+            AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.VALIDATION,
+                status=AutoresearchRun.Status.COMPLETED,
+                metrics={
+                    "prediction_date": "2026-09-01",
+                    "horizon_days": 7,
+                    "per_model": {
+                        str(model.pk): {"emitted_role": "champion", "n_scored": 100, "n_positive": checked_positives}
+                    },
+                },
+            )
+        sandbox_result = SandboxScoreResult(
+            scored_rows=[{"distinct_id": f"user-{p_y}", "p_y": p_y} for p_y in (0.7, 0.6, 0.3, 0.1)],
+            holdout_auc=0.7,
+            n_train=10,
+            n_features=1,
+            rows_eligible=4,
+        )
+        with (
+            patch.object(scoring, "score_via_sandbox", return_value=sandbox_result),
+            patch.object(scoring, "_resolve_distinct_ids", return_value={}),
+            patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()),
+            patch.object(scoring, "measure_prediction_coverage", return_value={}),
+        ):
+            run = run_inference_for_pipeline(
+                pipeline=pipeline,
+                model=model,
+                prediction_date=date.today() - timedelta(days=days_back) if days_back else None,
+            )
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert {k: run.metrics[k] for k in ("likely_count", "likely_threshold") if k in run.metrics} == expected
+
     def test_a_rolling_run_records_the_eligible_total_next_to_the_rows_scored(self):
         pipeline, model = self._make_pipeline_and_model()
 
@@ -222,6 +268,28 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert run.rows_scored == 2
         assert run.metrics["rows_eligible"] == 250_000
+
+    @parameterized.expand(
+        [
+            (
+                "measured",
+                {"return_value": {"population": 250_000, "with_score": 1}},
+                {"population": 250_000, "with_score": 1},
+            ),
+            ("query_failed", {"side_effect": RuntimeError("clickhouse down")}, None),
+        ]
+    )
+    def test_a_live_run_stores_coverage_and_completes_when_the_measure_fails(self, _name, measure, expected):
+        pipeline, model = self._make_pipeline_and_model()
+
+        with patch.object(scoring, "measure_prediction_coverage", **measure) as coverage:
+            run = self._run_live(pipeline, model, _capture_accepting_everything(), eligible=250_000)
+
+        run.refresh_from_db()
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.metrics.get("coverage") == expected
+        assert coverage.call_args.kwargs["eligible"] == 250_000
+        assert coverage.call_args.kwargs["cutoff_ts"] == ScoringWindow.for_date().cutoff_ts
 
     def test_run_inference_zero_rows_completes_without_emitting(self):
         pipeline, model = self._make_pipeline_and_model()
@@ -404,12 +472,14 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         with (
             patch.object(scoring, "score_via_sandbox", return_value=sandbox_result) as sandbox,
             patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()) as capture,
+            patch.object(scoring, "measure_prediction_coverage") as coverage,
         ):
             run = run_inference_for_pipeline(
                 pipeline=pipeline, model=model, prediction_date=date.today() - timedelta(days=30)
             )
 
         assert run.status == AutoresearchRun.Status.COMPLETED
+        coverage.assert_not_called()
         assert capture.call_args.kwargs["process_person_profile"] is False
         assert isinstance(sandbox.call_args.kwargs["cutoff_ts"], int)
         pipeline.refresh_from_db()

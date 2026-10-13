@@ -2,14 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconCheckCircle, IconHide, IconPullRequest } from '@posthog/icons'
+import { IconArrowLeft, IconCheckCircle, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
 import { HotkeyInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
+import { isMac } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { captureInboxPanelViewed } from '../../inboxAnalytics'
@@ -22,19 +24,27 @@ import {
 } from '../../utils/reportPresentation'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { ConventionalCommitScopeTag, InboxCardSourceMeta } from '../cards/ReportCard'
+import { DismissOrUnassignButton } from './DismissOrUnassignButton'
 
 /**
  * Wrap a hotkey so it stays quiet while a dialog (the archive form) is up. The hotkey listener sits
  * on `window`, and a modal's buttons are not inputs, so without this pressing the archive key on the
  * archive dialog's own button would stack a second dialog.
  */
-function outsideDialogs(action: () => void): HotkeyInterface['action'] {
+function outsideDialogs(action: (event: KeyboardEvent) => void): HotkeyInterface['action'] {
     return (event) => {
         if ((event.target as Element | null)?.closest?.('.LemonModal')) {
             return
         }
-        action()
+        action(event)
     }
+}
+
+const IS_MAC = isMac()
+const COMMAND_KEY = IS_MAC ? 'Meta' : 'Control'
+
+function isCommandKeyDown(event: KeyboardEvent): boolean {
+    return IS_MAC ? event.metaKey : event.ctrlKey
 }
 
 export type TriageEnterIntent = 'passthrough' | 'open' | 'toggle'
@@ -94,10 +104,12 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
     )
 }
 
-function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
+export function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
     const { canCreatePr, isCreatingPr, createPrDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
-    const { dismissCurrent, resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } =
-        useActions(inboxTriageLogic)
+    const { resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
+    // Read above the article keyed by report, so a key still held after Unassign me survives the
+    // move to the next report.
+    const commandKeyHeld = useKeyHeld(COMMAND_KEY)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
@@ -198,17 +210,7 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                 >
                     Resolve
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconHide />}
-                    onClick={dismissCurrent}
-                    sideIcon={<KeyboardShortcut a />}
-                    // pinned: data-attr predates the Archive → Dismiss rename; dashboards read it.
-                    data-attr="inbox-triage-archive"
-                >
-                    Dismiss
-                </LemonButton>
+                <DismissOrUnassignButton commandKeyHeld={commandKeyHeld} />
                 {canCreatePr && (
                     <LemonButton
                         type="primary"
@@ -270,6 +272,7 @@ export function InboxTriageView(): JSX.Element {
         setExpanded,
         dismissCurrent,
         resolveCurrent,
+        unassignCurrent,
         createPrForCurrent,
         openCurrent,
         ensureLoaded,
@@ -299,6 +302,17 @@ export function InboxTriageView(): JSX.Element {
             e: { action: outsideDialogs(() => toggleExpanded()) },
             o: { action: outsideDialogs(() => openCurrent()) },
             a: { action: outsideDialogs(() => dismissCurrent()) },
+            u: {
+                action: outsideDialogs((event) => {
+                    if (!isCommandKeyDown(event) || event.shiftKey || event.altKey) {
+                        return
+                    }
+                    // The chord replaces the browser's own ⌘U / Ctrl+U (view page source) in triage.
+                    event.preventDefault()
+                    unassignCurrent()
+                }),
+                willHandleEvent: true,
+            },
             r: { action: outsideDialogs(() => resolveCurrent()) },
             c: { action: outsideDialogs(() => createPrForCurrent()) },
             escape: {
@@ -319,6 +333,7 @@ export function InboxTriageView(): JSX.Element {
             setExpanded,
             dismissCurrent,
             resolveCurrent,
+            unassignCurrent,
             createPrForCurrent,
             openCurrent,
         ]
