@@ -76,7 +76,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
     return (
         <SceneSection
             title="Data warehouse sources configuration"
-            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields."
+            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields. Expand a source to exclude Stripe products from revenue."
         >
             <div className={cn('flex flex-col items-end w-full')}>
                 <AccessControlAction
@@ -101,6 +101,37 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                 loading={dataWarehouseSources === null}
                 dataSource={revenueSources}
                 emptyState="No DWH revenue sources configured yet"
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (source: ExternalDataSource) => (
+                        <div className="flex flex-col gap-1 px-4 py-3 max-w-[48rem]">
+                            <span className="font-semibold">Excluded products</span>
+                            <span className="text-secondary">
+                                Leave these Stripe products out of revenue, for example a prepaid credit product. Use
+                                this when other invoices already count the same money, such as invoices paid from a
+                                customer's credit balance.
+                            </span>
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
+                                size="small"
+                                placeholder="Enter a Stripe product ID, for example prod_123"
+                                value={source.revenue_analytics_config.excluded_product_ids ?? []}
+                                disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
+                                onChange={(productIds) =>
+                                    updateSourceRevenueAnalyticsConfig({
+                                        source,
+                                        config: {
+                                            excluded_product_ids: productIds
+                                                .map((productId) => productId.trim())
+                                                .filter(Boolean),
+                                        },
+                                    })
+                                }
+                            />
+                        </div>
+                    ),
+                }}
                 columns={[
                     {
                         key: 'source',
@@ -344,39 +375,6 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                         updateSourceRevenueAnalyticsConfig({
                                             source,
                                             config: { include_invoiceless_charges: checked },
-                                        })
-                                    }
-                                />
-                            )
-                        },
-                    },
-                    {
-                        key: 'excluded_product_ids',
-                        title: (
-                            <span>
-                                Excluded products
-                                <Tooltip title="Stripe product IDs to leave out of revenue, for example a prepaid credit product. Use this when another invoice already counts the same money, such as invoices paid from a customer's credit balance.">
-                                    <IconInfo className="ml-1" />
-                                </Tooltip>
-                            </span>
-                        ),
-                        render: (_, source: ExternalDataSource) => {
-                            return (
-                                <LemonInputSelect
-                                    mode="multiple"
-                                    allowCustomValues
-                                    size="small"
-                                    placeholder="prod_..."
-                                    value={source.revenue_analytics_config.excluded_product_ids ?? []}
-                                    disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                    onChange={(productIds) =>
-                                        updateSourceRevenueAnalyticsConfig({
-                                            source,
-                                            config: {
-                                                excluded_product_ids: productIds
-                                                    .map((productId) => productId.trim())
-                                                    .filter(Boolean),
-                                            },
                                         })
                                     }
                                 />
