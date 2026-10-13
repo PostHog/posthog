@@ -7,6 +7,48 @@ feature: canvas
 url_prefix: /
 ui_apps: {}
 tools:
+    canvas-action-invoke:
+        operation: canvases_actions_invoke
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Invoke a canvas action
+        description: >
+            Run one action verb a canvas declares in `capabilities.posthog.actions`, as the authenticated user, the same
+            way a viewer's click in the canvas would: the write lands in the target product (feature flags, cohorts,
+            error tracking, surveys, workflows, tasks, annotations) with the user's own permissions and is recorded in
+            the canvas's activity log. Read canvas-actions-list first for each verb's payload shape and effect, and do
+            not invoke a verb the canvas does not declare. The credential must also hold the verb's own write scope (for
+            example `feature_flag:write` for `feature_flags.enable`); `canvas:write` alone is refused. Verbs marked
+            destructive disable or stop something — confirm with the user before invoking them. Returns `{verb,
+            result}`; a 409 with `change_request_id` means a team approval policy took the change instead of applying
+            it.
+        param_overrides:
+            id:
+                description: ID of the canvas whose declared verb to invoke.
+            verb:
+                description: Registered verb to invoke, exactly as listed by canvas-actions-list, e.g. 'feature_flags.enable'.
+            payload:
+                description: The verb's arguments, matching the payload shape in its canvas-actions-list `usage` docs.
+    canvas-actions-list:
+        operation: canvases_actions_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvas action verbs
+        description: >
+            List every action verb a canvas may declare and invoke, with its summary, whether it is destructive or
+            starts paid compute, and `usage` docs giving the payload and result shape. Read this before writing a canvas
+            that calls `ph.actions.invoke`, before adding a verb to `capabilities.posthog.actions`, and before calling
+            canvas-action-invoke. The list is the deployed registry, so it is always current.
     canvas-builds-retrieve:
         operation: canvases_builds_retrieve
         enabled: true
@@ -470,45 +512,3 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas the project is for.
-    canvas-action-invoke:
-        operation: canvases_actions_invoke
-        enabled: true
-        scopes:
-            - canvas:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Invoke a canvas action
-        description: >
-            Run one action verb a canvas declares in `capabilities.posthog.actions`, as the authenticated user, the
-            same way a viewer's click in the canvas would: the write lands in the target product (feature flags,
-            cohorts, error tracking, surveys, workflows, tasks, annotations) with the user's own permissions and is
-            recorded in the canvas's activity log. Read canvas-actions-list first for each verb's payload shape and
-            effect, and do not invoke a verb the canvas does not declare. The credential must also hold the verb's own
-            write scope (for example `feature_flag:write` for `feature_flags.enable`); `canvas:write` alone is refused.
-            Verbs marked destructive disable or stop something — confirm with the user before invoking them.
-            Returns `{verb, result}`; a 409 with `change_request_id` means a team approval policy took the change
-            instead of applying it.
-        param_overrides:
-            id:
-                description: ID of the canvas whose declared verb to invoke.
-            verb:
-                description: Registered verb to invoke, exactly as listed by canvas-actions-list, e.g. 'feature_flags.enable'.
-            payload:
-                description: The verb's arguments, matching the payload shape in its canvas-actions-list `usage` docs.
-    canvas-actions-list:
-        operation: canvases_actions_retrieve
-        enabled: true
-        scopes:
-            - canvas:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List canvas action verbs
-        description: >
-            List every action verb a canvas may declare and invoke, with its summary, whether it is destructive or
-            starts paid compute, and `usage` docs giving the payload and result shape. Read this before writing a
-            canvas that calls `ph.actions.invoke`, before adding a verb to `capabilities.posthog.actions`, and before
-            calling canvas-action-invoke. The list is the deployed registry, so it is always current.
