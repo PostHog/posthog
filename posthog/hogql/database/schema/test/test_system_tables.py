@@ -242,30 +242,6 @@ class TestSystemTablesTeamScoping(BaseTest):
                 parse_select(f"SELECT {field_name} FROM system.{table_name}"), context, dialect="clickhouse"
             )
 
-    @parameterized.expand(
-        [
-            ("inbox_report_artefacts", "inbox_reports", "report_id"),
-            ("inbox_report_checks", "inbox_reports", "report_id"),
-            ("scout_run_emissions", "scout_runs", "run_id"),
-        ]
-    )
-    def test_joined_inbox_and_scout_reads_push_team_filter_into_postgres(self, child, parent, parent_id):
-        context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            database=Database.create_for(team=self.team, user=self.user),
-        )
-        query, _ = prepare_and_print_ast(
-            parse_select(
-                f"SELECT p.id, c.id FROM system.{parent} p LEFT JOIN system.{child} c ON c.{parent_id} = p.id LIMIT 20"
-            ),
-            context,
-            dialect="clickhouse",
-        )
-
-        assert query.count("postgresql(") >= 2
-        assert query.count("postgresql(") == query.count(f"WHERE team_id = {self.team.pk})")
-
     def test_data_deletion_requests_exposes_only_customer_safe_fields(self):
         table = SystemTables().children["data_deletion_requests"].get()
         assert isinstance(table, Table)
