@@ -27,6 +27,12 @@ function CodeEditorStandIn({ node }: NotebookComponentRenderProps): JSX.Element 
 
 const registry = createMarkdownNotebookRegistry([
     {
+        tagName: 'Comment',
+        label: 'Comment',
+        category: 'Text',
+        ViewComponent: () => createElement('div', null, 'A discussion'),
+    },
+    {
         tagName: 'Py',
         label: 'Python',
         category: 'Code',
@@ -95,6 +101,16 @@ async function flushFrames(): Promise<void> {
 const TWO_CELLS = '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />'
 
 describe('MarkdownNotebook in Jupyter mode', () => {
+    it.each(['Backspace', 'Delete'])('deletes only the focused discussion thread with %s', (key) => {
+        const notebook = renderJupyterNotebook(
+            '# Title\n\n<Comment ref="note" replies={[]} />\n\nA <ref id="note">useful</ref> paragraph.\n\nAnother paragraph.'
+        )
+        const thread = notebook.container.querySelector<HTMLElement>('.MarkdownNotebook__component-shell')!
+        act(() => thread.focus())
+        press(thread, key)
+        expect(notebook.latest()).toEqual('# Title\n\nA useful paragraph.\n\nAnother paragraph.')
+    })
+
     it.each([
         [
             'A inserts a cell above',

@@ -291,6 +291,8 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricsDashboardDiscovery
+                              |MetricsDashboardSuggestion
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
@@ -338,6 +340,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -361,6 +364,8 @@ rules:
                               |ScoreDefinition
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
+                              |HeatmapCaptureRequest
+                              |HeatmapScreenshotHistory
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -741,6 +746,8 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricsDashboardDiscovery
+                        |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
                         |MCPGatewayServer
@@ -786,6 +793,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
@@ -809,6 +817,8 @@ rules:
                         |ScoreDefinition
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
+                        |HeatmapCaptureRequest
+                        |HeatmapScreenshotHistory
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording

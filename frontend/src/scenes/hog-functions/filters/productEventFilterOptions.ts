@@ -110,6 +110,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                 { label: 'Sync completed', value: '$data_warehouse_sync_completed' },
                 { label: 'Billing limit reached', value: '$data_warehouse_billing_limit_reached' },
             ]
+        case 'replay-vision-requests':
+            return [
+                {
+                    label: 'Replay vision request completed',
+                    value: '$replay_vision_request_completed',
+                },
+            ]
         default:
             return [
                 {

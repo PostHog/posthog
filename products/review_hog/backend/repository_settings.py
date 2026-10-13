@@ -13,6 +13,7 @@ from typing import Any
 from django.db import IntegrityError, models, transaction
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -32,6 +33,7 @@ from products.review_hog.backend.models import (
     ReviewUserRepositoryChoice,
 )
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef, find_matching_row, resolve_owner
+from products.review_hog.backend.preferences import DefaultReviewMode
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +118,9 @@ class ProjectRepositories:
         """The repository as the installation reports it. A client cannot store a pair GitHub does not know."""
         integration = self.integration_for(ref.installation_id)
         try:
-            repositories = GitHubIntegration(integration).list_all_cached_repositories()
+            repositories = GitHubIntegration(
+                integration, source="review_hog", priority=Priority.NORMAL
+            ).list_all_cached_repositories()
         except Exception:
             # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.
             logger.warning("review_hog_repository_write_list_failed", exc_info=True)
@@ -319,6 +323,7 @@ class OverviewEntry:
     my_choice: ReviewUserRepositoryChoice | None
     my_result: AutomaticReviewDecision
     inherited_result: AutomaticReviewDecision
+    repository_result: AutomaticReviewDecision
 
 
 class RepositoryOverview:
@@ -360,9 +365,13 @@ class RepositoryOverview:
             author = self.viewer.for_repository(ref)
             result = rule.resolve(author)
             inherited = rule.resolve(replace(author, repository_choice=None))
+            repository_result = rule.resolve(
+                replace(author, repository_choice=None, default_mode=DefaultReviewMode.FOLLOW)
+            )
         else:
             result = AutomaticReviewDecision(flash=False, reason=AutomaticReviewReason.NOT_IN_PROJECT)
             inherited = result
+            repository_result = result
         if owner is None:
             owner_kind, owner_project = RepositoryOwnerKind.NONE, None
         elif in_project:
@@ -382,7 +391,14 @@ class RepositoryOverview:
             my_choice=choice,
             my_result=result,
             inherited_result=inherited,
+            repository_result=repository_result,
         )
+
+    def choices_unlike_default(self) -> int:
+        """The viewer's repository choices, in any installation, that give something other than their default."""
+        if self.viewer.default_mode == DefaultReviewMode.FOLLOW:
+            return len(self.viewer.choices)
+        return sum(1 for choice in self.viewer.choices if choice.mode != self.viewer.default_mode)
 
     def _in_view(self, entry: OverviewEntry, view: str) -> bool:
         if view == RepositoryOverviewView.IN_PROJECT:

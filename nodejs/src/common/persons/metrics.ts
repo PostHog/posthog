@@ -28,6 +28,13 @@ export const personDatabaseOperationsPerBatchHistogram = new Histogram({
     buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, Infinity],
 })
 
+export const personResolveKeysPerCallHistogram = new Histogram({
+    name: 'person_resolve_keys_per_call',
+    help: 'Distinct ids sent in one distinct-id-to-person resolve call, by persons backend and call site, before transport retries',
+    labelNames: ['backend', 'site'],
+    buckets: [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, Infinity],
+})
+
 export const totalPersonUpdateLatencyPerBatchHistogram = new Histogram({
     name: 'total_person_update_latency_per_batch_seconds',
     help: 'Total latency of person update per distinct ID per batch',

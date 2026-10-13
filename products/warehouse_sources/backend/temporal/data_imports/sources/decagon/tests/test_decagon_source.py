@@ -1,8 +1,10 @@
-from unittest import mock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source import DecagonSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
     DecagonSourceConfig,
@@ -90,19 +92,15 @@ class TestDecagonSource:
         assert friendly is not None
         assert expected_fragment in friendly
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source.validate_decagon_credentials"
-    )
-    def test_validate_credentials(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = True
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
+    def test_validate_credentials(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
+        assert network.requests_log[0].headers["authorization"] == f"Bearer {self.config.api_key}"
 
-        mock_validate.return_value = False
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network([ScriptedResponse(status=401)]):
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is False
         assert message is not None
-
-        mock_validate.assert_called_with(self.config.api_key)
 
     # The second case guards the null-out: a watermark left over from an earlier
     # incremental configuration must not window a sync that is no longer incremental,

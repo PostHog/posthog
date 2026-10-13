@@ -1,10 +1,9 @@
 import dataclasses
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
 
 import pytest
-from unittest import mock
+from unittest.mock import MagicMock, Mock
 
 import requests
 
@@ -16,11 +15,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.
     _iter_fan_out_parents,
     _page_predates_cutoff,
     _parent_precedes_bookmark,
-    bitbucket_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
+    BitbucketAuthMethodConfig,
+    BitbucketSourceConfig,
+)
 
 CUTOFF = datetime(2024, 6, 1, tzinfo=UTC)
 
@@ -32,34 +40,18 @@ REPO_PAGE = {
 }
 
 
-def _response(json_body: dict[str, Any], status: int = 200) -> mock.Mock:
-    response = mock.Mock(spec=requests.Response)
-    response.status_code = status
-    response.ok = status < 400
-    response.text = ""
-    response.json.return_value = json_body
-    if status >= 400:
-        response.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            f"{status} Client Error for url", response=response
-        )
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        BitbucketSource(),
+        BitbucketSourceConfig(
+            workspace="ws",
+            auth_method=BitbucketAuthMethodConfig(email="a@b.c", api_token="tok"),
+        ),
+    )
 
 
-def _session_returning(*responses: mock.Mock) -> mock.Mock:
-    session = mock.Mock()
-    session.get.side_effect = list(responses)
-    return session
-
-
-def _manager(resume_state: BitbucketResumeConfig | None = None) -> mock.Mock:
-    manager = mock.Mock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _requested_urls(session: mock.Mock) -> list[str]:
-    return [call.args[0] for call in session.get.call_args_list]
+def _page(json_body: dict[str, Any], status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=json_body)
 
 
 @pytest.mark.parametrize(
@@ -123,18 +115,17 @@ def test_page_predates_cutoff(items, expected):
 
 
 def test_top_level_rows_follow_next_and_save_state_after_yield():
-    manager = _manager()
     page_1 = {"values": [{"uuid": "{r1}"}], "next": "https://api.bitbucket.org/page2"}
     page_2 = {"values": [{"uuid": "{r2}"}]}
-    session = _session_returning(_response(page_1), _response(page_2))
+    result = _driver().run("repositories", [_page(page_1), _page(page_2)])
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "repositories", mock.Mock(), manager))
-
-    assert [[row["uuid"] for row in batch] for batch in batches] == [["{r1}"], ["{r2}"]]
-    assert _requested_urls(session)[1] == "https://api.bitbucket.org/page2"
+    assert result.raised is None
+    assert [[row["uuid"] for row in batch] for batch in result.items] == [["{r1}"], ["{r2}"]]
+    assert result.urls[1] == "https://api.bitbucket.org/page2"
     # State saved only while more pages remain, so a crash re-yields (not skips) the last page
-    manager.save_state.assert_called_once_with(BitbucketResumeConfig(next_url="https://api.bitbucket.org/page2"))
+    assert result.saved_states == [BitbucketResumeConfig(next_url="https://api.bitbucket.org/page2")]
+    assert result.committed_states == [BitbucketResumeConfig(next_url="https://api.bitbucket.org/page2")]
+    assert result.final_state == BitbucketResumeConfig(next_url="https://api.bitbucket.org/page2")
 
 
 @pytest.mark.parametrize(
@@ -147,93 +138,92 @@ def test_top_level_rows_follow_next_and_save_state_after_yield():
 def test_fetch_page_rejects_off_origin_urls_without_sending_credentials(poisoned_url):
     # `next` URLs come from response bodies and resume state; following one off-origin
     # would hand the credentialed session to an arbitrary host
-    session = mock.Mock()
+    session = Mock()
 
     with pytest.raises(ValueError, match="Refusing to fetch non-Bitbucket URL"):
-        bitbucket._fetch_page(session, poisoned_url, mock.Mock())
+        bitbucket._fetch_page(session, poisoned_url, Mock())
 
     session.get.assert_not_called()
 
 
 def test_poisoned_resume_state_is_not_fetched():
-    manager = _manager(BitbucketResumeConfig(next_url="https://evil.example.com/steal-token"))
-    session = mock.Mock()
+    result = _driver().run(
+        "repositories",
+        [],
+        resume_state=BitbucketResumeConfig(next_url="https://evil.example.com/steal-token"),
+    )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        with pytest.raises(ValueError, match="Refusing to fetch non-Bitbucket URL"):
-            list(get_rows(BitbucketAuth(), "ws", "repositories", mock.Mock(), manager))
-
-    session.get.assert_not_called()
+    assert isinstance(result.raised, ValueError)
+    assert "Refusing to fetch non-Bitbucket URL" in str(result.raised)
+    assert result.requests == []
+    assert result.final_state == BitbucketResumeConfig(next_url="https://evil.example.com/steal-token")
 
 
 def test_workspace_members_rows_get_user_uuid_injected():
     member = {"type": "workspace_membership", "user": {"uuid": "{u1}", "display_name": "Jane"}}
-    session = _session_returning(_response({"values": [member]}))
+    result = _driver().run("workspace_members", [_page({"values": [member]})])
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "workspace_members", mock.Mock(), _manager()))
-
-    row = batches[0][0]
+    assert result.raised is None
+    row = result.rows[0]
     assert row["user_uuid"] == "{u1}"
     assert row["user_display_name"] == "Jane"
 
 
 def test_fan_out_injects_repository_context_and_advances_bookmark():
-    manager = _manager()
-    session = _session_returning(
-        _response(REPO_PAGE),  # repo enumeration
-        _response({"values": [{"id": 1}]}),  # repo-a pull requests
-        _response({"values": [{"id": 1}]}),  # repo-b pull requests
+    result = _driver().run(
+        "pull_requests",
+        [
+            _page(REPO_PAGE),  # repo enumeration
+            _page({"values": [{"id": 1}]}),  # repo-a pull requests
+            _page({"values": [{"id": 1}]}),  # repo-b pull requests
+        ],
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pull_requests", mock.Mock(), manager))
-
-    assert [batch[0]["repository_uuid"] for batch in batches] == ["{uuid-a}", "{uuid-b}"]
-    assert batches[0][0]["repository_slug"] == "repo-a"
-    assert batches[0][0]["repository_full_name"] == "ws/repo-a"
-    urls = _requested_urls(session)
-    assert "/repositories/ws/repo-a/pullrequests" in urls[1]
-    assert "/repositories/ws/repo-b/pullrequests" in urls[2]
+    assert result.raised is None
+    assert [batch[0]["repository_uuid"] for batch in result.items] == ["{uuid-a}", "{uuid-b}"]
+    assert result.items[0][0]["repository_slug"] == "repo-a"
+    assert result.items[0][0]["repository_full_name"] == "ws/repo-a"
+    assert "/repositories/ws/repo-a/pullrequests" in result.paths[1]
+    assert "/repositories/ws/repo-b/pullrequests" in result.paths[2]
     # Bookmark advanced to repo-b after finishing repo-a, so a crash resumes there
-    manager.save_state.assert_called_once_with(BitbucketResumeConfig(next_url=None, repo_slug="repo-b"))
+    assert result.saved_states == [BitbucketResumeConfig(next_url=None, repo_slug="repo-b")]
 
 
 def test_fan_out_resumes_from_bookmarked_repo():
-    manager = _manager(BitbucketResumeConfig(next_url="https://api.bitbucket.org/repo-b-page3", repo_slug="repo-b"))
-    session = _session_returning(
-        _response(REPO_PAGE),
-        _response({"values": [{"id": 7}]}),  # resumed page of repo-b
+    result = _driver().run(
+        "pull_requests",
+        [
+            _page(REPO_PAGE),
+            _page({"values": [{"id": 7}]}),  # resumed page of repo-b
+        ],
+        resume_state=BitbucketResumeConfig(next_url="https://api.bitbucket.org/repo-b-page3", repo_slug="repo-b"),
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pull_requests", mock.Mock(), manager))
-
+    assert result.raised is None
     # repo-a is skipped entirely; the walk restarts at repo-b's saved URL
-    assert _requested_urls(session)[1] == "https://api.bitbucket.org/repo-b-page3"
-    assert [batch[0]["repository_uuid"] for batch in batches] == ["{uuid-b}"]
+    assert result.urls[1] == "https://api.bitbucket.org/repo-b-page3"
+    assert [batch[0]["repository_uuid"] for batch in result.items] == ["{uuid-b}"]
 
 
 def test_fan_out_skips_repo_on_404_and_continues():
     # Pipelines 404 on repos with Pipelines disabled; that must not fail the whole sync
-    session = _session_returning(
-        _response(REPO_PAGE),
-        _response({}, status=404),  # repo-a pipelines disabled
-        _response({"values": [{"uuid": "{p1}", "created_on": "2024-07-01T00:00:00Z"}]}),  # repo-b
+    result = _driver().run(
+        "pipelines",
+        [
+            _page(REPO_PAGE),
+            _page({}, status=404),  # repo-a pipelines disabled
+            _page({"values": [{"uuid": "{p1}", "created_on": "2024-07-01T00:00:00Z"}]}),  # repo-b
+        ],
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pipelines", mock.Mock(), _manager()))
-
-    assert [batch[0]["uuid"] for batch in batches] == ["{p1}"]
+    assert result.raised is None
+    assert [row["uuid"] for row in result.rows] == ["{p1}"]
 
 
 def test_fan_out_non_404_http_error_propagates():
-    session = _session_returning(_response(REPO_PAGE), _response({}, status=403))
+    result = _driver().run("pipelines", [_page(REPO_PAGE), _page({}, status=403)])
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        with pytest.raises(requests.exceptions.HTTPError):
-            list(get_rows(BitbucketAuth(), "ws", "pipelines", mock.Mock(), _manager()))
+    assert isinstance(result.raised, requests.exceptions.HTTPError)
 
 
 def test_pipelines_pagination_rebuilds_page_url_instead_of_following_next():
@@ -244,15 +234,12 @@ def test_pipelines_pagination_rebuilds_page_url_instead_of_following_next():
         "page": 1,
     }
     page_2 = {"values": [{"uuid": "{p2}", "created_on": "2024-07-01T00:00:00Z"}], "page": 2}
-    session = _session_returning(_response({"values": [REPO_PAGE["values"][0]]}), _response(page_1), _response(page_2))
+    result = _driver().run("pipelines", [_page({"values": [REPO_PAGE["values"][0]]}), _page(page_1), _page(page_2)])
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pipelines", mock.Mock(), _manager()))
-
-    page_2_query = dict(parse_qsl(urlsplit(_requested_urls(session)[2]).query))
-    assert page_2_query["sort"] == "-created_on"
-    assert page_2_query["page"] == "2"
-    assert [batch[0]["uuid"] for batch in batches] == ["{p1}", "{p2}"]
+    assert result.raised is None
+    assert result.requests[2].param("sort") == "-created_on"
+    assert result.requests[2].param("page") == "2"
+    assert [row["uuid"] for row in result.rows] == ["{p1}", "{p2}"]
 
 
 @pytest.mark.parametrize(
@@ -266,11 +253,11 @@ def test_pipelines_pagination_rebuilds_page_url_instead_of_following_next():
     ],
 )
 def test_validate_credentials_status_mapping(status, expected_valid, expected_message_fragment):
-    session = _session_returning(_response({}, status=status))
-
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
+    with scripted_network(always(_page({}, status=status))) as network:
         valid, message = validate_credentials(BitbucketAuth(email="a@b.c", api_token="t"), "ws")
 
+    assert network.requests_log[0].path == "/2.0/repositories/ws"
+    assert network.requests_log[0].param("pagelen") == "1"
     assert valid is expected_valid
     if expected_message_fragment is None:
         assert message is None
@@ -304,7 +291,10 @@ def test_validate_credentials_status_mapping(status, expected_valid, expected_me
     ],
 )
 def test_source_response_shape(endpoint, expected_primary_keys, expected_sort_mode, expected_partition_key):
-    response = bitbucket_source(BitbucketAuth(), "ws", endpoint, mock.Mock(), mock.Mock())
+    result = _driver().run(endpoint, always(_page({"values": []})))
+    assert result.raised is None
+    response = result.response
+    assert response is not None
     assert response.name == endpoint
     assert response.primary_keys == expected_primary_keys
     assert response.sort_mode == expected_sort_mode
@@ -326,46 +316,34 @@ def test_activity_incremental_stops_at_watermark_on_the_lifted_date():
         "values": [{"pull_request": {"id": 2}, "approval": {"date": "2023-01-01T00:00:00+00:00"}}],
         "next": "https://api.bitbucket.org/2.0/repositories/ws/repo-a/pullrequests/activity?ctx=p3",
     }
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),
-        _response(fresh),
-        _response(stale),
+    result = _driver().run(
+        "pull_request_activity",
+        [_page({"values": [REPO_PAGE["values"][0]]}), _page(fresh), _page(stale)],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=CUTOFF,
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(
-            get_rows(
-                BitbucketAuth(),
-                "ws",
-                "pull_request_activity",
-                mock.Mock(),
-                _manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=CUTOFF,
-            )
-        )
-
-    assert [[row["pull_request_id"] for row in batch] for batch in batches] == [[1]]
+    assert result.raised is None
+    assert [[row["pull_request_id"] for row in batch] for batch in result.items] == [[1]]
     # The stale page was fetched to discover it was stale, but page 3 never was
-    assert len(_requested_urls(session)) == 3
+    assert len(result.requests) == 3
 
 
 def test_pull_request_fan_out_walks_every_pull_request_and_injects_context():
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),  # repo enumeration
-        _response({"values": [{"id": 11}, {"id": 12}]}),  # repo-a pull requests
-        _response({"values": [{"id": 501, "pullrequest": {"id": 11}, "user": {"uuid": "{u1}"}}]}),
-        _response({"values": [{"id": 502, "pullrequest": {"id": 12}, "user": {"uuid": "{u2}"}}]}),
+    result = _driver().run(
+        "pull_request_comments",
+        [
+            _page({"values": [REPO_PAGE["values"][0]]}),  # repo enumeration
+            _page({"values": [{"id": 11}, {"id": 12}]}),  # repo-a pull requests
+            _page({"values": [{"id": 501, "pullrequest": {"id": 11}, "user": {"uuid": "{u1}"}}]}),
+            _page({"values": [{"id": 502, "pullrequest": {"id": 12}, "user": {"uuid": "{u2}"}}]}),
+        ],
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pull_request_comments", mock.Mock(), _manager()))
-
-    urls = _requested_urls(session)
-    assert "/repositories/ws/repo-a/pullrequests/11/comments" in urls[2]
-    assert "/repositories/ws/repo-a/pullrequests/12/comments" in urls[3]
-    rows = [row for batch in batches for row in batch]
-    assert [(row["id"], row["pull_request_id"], row["repository_uuid"], row["user_uuid"]) for row in rows] == [
+    assert result.raised is None
+    assert "/repositories/ws/repo-a/pullrequests/11/comments" in result.paths[2]
+    assert "/repositories/ws/repo-a/pullrequests/12/comments" in result.paths[3]
+    assert [(row["id"], row["pull_request_id"], row["repository_uuid"], row["user_uuid"]) for row in result.rows] == [
         (501, 11, "{uuid-a}", "{u1}"),
         (502, 12, "{uuid-a}", "{u2}"),
     ]
@@ -382,52 +360,41 @@ def test_pull_request_fan_out_walks_every_pull_request_and_injects_context():
     ],
 )
 def test_pull_request_fan_out_bounds_the_parent_walk(should_use_incremental, last_value, expected_q):
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),
-        _response({"values": []}),
+    result = _driver().run(
+        "pull_request_comments",
+        [_page({"values": [REPO_PAGE["values"][0]]}), _page({"values": []})],
+        should_use_incremental_field=should_use_incremental,
+        db_incremental_field_last_value=last_value,
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        list(
-            get_rows(
-                BitbucketAuth(),
-                "ws",
-                "pull_request_comments",
-                mock.Mock(),
-                _manager(),
-                should_use_incremental_field=should_use_incremental,
-                db_incremental_field_last_value=last_value,
-            )
-        )
-
-    parent_query = dict(parse_qsl(urlsplit(_requested_urls(session)[1]).query))
-    assert parent_query.get("q") == expected_q
+    assert result.raised is None
+    assert result.requests[1].param("q") == expected_q
     # Sorted on the immutable created_on so ids arrive ascending for the resume bookmark
-    assert parent_query["sort"] == "created_on"
+    assert result.requests[1].param("sort") == "created_on"
 
 
 def test_pipeline_steps_drop_the_private_registry_password():
     # A step pulling from a private registry carries the registry password in `image`;
     # syncing it would hand the credential to anyone with warehouse query access
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),
-        _response({"values": [{"uuid": "{p1}", "created_on": "2024-07-01T00:00:00Z"}], "page": 1}),
-        _response(
-            {
-                "values": [
-                    {"uuid": "{s1}", "image": {"name": "acme/build", "username": "ci", "password": "hunter2"}},
-                    {"uuid": "{s2}", "image": {"name": "python:3.12"}},
-                    {"uuid": "{s3}"},
-                ]
-            }
-        ),
+    result = _driver().run(
+        "pipeline_steps",
+        [
+            _page({"values": [REPO_PAGE["values"][0]]}),
+            _page({"values": [{"uuid": "{p1}", "created_on": "2024-07-01T00:00:00Z"}], "page": 1}),
+            _page(
+                {
+                    "values": [
+                        {"uuid": "{s1}", "image": {"name": "acme/build", "username": "ci", "password": "hunter2"}},
+                        {"uuid": "{s2}", "image": {"name": "python:3.12"}},
+                        {"uuid": "{s3}"},
+                    ]
+                }
+            ),
+        ],
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pipeline_steps", mock.Mock(), _manager()))
-
-    rows = [row for batch in batches for row in batch]
-    assert [row.get("image") for row in rows] == [
+    assert result.raised is None
+    assert [row.get("image") for row in result.rows] == [
         {"name": "acme/build", "username": "ci"},
         {"name": "python:3.12"},
         None,
@@ -435,34 +402,36 @@ def test_pipeline_steps_drop_the_private_registry_password():
 
 
 def test_pull_request_fan_out_skips_a_deleted_pull_request_without_dropping_the_repo():
-    session = _session_returning(
-        _response(REPO_PAGE),
-        _response({"values": [{"id": 11}, {"id": 12}]}),  # repo-a pull requests
-        _response({}, status=404),  # PR 11 deleted between the listing and the fetch
-        _response({"values": [{"id": 502, "pullrequest": {"id": 12}}]}),
-        _response({"values": [{"id": 21}]}),  # repo-b pull requests
-        _response({"values": [{"id": 601, "pullrequest": {"id": 21}}]}),
+    result = _driver().run(
+        "pull_request_comments",
+        [
+            _page(REPO_PAGE),
+            _page({"values": [{"id": 11}, {"id": 12}]}),  # repo-a pull requests
+            _page({}, status=404),  # PR 11 deleted between the listing and the fetch
+            _page({"values": [{"id": 502, "pullrequest": {"id": 12}}]}),
+            _page({"values": [{"id": 21}]}),  # repo-b pull requests
+            _page({"values": [{"id": 601, "pullrequest": {"id": 21}}]}),
+        ],
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pull_request_comments", mock.Mock(), _manager()))
-
+    assert result.raised is None
     # PR 12 and repo-b still sync; only the deleted pull request is skipped
-    assert [row["id"] for batch in batches for row in batch] == [502, 601]
+    assert [row["id"] for row in result.rows] == [502, 601]
 
 
 def test_pull_request_fan_out_skips_repo_when_the_pull_request_listing_404s():
-    session = _session_returning(
-        _response(REPO_PAGE),
-        _response({}, status=404),  # repo-a deleted between enumeration and the walk
-        _response({"values": [{"id": 21}]}),  # repo-b pull requests
-        _response({"values": [{"id": 601, "pullrequest": {"id": 21}}]}),
+    result = _driver().run(
+        "pull_request_comments",
+        [
+            _page(REPO_PAGE),
+            _page({}, status=404),  # repo-a deleted between enumeration and the walk
+            _page({"values": [{"id": 21}]}),  # repo-b pull requests
+            _page({"values": [{"id": 601, "pullrequest": {"id": 21}}]}),
+        ],
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pull_request_comments", mock.Mock(), _manager()))
-
-    assert [row["id"] for batch in batches for row in batch] == [601]
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == [601]
 
 
 @pytest.mark.parametrize(
@@ -496,10 +465,10 @@ def test_fan_out_parent_walk_stops_at_the_cap_and_warns():
         "next": "https://api.bitbucket.org/2.0/repositories/ws/repo-a/pipelines/?page=2",
         "page": 1,
     }
-    session = _session_returning(_response(page))
-    logger = mock.Mock()
+    logger = MagicMock()
 
-    parents = list(_iter_fan_out_parents(session, fan_out, "ws", "repo-a", logger, None))
+    with scripted_network([_page(page)]):
+        parents = list(_iter_fan_out_parents(requests.Session(), fan_out, "ws", "repo-a", logger, None))
 
     assert [parent["uuid"] for parent in parents] == ["{p1}", "{p2}"]
     logger.warning.assert_called_once()
@@ -528,17 +497,18 @@ def test_second_level_fan_out_injects_the_parent_the_child_row_cannot_name(
 ):
     # Neither a step nor a status carries a reference back to its parent, and both the
     # primary key and the partition key read only the injected columns
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),  # repo enumeration
-        _response({"values": [parent], "page": 1}),
-        _response({"values": [{"uuid": "{s1}", "key": "BB-DEPLOY"}]}),
+    result = _driver().run(
+        endpoint,
+        [
+            _page({"values": [REPO_PAGE["values"][0]]}),  # repo enumeration
+            _page({"values": [parent], "page": 1}),
+            _page({"values": [{"uuid": "{s1}", "key": "BB-DEPLOY"}]}),
+        ],
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", endpoint, mock.Mock(), _manager()))
-
-    assert expected_path in _requested_urls(session)[2]
-    row = batches[0][0]
+    assert result.raised is None
+    assert expected_path in result.paths[2]
+    row = result.rows[0]
     assert {column: row[column] for column in expected_injected} == expected_injected
     assert row["repository_uuid"] == "{uuid-a}"
 
@@ -552,75 +522,65 @@ def test_pipeline_steps_incremental_stops_the_pipeline_walk_at_the_watermark():
         "page": 1,
     }
     stale = {"values": [{"uuid": "{p2}", "created_on": "2023-01-01T00:00:00Z"}], "page": 2}
-    session = _session_returning(
-        _response({"values": [REPO_PAGE["values"][0]]}),
-        _response(fresh),
-        _response({"values": [{"uuid": "{s1}"}]}),  # steps of {p1}
-        _response(stale),
+    result = _driver().run(
+        "pipeline_steps",
+        [
+            _page({"values": [REPO_PAGE["values"][0]]}),
+            _page(fresh),
+            _page({"values": [{"uuid": "{s1}"}]}),  # steps of {p1}
+            _page(stale),
+        ],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=CUTOFF,
+        incremental_field="pipeline_created_on",
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(
-            get_rows(
-                BitbucketAuth(),
-                "ws",
-                "pipeline_steps",
-                mock.Mock(),
-                _manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=CUTOFF,
-                incremental_field="pipeline_created_on",
-            )
-        )
-
-    assert [row["pipeline_uuid"] for batch in batches for row in batch] == ["{p1}"]
+    assert result.raised is None
+    assert [row["pipeline_uuid"] for row in result.rows] == ["{p1}"]
     # The stale pipeline page was fetched to discover it was stale, but its steps never were
-    assert len(_requested_urls(session)) == 4
+    assert len(result.requests) == 4
 
 
 def test_second_level_fan_out_resumes_past_already_walked_parents():
-    manager = _manager(
-        BitbucketResumeConfig(
+    result = _driver().run(
+        "pipeline_steps",
+        [
+            _page(REPO_PAGE),
+            _page(
+                {
+                    "values": [
+                        {"uuid": "{p1}", "created_on": "2024-07-03T00:00:00Z"},
+                        {"uuid": "{p2}", "created_on": "2024-07-02T00:00:00Z"},
+                        {"uuid": "{p3}", "created_on": "2024-07-01T00:00:00Z"},
+                    ],
+                    "page": 1,
+                }
+            ),
+            _page({"values": [{"uuid": "{s2}"}]}),  # resumed page of {p2}
+            _page({"values": [{"uuid": "{s3}"}]}),
+        ],
+        resume_state=BitbucketResumeConfig(
             next_url="https://api.bitbucket.org/2.0/steps-page-2",
             repo_slug="repo-b",
             parent_id="{p2}",
             parent_cursor="2024-07-02T00:00:00Z",
-        )
-    )
-    session = _session_returning(
-        _response(REPO_PAGE),
-        _response(
-            {
-                "values": [
-                    {"uuid": "{p1}", "created_on": "2024-07-03T00:00:00Z"},
-                    {"uuid": "{p2}", "created_on": "2024-07-02T00:00:00Z"},
-                    {"uuid": "{p3}", "created_on": "2024-07-01T00:00:00Z"},
-                ],
-                "page": 1,
-            }
         ),
-        _response({"values": [{"uuid": "{s2}"}]}),  # resumed page of {p2}
-        _response({"values": [{"uuid": "{s3}"}]}),
     )
 
-    with mock.patch.object(bitbucket, "_make_session", return_value=session):
-        batches = list(get_rows(BitbucketAuth(), "ws", "pipeline_steps", mock.Mock(), manager))
-
-    urls = _requested_urls(session)
+    assert result.raised is None
     # repo-a is skipped, {p1} is newer than the bookmark, and {p2} restarts at its saved URL
-    assert urls[1].startswith("https://api.bitbucket.org/2.0/repositories/ws/repo-b/pipelines/?")
-    assert urls[2] == "https://api.bitbucket.org/2.0/steps-page-2"
-    assert "/pipelines/%7Bp3%7D/steps/" in urls[3]
-    assert [row["uuid"] for batch in batches for row in batch] == ["{s2}", "{s3}"]
+    assert result.urls[1].startswith("https://api.bitbucket.org/2.0/repositories/ws/repo-b/pipelines/?")
+    assert result.urls[2] == "https://api.bitbucket.org/2.0/steps-page-2"
+    assert "/pipelines/%7Bp3%7D/steps/" in result.urls[3]
+    assert [row["uuid"] for row in result.rows] == ["{s2}", "{s3}"]
 
 
 def test_session_uses_basic_auth_for_api_token_and_bearer_for_access_token():
-    with mock.patch.object(bitbucket, "make_tracked_session", return_value=requests.Session()):
-        basic = bitbucket._make_session(BitbucketAuth(email="a@b.c", api_token="tok"))
-        assert basic.auth == ("a@b.c", "tok")
-        assert "Authorization" not in basic.headers
+    with scripted_network([_page({"values": []})]) as basic_network:
+        assert validate_credentials(BitbucketAuth(email="a@b.c", api_token="tok"), "ws") == (True, None)
 
-    with mock.patch.object(bitbucket, "make_tracked_session", return_value=requests.Session()):
-        bearer = bitbucket._make_session(BitbucketAuth(access_token="at"))
-        assert bearer.headers["Authorization"] == "Bearer at"
-        assert bearer.auth is None
+    with scripted_network([_page({"values": []})]) as bearer_network:
+        assert validate_credentials(BitbucketAuth(access_token="at"), "ws") == (True, None)
+
+    assert basic_network.requests_log[0].headers["authorization"] == "Basic YUBiLmM6dG9r"
+    assert bearer_network.requests_log[0].headers["authorization"] == "Bearer at"

@@ -25,7 +25,7 @@ import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -42,6 +42,8 @@ import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -1864,6 +1866,9 @@ export interface featureFlagLogicActions {
         requireStatusConfirmation?: boolean | undefined
         updatedFlag: Partial<FeatureFlagType>
     }
+    startNewFlagDisabled: () => {
+        value: true
+    }
     stopRecurringScheduledChange: (scheduledChangeId: number) => {
         scheduledChangeId: number
     }
@@ -2309,6 +2314,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // Re-establishes the saved-state baseline the unsaved-changes guard diffs against.
         // Only dispatch with server-authoritative state, so in-progress edits stay dirty.
         setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
+        // A new flag starts disabled while enabling needs approval. The baseline follows, so the
+        // unsaved-changes guard does not count the forced value as an edit.
+        startNewFlagDisabled: true,
         refreshFeatureFlagAfterAgentChange: true,
         setFeatureFlagFilters: (filters: FeatureFlagFilters, errors: any) => ({ filters, errors }),
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
@@ -2472,6 +2480,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // navigation. Server-authoritative re-baselines flow through setOriginalFeatureFlag.
                 loadFeatureFlagSuccess: (_, { featureFlag }) => toFeatureFlagBaseline(featureFlag),
                 setOriginalFeatureFlag: (_, { featureFlag }) => featureFlag,
+                startNewFlagDisabled: (state) => (state ? { ...state, active: false } : state),
             },
         ],
         featureFlag: [
@@ -2480,6 +2489,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setFeatureFlag: (_, { featureFlag }) => {
                     return featureFlag
                 },
+                startNewFlagDisabled: (state) => ({ ...state, active: false }),
                 setFeatureFlagFilters: (state, { filters }) => {
                     if (!state) {
                         return state
@@ -4085,12 +4095,54 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
         saveFeatureFlagFailure: async ({ errorObject }) => {
-            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
-                if (isOnFeatureFlagPage(props.id)) {
-                    // Redirect to detail page so user can see the CR banner
-                    router.actions.replace(urls.featureFlag(values.featureFlag.id))
-                    actions.editFeatureFlag(false)
+            if (isApprovalRequiredError(errorObject)) {
+                const changeRequestId: string = errorObject.data.change_request_id
+                showApprovalRequiredToast(changeRequestId, undefined, errorObject.data.code)
+                const flagId = values.featureFlag.id
+                if (flagId) {
+                    dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: flagId })
                 }
+                if (!isOnFeatureFlagPage(props.id)) {
+                    return
+                }
+                if (flagId) {
+                    // The unsaved-changes guard compares against the router's pathname, which carries the
+                    // project prefix that urls.featureFlag() lacks. Reuse it so the guard sees the same page.
+                    router.actions.replace(router.values.location.pathname)
+                    actions.editFeatureFlag(false)
+                    // The edit waits in the change request, so the page shows the stored flag again.
+                    actions.loadFeatureFlag()
+                } else {
+                    // A gated create has no flag page yet, so open the change request instead. Reset the
+                    // form to the flag this page loaded, because the submitted values now live in the change
+                    // request. The hard-coded defaults would differ from a template's baseline and read as an edit.
+                    const baseline = values.originalFeatureFlag
+                    const loaded = baseline
+                        ? (variantKeyToIndexFeatureFlagPayloads(baseline) as FeatureFlagWithV1Config)
+                        : null
+                    actions.resetFeatureFlag(
+                        loaded
+                            ? { ...loaded, ensure_experience_continuity: loaded.ensure_experience_continuity ?? false }
+                            : undefined
+                    )
+                    router.actions.replace(urls.approval(changeRequestId))
+                }
+                return
+            }
+
+            if (errorObject?.status === 409) {
+                // A version conflict. Keep the editor open, so the edit survives until the user reloads.
+                lemonToast.error(
+                    errorObject.detail ||
+                        'This flag changed after you started editing it. Refresh the page and try again.'
+                )
+                return
+            }
+
+            if (errorObject?.code === 'policy_conflict') {
+                lemonToast.error(
+                    "Couldn't save the flag. These changes need approval under more than one policy, so save them one at a time."
+                )
                 return
             }
 

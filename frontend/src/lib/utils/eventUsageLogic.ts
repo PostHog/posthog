@@ -76,7 +76,6 @@ import {
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
-import type { ExperimentViewedHealthProperties } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -109,6 +108,7 @@ export type DashboardFilterChangeType =
     | 'variable'
     | 'interval'
     | 'test_accounts'
+    | 'compare'
     | 'metric_labels'
 
 export enum InsightEventSource {
@@ -1252,12 +1252,10 @@ export interface eventUsageLogicActions {
     }
     reportExperimentViewed: (
         experiment: Experiment,
-        duration: number | null,
-        healthProperties: ExperimentViewedHealthProperties
+        duration: number | null
     ) => {
         duration: number | null
         experiment: Experiment
-        healthProperties: ExperimentViewedHealthProperties
     }
     reportExperimentWatchCardSelected: (
         experimentId: ExperimentIdType,
@@ -1442,24 +1440,6 @@ export interface eventUsageLogicActions {
         item: string
         itemType: string | null | undefined
         section: string
-    }
-    reportOnboardingAIReportRemoved: (
-        role: string | null,
-        reportKey: string,
-        experimentArm: string | null
-    ) => {
-        experimentArm: string | null
-        reportKey: string
-        role: string | null
-    }
-    reportOnboardingAIReportSubscribed: (
-        role: string | null,
-        reportKey: string,
-        experimentArm: string | null
-    ) => {
-        experimentArm: string | null
-        reportKey: string
-        role: string | null
     }
     reportOnboardingCompleted: (
         productKey: string,
@@ -1962,11 +1942,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             hasSearch: boolean
             archived: boolean
         }) => listView,
-        reportExperimentViewed: (
-            experiment: Experiment,
-            duration: number | null,
-            healthProperties: ExperimentViewedHealthProperties
-        ) => ({ experiment, duration, healthProperties }),
+        reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
             metricUuid: string,
@@ -2037,9 +2013,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             queryId,
             context,
         }),
-        // Single event for the whole recalc lifecycle — see docs/superpowers/specs/2026-06-04-experiment-metric-
-        // recalculation-events.md. status discriminates the moment ('triggered' / 'completed' / 'failed' —
-        // 'polled' is deliberately not emitted); the property bag carries the fields relevant to that moment.
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
             experimentId,
@@ -2187,16 +2160,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             stepKey,
             productKey,
             properties,
-        }),
-        reportOnboardingAIReportSubscribed: (role: string | null, reportKey: string, experimentArm: string | null) => ({
-            role,
-            reportKey,
-            experimentArm,
-        }),
-        reportOnboardingAIReportRemoved: (role: string | null, reportKey: string, experimentArm: string | null) => ({
-            role,
-            reportKey,
-            experimentArm,
         }),
         reportOnboardingCompleted: (productKey: string, properties?: OnboardingEventProperties) => ({
             productKey,
@@ -2619,13 +2582,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 archived,
             })
         },
-        reportExperimentViewed: ({ experiment, duration, healthProperties }) => {
+        reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 experiment_id: experiment.id,
                 experiment_status: getExperimentStatus(experiment),
                 duration,
-                ...healthProperties,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {
@@ -3077,22 +3039,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...(productKey ? { product_key: productKey } : {}),
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
                 ...properties,
-            })
-        },
-        reportOnboardingAIReportSubscribed: ({ role, reportKey, experimentArm }) => {
-            posthog.capture('onboarding ai report subscribed', {
-                role,
-                report_key: reportKey,
-                experiment_arm: experimentArm,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingAIReportRemoved: ({ role, reportKey, experimentArm }) => {
-            posthog.capture('onboarding ai report removed', {
-                role,
-                report_key: reportKey,
-                experiment_arm: experimentArm,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingCompleted: ({ productKey, properties }) => {
