@@ -30,6 +30,7 @@ from social_django.models import UserSocialAuth
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
+from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
@@ -42,6 +43,7 @@ from posthog.models.user import default_ui_configuration_for_new_users
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -92,6 +94,7 @@ class TestUserAPI(APIBaseTest):
 
     # RETRIEVING USER
 
+    @covers_authentication(SessionAuthentication)
     def test_retrieve_current_user(self):
         response = self.client.get("/api/users/@me/")
 

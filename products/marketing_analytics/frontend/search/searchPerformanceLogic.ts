@@ -38,6 +38,7 @@ export interface searchPerformanceLogicValues extends Pick<
     | 'includeConversionGoals'
     | 'conversion_goals'
 > {
+    wrapText: boolean
     metrics: SearchMetrics
     hasPaidSources: boolean
     conversionsDisabledReason: string | null
@@ -68,6 +69,7 @@ export interface searchPerformanceLogicActions
             'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
         >,
         Pick<teamLogicActions, 'updateCurrentTeamSuccess'> {
+    setWrapText: (wrapText: boolean) => { wrapText: boolean }
     clearFilters: () => { value: true }
     setMetrics: (metrics: SearchMetrics) => { metrics: SearchMetrics }
     setBreakdown: (breakdown: SearchBreakdown) => { breakdown: SearchBreakdown }
@@ -102,6 +104,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         ],
     })),
     actions({
+        setWrapText: (wrapText: boolean) => ({ wrapText }),
         clearFilters: true,
         setMetrics: (metrics: SearchMetrics) => ({ metrics }),
         setBreakdown: (breakdown: SearchBreakdown) => ({ breakdown }),
@@ -111,6 +114,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         setQuerySearch: (search: string) => ({ search }),
     }),
     reducers({
+        wrapText: [false, { setWrapText: (_, { wrapText }) => wrapText }],
         breakdown: ['keyword' as SearchBreakdown, { setBreakdown: (_, { breakdown }) => breakdown }],
         channel: ['all' as SearchChannel, { setChannel: (_, { channel }) => channel }],
         selectedRow: [

@@ -9,7 +9,7 @@ import { eventName } from '../pipelineQuestion'
 import { PredictionSegmentDefinition, formatProbability, predictionSegmentPeopleUrl } from '../predictionSegments'
 
 function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX.Element {
-    const { pipeline, predictionSegments, savingCohortSegment, segmentThresholds } =
+    const { pipeline, predictionSegments, savingCohortSegment, segmentThresholds, personPropertyDisabledReason } =
         useValues(autoresearchPipelineLogic)
     const { saveSegmentCohort } = useActions(autoresearchPipelineLogic)
 
@@ -50,11 +50,13 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
                     data-attr={`autoresearch-segment-save-cohort-${segment.key}`}
                     loading={savingCohortSegment === segment.key}
                     disabledReason={
-                        !stats
-                            ? 'Segments are still loading'
-                            : savingCohortSegment
-                              ? 'A cohort is being saved'
-                              : undefined
+                        personPropertyDisabledReason
+                            ? personPropertyDisabledReason
+                            : !stats
+                              ? 'Segments are still loading'
+                              : savingCohortSegment
+                                ? 'A cohort is being saved'
+                                : undefined
                     }
                     onClick={() => saveSegmentCohort(segment.key)}
                 >
@@ -72,9 +74,11 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
                     disabledReason={
                         !outputProperty
                             ? 'The model has no output property'
-                            : !segmentThresholds
-                              ? 'Segments are still loading'
-                              : undefined
+                            : personPropertyDisabledReason
+                              ? personPropertyDisabledReason
+                              : !segmentThresholds
+                                ? 'Segments are still loading'
+                                : undefined
                     }
                 >
                     View people
