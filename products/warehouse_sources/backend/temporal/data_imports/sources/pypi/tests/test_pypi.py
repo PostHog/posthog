@@ -7,6 +7,14 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pypi import PyPISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi import (
     MAX_PACKAGES,
     PYPI_BASE_URL,
@@ -14,11 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi 
     _fetch_project,
     _release_rows,
     _vulnerability_rows,
-    get_rows,
     parse_packages,
-    pypi_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.source import PyPISource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi"
 
@@ -115,6 +122,14 @@ class TestFetchProject:
             _fetch_once(session, "requests", structlog.get_logger())
 
 
+def _driver(packages: str) -> SourceDriver:
+    return SourceDriver(PyPISource(), PyPISourceConfig(packages=packages))
+
+
+def _json_page(body: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status, expected_valid",
@@ -125,25 +140,22 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status)
-
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             is_valid, _ = validate_credentials("requests")
 
         assert is_valid is expected_valid
+        assert network.requests_log[0].url == f"{PYPI_BASE_URL}/pypi/requests/json"
 
     def test_empty_packages_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("")
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+        with scripted_network(always(ConnectionError("boom"))):
             is_valid, message = validate_credentials("requests")
 
         assert is_valid is False
@@ -152,44 +164,47 @@ class TestValidateCredentials:
 
 class TestGetRows:
     def test_yields_a_batch_per_package_and_skips_404(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _document(name="requests")),
-                _response(404),
-                _response(200, _document(name="django")),
-            ]
-
-            batches = list(get_rows("projects", ["requests", "nope", "django"], structlog.get_logger()))
+        result = _driver("requests, nope, django").run(
+            "projects",
+            route(
+                {
+                    "/pypi/requests/json": [_json_page(_document(name="requests"))],
+                    "/pypi/nope/json": [ScriptedResponse(status=404, json={})],
+                    "/pypi/django/json": [_json_page(_document(name="django"))],
+                }
+            ),
+        )
 
         # The 404 package is skipped, so only two batches come back.
-        assert len(batches) == 2
-        assert batches[0][0]["name"] == "requests"
-        assert batches[1][0]["name"] == "django"
+        assert result.paths == ["/pypi/requests/json", "/pypi/nope/json", "/pypi/django/json"]
+        assert len(result.items) == 2
+        assert result.items[0][0]["name"] == "requests"
+        assert result.items[1][0]["name"] == "django"
 
-    def test_chunks_large_release_history(self, monkeypatch):
+    def test_chunks_large_release_history(self):
         # A package with a large release history must not be yielded as one oversized list; it's
         # split into bounded chunks so downstream Arrow conversion stays capped.
-        monkeypatch.setattr(f"{MODULE}.MAX_ROWS_PER_BATCH", 2)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, _document(name="requests"))
-
-            batches = list(get_rows("releases", ["requests"], structlog.get_logger()))
+        with mock.patch(f"{MODULE}.MAX_ROWS_PER_BATCH", 2):
+            result = _driver("requests").run("releases", [_json_page(_document(name="requests"))])
 
         # The document has 3 release files; at 2 rows per chunk that's [2, 1].
-        assert [len(b) for b in batches] == [2, 1]
+        assert [len(b) for b in result.items] == [2, 1]
 
 
 class TestPyPISource:
     def test_only_releases_is_partitioned(self):
         # `releases` has a stable upload timestamp; the other streams have no stable datetime column.
-        releases = pypi_source("releases", "requests", structlog.get_logger())
-        projects = pypi_source("projects", "requests", structlog.get_logger())
+        releases = _driver("requests").run("releases", [_json_page(_document())]).response
+        projects = _driver("requests").run("projects", [_json_page(_document())]).response
 
+        assert releases is not None and projects is not None
         assert releases.partition_mode == "datetime"
         assert releases.partition_keys == ["upload_time_iso_8601"]
         assert projects.partition_mode is None
         assert projects.partition_keys is None
 
     def test_invalid_packages_raise(self):
-        with pytest.raises(ValueError):
-            pypi_source("projects", "", structlog.get_logger())
+        result = _driver("").run("projects", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []

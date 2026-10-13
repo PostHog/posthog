@@ -50,6 +50,21 @@ TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS: int | None = get_from_env(
     "TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS", None, optional=True, type_cast=int
 )
 
+# Opt-in task poller autoscaling. A MAX turns it on for that task type, and the SDK default
+# (5 pollers) applies when unset. Fixed poller counts leave a small worker fleet short of pollers.
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
     "TEMPORAL_HEALTH_MAX_IDLE_SECONDS", None, optional=True, type_cast=float
@@ -106,6 +121,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default. A PostHog
 # Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
+    "signals_scout": "30",
     "signals_implementation": "20",
     "signals_inbox": "75",
     "signals_chat": "30",
