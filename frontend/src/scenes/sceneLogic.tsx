@@ -1181,8 +1181,12 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
-            // This route skips `openScene`, so it applies the organization block itself, as the server does.
+            // This route skips `openScene`, so it applies the organization block and the project lockout itself.
             if (leaveBlockedOrganizationPath()) {
+                return
+            }
+            if (projectLogic.findMounted()?.values.currentProject?.is_pending_deletion) {
+                router.actions.replace(urls.projectPendingDeletion())
                 return
             }
             return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)

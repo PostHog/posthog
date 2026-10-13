@@ -754,6 +754,12 @@ describe('sceneLogic', () => {
                 urls.projectPendingDeletion(),
                 Scene.ProjectPendingDeletion,
             ],
+            [
+                'locks out an unknown path reached by a client-side link',
+                '/no-such-page',
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
             ['keeps my tickets open', urls.myTickets(), urls.myTickets(), 'MyTickets'],
             [
                 'keeps my tickets open when the project has not finished onboarding',
