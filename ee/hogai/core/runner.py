@@ -603,7 +603,8 @@ class BaseAgentRunner(ABC):
                     None,
                 )
                 if approval_interrupt is None:
-                    await self._expire_pending_approvals({proposal_id})
+                    if isinstance(proposal_id, str):
+                        await self._expire_pending_approvals({proposal_id})
                     raise ValueError("Approval does not match a pending operation")
                 # A scalar resume targets the next interrupt, which may belong to a different approval card.
                 resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
