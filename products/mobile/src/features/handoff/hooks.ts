@@ -16,7 +16,10 @@ import { handoffEntry, type ReportHandoff, type StoredAnswer, useHandoffStore } 
 import { handoffErrorMessage, kickOffReportTask } from './kickoff'
 import { currentDecision, isReplyPrompt, sameVisibleEntry, visibleAnswer } from './liveReport'
 import { planAnswer } from './permissionRequest'
+import { buildHandoffRunRequest } from './runOptions'
+import { useRunOptionsStore } from './runOptionsStore'
 import type { HandoffAnswer, PendingRequestKind } from './types'
+import { fetchRunDefaults } from './useRunOptions'
 
 const deliveries = new Map<string, AbortController>()
 
@@ -152,14 +155,26 @@ export function useHandoffActions(reportId: string): HandoffActions {
     const handOff = useAsyncAction(async () => {
         if (demo) {
             demoHandOff(reportId)
+            useRunOptionsStore.getState().reset()
             return
         }
         const store = useHandoffStore.getState()
         store.setNotice(reportId, undefined)
         try {
-            const started = await kickOffReportTask(reportId)
+            const options = useRunOptionsStore.getState().options
+            const run = buildHandoffRunRequest(options, await fetchRunDefaults(queryClient, scope))
+            const started = await kickOffReportTask(reportId, { run })
             useHandoffStore.getState().setStarted(reportId, started)
-            track('mobile_report_handed_off', { report_id: reportId, task_id: started.taskId, run_id: started.runId })
+            useRunOptionsStore.getState().reset()
+            track('mobile_report_handed_off', {
+                report_id: reportId,
+                task_id: started.taskId,
+                run_id: started.runId,
+                model: options.model === 'default' ? 'default' : options.model.model,
+                reasoning_effort: options.model === 'default' ? undefined : options.model.reasoningEffort,
+                permission_mode: run.initial_permission_mode,
+                has_branch: Boolean(run.branch),
+            })
             refreshReport()
         } catch (error) {
             useHandoffStore.getState().setNotice(reportId, handoffErrorMessage(error))

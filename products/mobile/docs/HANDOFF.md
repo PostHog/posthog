@@ -15,8 +15,10 @@ Hand off ──► kickOffReportTask ──► store.started ──► useTaskRu
 1. **Kickoff** (`kickoff.ts`). `GET signals/reports/{id}/` for a fresh title and summary, then the
    web's two calls:
    `POST tasks/` with `{title, description: <prompt>, origin_product: 'signal_report', signal_report, signal_report_task_relationship: 'implementation'}`
-   (no `repository`), and, only when the response has no `latest_run`,
-   `POST tasks/{task_id}/run/` with `{run_source: 'signal_report', signal_report_id, mode: 'interactive', pending_user_message: <prompt>, runtime_adapter: 'claude', model: 'claude-opus-5-5', reasoning_effort: 'high'}`.
+   (no `repository`: the server picks it from the report and rejects one the client sets), and, only
+   when the response has no `latest_run`,
+   `POST tasks/{task_id}/run/` with `{run_source: 'signal_report', signal_report_id, mode: 'interactive', pending_user_message: <prompt>, ...<run options>}`.
+   The run options come from `buildHandoffRunRequest` (see [Run options](#run-options)).
    The run comes from `run`, else `latest_run`. Both calls retry a 503
    `warm_run_activation_unavailable` with `X-PostHog-Warm-Retry: <first retry_token>`, 250 ms
    doubling to 1 s, for up to 20 s.
@@ -35,6 +37,48 @@ Hand off ──► kickOffReportTask ──► store.started ──► useTaskRu
    `POST tasks/{task_id}/runs/{run_id}/command/`.
 
 Demo mode skips all of this: the demo store drives the same cards.
+
+## Run options
+
+The hand-off sheet has Model, Mode and Branch rows above the PostHog row. Each row opens a page in
+the same sheet with a back control. The quick "Hand off" button uses the same options while they last
+(see Reset below), so outside a sheet session it sends the defaults.
+Code: `runOptions.ts` (ports of the web's `composerModels.ts` and `composerModes.ts`),
+`runOptionsStore.ts`, `useRunOptions.ts`, `ModelPage.tsx`, `ModePage.tsx`, `BranchPage.tsx`.
+
+| Request | When |
+| --- | --- |
+| `GET tasks/models/` (`task:read`) | Sheet open. `{models: [{runtime_adapter, model, display_name, supported_efforts, cost_multiplier}]}`. The app hides the catalogue's retired ids, except a retired stored default, which stays listed so it shows by name (the web's `pickerModels`). An empty list or an error shows "Couldn't load the model list" and the run uses the default model. |
+| `GET tasks/@me/config/` (`task:read`) | Sheet open and at hand-off (cached 60 s). The app reads `resolved_ai_run_defaults.{runtime, runtime_adapter, model, reasoning_effort}`. |
+
+The run body (`buildHandoffRunRequest`):
+
+| Selection | Fields sent |
+| --- | --- |
+| Model untouched, usable stored default (`runtime: 'acp'` with a model and adapter) | `initial_permission_mode` only, mapped to the default's harness. The server resolves the user's, then the project's, default. |
+| Model untouched, no usable stored default (`model` is null, or `runtime` is `pi`) | `runtime_adapter: 'claude'`, `model: 'claude-opus-5-5'`, `reasoning_effort: 'high'`, and the mode mapped to Claude. A run that pins no runtime starts on ACP, and `resolve_ai_run_selection` discards a Pi default there; the web maps it to null too. Matches the web Inbox's Create PR. |
+| Model untouched, `@me/config/` failed | `initial_permission_mode` only, so a failed lookup never overrides a stored default. |
+| Model picked | `runtime_adapter`, `model`, `reasoning_effort` (left out for a model with no efforts) and the mode mapped to that harness. |
+| Branch typed | `branch` (trimmed). Left out when empty: the server then uses the project's Inbox base branch for that repository (`autostart_base_branch_for_repository`), else the repository's GitHub default branch. |
+
+- **Mode** defaults to Auto. Claude offers Default, Accept edits, Plan and Auto; Codex offers Plan,
+  Read only and Auto. Full auto (`bypassPermissions`) and Full access (`full-access`) are hidden, as
+  on the web. A mode from the other harness maps to its nearest equivalent, which can be looser:
+  Default and Accept edits become Auto on Codex, Read only becomes Plan on Claude, and the hidden
+  Full auto and Full access map onto each other.
+- **Effort.** Picking a model keeps the current effort when the model supports it, else High, else
+  the model's highest effort. With an untouched model, picking an effort pins the default model. An
+  untouched picker marks the default's effort only when the stored default names one.
+- **Repository** is not a choice: report tasks get their repository from the report's repository
+  selection or the server's cascade, and the server answers 400 to a client-set one.
+- **Reset.** Options are in memory for one sheet session, like the web's per-run picks. They go back
+  to the defaults when the sheet closes (with or without a hand-off), after each hand-off, on a
+  project switch and at sign-out. The Branch field writes to the store on every keystroke.
+- **Scrolling.** The model list sits in a `Gesture.Native()` that the sheet's drag-to-close pan waits
+  for, so a drag that starts on the list scrolls it. Drag the grabber or the header to close.
+- **Tracking.** `mobile_handoff_option_changed` with `option` (`model`, `effort`, `mode`, `branch`),
+  never the value. `mobile_report_handed_off` adds `model` (`default` when untouched),
+  `reasoning_effort` (when pinned), `permission_mode` and `has_branch`.
 
 ## Which run a report follows
 

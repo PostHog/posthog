@@ -1,13 +1,10 @@
 import { ApiError, NotSignedInError } from '@/api/client'
 import { fetchReport } from '@/api/reports'
-import { createTask, startTaskRun } from '@/api/tasks'
+import { createTask, type HandoffRunFieldsApi, startTaskRun } from '@/api/tasks'
 import { isRecord } from '@/lib/records'
 
 import { type Clock, realClock } from './clock'
 import { buildCreatePrReportPrompt } from './prompt'
-
-/** The model a hand-off runs on. The app has no model picker, so it sends what the web falls back to. */
-const HANDOFF_RUNTIME = { runtime_adapter: 'claude', model: 'claude-opus-5-5', reasoning_effort: 'high' } as const
 
 const WARM_RETRY_HEADER = 'X-PostHog-Warm-Retry'
 const WARM_RETRY_WINDOW_MS = 20_000
@@ -62,11 +59,15 @@ export interface KickoffResult {
     runId: string
 }
 
+export interface KickoffOptions {
+    run: HandoffRunFieldsApi
+    signal?: AbortSignal
+    clock?: Clock
+}
+
 // Makes the same two calls as the web's Create PR. The prompt reads the report fresh so it matches what the web sends.
-export async function kickOffReportTask(
-    reportId: string,
-    options: { signal?: AbortSignal; clock?: Clock } = {}
-): Promise<KickoffResult> {
+// The task carries no repository: the server resolves it for report tasks and rejects one the client sets.
+export async function kickOffReportTask(reportId: string, options: KickoffOptions): Promise<KickoffResult> {
     const report = await fetchReport(reportId, options.signal)
     const prompt = buildCreatePrReportPrompt(report)
     const task = await withWarmRetry(
@@ -96,7 +97,7 @@ export async function kickOffReportTask(
                         mode: 'interactive',
                         // The agent server delivers this as the first turn; without it the run idles.
                         pending_user_message: prompt,
-                        ...HANDOFF_RUNTIME,
+                        ...options.run,
                     },
                     { headers, signal: options.signal }
                 ),

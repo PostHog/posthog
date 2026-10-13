@@ -81,7 +81,11 @@ Known gaps and behavior that stays on the device.
 - **No feedback on hand-off.** The web's Create PR takes optional feedback; the phone sends the prompt without it.
 - **Inbox rows do not know about live questions.** The yellow "needs input" badge comes from the report data; the live pending request is only known while the report is open.
 - **No presence ping.** The app does not call `POST tasks/{id}/presence/`, so task pushes still arrive while the user watches the run.
-- **Model is fixed.** Hand-offs always send `claude` / `claude-opus-5-5` / `high`, which overrides a user's or project's default model (the web sends these only when no default exists).
+- **No repository choice.** Report tasks get their repository from the report or the server's cascade; `POST tasks/` answers 400 to a client-set `repository`. A wrong repository needs the web.
+- **No branch list.** `integrations/`, `github_repos/` and `github_branches/` need `integration:read`, which the mobile OAuth app does not request, so the Branch page is a text field with no suggestions and the app cannot check that the branch exists before the run starts.
+- **Picked options are lost when the task starts its own run.** When `POST tasks/` answers with a `latest_run`, the app skips `POST tasks/{id}/run/`, so the picked model, mode and branch never reach the server. `mobile_report_handed_off` still records them.
+- **No mid-run model or mode change.** `POST tasks/{id}/runs/{run}/command/` with `set_config_option` (`model`, `effort`, `mode`) is not wired; options apply only when the run starts.
+- **Plan mode default is ignored.** The web starts in Plan when `task_defaults.start_in_plan_mode` is set (behind a flag); the app always starts in Auto.
 - **Live-only footer variants were not rendered.** The stopped-run card, the error line, the reply card and the URL-only PR line need a signed-in session; the web build cannot sign in, so only the demo states were checked in a browser.
 
 ## Delivery

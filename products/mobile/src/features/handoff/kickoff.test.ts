@@ -48,6 +48,13 @@ const RUN = {
     output: null,
     completed_at: null,
 }
+const RUN_FIELDS = {
+    runtime_adapter: 'codex',
+    model: 'gpt-5.5',
+    reasoning_effort: 'xhigh',
+    initial_permission_mode: 'plan',
+    branch: 'release',
+} as const
 const WARM_UNAVAILABLE = (token: string): Reply => ({
     status: 503,
     body: { code: 'warm_run_activation_unavailable', retry_token: token },
@@ -85,7 +92,7 @@ describe('kickoff', () => {
             REPORT,
             { status: 201, body: { id: 'task-1', title: 'Legend crash', signal_report: 'rep-1', latest_run: RUN } },
         ]
-        await expect(kickOffReportTask('rep-1', { clock: fakeClock() })).resolves.toEqual({
+        await expect(kickOffReportTask('rep-1', { run: RUN_FIELDS, clock: fakeClock() })).resolves.toEqual({
             taskId: 'task-1',
             runId: 'run-1',
         })
@@ -93,39 +100,35 @@ describe('kickoff', () => {
             'GET https://app.example.com/api/projects/2/signals/reports/rep-1/',
             'POST https://app.example.com/api/projects/2/tasks/',
         ])
-        expect(calls[1]?.body).toMatchObject({
+        // Exact, so a stray `repository` (the server rejects it) or a run option on the task body fails.
+        expect(calls[1]?.body).toEqual({
             title: 'Legend crash',
+            description: expect.stringContaining('Report summary:\nTypeError in ChartLegend'),
             origin_product: 'signal_report',
             signal_report: 'rep-1',
             signal_report_task_relationship: 'implementation',
         })
-        expect(String((calls[1]?.body as { description: string }).description)).toContain(
-            'Report summary:\nTypeError in ChartLegend'
-        )
     })
 
-    test('a task created without a run gets an interactive run with the prompt', async () => {
+    test('a task created without a run gets an interactive run with the prompt and the picked options', async () => {
         replies = [
             REPORT,
             { status: 201, body: { id: 'task-1', title: 'Legend crash', signal_report: 'rep-1', latest_run: null } },
             { status: 200, body: { id: 'task-1', latest_run: null, run: RUN } },
         ]
-        await expect(kickOffReportTask('rep-1', { clock: fakeClock() })).resolves.toEqual({
+        await expect(kickOffReportTask('rep-1', { run: RUN_FIELDS, clock: fakeClock() })).resolves.toEqual({
             taskId: 'task-1',
             runId: 'run-1',
         })
-        expect(calls[2]).toMatchObject({
-            method: 'POST',
-            url: 'https://app.example.com/api/projects/2/tasks/task-1/run/',
-            body: {
-                run_source: 'signal_report',
-                signal_report_id: 'rep-1',
-                mode: 'interactive',
-                pending_user_message: (calls[1]?.body as { description: string }).description,
-                runtime_adapter: 'claude',
-                model: 'claude-opus-5-5',
-                reasoning_effort: 'high',
-            },
+        expect(`${calls[2]?.method} ${calls[2]?.url}`).toBe(
+            'POST https://app.example.com/api/projects/2/tasks/task-1/run/'
+        )
+        expect(calls[2]?.body).toEqual({
+            run_source: 'signal_report',
+            signal_report_id: 'rep-1',
+            mode: 'interactive',
+            pending_user_message: (calls[1]?.body as { description: string }).description,
+            ...RUN_FIELDS,
         })
     })
 
@@ -137,7 +140,7 @@ describe('kickoff', () => {
             WARM_UNAVAILABLE('tok-2'),
             { status: 201, body: { id: 'task-1', title: 'Legend crash', signal_report: 'rep-1', latest_run: RUN } },
         ]
-        await kickOffReportTask('rep-1', { clock })
+        await kickOffReportTask('rep-1', { run: RUN_FIELDS, clock })
         expect(calls.slice(1).map((call) => call.headers['X-PostHog-Warm-Retry'])).toEqual([
             undefined,
             'tok-1',
@@ -149,7 +152,7 @@ describe('kickoff', () => {
     test('warm retries stop after 20 seconds', async () => {
         const clock = fakeClock()
         replies = [REPORT, ...Array.from({ length: 40 }, () => WARM_UNAVAILABLE('tok'))]
-        await expect(kickOffReportTask('rep-1', { clock })).rejects.toMatchObject({
+        await expect(kickOffReportTask('rep-1', { run: RUN_FIELDS, clock })).rejects.toMatchObject({
             status: 503,
             code: 'warm_run_activation_unavailable',
         })

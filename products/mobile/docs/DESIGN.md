@@ -53,7 +53,10 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `Avatar` | `ui/Avatar.tsx` | Initials on a palette color picked from a seed |
 | `MonoText`, `Eyebrow`, `Dot` | `ui/` | Mono text, uppercase label with optional dot, colored dot |
 | `Scrim` | `ui/Scrim.tsx` | Fades with the overlay; optional tap to close |
-| `BottomSheet` | `ui/BottomSheet.tsx` | Grabber, radius 22, slides up 200ms, closes on scrim tap or a downward drag |
+| `BottomSheet` | `ui/BottomSheet.tsx` | Grabber, radius 22, slides up 200ms, closes on scrim tap or a downward drag. An optional `scrollGesture` makes a drag that starts on an inner list scroll it instead |
+| `HandoffOptionRows` | `features/handoff/HandoffOptionRows.tsx` | White bordered group of 48pt rows in the hand-off sheet: muted label, right-aligned bold value with an optional tertiary second line, chevron |
+| `SheetPageHeader` | `features/handoff/SheetPageHeader.tsx` | 44pt round back button and sheet title for a page that replaces the sheet's content |
+| `ModelPage`, `ModePage`, `BranchPage` | `features/handoff/` | Hand-off option pages. Model: "Reasoning" effort pills (ink fill when picked, ink border for the default's effort when the default names one), then models under "Claude Code" and "Codex" eyebrows with the cost multiplier and a check, in a list capped at 42% of the window that scrolls without closing the sheet, and "Reset to default". Mode: label and description rows. Branch: bordered text field that lifts with the keyboard, one note and a Done button |
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
 | `MetricChart` | `ui/chart/MetricChart.tsx` | Line or bar chart on Skia (victory-native). The y axis floats for lines and starts at zero for bars. Hairline gridlines, 11pt mono ticks. Tap or drag to scrub, with a selection haptic and a tooltip that stays after release. 144pt high by default |
 | `ObservationCard` | `features/report/metrics/ObservationCard.tsx` | White card: "Observation" eyebrow, title, caption, 28pt mono value, chart, then the window and filter count with Open insight |
@@ -75,9 +78,10 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 - **Inbox**: header with Refresh and More, rows, pull to refresh, floating nav pill (Home selected,
   Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
   opens a new chat sheet. Products opens the project's product library in the web app, and is
-  dimmed in demo mode. A long press on a row (or the screen reader's "Show report actions") opens a menu
-  with Reassign, Snooze, Chat and, for an unread report, Mark as read; each does what the report's
-  action pill does, without leaving the inbox. Loading, empty and error states are separate screens.
+  dimmed in demo mode or when the session has no project. A long press on a row (or the screen
+  reader's "Show report actions") opens a menu with Reassign, Snooze, Chat and, for an unread
+  report, Mark as read; each does what the report's action pill does, without leaving the inbox.
+  Loading, empty and error states are separate screens.
 - **Chats**: the mobile port of the web app's Chats pane. Header with the logomark, "Chats" and a
   New chat button. A search field above the list filters titles on the device. Rows are grouped
   under day labels (Today, Yesterday, a weekday, a date, Earlier) and use the inbox row geometry:

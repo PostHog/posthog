@@ -46,14 +46,65 @@ export interface TaskCreateRequestApi {
     signal_report_task_relationship: 'implementation'
 }
 
-export interface TaskRunCreateRequestApi {
+export type RuntimeAdapterApi = 'claude' | 'codex'
+
+/** `REASONING_EFFORTS` in `products/tasks/backend/model_catalog.py`. */
+export type ReasoningEffortApi = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode'
+
+/** `INITIAL_PERMISSION_MODE_CHOICES` (Claude) and `CODEX_INITIAL_PERMISSION_MODE_CHOICES` (Codex). */
+export type PermissionModeApi =
+    | 'default'
+    | 'acceptEdits'
+    | 'plan'
+    | 'bypassPermissions'
+    | 'auto'
+    | 'read-only'
+    | 'full-access'
+
+/** The pinned model fields of `TaskRunCreateRequestSerializer`. The server needs `runtime_adapter` with `model`. */
+export interface RunRuntimeSelectionApi {
+    runtime_adapter: RuntimeAdapterApi
+    model: string
+    /** Left out for a model with no effort control, which rejects any value. */
+    reasoning_effort?: ReasoningEffortApi
+}
+
+/** The run fields the hand-off options control. Without a runtime the server resolves the user's, then the team's, default. */
+export interface HandoffRunFieldsApi extends Partial<RunRuntimeSelectionApi> {
+    initial_permission_mode?: PermissionModeApi
+    /** Base branch to check out in the sandbox. Left out for the repository's default branch. */
+    branch?: string
+}
+
+export interface TaskRunCreateRequestApi extends HandoffRunFieldsApi {
     run_source: 'signal_report'
     signal_report_id: string
     mode: 'interactive'
     pending_user_message: string
-    runtime_adapter: 'claude'
+}
+
+export interface ModelChoiceApi {
+    runtime_adapter: RuntimeAdapterApi
     model: string
-    reasoning_effort: 'high'
+    display_name: string
+    /** Ascending. Empty for a model with no effort control. */
+    supported_efforts: ReasoningEffortApi[]
+    /** Ready to display, such as `2×`. Null when the catalogue quotes no rate. */
+    cost_multiplier?: string | null
+}
+
+/** `TasksResolvedAIRunDefaultsSerializer`: what a run uses when it pins no runtime. */
+export interface ResolvedAiRunDefaultsApi {
+    runtime: 'acp' | 'pi'
+    /** Null when no default is stored or the harness is Pi. */
+    runtime_adapter: string | null
+    model: string | null
+    reasoning_effort: string | null
+    source: 'user' | 'team' | 'none'
+}
+
+export interface TaskUserConfigApi {
+    resolved_ai_run_defaults: ResolvedAiRunDefaultsApi
 }
 
 export interface PermissionResponseParams {
@@ -101,6 +152,16 @@ export function startTaskRun(
         json: body,
         ...options,
     })
+}
+
+/** Every model a run may use, from the live gateway catalogue. Empty when the gateway is unreachable. */
+export async function getTaskModels(signal?: AbortSignal): Promise<ModelChoiceApi[]> {
+    const body = await apiJson<{ models?: ModelChoiceApi[] }>(projectPath('tasks/models/'), { signal })
+    return body.models ?? []
+}
+
+export function getMyTaskConfig(signal?: AbortSignal): Promise<TaskUserConfigApi> {
+    return apiJson<TaskUserConfigApi>(projectPath('tasks/@me/config/'), { signal })
 }
 
 export function getTask(taskId: string, signal?: AbortSignal): Promise<TaskApi> {
