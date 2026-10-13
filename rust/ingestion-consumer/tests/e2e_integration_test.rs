@@ -1053,6 +1053,71 @@ impl Harness {
             let _ = tokio::time::timeout(Duration::from_secs(3), task).await;
         }
     }
+
+    /// A second consumer in the same group, configured like the first, with
+    /// its own routing stack and the same worker pool, as a second pod would be.
+    async fn join_second_consumer(&self) -> SecondConsumer {
+        let worker_urls: Vec<String> = self.workers.iter().map(|w| w.url.clone()).collect();
+        let registry = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
+        let probe = CancellationToken::new();
+        Arc::clone(&registry).start_probing(probe.clone());
+        let dispatcher = Arc::new(Dispatcher::with_strategy(
+            Arc::clone(&registry),
+            RoutingStrategy::default(),
+        ));
+        let transport = Arc::new(test_transport());
+        let mut manager = Manager::builder("e2e-c2").with_trap_signals(false).build();
+        let handle = manager.register("consumer", ComponentOptions::new());
+        let shutdown = handle.shutdown_token();
+        let (batcher, outputs) = common::batcher(
+            self.scheduler,
+            &dispatcher,
+            Arc::clone(&transport),
+            handle.clone(),
+            self.deferred_flush_timeout,
+            Duration::from_millis(200),
+            self.pack_targets,
+            self.budget,
+        );
+        let consumer = IngestionConsumer::from_parts(
+            make_kafka_consumer(&self.topic, &self.group_id, None),
+            batcher,
+            outputs,
+            transport,
+            worker_urls,
+            IngestionConsumerOptions {
+                batch_size: 50,
+                batch_size_bytes: 0,
+                batch_timeout: Duration::from_millis(100),
+                max_in_flight_batches: self.max_in_flight,
+                group_id: "e2e-test".to_string(),
+                debug_recorder: None,
+            },
+            handle,
+        );
+        let task = tokio::spawn(async move { consumer.process().await });
+        SecondConsumer {
+            shutdown,
+            probe,
+            task,
+            _manager: manager,
+        }
+    }
+}
+
+struct SecondConsumer {
+    shutdown: CancellationToken,
+    probe: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+    _manager: Manager,
+}
+
+impl SecondConsumer {
+    async fn stop(self) {
+        self.shutdown.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(5), self.task).await;
+        self.probe.cancel();
+    }
 }
 
 fn fast_registry_config() -> WorkerRegistryConfig {
@@ -1320,45 +1385,7 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
         .map(|partition| harness.ledger.generation(partition))
         .collect();
 
-    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
-    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
-    let probe2 = CancellationToken::new();
-    Arc::clone(&registry2).start_probing(probe2.clone());
-    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry2),
-        RoutingStrategy::default(),
-    ));
-    let transport2 = Arc::new(test_transport());
-    let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
-    let handle2 = manager2.register("consumer", ComponentOptions::new());
-    let shutdown2 = handle2.shutdown_token();
-    let (batcher, outputs) = common::batcher(
-        SchedulerKind::KeyTable,
-        &dispatcher2,
-        Arc::clone(&transport2),
-        handle2.clone(),
-        harness.deferred_flush_timeout,
-        Duration::from_millis(200),
-        harness.pack_targets,
-        harness.budget,
-    );
-    let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &harness.group_id, None),
-        batcher,
-        outputs,
-        transport2,
-        worker_urls,
-        IngestionConsumerOptions {
-            batch_size: 50,
-            batch_size_bytes: 0,
-            batch_timeout: Duration::from_millis(100),
-            max_in_flight_batches: harness.max_in_flight,
-            group_id: "e2e-test".to_string(),
-            debug_recorder: None,
-        },
-        handle2,
-    );
-    let task2 = tokio::spawn(async move { consumer2.process().await });
+    let second = harness.join_second_consumer().await;
 
     // An eager rebalance revokes both of the first consumer's partitions. The
     // held request fences at the transport's 10 s ack timeout and comes back
@@ -1395,6 +1422,14 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
         },
     )
     .await;
+    // The new owner delivers everything on its own, so the old owner may not
+    // have settled the partial ack yet. A wrong resend would be in flight.
+    wait_until(
+        Duration::from_secs(15),
+        "the old owner to settle the partial ack",
+        || harness.observer.total_in_flight() == 0,
+    )
+    .await;
     assert!(
         harness.workers[0]
             .leave_unfinished
@@ -1409,9 +1444,7 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
         "the old owner resends nothing for a revoked partition"
     );
 
-    shutdown2.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(3), task2).await;
-    probe2.cancel();
+    second.stop().await;
     harness.stop().await;
 }
 
@@ -3263,47 +3296,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
     })
     .await;
 
-    // A second consumer joins the same group with its own routing stack but
-    // the same worker pool.
-    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
-    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
-    let probe2 = CancellationToken::new();
-    Arc::clone(&registry2).start_probing(probe2.clone());
-    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry2),
-        RoutingStrategy::default(),
-    ));
-    let transport2 = Arc::new(test_transport());
-    let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
-    let handle2 = manager2.register("consumer", ComponentOptions::new());
-    let shutdown2 = handle2.shutdown_token();
-    let (batcher, outputs) = common::batcher(
-        kind,
-        &dispatcher2,
-        Arc::clone(&transport2),
-        handle2.clone(),
-        Duration::from_secs(60),
-        Duration::from_millis(200),
-        common::PRODUCTION_PACK_TARGETS,
-        None,
-    );
-    let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &harness.group_id, None),
-        batcher,
-        outputs,
-        transport2,
-        worker_urls,
-        IngestionConsumerOptions {
-            batch_size: 50,
-            batch_size_bytes: 0,
-            batch_timeout: Duration::from_millis(100),
-            max_in_flight_batches: 1,
-            group_id: "e2e-test".to_string(),
-            debug_recorder: None,
-        },
-        handle2,
-    );
-    let task2 = tokio::spawn(async move { consumer2.process().await });
+    let second = harness.join_second_consumer().await;
 
     // Release the held batch so the first consumer resumes polling and the
     // rebalance can complete, then keep traffic flowing on both partitions.
@@ -3330,9 +3323,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
     )
     .await;
 
-    shutdown2.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(3), task2).await;
-    probe2.cancel();
+    second.stop().await;
     harness.stop().await;
 }
 
@@ -3387,47 +3378,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         .collect();
 
     // A second consumer joins and takes a partition away.
-    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
-    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
-    let probe2 = CancellationToken::new();
-    Arc::clone(&registry2).start_probing(probe2.clone());
-    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry2),
-        RoutingStrategy::default(),
-    ));
-    let transport2 = Arc::new(test_transport());
-    let mut manager2 = Manager::builder("e2e-regain-c2")
-        .with_trap_signals(false)
-        .build();
-    let handle2 = manager2.register("consumer", ComponentOptions::new());
-    let shutdown2 = handle2.shutdown_token();
-    let (batcher, outputs) = common::batcher(
-        kind,
-        &dispatcher2,
-        Arc::clone(&transport2),
-        handle2.clone(),
-        Duration::from_secs(60),
-        Duration::from_millis(200),
-        common::PRODUCTION_PACK_TARGETS,
-        None,
-    );
-    let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &harness.group_id, None),
-        batcher,
-        outputs,
-        transport2,
-        worker_urls,
-        IngestionConsumerOptions {
-            batch_size: 50,
-            batch_size_bytes: 0,
-            batch_timeout: Duration::from_millis(100),
-            max_in_flight_batches: 1,
-            group_id: "e2e-test".to_string(),
-            debug_recorder: None,
-        },
-        handle2,
-    );
-    let task2 = tokio::spawn(async move { consumer2.process().await });
+    let second = harness.join_second_consumer().await;
 
     // The first consumer polls only while its polls return messages, and
     // only a polling consumer takes part in a rebalance: a trickle holds it
@@ -3476,9 +3427,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
 
     // The second consumer leaves; its partition returns to the first under a
     // new generation and must consume as a fresh assignment.
-    shutdown2.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(5), task2).await;
-    probe2.cancel();
+    second.stop().await;
 
     for seq in 10..15usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
