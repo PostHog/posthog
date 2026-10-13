@@ -480,20 +480,23 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values.reviewDrawerOpen).toBe(false)
     })
 
-    it('opens the tab from ?tab= and mirrors tab changes back to the URL', async () => {
-        logic.mount()
-        router.actions.push(urls.codeReview(), { tab: 'settings' })
-        expect(logic.values.activeTab).toBe('settings')
+    it.each(['settings', 'project'] as const)(
+        'opens the %s tab from ?tab= and mirrors tab changes back to the URL',
+        async (tab) => {
+            logic.mount()
+            router.actions.push(urls.codeReview(), { tab })
+            expect(logic.values.activeTab).toBe(tab)
 
-        // Activity is the default, so it keeps the URL clean; other params survive the write.
-        router.actions.push(urls.codeReview(), { tab: 'settings', reviews_scope: 'everyone' })
-        logic.actions.setActiveTab('activity')
-        expect(router.values.searchParams.tab).toBeUndefined()
-        expect(router.values.searchParams.reviews_scope).toBe('everyone')
+            // Activity is the default, so it keeps the URL clean; other params survive the write.
+            router.actions.push(urls.codeReview(), { tab, reviews_scope: 'everyone' })
+            logic.actions.setActiveTab('activity')
+            expect(router.values.searchParams.tab).toBeUndefined()
+            expect(router.values.searchParams.reviews_scope).toBe('everyone')
 
-        logic.actions.setActiveTab('settings')
-        expect(router.values.searchParams.tab).toBe('settings')
-    })
+            logic.actions.setActiveTab(tab)
+            expect(router.values.searchParams.tab).toBe(tab)
+        }
+    )
 
     it('closes a deep-linked drawer when the review fails to load', async () => {
         // A stale ?review= link (deleted report, wrong project) has no list row to fall back on —

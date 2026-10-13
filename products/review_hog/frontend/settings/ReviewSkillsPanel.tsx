@@ -60,12 +60,7 @@ export function ReviewSkillsPanel(): JSX.Element {
             titleHelper="Standard reviews use a fixed set of skills and read none of these."
             actions={<span className="text-xs text-secondary">Kept counts: your last 10 Deep reviews</span>}
         >
-            <div className="@container flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">
-                <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,18rem)] gap-3 px-4 py-1.5 text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:grid">
-                    <span>Skill</span>
-                    <span>Mine</span>
-                </div>
-
+            <div className="flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">
                 <SkillGroupHeader title="Perspectives" rule="any number, at least one" />
                 {perspectives === null ? (
                     <div className="px-4 py-2">

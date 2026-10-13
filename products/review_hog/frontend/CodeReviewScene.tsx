@@ -48,10 +48,8 @@ import { CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './review
 import { ReviewModeTag } from './ReviewModeTag'
 import { ReviewsFilters } from './ReviewsFilters'
 import { ReviewsTable } from './ReviewsTable'
-import { FullReviewSettingsSection } from './settings/FullReviewSettingsSection'
-import { InboxSection } from './settings/InboxSection'
-import { ReviewSkillsPanel } from './settings/ReviewSkillsPanel'
-import { StandardArea } from './settings/StandardArea'
+import { MyPreferencesTab } from './settings/MyPreferencesTab'
+import { ProjectSettingsTab } from './settings/ProjectSettingsTab'
 import { prettifySkillName } from './skillNames'
 
 // The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
@@ -76,8 +74,8 @@ const REVIEWS_SCOPE_OPTIONS: {
 ]
 
 /**
- * Scope of the reviews table. It also scopes the proof card and the effectiveness cards on
- * the Settings tab. Skill toggles stay per-user regardless of scope.
+ * Scope of the reviews table. It also scopes the proof card. Skill toggles stay per-user
+ * regardless of scope.
  */
 function ReviewsScopeFilter(): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
@@ -252,7 +250,7 @@ function TriggerReviewSection(): JSX.Element {
         : undefined
     return (
         <SceneSection
-            className="max-w-240"
+            className="max-w-200"
             title="Review a pull request"
             description="PostHog Review runs a Deep review and posts it to the pull request."
             actions={
@@ -833,22 +831,10 @@ function ActivityTab(): JSX.Element {
     )
 }
 
-function SettingsTab(): JSX.Element {
-    return (
-        // Capped so a control stays close to the label it belongs to on a wide window.
-        <div className="flex max-w-240 flex-col gap-8">
-            <StandardArea />
-            <FullReviewSettingsSection />
-            <ReviewSkillsPanel />
-            <InboxSection />
-        </div>
-    )
-}
-
 /**
  * The "Code review" scene: ReviewHog's activity and settings page, split into an Activity tab
- * (trigger a review, recent reviews) and a Settings tab (who gets automatic Standard reviews, the
- * Deep review settings, the review skills, then Inbox).
+ * (trigger a review, recent reviews), a My preferences tab (the viewer's own choices), and a
+ * Project settings tab (the rules and defaults that project admins set for everyone).
  * Every control is live from load, no save step. See `reviewHogSettingsLogic` for the data flow.
  * Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same flag that shows the menu entry, so whoever
  * discovers the entry can open the page.
@@ -874,7 +860,8 @@ export function CodeReviewScene(): JSX.Element {
                 onChange={setActiveTab}
                 tabs={[
                     { key: 'activity', label: 'Activity', 'data-attr': 'code-review-tab-activity' },
-                    { key: 'settings', label: 'Settings', 'data-attr': 'code-review-tab-settings' },
+                    { key: 'settings', label: 'My preferences', 'data-attr': 'code-review-tab-settings' },
+                    { key: 'project', label: 'Project settings', 'data-attr': 'code-review-tab-project' },
                 ]}
                 sceneInset
             />
@@ -885,9 +872,15 @@ export function CodeReviewScene(): JSX.Element {
                     </LemonBanner>
                 )}
 
-                {activeTab === 'activity' ? <ActivityTab /> : <SettingsTab />}
+                {activeTab === 'activity' ? (
+                    <ActivityTab />
+                ) : activeTab === 'project' ? (
+                    <ProjectSettingsTab />
+                ) : (
+                    <MyPreferencesTab />
+                )}
 
-                {/* Overlays stay mounted on both tabs, so a `?review=` deep link opens on either. */}
+                {/* Overlays stay mounted on every tab, so a `?review=` deep link opens on any of them. */}
                 <AdoptSkillModal />
                 <PipelineDetailModal />
                 <ReviewDetailDrawer />

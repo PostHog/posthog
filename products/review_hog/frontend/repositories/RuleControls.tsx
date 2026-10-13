@@ -33,7 +33,7 @@ export function RuleControls({
 }): JSX.Element {
     const kind = peopleKindFor(flashFor)
     return (
-        <div className="flex min-w-0 flex-col items-start gap-1.5">
+        <div className="flex min-w-0 flex-col items-end gap-1.5">
             <LemonSelect
                 size="small"
                 aria-label={label}

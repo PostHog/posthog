@@ -62,7 +62,8 @@ export type ReviewDrawerTab =
     | 'how_it_ran'
     | 'review'
 
-export type CodeReviewTab = 'activity' | 'settings'
+// pinned: `tab` URL values. 'settings' is the "My preferences" tab and keeps its name for old links.
+export type CodeReviewTab = 'activity' | 'settings' | 'project'
 
 /** The personal preferences that fall back to a project default when the user has no own value. */
 export type ProjectDefaultKey = 'urgency_threshold' | 'celebrate_clean_reviews'
@@ -1748,7 +1749,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             if (page !== values.reviewsCurrentPage) {
                 actions.setReviewsPage(page)
             }
-            const tab: CodeReviewTab = searchParams.tab === 'settings' ? 'settings' : 'activity'
+            const tab: CodeReviewTab =
+                searchParams.tab === 'settings' || searchParams.tab === 'project' ? searchParams.tab : 'activity'
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }

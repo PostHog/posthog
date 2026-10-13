@@ -587,7 +587,7 @@ function OpenTab({
 }): JSX.Element {
     useEffect(() => {
         router.actions.replace(urls.codeReview(), {
-            ...(tab === 'settings' ? { tab } : {}),
+            ...(tab !== 'activity' ? { tab } : {}),
             ...(review ? { review } : {}),
         })
     }, [tab, review])
@@ -859,14 +859,11 @@ export const Settings: Story = {
         userLogic.actions.loadUser()
         await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(false))
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('This project reviews example-org:')).toBeVisible()
-        await expect(await canvas.findByText('example-org/web')).toBeVisible()
-        await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
-        await expect(canvas.getByLabelText('Project rule')).not.toHaveAttribute('aria-disabled', 'true')
-        await expect(canvas.getByText('Review skills')).toBeVisible()
+        await expect(await canvas.findByText('Review skills')).toBeVisible()
         await expect(canvas.getByText('Kept counts: your last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
+        await expect(canvas.queryByLabelText('Project rule')).not.toBeInTheDocument()
     },
 }
 
@@ -879,12 +876,32 @@ export const SettingsForMember: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByLabelText('Project rule')).toHaveAttribute('aria-disabled', 'true')
         await expect(
             await canvas.findByText(
                 'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'
             )
         ).toBeVisible()
+    },
+}
+
+export const ProjectSettings: Story = {
+    parameters: { tab: 'project' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByLabelText('Repositories of example-org this project reviews')).toBeVisible()
+        await expect(await canvas.findByText('example-org/web')).toBeVisible()
+        await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
+        await expect(canvas.getByLabelText('Project rule')).not.toHaveAttribute('aria-disabled', 'true')
+        await expect(canvas.queryByText('Review skills')).not.toBeInTheDocument()
+    },
+}
+
+export const ProjectSettingsForMember: Story = {
+    parameters: { tab: 'project', canEdit: false, claimScope: 'selected' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Only project admins can change these settings.')).toBeVisible()
+        await expect(canvas.getByLabelText('Project rule')).toHaveAttribute('aria-disabled', 'true')
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()

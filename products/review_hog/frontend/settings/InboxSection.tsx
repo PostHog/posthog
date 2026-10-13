@@ -7,7 +7,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
 import { SettingRow } from './SettingRow'
-import { SettingsTable } from './SettingsTable'
+import { SettingsList } from './SettingsList'
 
 export function InboxSection(): JSX.Element {
     const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
@@ -19,40 +19,35 @@ export function InboxSection(): JSX.Element {
             title="Inbox"
             description="These cover pull requests the PostHog agent opens for your Inbox reports."
         >
-            <SettingsTable>
-                <SettingRow
-                    title="Review my Inbox PRs"
-                    description="PostHog Review runs a Deep review on them."
-                    mine={
-                        <LemonSwitch
-                            aria-label="Review my Inbox PRs"
-                            checked={settings?.review_inbox_prs ?? false}
-                            onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
-                            disabledReason={disabledReason}
-                            data-attr="review-hog-review-inbox-prs"
-                        />
-                    }
-                />
+            <SettingsList>
+                <SettingRow title="Review my Inbox PRs" description="PostHog Review runs a Deep review on them.">
+                    <LemonSwitch
+                        aria-label="Review my Inbox PRs"
+                        checked={settings?.review_inbox_prs ?? false}
+                        onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
+                        disabledReason={disabledReason}
+                        data-attr="review-hog-review-inbox-prs"
+                    />
+                </SettingRow>
                 <SettingRow
                     title="Let Stamphog review my Inbox PRs"
                     description="Stamphog approves them when they pass."
-                    mine={
-                        <LemonSwitch
-                            aria-label="Let Stamphog review my Inbox PRs"
-                            checked={settings?.stamphog_review_inbox_prs ?? false}
-                            onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
-                            disabledReason={
-                                // A switch that is already on stays usable while disconnected, so
-                                // turning it off never requires connecting Stamphog first.
-                                settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
-                                    ? 'Connect a repository to Stamphog first.'
-                                    : disabledReason
-                            }
-                            data-attr="review-hog-stamphog-review-inbox-prs"
-                        />
-                    }
-                />
-            </SettingsTable>
+                >
+                    <LemonSwitch
+                        aria-label="Let Stamphog review my Inbox PRs"
+                        checked={settings?.stamphog_review_inbox_prs ?? false}
+                        onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
+                        disabledReason={
+                            // A switch that is already on stays usable while disconnected, so
+                            // turning it off never requires connecting Stamphog first.
+                            settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
+                                ? 'Connect a repository to Stamphog first.'
+                                : disabledReason
+                        }
+                        data-attr="review-hog-stamphog-review-inbox-prs"
+                    />
+                </SettingRow>
+            </SettingsList>
         </SceneSection>
     )
 }

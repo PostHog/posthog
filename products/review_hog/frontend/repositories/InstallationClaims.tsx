@@ -4,6 +4,7 @@ import { IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { ReviewInstallationApi } from 'products/review_hog/frontend/generated/api.schemas'
+import { SettingsList } from 'products/review_hog/frontend/settings/SettingsList'
 
 import { projectName } from './repositoryChoices'
 import { ClaimScopeChoice, reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
@@ -26,33 +27,33 @@ function InstallationClaim({ installation }: { installation: ReviewInstallationA
     const scope: ClaimScopeChoice = installation.scope ?? 'none'
 
     return (
-        <div className="flex flex-wrap items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-2.5">
-            <IconGithub className="size-6 shrink-0" />
-            <div className="flex min-w-0 flex-1 basis-72 flex-col gap-0.5">
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold">This project reviews {installation.account_name}:</span>
-                    <LemonSelect<ClaimScopeChoice>
-                        size="small"
-                        aria-label={`Repositories of ${installation.account_name} this project reviews`}
-                        value={scope}
-                        options={[
-                            {
-                                value: 'all',
-                                label: 'All repositories',
-                                disabledReason: takenBy
-                                    ? `${projectName(takenBy)} already reviews all repositories here`
-                                    : undefined,
-                            },
-                            { value: 'selected', label: 'Only selected repositories' },
-                            { value: 'none', label: 'No repositories' },
-                        ]}
-                        onChange={(value) => changeClaimScope(installation, value)}
-                        disabledReason={claimSaving ? 'Saving…' : editDisabledReason}
-                        data-attr="review-hog-installation-claim"
-                    />
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3">
+            <div className="flex min-w-48 flex-1 items-center gap-3">
+                <IconGithub className="size-6 shrink-0" />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-sm font-semibold">{installation.account_name}</span>
+                    <span className="text-xs text-secondary">{claimHint(installation)}</span>
                 </div>
-                <span className="text-xs text-secondary">{claimHint(installation)}</span>
             </div>
+            <LemonSelect<ClaimScopeChoice>
+                size="small"
+                aria-label={`Repositories of ${installation.account_name} this project reviews`}
+                value={scope}
+                options={[
+                    {
+                        value: 'all',
+                        label: 'All repositories',
+                        disabledReason: takenBy
+                            ? `${projectName(takenBy)} already reviews all repositories here`
+                            : undefined,
+                    },
+                    { value: 'selected', label: 'Only selected repositories' },
+                    { value: 'none', label: 'No repositories' },
+                ]}
+                onChange={(value) => changeClaimScope(installation, value)}
+                disabledReason={claimSaving ? 'Saving…' : editDisabledReason}
+                data-attr="review-hog-installation-claim"
+            />
         </div>
     )
 }
@@ -92,10 +93,10 @@ export function InstallationClaims(): JSX.Element {
         )
     }
     return (
-        <div className="flex flex-col gap-2">
+        <SettingsList>
             {installations.map((installation) => (
                 <InstallationClaim key={installation.installation_id} installation={installation} />
             ))}
-        </div>
+        </SettingsList>
     )
 }
