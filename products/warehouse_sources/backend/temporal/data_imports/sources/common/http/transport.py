@@ -103,6 +103,8 @@ class _DeadlineTimeout(Timeout):
 
     def __init__(self, connect: Any, read: Any, total: Any, *, deadline: float) -> None:
         super().__init__(connect=connect, read=read, total=total)
+        self._try_connect = connect
+        self._try_read = read
         self._deadline = deadline
 
     def clone(self) -> Timeout:
@@ -110,15 +112,16 @@ class _DeadlineTimeout(Timeout):
         total = _cut(self.total, left)
         # Connect and read time add up, so a total is what keeps a slow connect from adding to the read.
         # A timeout that sets no connect or no read stays open, because that is the source's opt-out.
-        if total is None and self._connect is not None and self._read is not None:
+        if total is None and self._try_connect is not None and self._try_read is not None:
             total = left
-        return Timeout(connect=_cut(self._connect, left), read=_cut(self._read, left), total=total)
+        return Timeout(connect=_cut(self._try_connect, left), read=_cut(self._try_read, left), total=total)
 
 
 def _deadline_timeout(timeout: RequestTimeout | Timeout, deadline: float) -> _DeadlineTimeout:
     # Some sources pass a urllib3 `Timeout`, which `requests` accepts too.
     if isinstance(timeout, Timeout):
-        return _DeadlineTimeout(timeout._connect, timeout._read, timeout.total, deadline=deadline)
+        raw = cast(Any, timeout)  # the stubs hide the configured values, and `connect_timeout` needs a started clock
+        return _DeadlineTimeout(raw._connect, raw._read, timeout.total, deadline=deadline)
     connect, read = timeout if isinstance(timeout, tuple) else (timeout, timeout)
     return _DeadlineTimeout(connect, read, None, deadline=deadline)
 

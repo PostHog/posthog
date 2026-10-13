@@ -38,7 +38,7 @@ READ_TIMEOUT = 40.0
 # The fake clock adds real time too, a few milliseconds in a test.
 SLACK = 0.5
 
-STALL = "stall"
+STALL: Literal["stall"] = "stall"
 Answer = ScriptedResponse | Literal["stall"]
 
 
