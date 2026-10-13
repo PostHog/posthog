@@ -242,6 +242,13 @@ def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
     orphaned_table_nodes().filter(team_id=team_id, id__in=list(node_ids)).delete()
 
 
+def _delete_incoming_edges(team_id: int, target: Node) -> list[UUID]:
+    edges = Edge.objects.filter(team_id=team_id, target=target)
+    source_ids = list(edges.values_list("source_id", flat=True))
+    edges.delete()
+    return source_ids
+
+
 def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
     source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
     nodes.delete()
@@ -272,9 +279,7 @@ def replace_incoming_edges(
     with transaction.atomic():
         lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
-        previous_edges = Edge.objects.filter(team=team, target=target)
-        previous_source_ids = list(previous_edges.values_list("source_id", flat=True))
-        previous_edges.delete()
+        previous_source_ids = _delete_incoming_edges(team.pk, target)
         for dependency_name in dependency_names:
             try:
                 source = resolve_dependency_to_node(dependency_name, team, database, dag)
@@ -632,7 +637,7 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
                 raise NodeMoveError("materializing")
             previous_dag = node.dag
             # Rebuild parents in the destination without discarding the node's targets or job history.
-            Edge.objects.filter(team_id=team_id, target=node).delete()
+            delete_orphaned_table_nodes(team_id, _delete_incoming_edges(team_id, node))
             node.dag = dag
             node.save(update_fields=["dag"])
             maybe_reconcile_dag(previous_dag)
