@@ -22,6 +22,7 @@ from products.cohorts.backend.backfill.pinning import (
 )
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.backfill.sizing import (
+    BehavioralScanEstimate,
     PersonSeedEstimate,
     PersonSeedEstimateScanCapExceeded,
     estimate_person_seed_topic_bytes,
@@ -374,6 +375,7 @@ def create_team_backfill_run(
     cohort_ids: Iterable[int] | None = None,
     created_by_id: int | None = None,
     boundary_at: datetime | None = None,
+    scan_estimate: BehavioralScanEstimate | None = None,
 ) -> CohortBackfillRun:
     if not is_realtime_cohort_team(team_id):
         raise ValueError(f"Team {team_id} is not in the realtime cohort allowlist")
@@ -413,6 +415,8 @@ def create_team_backfill_run(
             hashes[cohort.id] = ensure_filters_shape_hash(cohort)
             behavioral_hashes[cohort.id] = cohort.behavioral_filters_shape_hash or ""
         preconditions, missing = check_run_preconditions()
+        if scan_estimate is not None:
+            preconditions = {**preconditions, **scan_estimate.as_preconditions()}
         status, blocked_reason = _run_status(missing)
         run = CohortBackfillRun.objects.for_team(team_id).create(
             team_id=team_id,

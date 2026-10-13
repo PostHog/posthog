@@ -162,6 +162,7 @@ jobs:
                         - 'posthog/hogql/**'
                         - 'posthog/hogql_queries/**'
                         - 'posthog/query_cache/**'
+                        - 'posthog/scheduling/**'
                         - 'posthog/settings/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/session/**'

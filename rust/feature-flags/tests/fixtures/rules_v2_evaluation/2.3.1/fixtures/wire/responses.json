@@ -1,0 +1,2235 @@
+{
+  "fixture_version": "1.0.0",
+  "schema": "schemas/flags_response_v3.schema.json",
+  "templates": {
+    "targeting_match_targeted_release": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "targeting_match",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": false,
+            "payload": null,
+            "rule_type": "targeted_release",
+            "rule_id": "10000000-0000-4000-8000-000000000001"
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "targeting_match_percentage_rollout": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "targeting_match",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": false,
+            "payload": null,
+            "rule_type": "percentage_rollout",
+            "rule_id": "10000000-0000-4000-8000-000000000001"
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "experiment_split": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "experiment_split",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": true,
+            "payload": null,
+            "rule_type": "experiment",
+            "rule_id": "10000000-0000-4000-8000-000000000001",
+            "experiment_id": 301,
+            "variant_key": "arm_a"
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "rollout_miss_percentage_rollout": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "rollout_miss",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": false,
+            "payload": null,
+            "rule_type": "percentage_rollout",
+            "rule_id": "10000000-0000-4000-8000-000000000001"
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "rollout_miss_experiment": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "rollout_miss",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": true,
+            "payload": null,
+            "rule_type": "experiment",
+            "rule_id": "10000000-0000-4000-8000-000000000001",
+            "experiment_id": 301
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "experiment_paused": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "experiment_paused",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": true,
+            "payload": null,
+            "rule_type": "experiment",
+            "rule_id": "10000000-0000-4000-8000-000000000001",
+            "experiment_id": 301
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "holdout": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "holdout",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": true,
+            "payload": null,
+            "rule_type": "experiment",
+            "rule_id": "10000000-0000-4000-8000-000000000001",
+            "experiment_id": 301,
+            "holdout_id": 401
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "no_rule_match": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": false,
+          "reason": {
+            "code": "no_rule_match",
+            "condition_index": null
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": false,
+            "payload": null
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "missing_group_key": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": null,
+          "reason": {
+            "code": "missing_group_key",
+            "condition_index": null
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": false,
+            "payload": null
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "dependency_error": {
+      "errorsWhileComputingFlags": true,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": null,
+          "reason": {
+            "code": "dependency_error",
+            "condition_index": null
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": false,
+            "payload": null
+          },
+          "failed": true
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "error": {
+      "errorsWhileComputingFlags": true,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": null,
+          "reason": {
+            "code": "error",
+            "condition_index": null
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": false,
+            "payload": null
+          },
+          "failed": true
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "v1": {
+      "errorsWhileComputingFlags": false,
+      "flags": {
+        "garden-layout": {
+          "key": "garden-layout",
+          "value": "compact",
+          "reason": {
+            "code": "condition_match",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 202,
+            "version": 9,
+            "config_version": 1,
+            "has_experiment": false,
+            "variant_key": "compact",
+            "payload": "{\"columns\":2}"
+          }
+        }
+      },
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    },
+    "omitted": {
+      "errorsWhileComputingFlags": false,
+      "flags": {},
+      "requestId": "20000000-0000-4000-8000-000000000002",
+      "evaluatedAt": 1800000000000
+    }
+  },
+  "cases": [
+    {
+      "id": "responses.targeting_match_targeted_release",
+      "template": "targeting_match_targeted_release",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.missing_id",
+      "template": "targeting_match_targeted_release",
+      "remove": [
+        "/flags/garden-layout/metadata/id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "id"
+      }
+    },
+    {
+      "id": "responses.missing_version",
+      "template": "targeting_match_targeted_release",
+      "remove": [
+        "/flags/garden-layout/metadata/version"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "version"
+      }
+    },
+    {
+      "id": "responses.missing_config_version",
+      "template": "targeting_match_targeted_release",
+      "remove": [
+        "/flags/garden-layout/metadata/config_version"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "config_version"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_missing_has_experiment",
+      "template": "targeting_match_targeted_release",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_missing_rule_type",
+      "template": "targeting_match_targeted_release",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_type"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_type"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_missing_rule_id",
+      "template": "targeting_match_targeted_release",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_id"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_forbidden_experiment_id",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_forbidden_variant_key",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_forbidden_holdout_id",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_wrong_condition_index",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_forbidden_failed",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_flag_with_experiment",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/metadata/has_experiment": true
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout",
+      "template": "targeting_match_percentage_rollout",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_missing_has_experiment",
+      "template": "targeting_match_percentage_rollout",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_missing_rule_type",
+      "template": "targeting_match_percentage_rollout",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_type"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_type"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_missing_rule_id",
+      "template": "targeting_match_percentage_rollout",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_id"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_forbidden_experiment_id",
+      "template": "targeting_match_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_forbidden_variant_key",
+      "template": "targeting_match_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_forbidden_holdout_id",
+      "template": "targeting_match_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_wrong_condition_index",
+      "template": "targeting_match_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_forbidden_failed",
+      "template": "targeting_match_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.experiment_split",
+      "template": "experiment_split",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.experiment_split_missing_has_experiment",
+      "template": "experiment_split",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.experiment_split_missing_rule_type",
+      "template": "experiment_split",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_type"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_type"
+      }
+    },
+    {
+      "id": "responses.experiment_split_missing_rule_id",
+      "template": "experiment_split",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_id"
+      }
+    },
+    {
+      "id": "responses.experiment_split_missing_experiment_id",
+      "template": "experiment_split",
+      "remove": [
+        "/flags/garden-layout/metadata/experiment_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "experiment_id"
+      }
+    },
+    {
+      "id": "responses.experiment_split_missing_variant_key",
+      "template": "experiment_split",
+      "remove": [
+        "/flags/garden-layout/metadata/variant_key"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "variant_key"
+      }
+    },
+    {
+      "id": "responses.experiment_split_forbidden_holdout_id",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.experiment_split_wrong_condition_index",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.experiment_split_forbidden_failed",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.experiment_split_contradicted_has_experiment",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/has_experiment": false
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/has_experiment"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout",
+      "template": "rollout_miss_percentage_rollout",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_missing_has_experiment",
+      "template": "rollout_miss_percentage_rollout",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_missing_rule_type",
+      "template": "rollout_miss_percentage_rollout",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_type"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_type"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_missing_rule_id",
+      "template": "rollout_miss_percentage_rollout",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_id"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_forbidden_experiment_id",
+      "template": "rollout_miss_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_forbidden_variant_key",
+      "template": "rollout_miss_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_forbidden_holdout_id",
+      "template": "rollout_miss_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_wrong_condition_index",
+      "template": "rollout_miss_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_forbidden_failed",
+      "template": "rollout_miss_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment",
+      "template": "rollout_miss_experiment",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.rollout_miss_experiment_missing_has_experiment",
+      "template": "rollout_miss_experiment",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_missing_rule_type",
+      "template": "rollout_miss_experiment",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_type"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_type"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_missing_rule_id",
+      "template": "rollout_miss_experiment",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_id"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_missing_experiment_id",
+      "template": "rollout_miss_experiment",
+      "remove": [
+        "/flags/garden-layout/metadata/experiment_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "experiment_id"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_forbidden_variant_key",
+      "template": "rollout_miss_experiment",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_forbidden_holdout_id",
+      "template": "rollout_miss_experiment",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_wrong_condition_index",
+      "template": "rollout_miss_experiment",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_forbidden_failed",
+      "template": "rollout_miss_experiment",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.experiment_paused",
+      "template": "experiment_paused",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.experiment_paused_missing_has_experiment",
+      "template": "experiment_paused",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_missing_rule_type",
+      "template": "experiment_paused",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_type"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_type"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_missing_rule_id",
+      "template": "experiment_paused",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_id"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_missing_experiment_id",
+      "template": "experiment_paused",
+      "remove": [
+        "/flags/garden-layout/metadata/experiment_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "experiment_id"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_forbidden_variant_key",
+      "template": "experiment_paused",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_forbidden_holdout_id",
+      "template": "experiment_paused",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_wrong_condition_index",
+      "template": "experiment_paused",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_forbidden_failed",
+      "template": "experiment_paused",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.holdout",
+      "template": "holdout",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.holdout_missing_has_experiment",
+      "template": "holdout",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.holdout_missing_rule_type",
+      "template": "holdout",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_type"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_type"
+      }
+    },
+    {
+      "id": "responses.holdout_missing_rule_id",
+      "template": "holdout",
+      "remove": [
+        "/flags/garden-layout/metadata/rule_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "rule_id"
+      }
+    },
+    {
+      "id": "responses.holdout_missing_experiment_id",
+      "template": "holdout",
+      "remove": [
+        "/flags/garden-layout/metadata/experiment_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "experiment_id"
+      }
+    },
+    {
+      "id": "responses.holdout_missing_holdout_id",
+      "template": "holdout",
+      "remove": [
+        "/flags/garden-layout/metadata/holdout_id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "holdout_id"
+      }
+    },
+    {
+      "id": "responses.holdout_forbidden_variant_key",
+      "template": "holdout",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.holdout_wrong_condition_index",
+      "template": "holdout",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.holdout_forbidden_failed",
+      "template": "holdout",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.no_rule_match",
+      "template": "no_rule_match",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.no_rule_match_missing_has_experiment",
+      "template": "no_rule_match",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.no_rule_match_forbidden_rule_type",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "experiment"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.no_rule_match_forbidden_rule_id",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/metadata/rule_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.no_rule_match_forbidden_experiment_id",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.no_rule_match_forbidden_variant_key",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.no_rule_match_forbidden_holdout_id",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.no_rule_match_wrong_condition_index",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": 0
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.no_rule_match_forbidden_failed",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout"
+      }
+    },
+    {
+      "id": "responses.missing_group_key",
+      "template": "missing_group_key",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.missing_group_key_missing_has_experiment",
+      "template": "missing_group_key",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.missing_group_key_forbidden_rule_type",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "experiment"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.missing_group_key_forbidden_rule_id",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/metadata/rule_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.missing_group_key_forbidden_experiment_id",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.missing_group_key_forbidden_variant_key",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.missing_group_key_forbidden_holdout_id",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.missing_group_key_wrong_condition_index",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": 0
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.missing_group_key_forbidden_failed",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout"
+      }
+    },
+    {
+      "id": "responses.dependency_error",
+      "template": "dependency_error",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.dependency_error_missing_has_experiment",
+      "template": "dependency_error",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.dependency_error_forbidden_rule_type",
+      "template": "dependency_error",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "experiment"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.dependency_error_forbidden_rule_id",
+      "template": "dependency_error",
+      "set": {
+        "/flags/garden-layout/metadata/rule_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.dependency_error_forbidden_experiment_id",
+      "template": "dependency_error",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.dependency_error_forbidden_variant_key",
+      "template": "dependency_error",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.dependency_error_forbidden_holdout_id",
+      "template": "dependency_error",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.dependency_error_wrong_condition_index",
+      "template": "dependency_error",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": 0
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.dependency_error_missing_failed",
+      "template": "dependency_error",
+      "remove": [
+        "/flags/garden-layout/failed"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout",
+        "message_contains": "failed"
+      }
+    },
+    {
+      "id": "responses.dependency_error_nonnull_value",
+      "template": "dependency_error",
+      "set": {
+        "/flags/garden-layout/value": false
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    },
+    {
+      "id": "responses.error",
+      "template": "error",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.error_missing_has_experiment",
+      "template": "error",
+      "remove": [
+        "/flags/garden-layout/metadata/has_experiment"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout/metadata",
+        "message_contains": "has_experiment"
+      }
+    },
+    {
+      "id": "responses.error_forbidden_rule_type",
+      "template": "error",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "experiment"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.error_forbidden_rule_id",
+      "template": "error",
+      "set": {
+        "/flags/garden-layout/metadata/rule_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.error_forbidden_experiment_id",
+      "template": "error",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.error_forbidden_variant_key",
+      "template": "error",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.error_forbidden_holdout_id",
+      "template": "error",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.error_wrong_condition_index",
+      "template": "error",
+      "set": {
+        "/flags/garden-layout/reason/condition_index": 0
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/reason/condition_index"
+      }
+    },
+    {
+      "id": "responses.error_missing_failed",
+      "template": "error",
+      "remove": [
+        "/flags/garden-layout/failed"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/flags/garden-layout",
+        "message_contains": "failed"
+      }
+    },
+    {
+      "id": "responses.error_nonnull_value",
+      "template": "error",
+      "set": {
+        "/flags/garden-layout/value": false
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    },
+    {
+      "id": "responses.v1",
+      "template": "v1",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.omitted",
+      "template": "omitted",
+      "expected": "valid"
+    },
+    {
+      "id": "responses.split_wrong_type_config_version",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/config_version": "2"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "enum",
+        "instance_path": "/flags/garden-layout/metadata/config_version"
+      }
+    },
+    {
+      "id": "responses.split_wrong_type_rule_type",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": 2
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "enum",
+        "instance_path": "/flags/garden-layout/metadata/rule_type"
+      }
+    },
+    {
+      "id": "responses.split_wrong_type_rule_id",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/rule_id": 3
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/metadata/rule_id"
+      }
+    },
+    {
+      "id": "responses.split_wrong_type_experiment_id",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": "301"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/metadata/experiment_id"
+      }
+    },
+    {
+      "id": "responses.split_wrong_type_variant_key",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/metadata/variant_key"
+      }
+    },
+    {
+      "id": "responses.forbidden_legacy_enabled",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/enabled": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "additionalProperties",
+        "instance_path": "/flags/garden-layout",
+        "message_contains": "enabled"
+      }
+    },
+    {
+      "id": "responses.forbidden_legacy_variant",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/variant": "arm_a"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "additionalProperties",
+        "instance_path": "/flags/garden-layout",
+        "message_contains": "variant"
+      }
+    },
+    {
+      "id": "responses.split_arm_b_equal_value",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/variant_key": "arm_b"
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.split_string_value",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/value": "same-copy"
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.null_default",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/value": null
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.request_failure_omission",
+      "template": "omitted",
+      "set": {
+        "/errorsWhileComputingFlags": true
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.missing_group_nonnull_value",
+      "template": "missing_group_key",
+      "set": {
+        "/flags/garden-layout/value": false
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    },
+    {
+      "id": "responses.v1_failed",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/failed": true,
+        "/flags/garden-layout/value": null,
+        "/flags/garden-layout/reason": {
+          "code": "missing_dependency",
+          "condition_index": null
+        },
+        "/errorsWhileComputingFlags": true
+      },
+      "remove": [
+        "/flags/garden-layout/metadata/variant_key"
+      ],
+      "expected": "valid"
+    },
+    {
+      "id": "responses.v1_quick_win",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301,
+        "/flags/garden-layout/metadata/forced_variant": true,
+        "/flags/garden-layout/metadata/has_experiment": true
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.v2_forced_variant",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/forced_variant": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.key_mismatch",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/key": "different-key"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "semantic",
+        "keyword": "map_key",
+        "instance_path": "/flags/garden-layout/key"
+      }
+    },
+    {
+      "id": "responses.failure_envelope",
+      "template": "error",
+      "set": {
+        "/errorsWhileComputingFlags": false
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/errorsWhileComputingFlags"
+      }
+    },
+    {
+      "id": "responses.local_only_reason",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/reason/code": "flag_disabled"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "enum",
+        "instance_path": "/flags/garden-layout/reason/code"
+      }
+    },
+    {
+      "id": "responses.nested_seed",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/conditions": [
+          {
+            "nested": [
+              {
+                "seed": "invented-assignment"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "seed",
+        "keyword": "assignment_seed",
+        "instance_path": "/flags/garden-layout/conditions/0/nested/0/seed"
+      }
+    },
+    {
+      "id": "responses.passthrough_seed",
+      "template": "omitted",
+      "set": {
+        "/future": {
+          "items": [
+            {
+              "holdout_seed": "invented-holdout"
+            }
+          ]
+        }
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "seed",
+        "keyword": "assignment_seed",
+        "instance_path": "/future/items/0/holdout_seed"
+      }
+    },
+    {
+      "id": "responses.reserved_number_wire_value",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/value": 7
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.reserved_object_wire_value",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/value": {
+          "layout": "compact"
+        }
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_wrong_rule_type",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "experiment"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/rule_type"
+      }
+    },
+    {
+      "id": "responses.experiment_split_wrong_rule_type",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "percentage_rollout"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/rule_type"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_percentage_rollout_wrong_rule_type",
+      "template": "rollout_miss_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "experiment"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/rule_type"
+      }
+    },
+    {
+      "id": "responses.rollout_miss_experiment_wrong_rule_type",
+      "template": "rollout_miss_experiment",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "percentage_rollout"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/rule_type"
+      }
+    },
+    {
+      "id": "responses.experiment_paused_wrong_rule_type",
+      "template": "experiment_paused",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "percentage_rollout"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/rule_type"
+      }
+    },
+    {
+      "id": "responses.holdout_wrong_rule_type",
+      "template": "holdout",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "percentage_rollout"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/rule_type"
+      }
+    },
+    {
+      "id": "responses.targeting_match_targeted_release_null_value",
+      "template": "targeting_match_targeted_release",
+      "set": {
+        "/flags/garden-layout/value": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    },
+    {
+      "id": "responses.targeting_match_percentage_rollout_null_value",
+      "template": "targeting_match_percentage_rollout",
+      "set": {
+        "/flags/garden-layout/value": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    },
+    {
+      "id": "responses.experiment_split_null_value",
+      "template": "experiment_split",
+      "set": {
+        "/flags/garden-layout/value": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    },
+    {
+      "id": "responses.empty_v2_string",
+      "template": "no_rule_match",
+      "set": {
+        "/flags/garden-layout/value": ""
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "minLength",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    },
+    {
+      "id": "responses.v1_experiment_without_linkage",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/metadata/experiment_id": 301
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "const",
+        "instance_path": "/flags/garden-layout/metadata/has_experiment"
+      }
+    },
+    {
+      "id": "responses.v1_ambiguous_experiment",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/metadata/has_experiment": true
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.flag_key_seed",
+      "template": "omitted",
+      "set": {
+        "/flags/seed": {
+          "key": "seed",
+          "value": false,
+          "reason": {
+            "code": "experiment_split",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": true,
+            "payload": null,
+            "rule_type": "experiment",
+            "rule_id": "10000000-0000-4000-8000-000000000001",
+            "experiment_id": 301,
+            "variant_key": "arm_a"
+          }
+        }
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.seed_named_flag_nested_seed",
+      "template": "omitted",
+      "set": {
+        "/flags/seed": {
+          "key": "seed",
+          "value": false,
+          "reason": {
+            "code": "experiment_split",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": true,
+            "payload": null,
+            "rule_type": "experiment",
+            "rule_id": "10000000-0000-4000-8000-000000000001",
+            "experiment_id": 301,
+            "variant_key": "arm_a"
+          },
+          "conditions": [
+            {
+              "nested": [
+                {
+                  "seed": "invented-assignment"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "seed",
+        "keyword": "assignment_seed",
+        "instance_path": "/flags/seed/conditions/0/nested/0/seed"
+      }
+    },
+    {
+      "id": "responses.flag_key_assignment_seed",
+      "template": "omitted",
+      "set": {
+        "/flags/assignment_seed": {
+          "key": "assignment_seed",
+          "value": false,
+          "reason": {
+            "code": "experiment_split",
+            "condition_index": 0
+          },
+          "metadata": {
+            "id": 201,
+            "version": 7,
+            "config_version": 2,
+            "has_experiment": true,
+            "payload": null,
+            "rule_type": "experiment",
+            "rule_id": "10000000-0000-4000-8000-000000000001",
+            "experiment_id": 301,
+            "variant_key": "arm_a"
+          }
+        }
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "responses.v1_forbidden_rule_id",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/metadata/rule_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.v1_forbidden_rule_type",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/metadata/rule_type": "targeted_release"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.v1_forbidden_holdout_id",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/metadata/holdout_id": 401
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "not",
+        "instance_path": "/flags/garden-layout/metadata"
+      }
+    },
+    {
+      "id": "responses.v1_object_payload",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/metadata/payload": {
+          "columns": 2
+        }
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/metadata/payload"
+      }
+    },
+    {
+      "id": "responses.v1_null_value_not_failed",
+      "template": "v1",
+      "set": {
+        "/flags/garden-layout/value": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "presence",
+        "keyword": "type",
+        "instance_path": "/flags/garden-layout/value"
+      }
+    }
+  ]
+}

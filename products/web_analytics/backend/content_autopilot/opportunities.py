@@ -26,6 +26,7 @@ from products.web_analytics.backend.content_autopilot.lifecycle import (
     start_run,
 )
 from products.web_analytics.backend.content_autopilot.site_discovery import read_sitemap_urls, site_host
+from products.web_analytics.backend.hogql_queries.agent_analytics_definitions import AGENT_CATEGORIES_WITH_CRAWLERS
 from products.web_analytics.backend.models import (
     ContentAutopilotOpportunity,
     ContentAutopilotProposal,
@@ -35,6 +36,7 @@ from products.web_analytics.backend.models import (
 
 OPPORTUNITY_LOOKBACK_DAYS = 14
 MAX_DRAFTS_PER_RUN = 5
+MAX_REFRESHED_OPPORTUNITIES = 200
 SITEMAP_CACHE_SECONDS = 6 * 60 * 60
 FULL_CONFIDENCE_CHECKS = 9
 FULL_TRAFFIC_SIGNAL = 100
@@ -52,26 +54,46 @@ def engine_label(engine: str) -> str:
     return ENGINE_LABELS.get(engine, engine)
 
 
-def canonical_site_url(url: str, *, origin: str, page_urls: list[str], boundaries: list[str]) -> str | None:
+def _page_path(url: str) -> str:
+    return urlparse(url).path.rstrip("/") or "/"
+
+
+def _pages_by_path(page_urls: list[str]) -> dict[str, str]:
+    by_path: dict[str, str] = {}
+    for url in page_urls:
+        by_path.setdefault(_page_path(url), url)
+    return by_path
+
+
+def _within_boundaries(path: str, boundaries: list[str]) -> bool:
+    for boundary in boundaries or ["/"]:
+        prefix = boundary.rstrip("/")
+        if not prefix or path == prefix or path.startswith(f"{prefix}/"):
+            return True
+    return False
+
+
+def canonical_site_url(
+    url: str, *, origin: str, origin_host: str, pages_by_path: dict[str, str], boundaries: list[str]
+) -> str | None:
     try:
-        parsed = urlparse(url)
+        path = _page_path(url)
     except ValueError:
         return None
-    path = parsed.path.rstrip("/") or "/"
     host = site_host(url)
-    if not host or host != site_host(origin) or path == "/":
+    if not host or host != origin_host or path == "/":
         return None
-    if not page_urls:
-        within = any(path.startswith(boundary.rstrip("/") or "/") for boundary in boundaries or ["/"])
-        return f"{origin.rstrip('/')}{path}" if within else None
-    return next((page for page in page_urls if (urlparse(page).path.rstrip("/") or "/") == path), None)
+    if not pages_by_path:
+        return f"{origin.rstrip('/')}{path}" if _within_boundaries(path, boundaries) else None
+    return pages_by_path.get(path)
 
 
 def score_gap(gap: CitationGap, traffic: dict[str, int] | None = None) -> float:
     severity = 1 - gap.citation_rate
     agreement = len(gap.engines_not_citing) / len(gap.engines) if gap.engines else 0.0
     mentioned_not_cited = max(0, gap.mentioned_checks - gap.cited_checks) / gap.checks if gap.checks else 0.0
-    ai_traffic = (traffic or {}).get("ai_visitors", 0) + (traffic or {}).get("ai_crawls", 0) / 10
+    traffic = traffic or {}
+    ai_traffic = traffic.get("ai_visitors", 0) + traffic.get("ai_crawls", 0) / 10
     traffic_signal = min(1.0, math.log1p(ai_traffic) / math.log1p(FULL_TRAFFIC_SIGNAL))
     confidence = min(1.0, gap.checks / FULL_CONFIDENCE_CHECKS)
     priority = 0.45 * severity + 0.25 * agreement + 0.2 * mentioned_not_cited + 0.1 * traffic_signal
@@ -84,8 +106,8 @@ def site_page_urls(profile: ContentAutopilotSiteProfile) -> list[str]:
     if cached is not None:
         return cached
     urls = read_sitemap_urls(list(profile.source_urls), origin=profile.domain)
-    boundaries = [str(boundary) for boundary in profile.content_boundaries] or ["/"]
-    urls = [url for url in urls if any(urlparse(url).path.startswith(boundary) for boundary in boundaries)]
+    boundaries = [str(boundary) for boundary in profile.content_boundaries]
+    urls = [url for url in urls if _within_boundaries(_page_path(url), boundaries)]
     cache.set(cache_key, urls, SITEMAP_CACHE_SECONDS)
     return urls
 
@@ -97,7 +119,7 @@ def page_ai_traffic(team: Team, origin: str, paths: list[str], *, include_hostle
         """
         SELECT
             coalesce(nullIf(trimRight(properties.$pathname, '/'), ''), '/') AS path,
-            countIf(`$virt_is_bot` = true AND `$virt_traffic_category` IN ('ai_crawler', 'ai_assistant', 'ai_search')) AS ai_crawls,
+            countIf(`$virt_is_bot` = true AND `$virt_traffic_category` IN {ai_categories}) AS ai_crawls,
             uniqIf(person_id, event = '$pageview' AND NOT `$virt_is_bot` AND session.$channel_type = 'AI') AS ai_visitors
         FROM events
         WHERE timestamp >= now() - toIntervalDay({lookback_days})
@@ -108,6 +130,9 @@ def page_ai_traffic(team: Team, origin: str, paths: list[str], *, include_hostle
         """,
         placeholders={
             "lookback_days": ast.Constant(value=OPPORTUNITY_LOOKBACK_DAYS),
+            "ai_categories": ast.Tuple(
+                exprs=[ast.Constant(value=category) for category in AGENT_CATEGORIES_WITH_CRAWLERS]
+            ),
             "paths": ast.Tuple(
                 exprs=[ast.Constant(value=variant) for path in paths for variant in {path, f"{path.rstrip('/')}/"}]
             ),
@@ -142,10 +167,6 @@ def _being_drafted(opportunity: ContentAutopilotOpportunity) -> bool:
     )
 
 
-def _page_path(url: str) -> str:
-    return urlparse(url).path.rstrip("/") or "/"
-
-
 def _most_viewed_paths(team: Team, origin: str, limit: int) -> list[str]:
     query = parse_select(
         """
@@ -172,9 +193,7 @@ def _most_viewed_paths(team: Team, origin: str, limit: int) -> list[str]:
 
 
 def top_site_pages(team: Team, *, origin: str, page_urls: list[str], limit: int) -> list[str]:
-    by_path: dict[str, str] = {}
-    for url in page_urls:
-        by_path.setdefault(_page_path(url), url)
+    by_path = _pages_by_path(page_urls)
     try:
         viewed = [by_path[path] for path in _most_viewed_paths(team, origin, limit * 10) if path in by_path]
     except Exception as error:
@@ -256,22 +275,32 @@ def refresh_opportunities(
     if page_urls is None:
         page_urls = site_page_urls(profile) if gaps else []
 
+    origin_host = site_host(profile.domain)
+    pages_by_path = _pages_by_path(page_urls)
     targets: dict[str, str] = {}
     for gap in gaps:
         cited = (
-            canonical_site_url(url, origin=profile.domain, page_urls=page_urls, boundaries=boundaries)
+            canonical_site_url(
+                url,
+                origin=profile.domain,
+                origin_host=origin_host,
+                pages_by_path=pages_by_path,
+                boundaries=boundaries,
+            )
             for url in gap.our_cited_urls
         )
         targets[gap.prompt_hash] = next((url for url in cited if url), "")
 
     paths = sorted({_page_path(url) for url in targets.values() if url})
-    only_site = not (
-        ContentAutopilotSiteProfile.objects.for_team(team_id, canonical=True)
-        .filter(deleted=False)
-        .exclude(id=profile.id)
-        .exists()
-    )
-    traffic_by_path = page_ai_traffic(team, profile.domain, paths, include_hostless=only_site)
+    traffic_by_path: dict[str, dict[str, int]] = {}
+    if paths:
+        only_site = not (
+            ContentAutopilotSiteProfile.objects.for_team(team_id, canonical=True)
+            .filter(deleted=False)
+            .exclude(id=profile.id)
+            .exists()
+        )
+        traffic_by_path = page_ai_traffic(team, profile.domain, paths, include_hostless=only_site)
 
     now = timezone.now()
     with transaction.atomic():
@@ -332,7 +361,7 @@ def list_opportunities(*, team: Team, profile_id: str) -> list[ContentAutopilotO
     return list(
         ContentAutopilotOpportunity.objects.for_team(canonical_team_id(team), canonical=True)
         .filter(profile_id=profile_id, profile__deleted=False)
-        .order_by("-score", "title")
+        .order_by("-score", "title")[:MAX_REFRESHED_OPPORTUNITIES]
     )
 
 

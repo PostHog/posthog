@@ -12,7 +12,12 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { EntityFilterInfo, getSeriesRename } from 'lib/components/EntityFilterInfo'
+import {
+    DisplayableEntity,
+    EntityFilterInfo,
+    getSeriesRename,
+    toDisplayEntityFilter,
+} from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -43,8 +48,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 
+import { HiddenEventExplanation } from './HiddenEventExplanation'
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
@@ -106,7 +112,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Stale</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -156,7 +162,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Not seen</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Not seen</LemonTag>
         </Tooltip>
     )
 }
@@ -168,15 +174,14 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
  * the user clicked.
  */
 const getSelectedItemRenameMeta = (
-    selectedItemMeta: EntityFilter | null | undefined,
+    selectedItemMeta: DisplayableEntity | null | undefined,
     itemValue: string | number | null | undefined
-): EntityFilter | null => {
-    if (
-        !selectedItemMeta ||
-        selectedItemMeta.id == null ||
-        itemValue == null ||
-        String(selectedItemMeta.id) !== String(itemValue)
-    ) {
+): DisplayableEntity | null => {
+    if (!selectedItemMeta || itemValue == null) {
+        return null
+    }
+    const { id } = toDisplayEntityFilter(selectedItemMeta)
+    if (id == null || String(id) !== String(itemValue)) {
         return null
     }
     return getSeriesRename(selectedItemMeta) ? selectedItemMeta : null
@@ -208,7 +213,7 @@ const renderItemContents = ({
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     isActive: boolean
-    selectedRenameMeta?: EntityFilter | null
+    selectedRenameMeta?: DisplayableEntity | null
 }): JSX.Element | string => {
     if (isQuickFilterItem(item)) {
         const icon = itemGroup.getIcon ? (
@@ -268,8 +273,10 @@ const renderItemContents = ({
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
-        (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
-        !(item as PropertyDefinition).is_seen_on_filtered_events
+        // Only an explicit false means "not seen on these events". The flag is undefined
+        // for items the backend never scored (virtual properties, suggested-filter rows
+        // synthesized from primary properties), and those must not be tagged.
+        (item as PropertyDefinition).is_seen_on_filtered_events === false
 
     const icon = rowContentsIcon(item, itemGroup, isActive)
 
@@ -372,7 +379,7 @@ interface InfiniteListRowProps {
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
     selectedProperties: TaxonomicFilterGroupValueMap
-    selectedItemMeta: EntityFilter | null | undefined
+    selectedItemMeta: DisplayableEntity | null | undefined
     eventNames: string[]
     highlightedIndex: number
     isActiveTab: boolean
@@ -789,9 +796,7 @@ function InfiniteListEmptyState(): JSX.Element {
                         <strong>{hiddenEventSearched}</strong> isn't available here
                     </span>
                     <span className="max-w-80 text-center text-secondary">
-                        PostHog still collects this event, but you can't build a saved query on it. Its data is moving,
-                        so a saved query would stop returning results. To see how a flag is used, open the flag and
-                        check its Usage tab.
+                        <HiddenEventExplanation />
                     </span>
                 </div>
             ) : (

@@ -1,6 +1,8 @@
+import os
 import json
 import uuid
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -303,6 +305,8 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_provider"] = result.get("provider", "openai")
         properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
         properties["$ai_evaluation_key_id"] = result.get("key_id")
+        if "probability" in result:
+            properties["$ai_evaluation_probability"] = result["probability"]
 
     if result["result_type"] == "categorical":
         properties["$ai_evaluation_allows_na"] = allows_na
@@ -349,6 +353,41 @@ def _evaluation_event_uuid() -> str | None:
         return None
     workflow_id = temporalio.activity.info().workflow_id
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
+
+
+def capture_evaluation_run_usage(
+    evaluation: Mapping[str, object],
+    result: EvaluationActivityResult,
+    *,
+    team_id: int,
+) -> None:
+    properties: dict[str, object] = {
+        "evaluation_id": str(evaluation["id"]),
+        "team_id": team_id,
+        "result_type": result["result_type"],
+        "status": "skipped" if result.get("skipped") else "completed",
+    }
+    if evaluation.get("evaluation_type", "llm_judge") == "llm_judge" and result.get("model"):
+        properties.update(
+            {
+                key: value
+                for key, value in result.items()
+                if key in ("model", "provider", "input_tokens", "output_tokens", "total_tokens")
+            }
+        )
+    if "verdict" in result and not result.get("skipped"):
+        properties["verdict"] = result["verdict"]
+    from posthog.tasks.usage_report import get_ph_client  # noqa: PLC0415 - keeps billing imports off worker startup
+
+    organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
+    ph_client = get_ph_client(sync_mode=True, disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    ph_client.capture(
+        distinct_id=f"org-{organization_id}",
+        event="llm analytics evaluation executed",
+        properties=properties,
+        groups={"organization": organization_id, "instance": settings.SITE_URL},
+    )
+    ph_client.flush()
 
 
 async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
@@ -408,6 +447,13 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             properties=properties,
             event_uuid=_evaluation_event_uuid(),
         )
+        # Completed LLM judge runs emit telemetry in the workflow's separate activity.
+        if evaluation.get("evaluation_type", "llm_judge") != "llm_judge" or result.get("skipped"):
+            try:
+                capture_evaluation_run_usage(evaluation, result, team_id=event_data["team_id"])
+            except Exception:
+                # Telemetry failures must not retry an already emitted evaluation.
+                logger.warning("evaluation_usage_capture_failed", team_id=event_data["team_id"], exc_info=True)
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
@@ -447,35 +493,11 @@ class EmitInternalTelemetryInputs:
 @temporalio.activity.defn
 async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) -> None:
     """Emit telemetry event to PostHog org for internal tracking."""
-    from posthog.tasks.usage_report import get_ph_client
-
-    evaluation = inputs.evaluation
-    team_id = inputs.team_id
-    result = inputs.result
-
-    def _emit_telemetry() -> None:
-        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
-
-        ph_client = get_ph_client(sync_mode=True)
-        ph_client.capture(
-            distinct_id=f"org-{organization_id}",
-            event="llm analytics evaluation executed",
-            properties={
-                "evaluation_id": evaluation["id"],
-                "team_id": team_id,
-                "model": result.get("model", DEFAULT_JUDGE_MODEL),
-                "provider": result.get("provider", "openai"),
-                "input_tokens": result.get("input_tokens", 0),
-                "output_tokens": result.get("output_tokens", 0),
-                "total_tokens": result.get("total_tokens", 0),
-                **({"verdict": result["verdict"]} if "verdict" in result else {}),
-                "result_type": result["result_type"],
-            },
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
-        )
-        ph_client.flush()
-
-    await database_sync_to_async(_emit_telemetry, thread_sensitive=False)()
+    await database_sync_to_async(capture_evaluation_run_usage, thread_sensitive=False)(
+        inputs.evaluation,
+        inputs.result,
+        team_id=inputs.team_id,
+    )
 
 
 @frozen

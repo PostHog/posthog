@@ -512,6 +512,31 @@ describe('hogFlowEditorTestLogic', () => {
         })
     })
 
+    describe('showTestEvent', () => {
+        it.each([
+            [{ type: 'event', filters: {} }, true],
+            [{ type: 'webhook', template_id: 'template-source-webhook', inputs: {} }, true],
+            [{ type: 'tracking_pixel', template_id: 'template-source-tracking-pixel', inputs: {} }, true],
+            [{ type: 'schedule' }, false],
+            [{ type: 'manual', template_id: 'template-source-manual', inputs: {} }, false],
+            [{ type: 'batch', filters: { properties: [] } }, false],
+        ])('for a %o trigger is %s', async (config, expected) => {
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+            await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
+
+            flowLogic.actions.setWorkflowValue(
+                'actions',
+                WORKFLOW_FIXTURE.actions.map((action) =>
+                    action.id === 'trigger_node' ? { ...action, config } : action
+                )
+            )
+
+            expect(logic.values.showTestEvent).toBe(expected)
+        })
+    })
+
     describe('groupTypesForTest gating on group_analytics', () => {
         const orgWithFeatures = (features: AvailableFeature[]): OrganizationType => ({
             ...MOCK_DEFAULT_ORGANIZATION,

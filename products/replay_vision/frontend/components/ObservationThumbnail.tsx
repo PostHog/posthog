@@ -10,6 +10,8 @@ import { ReplayObservationApi } from '../generated/api.schemas'
 
 interface ObservationThumbnailProps {
     observation: ReplayObservationApi
+    /** A summary chapter's index, to show that chapter's frame instead of the observation's thumbnail. */
+    chapter?: number
     /** Sizing and shape come from the caller, since a table cell and a detail page want very different frames. */
     className?: string
     children?: React.ReactNode
@@ -18,7 +20,12 @@ interface ObservationThumbnailProps {
 const RETRY_DELAY_MS = 2000
 
 /** The frame the scan picked out of the session, as a 16:9 poster. */
-export function ObservationThumbnail({ observation, className, children }: ObservationThumbnailProps): JSX.Element {
+export function ObservationThumbnail({
+    observation,
+    chapter,
+    className,
+    children,
+}: ObservationThumbnailProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const [attempt, setAttempt] = useState(0)
     const [failedId, setFailedId] = useState<string | null>(null)
@@ -28,7 +35,7 @@ export function ObservationThumbnail({ observation, className, children }: Obser
     useEffect(() => {
         setAttempt(0)
         setFailedId(null)
-    }, [observation.id])
+    }, [observation.id, chapter])
 
     useEffect(() => {
         return () => {
@@ -44,12 +51,21 @@ export function ObservationThumbnail({ observation, className, children }: Obser
     // no requests. The URL is the endpoint rather than the asset, so a re-render after a retry still resolves.
     // Optional at runtime, whatever the generated type says: fixtures and a response cached from before
     // the field existed both reach here, and a poster must not take the scene down with it.
-    const hasThumbnail = (observation.media ?? []).some((entry) => entry.kind === 'thumbnail')
+    const hasThumbnail = (observation.media ?? []).some((entry) =>
+        chapter === undefined ? entry.kind === 'thumbnail' : entry.kind === 'chapter' && entry.position === chapter
+    )
     const baseSrc =
         hasThumbnail && currentTeamId !== null && !failed
-            ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id)
+            ? getVisionObservationsThumbnailRetrieveUrl(
+                  String(currentTeamId),
+                  observation.id,
+                  chapter === undefined ? undefined : { chapter }
+              )
             : undefined
-    const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}?retry=${attempt}` : baseSrc
+    const src =
+        baseSrc !== undefined && attempt > 0
+            ? `${baseSrc}${baseSrc.includes('?') ? '&' : '?'}retry=${attempt}`
+            : baseSrc
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.

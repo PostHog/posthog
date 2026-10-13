@@ -52,7 +52,7 @@ SEARCH_ANALYTICS_SCHEMAS: dict[str, SearchAnalyticsSchema] = {
     "search_analytics_by_query": {
         "dimensions": ["date", "query"],
         "primary_key": ["date", "query"],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": (
             "Daily performance broken out by search query (keyword). "
             "Sites with >50K distinct queries/day will lose long-tail keywords to API sampling."
@@ -61,7 +61,7 @@ SEARCH_ANALYTICS_SCHEMAS: dict[str, SearchAnalyticsSchema] = {
     "search_analytics_by_page": {
         "dimensions": ["date", "page"],
         "primary_key": ["date", "page"],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": (
             "Daily performance broken out by landing page URL. "
             "Sites with >50K distinct landing pages/day will lose long-tail URLs to API sampling."

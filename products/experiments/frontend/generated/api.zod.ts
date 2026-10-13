@@ -1072,7 +1072,8 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+ * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
@@ -1084,24 +1085,18 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
         trigger: zod
             .enum([
                 'manual',
-                'agent_mcp',
+                'manual_retry',
                 'cold_run',
-                'stale_refresh',
-                'auto_refresh',
+                'heal_latest_run',
                 'experiment_config_change',
                 'metric_config_change',
-                'config_change',
-                'experiment_launch',
-                'experiment_stop',
-                'experiment_update',
-                'timeseries_sync',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
+                '\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
+                'What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.\n\n\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
@@ -1398,6 +1393,8 @@ export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
 
 export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
 
+export const experimentsCreateFromPromptCreateBodyDescriptionMax = 3000
+
 export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
     prompt_name: zod
         .string()
@@ -1428,7 +1425,11 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
-    description: zod.string().optional().describe('Optional experiment description.'),
+    description: zod
+        .string()
+        .max(experimentsCreateFromPromptCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional experiment description.'),
 })
 
 /**

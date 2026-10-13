@@ -1,9 +1,9 @@
 """HogQL assembly of a pull request's CI failure logs from the Logs product.
 
-The CI job-logs worker emits one Logs record per failure-line, tagged with the GitHub ``run_id`` /
+The CI job-logs worker emits one Logs record per failure-line, tagged with ``ci_engine`` / ``run_id`` /
 ``job_id`` (service ``github-ci-logs``). This resolves a PR to its workflow runs via the same
 ``pull_requests`` attribution as ``pr_runs`` (SPEC §6 — never a head-SHA join, so every push is
-captured), then reads the Logs product joined on ``run_id`` and groups the lines per failed job.
+captured), then reads the Logs product joined on engine-qualified run identity and groups the lines per failed job.
 
 Two caps bound the response: ``_PER_JOB_CAP`` lines per job, and ``_LINE_CAP`` lines overall. Rows
 come back newest-run-first, so when the overall cap bites it drops the *oldest* runs (the newest push
@@ -20,6 +20,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     CIFailureLogLine,
     CIFailureLogs,
     CIJobFailureLog,
@@ -29,6 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME as _SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
+from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
 
 # Overall safety bound on lines pulled per call (one Logs record == one line) — an incident across
 # many runs mustn't return an unbounded body.
@@ -47,10 +49,15 @@ _SELECT = """
         attributes['branch'] AS branch,
         attributes['orig_total'] AS orig_total,
         attributes['orig_line'] AS orig_line,
-        body
+        body,
+        attributes['ci_engine'] AS ci_engine
     FROM logs
-    WHERE service_name = {service_name} AND attributes['run_id'] IN {run_ids}
-    ORDER BY toInt(attributes['run_id']) DESC, toInt(attributes['job_id']), toInt(attributes['seq'])
+    WHERE service_name = {service_name} AND lower(attributes['repo']) = lower({repository})
+        AND (
+            (attributes['ci_engine'], attributes['run_id']) IN {run_keys}
+            OR (attributes['ci_engine'] = '' AND attributes['run_id'] IN {legacy_run_ids})
+        )
+    ORDER BY toInt(attributes['run_id']) DESC, attributes['ci_engine'], toInt(attributes['job_id']), toInt(attributes['seq'])
     LIMIT {line_cap}
 """
 
@@ -63,11 +70,11 @@ def _to_int(value: str | None) -> int:
 
 
 def _group_jobs(rows: list[tuple]) -> list[CIJobFailureLog]:
-    # Rows arrive grouped by (run_id, job_id) and ordered by seq within a job, so consecutive rows of a
+    # Rows arrive grouped by (ci_engine, run_id, job_id) and ordered by seq within a job, so consecutive rows of a
     # job are contiguous and in order — group them, cap the lines, and carry the per-job conclusion /
     # branch / orig_total (same on every line of a job) from the first row.
     jobs: list[CIJobFailureLog] = []
-    for (run_id, job_id), group in groupby(rows, key=lambda row: (row[0], row[1])):
+    for (ci_engine, run_id, job_id), group in groupby(rows, key=lambda row: (row[7], row[0], row[1])):
         group_rows = list(group)
         first = group_rows[0]
         # orig_line is absent ('' from the map) on omission markers, and a real line is 1-based, so
@@ -78,6 +85,7 @@ def _group_jobs(rows: list[tuple]) -> list[CIJobFailureLog]:
             CIJobFailureLog(
                 job_id=_to_int(job_id),
                 run_id=_to_int(run_id),
+                ci_engine=CIEngine(ci_engine) if ci_engine else None,
                 conclusion=first[2] or "",
                 branch=first[3] or "",
                 original_total_lines=_to_int(first[4]),
@@ -87,6 +95,17 @@ def _group_jobs(rows: list[tuple]) -> list[CIJobFailureLog]:
             )
         )
     return jobs
+
+
+def _legacy_run_ids(*, curated: CuratedGitHubSource, run_ids: list[int]) -> list[str]:
+    # Old records did not stamp an engine. Keep them only for IDs with one engine in the source.
+    response = curated.run(
+        f"SELECT id FROM {curated.run_source()} AS r WHERE id IN {{run_ids}} "
+        "GROUP BY id HAVING uniq(ci_engine) = 1 LIMIT 1000000",
+        query_type="engineering_analytics.failure_logs_legacy_identity",
+        placeholders={"run_ids": ast.Constant(value=run_ids)},
+    )
+    return [str(row[0]) for row in response.results or []]
 
 
 def query_ci_failure_logs(
@@ -110,7 +129,11 @@ def query_ci_failure_logs(
         query_type="engineering_analytics.ci_failure_logs",
         placeholders={
             "service_name": ast.Constant(value=_SERVICE_NAME),
-            "run_ids": ast.Constant(value=[str(run_id) for run_id in run_ids]),
+            "repository": ast.Constant(value=f"{repo_owner}/{repo_name}"),
+            "run_keys": ast.Constant(
+                value=[(run.ci_engine.value if run.ci_engine is not None else None, str(run.id)) for run in runs]
+            ),
+            "legacy_run_ids": ast.Constant(value=_legacy_run_ids(curated=curated, run_ids=run_ids)),
             # +1 so a full page tells us the overall cap was hit (more lines exist than returned).
             "line_cap": ast.Constant(value=_LINE_CAP + 1),
         },
@@ -135,26 +158,15 @@ def query_ci_failure_logs(
     )
 
 
-# Existence probe for the source-authorization check below.
-_RUN_IN_SOURCE = """
-    SELECT 1
-    FROM __RUNS_SOURCE__ AS r
-    WHERE id = {run_id}
-    LIMIT 1
-"""
-
-
-def query_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
+def query_run_failure_logs(
+    *, curated: CuratedGitHubSource, run_id: int, ci_engine: CIEngine | None = None
+) -> RunFailureLogs:
     """Same log substrate as ``query_ci_failure_logs``, keyed directly by one run id — for surfaces
     that aren't PR-scoped (the default-branch failures feed and the run page)."""
     # The Logs table is team-scoped, not source-scoped — prove the run exists in the caller's
     # authorized source before reading its logs, or a known run id would leak another source's logs.
-    in_source = curated.run(
-        _RUN_IN_SOURCE.replace("__RUNS_SOURCE__", curated.run_source()),
-        query_type="engineering_analytics.run_failure_logs_source_check",
-        placeholders={"run_id": ast.Constant(value=run_id)},
-    )
-    if not in_source.results:
+    run = query_workflow_run(curated=curated, run_id=run_id, ci_engine=ci_engine)
+    if run is None:
         return RunFailureLogs(run_id=run_id, logs_available=False, jobs=[], truncated=False)
 
     response = curated.run(
@@ -162,7 +174,9 @@ def query_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunF
         query_type="engineering_analytics.run_failure_logs",
         placeholders={
             "service_name": ast.Constant(value=_SERVICE_NAME),
-            "run_ids": ast.Constant(value=[str(run_id)]),
+            "repository": ast.Constant(value=f"{run.repo.owner}/{run.repo.name}"),
+            "run_keys": ast.Constant(value=[(run.ci_engine.value if run.ci_engine is not None else None, str(run_id))]),
+            "legacy_run_ids": ast.Constant(value=_legacy_run_ids(curated=curated, run_ids=[run_id])),
             "line_cap": ast.Constant(value=_LINE_CAP + 1),
         },
         workload=Workload.LOGS,
@@ -172,4 +186,6 @@ def query_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunF
     jobs = _group_jobs(rows[:_LINE_CAP])
     if overall_truncated and jobs:
         jobs[-1] = dataclasses.replace(jobs[-1], truncated=True)
-    return RunFailureLogs(run_id=run_id, logs_available=bool(rows), jobs=jobs, truncated=overall_truncated)
+    return RunFailureLogs(
+        run_id=run_id, ci_engine=run.ci_engine, logs_available=bool(rows), jobs=jobs, truncated=overall_truncated
+    )

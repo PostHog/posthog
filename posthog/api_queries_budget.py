@@ -1,8 +1,10 @@
 """Hourly read budget for API key queries.
 
-Each team has a token bucket in Redis measured in bytes read. The rate comes from the team's
+Each team has a token bucket in Redis measured in bytes read. The rate starts from the team's
 organization, since the subscription belongs to the organization: teams of a paying organization
-refill API_QUERIES_BUDGET_PAID_MULTIPLIER times faster. The ClickHouse client debits what every
+refill API_QUERIES_BUDGET_PAID_MULTIPLIER times faster. It then grows with the events the team
+ingested in the last year (TeamEventVolume, refreshed nightly), up to
+API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR. The ClickHouse client debits what every
 budgeted query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
 reads the balance before admitting one. Refill is lazy: the balance is only brought up to date
 when it is read, so a debit never needs to know the team's rate. The balance floors at minus one
@@ -73,13 +75,14 @@ def _free_spec() -> BudgetSpec:
     return _spec(float(settings.API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR))
 
 
-def budget_spec_for(organization: Any) -> BudgetSpec:
+def budget_spec_for(organization: Any, events_last_year: Optional[int] = None) -> BudgetSpec:
     bytes_per_hour = float(settings.API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR)
     # NULL means the subscription state was never synced, and an organization is not refused
     # on a number we do not have.
     if organization.has_active_subscription is not False:
         bytes_per_hour *= float(settings.API_QUERIES_BUDGET_PAID_MULTIPLIER)
-    return _spec(bytes_per_hour)
+    scaled = (events_last_year or 0) * float(settings.API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR)
+    return _spec(min(max(bytes_per_hour, scaled), float(settings.API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR)))
 
 
 def _bucket_key(team_id: str) -> str:

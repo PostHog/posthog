@@ -8,7 +8,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import PRState
 from products.engineering_analytics.backend.presentation.serializers.pull_requests import (
+    AttentionPullRequestListSerializer,
     BranchPRMatchSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
@@ -26,6 +28,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     EngineeringAnalyticsViewSetBase,
     _bad_request,
     _optional_datetime_param,
+    _optional_int_param,
     _require_int_param,
 )
 
@@ -34,6 +37,7 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
     READ_ACTIONS = [
         "ci_cards",
         "pull_requests",
+        "attention_pull_requests",
         "pr_lifecycle",
         "resolve_branch",
         "pr_runs",
@@ -79,18 +83,57 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
                 required=False,
                 description="Optional GitHub login to scope the list to one author's pull requests.",
             ),
+            OpenApiParameter(
+                name="state",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[state.value for state in PRState],
+                description=(
+                    "Optional state filter. 'merged' lists PRs merged in the window, newest merged_at first. "
+                    "'closed' lists PRs closed without a merge in the window, newest closed_at first. 'open' lists "
+                    "all open PRs whatever their age, newest first. Omit it to get open PRs plus any merged or "
+                    "closed in the window."
+                ),
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional exclusive upper bound for merged_at / closed_at: relative or ISO8601. Defaults to "
+                    "now. Set a fixed value when you page, so new merges do not move rows between pages."
+                ),
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Page size, 1 to 1000. Defaults to 1000.",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Number of rows to skip. Defaults to 0. While `truncated` is true, add `limit` to "
+                "offset to read the next page.",
+            ),
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: PullRequestListSerializer,
-            400: OpenApiResponse(description="Invalid date_from or source_id."),
+            400: OpenApiResponse(description="Invalid date_from, date_to, state, limit, offset, or source_id."),
         },
         description=(
             "Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with "
-            "its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards "
-            "counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; "
-            "CI counts can lag until late completions settle."
+            "its head-SHA CI rollup. Pass state to list one state only. The list is paged by limit and offset; "
+            "when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is "
+            "coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle. "
+            "Cost and billable minutes can lag new CI by up to 5 minutes."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -99,14 +142,45 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
             result = api.list_pull_requests(
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
                 author=request.query_params.get("author") or None,
+                state=request.query_params.get("state") or None,
+                limit=_optional_int_param(request, "limit"),
+                offset=_optional_int_param(request, "offset"),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid date_from or source_id")
+            return _bad_request(exc, fallback="Invalid date_from, date_to, state, limit, offset, or source_id")
         return Response(PullRequestListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_attention_pull_requests",
+        parameters=[_SOURCE_ID, _REPO],
+        responses={
+            200: AttentionPullRequestListSerializer,
+            400: OpenApiResponse(description="Invalid source_id."),
+        },
+        description=(
+            "Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than "
+            "7 days), by the same rules as the ci_cards counts. Failing first, then newest, capped; `total` counts "
+            "every match in the whole open backlog, however old. Cost and billable minutes can lag new CI by up to "
+            "5 minutes."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def attention_pull_requests(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_attention_pull_requests(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(AttentionPullRequestListSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pr_lifecycle",

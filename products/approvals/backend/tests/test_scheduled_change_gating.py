@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import User
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
@@ -13,6 +15,8 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, Cha
 from products.approvals.backend.services import ChangeRequestService
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
+
+EMAIL_CONDITION = {"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
@@ -178,16 +182,35 @@ class TestScheduledChangeGating(APIBaseTest):
         # The enable must not have applied — a policy now gates it and it was never approved.
         assert flag.active is False
 
-    def test_scheduled_rollout_change_under_update_policy_is_gated(self, _mock_enabled):
-        self._update_policy({"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0})
+    @parameterized.expand(
+        [
+            (
+                "rollout",
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
+                {"properties": [], "rollout_percentage": 90},
+                True,
+            ),
+            ("properties_only", {}, {"properties": [EMAIL_CONDITION]}, True),
+            (
+                "properties_only_under_a_rollout_policy",
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
+                {"properties": [EMAIL_CONDITION]},
+                False,
+            ),
+        ]
+    )
+    def test_scheduled_added_condition_under_update_policy(
+        self,
+        _mock_enabled,
+        _name: str,
+        conditions: dict[str, Any],
+        condition_fields: dict[str, Any],
+        expected_gated: bool,
+    ):
+        self._update_policy(conditions)
         flag = self._disabled_flag(key="rollout-flag")
 
-        new_condition: dict[str, Any] = {
-            "variant": None,
-            "properties": [],
-            "rollout_percentage": 90,
-            "aggregation_group_type_index": None,
-        }
+        new_condition: dict[str, Any] = {"variant": None, "aggregation_group_type_index": None, **condition_fields}
         scheduled = self._schedule(
             flag,
             {
@@ -197,15 +220,22 @@ class TestScheduledChangeGating(APIBaseTest):
             timezone.now() - timedelta(seconds=30),
         )
 
+        if not expected_gated:
+            # The policy allows it when scheduled, so it must not be skipped when it fires.
+            assert scheduled.change_request is None
+            process_scheduled_changes()
+            flag.refresh_from_db()
+            assert len(flag.filters.get("groups", [])) == 2
+            return
+
         assert scheduled.change_request is not None
         assert scheduled.change_request.state == ChangeRequestState.PENDING
 
         process_scheduled_changes()
 
         flag.refresh_from_db()
-        # The new 90% condition must not have been appended (change was gated, not applied).
-        rollouts = [g.get("rollout_percentage") for g in flag.filters.get("groups", [])]
-        assert 90 not in rollouts
+        # The new condition must not have been appended (change was gated, not applied).
+        assert len(flag.filters.get("groups", [])) == 1
         scheduled.change_request.refresh_from_db()
         assert scheduled.change_request.state == ChangeRequestState.EXPIRED
 
@@ -230,6 +260,32 @@ class TestScheduledChangeGating(APIBaseTest):
 
         assert response.status_code == 400, response.content
         assert response.json()["code"] == "policy_conflict"
+        assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 0
+
+    def test_scheduled_change_is_refused_when_detection_fails(self, _mock_enabled):
+        # A schedule saved past a failed detection fires later with no approver watching, so a
+        # detect() that raises must stop the row being saved rather than let it through ungated.
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        with patch(
+            "products.approvals.backend.actions.feature_flags.EnableFeatureFlagAction.detect",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                {
+                    "record_id": str(flag.id),
+                    "model_name": "FeatureFlag",
+                    "payload": {"operation": "update_status", "value": True},
+                    "scheduled_at": (timezone.now() + timedelta(hours=1)).isoformat(),
+                },
+                format="json",
+            )
+
+        assert response.status_code == 500, response.content
+        assert response.json()["code"] == "approval_detection_failed"
+        assert "needs approval" in response.json()["detail"]
         assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 0
 
     def test_scheduled_change_without_policy_applies_normally(self, _mock_enabled):

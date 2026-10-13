@@ -222,6 +222,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             </LemonButton>
                         ) : (
                             <LemonButton
+                                data-attr="collection-save-or-show-filters"
                                 type="primary"
                                 disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
                                 loading={hasChanges && playlistLoading}

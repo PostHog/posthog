@@ -4,8 +4,16 @@
         padding: 1rem 1rem 0;
     }
 
+    .DataTable > .ScrollableShadows > .ScrollableShadows__inner {
+        max-height: 28rem;
+    }
+
     .LemonTable__content > table > thead > tr > th {
+        position: sticky;
+        top: 0;
+        z-index: 9;
         padding: 0.5rem;
+        background: var(--lemon-table-background-color);
     }
 
     .LemonTable__content > table > tbody > tr > td {

@@ -28,6 +28,8 @@ import type {
     EventIngestionRestrictionApi,
     EventMatchRequestApi,
     EventMatchResponseApi,
+    EventPropertyValuesResponseApi,
+    EventsValuesRetrieveParams,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -88,6 +90,7 @@ import type {
     ProductEnablementResultApi,
     ProjectApi,
     ProjectBackwardCompatApi,
+    ProjectCreateRequestApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
@@ -96,6 +99,9 @@ import type {
     SearchIntentRequestApi,
     SearchIntentResponseApi,
     SharingConfigurationApi,
+    TerminalNetplayMailboxApi,
+    TerminalNetplayMailboxRetrieveParams,
+    TerminalNetplaySignalApi,
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
     UploadedMediaApi,
@@ -846,14 +852,14 @@ export const getOrganizationsProjectsCreateUrl = (organizationId: string) => {
  */
 export const organizationsProjectsCreate = async (
     organizationId: string,
-    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    projectCreateRequestApi?: ProjectCreateRequestApi,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(projectBackwardCompatApi),
+        body: JSON.stringify(projectCreateRequestApi),
     })
 }
 
@@ -1593,6 +1599,45 @@ export const emojiSearchSuggestRetrieve = async (
     options?: RequestInit
 ): Promise<EmojiSearchResponseApi> => {
     return apiMutator<EmojiSearchResponseApi>(getEmojiSearchSuggestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEventsValuesRetrieveUrl = (projectId: string, params: EventsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        const explodeParameters = ['event_name']
+
+        if (Array.isArray(value) && explodeParameters.includes(key)) {
+            value.forEach((v) => {
+                normalizedParams.append(key, v === null ? 'null' : String(v))
+            })
+            return
+        }
+
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/events/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/events/values/`
+}
+
+/**
+ * List values of an event property from recent events.
+ */
+export const eventsValuesRetrieve = async (
+    projectId: string,
+    params: EventsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<EventPropertyValuesResponseApi> => {
+    return apiMutator<EventPropertyValuesResponseApi>(getEventsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -2645,6 +2690,59 @@ export const taxonomicSearchIntentMatchEventsCreate = async (
     })
 }
 
+export const getTerminalNetplayMailboxRetrieveUrl = (
+    projectId: string,
+    params: TerminalNetplayMailboxRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/terminal_netplay/mailbox/?${stringifiedParams}`
+        : `/api/projects/${projectId}/terminal_netplay/mailbox/`
+}
+
+/**
+ * Read and clear a terminal's WebRTC mailbox. Reading the host mailbox keeps the room open.
+ */
+export const terminalNetplayMailboxRetrieve = async (
+    projectId: string,
+    params: TerminalNetplayMailboxRetrieveParams,
+    options?: RequestInit
+): Promise<TerminalNetplayMailboxApi> => {
+    return apiMutator<TerminalNetplayMailboxApi>(getTerminalNetplayMailboxRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTerminalNetplaySignalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/terminal_netplay/signal/`
+}
+
+/**
+ * Send a WebRTC session description to another terminal in a Doom room.
+ */
+export const terminalNetplaySignalCreate = async (
+    projectId: string,
+    terminalNetplaySignalApi: TerminalNetplaySignalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTerminalNetplaySignalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(terminalNetplaySignalApi),
+    })
+}
+
 export const getUploadedMediaListUrl = (projectId: string, params: UploadedMediaListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2751,7 +2849,7 @@ export const getRevokeLeakedKeyCreateUrl = () => {
 }
 
 /**
- * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
  *
  * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
  * @summary Report and revoke a leaked PostHog API key or token

@@ -11,6 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source import (
     CircleciInsightsSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleciinsights import (
     CircleciInsightsSourceConfig,
 )
@@ -32,11 +37,6 @@ class TestCircleciInsightsSource:
         # project slugs must force re-entry of the token.
         assert self.source.connection_host_fields == ["project_slugs"]
 
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_only_start_date_endpoints_advertise_incremental(self, endpoint):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -47,12 +47,6 @@ class TestCircleciInsightsSource:
         # full refresh.
         assert schemas[endpoint].supports_incremental is expected
         assert bool(INCREMENTAL_FIELDS.get(endpoint)) is expected
-
-    def test_org_summary_is_deselected_by_default(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["org_summary_metrics"].should_sync_default is False
-        assert schemas["workflow_runs"].should_sync_default is True
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["flaky_tests"])
@@ -96,17 +90,25 @@ class TestCircleciInsightsSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == datetime(2026, 7, 1, tzinfo=UTC)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source.circleci_insights_source"
-    )
-    def test_source_for_pipeline_drops_cursor_on_full_refresh(self, mock_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "workflow_runs"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = datetime(2026, 7, 1, tzinfo=UTC)
+    def test_source_for_pipeline_drops_cursor_on_full_refresh(self):
+        result = SourceDriver(self.source, self.config).run(
+            "workflow_runs",
+            route(
+                {
+                    "/api/v2/insights/gh/posthog/posthog/workflows": [
+                        ScriptedResponse(json={"items": [{"name": "ci"}], "next_page_token": None})
+                    ],
+                    "/api/v2/insights/gh/posthog/posthog/workflows/ci": [
+                        ScriptedResponse(json={"items": [], "next_page_token": None})
+                    ],
+                    "/api/v2/insights/gh/posthog/posthog.com/workflows": [
+                        ScriptedResponse(json={"items": [], "next_page_token": None})
+                    ],
+                }
+            ),
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=datetime(2026, 7, 1, tzinfo=UTC),
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[1].param("start-date") is None

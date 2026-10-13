@@ -165,6 +165,7 @@ def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
         ("claude-opus-5", "2.5×"),
         ("anthropic/claude-opus-5", "2.5×"),
         ("gpt-5.6-sol", "≈2.8×"),
+        ("gpt-6.1-sol", "1× base"),
         ("zai-org/glm-5.3-flash", "≈0.06×"),
         ("gpt-5", None),
         ("claude-imaginary-9", None),
@@ -174,6 +175,7 @@ def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
         "input_and_output_agree",
         "provider_qualified_id",
         "diverging_rates_are_approximate",
+        "tiered_model_marks_base_rate",
         "cheap_model_keeps_two_decimals",
         "unpriced_model",
         "unknown_model",
@@ -181,6 +183,14 @@ def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
 )
 def test_cost_multiplier_reads_against_the_baseline(model: str, expected: str | None) -> None:
     assert model_catalog.cost_multiplier_label(model) == expected
+
+
+def test_tiered_cost_summary_describes_both_rates() -> None:
+    cost = model_catalog.cost_for_model("gpt-6.1-sol")
+    assert cost is not None
+    assert model_catalog.format_cost_rates(cost) == (
+        "Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above"
+    )
 
 
 def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:

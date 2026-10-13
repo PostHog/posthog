@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.shortcuts import redirect, render
 
-from posthog.management.commands.resave_cohorts import UnclassifiedCohortsError
+from posthog.management.commands.resave_cohorts import IncompleteResaveError
 
 
 class ResaveCohortsForm(forms.Form):
@@ -44,9 +44,9 @@ def resave_cohorts_view(request):
                     request,
                     f"Cohort re-save started ({mode}) for {scope} with batch_size={form.cleaned_data['batch_size']}.",
                 )
-            except UnclassifiedCohortsError as e:
+            except IncompleteResaveError as e:
                 # The run finished and persisted its saves, so this is not a failure to start.
-                messages.warning(request, f"Cohort re-save finished, but found unclassified cohorts: {str(e)}")
+                messages.warning(request, f"Cohort re-save finished with problems: {str(e)}")
             except Exception as e:
                 messages.error(request, f"Failed to start cohort re-save: {str(e)}")
 

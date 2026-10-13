@@ -477,7 +477,11 @@ class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model,expected_output_config",
-        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+        [
+            ("claude-sonnet-5", {"effort": "medium"}),
+            ("claude-sonnet-5-5", {"effort": "medium"}),
+            ("claude-sonnet-4-5", None),
+        ],
     )
     async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
         mock_client = MagicMock()
@@ -498,12 +502,12 @@ class TestCheckActionability:
         output = _make_output(source_id="42")
         with (
             patch(
-                "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
-                return_value="typesafe-shadow",
+                "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+                return_value="system-one-shadow",
             ),
-            patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+            patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
             patch(
-                "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+                "products.signals.backend.system_one_decision.decision_api.decide_when_available",
                 return_value=DecisionResult(
                     model="jevk5-fp8-0.2",
                     answers={"actionable": NoulAnswer(probability=0.98)},
@@ -521,12 +525,14 @@ class TestCheckActionability:
         # report attributes to), since the per-call blob replaces the client default.
         assert "x-posthog-property-ai_stage" not in headers
         assert json.loads(headers["X-PostHog-Properties"]) == {
+            "$ai_prompt_name": "signals-actionability-test_product-test",
             "ai_product": "signals_emission",
             "ai_stage": "actionability",
             "signals_decision_id": decision_request.trace_id,
             "source_id": output.source_id,
             "source_product": output.source_product,
             "source_type": output.source_type,
+            "system_one_prompt_source": "bundled",
             "team_id": "7",
         }
 
@@ -686,6 +692,7 @@ class TestEmitSignals:
             description="bug report",
             weight=0.5,
             extra={},
+            idempotency_key=None,
         )
 
     @pytest.mark.asyncio

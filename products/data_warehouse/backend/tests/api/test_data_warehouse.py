@@ -289,6 +289,50 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertTrue(all(row["type"] == "Materialized view" for row in models))
         self.assertEqual(len(both), len(imports) + len(models))
 
+    def test_completed_activity_all_outcome_returns_both(self) -> None:
+        # The ETL runs list shows every sync, not only the failures, so a caller needs one
+        # request that spans both rather than two it has to merge.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        source = ExternalDataSource.objects.create(
+            source_id="both-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=5, status="Completed"
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=0, status="Failed"
+        )
+
+        statuses = {row["status"] for row in self.client.get(f"{endpoint}?outcome=all").json()["results"]}
+
+        self.assertIn("Completed", statuses)
+        self.assertIn("Failed", statuses)
+
+    def test_completed_activity_reports_the_source_id(self) -> None:
+        # Without this the runs list cannot link a run back to its source.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        source = ExternalDataSource.objects.create(
+            source_id="link-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=5, status="Completed"
+        )
+
+        results = self.client.get(f"{endpoint}?outcome=completed&kind=import").json()["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["source_id"], str(source.id))
+
     def test_completed_activity_rejects_an_unknown_kind(self) -> None:
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
         response = self.client.get(f"{endpoint}?kind=nonsense")
@@ -598,6 +642,27 @@ class TestDataWarehouseAPI(APIBaseTest):
         types = [activity["type"] for activity in data["results"]]
         self.assertIn("Stripe", types)
         self.assertIn("Materialized view", types)
+
+    def test_activity_uses_pipeline_id_for_schema_less_jobs(self):
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        running_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.RUNNING
+        )
+        completed_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.COMPLETED
+        )
+
+        running_response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/running_activity?kind=import")
+        completed_response = self.client.get(
+            f"/api/projects/{self.team.id}/data_warehouse/completed_activity?kind=import"
+        )
+
+        self.assertEqual(running_response.json()["results"][0]["id"], str(running_job.id))
+        self.assertEqual(running_response.json()["results"][0]["source_id"], str(source.id))
+        self.assertEqual(completed_response.json()["results"][0]["id"], str(completed_job.id))
+        self.assertEqual(completed_response.json()["results"][0]["source_id"], str(source.id))
 
     def test_completed_activity_returns_only_completed_jobs(self):
         """Test completed_activity endpoint returns only jobs with status 'Completed'"""

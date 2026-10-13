@@ -75,6 +75,15 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([0, 0.49, 1])('preserves a System One probability of %s without inventing reasoning', (probability) => {
+        const row = makeEvaluationRunRow()
+        row[7] = ''
+        row[21] = probability
+        const run = mapEvaluationRunRow(row)
+        expect(run.probability).toBe(probability)
+        expect(run.reasoning).toBe('')
+    })
+
     it.each([
         ['["resolved"]', ['resolved']],
         ['[]', []],

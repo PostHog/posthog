@@ -19,12 +19,14 @@ export type GateVariantType = 'add-card' | 'contact-sales' | 'move-to-cloud' | n
 export interface payGateMiniLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
+    billingManagedByPartnerDisabledReason: string | null // billingLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     availableFeature: (feature: AvailableFeature) => BillingFeatureType | null | undefined // userLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
     addonTrialModalOpen: boolean
     bypassPaywall: boolean
+    ctaDisabledReason: string | null
     ctaLabel: 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans'
     ctaLink: string | undefined
     featureAvailableOnOrg: BillingFeatureType | null | undefined
@@ -99,6 +101,10 @@ export interface payGateMiniLogicMeta {
             isAddonProduct: boolean | undefined,
             billing: BillingType | null
         ) => boolean
+        ctaDisabledReason: (
+            isPaymentEntryFlow: boolean,
+            billingManagedByPartnerDisabledReason: string | null
+        ) => string | null
     }
 }
 
@@ -116,7 +122,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingLoading'],
+            ['billing', 'billingLoading', 'billingManagedByPartnerDisabledReason'],
             userLogic,
             ['user', 'hasAvailableFeature', 'availableFeature'],
             preflightLogic,
@@ -296,6 +302,11 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 // to use core features (not addons)
                 return gateVariant === 'add-card' && !isAddonProduct && billing?.subscription_level === 'free'
             },
+        ],
+        ctaDisabledReason: [
+            (s) => [s.isPaymentEntryFlow, s.billingManagedByPartnerDisabledReason],
+            (isPaymentEntryFlow: boolean, billingManagedByPartnerDisabledReason: string | null): string | null =>
+                isPaymentEntryFlow ? billingManagedByPartnerDisabledReason : null,
         ],
     })),
 ])

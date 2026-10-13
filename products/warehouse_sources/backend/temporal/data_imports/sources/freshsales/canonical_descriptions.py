@@ -185,4 +185,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "contact_statuses": "Contact statuses that belong to the lifecycle stage.",
         },
     },
+    "lead_sources": {
+        "description": "A lead source configured in the portal. Resolves the lead_source_id carried on contacts and deals.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the lead source.",
+            "name": "Name of the lead source.",
+        },
+    },
+    "sales_activity_types": {
+        "description": "A sales activity type configured in the portal. Resolves the sales_activity_type_id carried on sales activities.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the sales activity type.",
+            "name": "Name of the sales activity type.",
+        },
+    },
+    "sales_activity_outcomes": {
+        "description": "An outcome that can be recorded on a sales activity. Resolves the sales_activity_outcome_id carried on sales activities.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the sales activity outcome.",
+            "name": "Name of the sales activity outcome.",
+        },
+    },
+    "lists": {
+        "description": "A marketing list of contacts.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#marketing_lists",
+        "columns": {
+            "id": "Unique identifier for the marketing list.",
+            "name": "Name of the marketing list.",
+        },
+    },
+    "list_contacts": {
+        "description": "Membership of contacts in marketing lists. One row per contact per list, with the contact's details.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#marketing_lists",
+        "columns": _columns(
+            id="Unique identifier for the contact.",
+            list_id="ID of the marketing list the contact belongs to.",
+            first_name="The contact's first name.",
+            last_name="The contact's last name.",
+            display_name="The contact's display name.",
+            email="The contact's primary email address.",
+        ),
+    },
 }

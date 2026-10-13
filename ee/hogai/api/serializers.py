@@ -158,7 +158,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
     log_url = serializers.URLField(allow_null=True, required=False, help_text="Presigned S3 URL for log access.")
     artifacts = TaskRunArtifactResponseSerializer(many=True, read_only=True)
     runtime_adapter = serializers.ChoiceField(
-        choices=[adapter.value for adapter in RuntimeAdapter],
+        choices=RuntimeAdapter.choices,
         allow_null=True,
         required=False,
         help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'.",

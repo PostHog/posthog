@@ -173,7 +173,7 @@ Windsurf, and ~30 other buckets). It is resolved at query time only, with no sto
 `mcp_harness.py::HARNESS_TOKEN_SQL` picks the strongest available signal in priority order,
 over exactly three properties — the ones the SDK schemas can emit
 (`$mcp_vendor_client`, with the legacy non-`$` `mcp_vendor_client` coalesced for historical
-rows -> Claude Code user-agent surface -> Grok user-agent -> `$mcp_client_name` -> generic
+rows -> Claude Code user-agent surface -> Grok and Kimchi user-agents -> `$mcp_client_name` -> generic
 user-agent token, both from `$mcp_client_user_agent`), then
 `harness_label_sql()` buckets it (or `harness_label_or_token_sql()`, which names an
 unrecognized client verbatim instead of collapsing it into "Other" — use it for ranked

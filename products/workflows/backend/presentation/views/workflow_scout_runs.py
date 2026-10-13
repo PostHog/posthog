@@ -17,8 +17,8 @@ from products.signals.backend.facade.api import (
     WorkflowScoutRunRejected,
     start_workflow_scout_run,
 )
-from products.workflows.backend.models import HogFlow
-from products.workflows.backend.service_jwt import WORKFLOW_SCOUT_RUN_PURPOSE
+from products.workflows.backend.facade.api import workflow_exists
+from products.workflows.backend.facade.service_jwt import WORKFLOW_SCOUT_RUN_PURPOSE
 
 logger = structlog.get_logger(__name__)
 
@@ -144,7 +144,7 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
 
         # A token outlives the workflow it was minted for (its TTL covers the whole fetch retry
         # chain), so a deleted workflow must not still be able to spend scout runs.
-        if not HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).exists():
+        if not workflow_exists(team_id=team_id, workflow_id=hog_flow_id):
             return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         try:

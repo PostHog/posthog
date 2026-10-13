@@ -28,7 +28,13 @@ class TestObservationThumbnail(_VisionAPITestCase):
     def _url(self) -> str:
         return f"{self.observations_url(self.scanner.id)}{self.observation.id}/thumbnail/"
 
-    def _add_thumbnail(self, *, rendered: bool) -> ExportedAsset:
+    def _add_thumbnail(
+        self,
+        *,
+        rendered: bool,
+        kind: ReplayObservationMedia.Kind = ReplayObservationMedia.Kind.THUMBNAIL,
+        position: int = 0,
+    ) -> ExportedAsset:
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -42,8 +48,8 @@ class TestObservationThumbnail(_VisionAPITestCase):
             team_id=self.team.id,
             observation=self.observation,
             asset=asset,
-            kind=ReplayObservationMedia.Kind.THUMBNAIL,
-            position=0,
+            kind=kind,
+            position=position,
             video_start_ms=1000,
         )
         return asset
@@ -56,6 +62,13 @@ class TestObservationThumbnail(_VisionAPITestCase):
         assert response.status_code in (200, 302)
         # The response redirects to a signed, expiring URL, so a cached one would outlive its target.
         assert response.headers["Cache-Control"] == "no-store"
+
+    def test_a_chapter_frame_is_served_only_for_its_chapter(self) -> None:
+        self._add_thumbnail(rendered=True, kind=ReplayObservationMedia.Kind.CHAPTER, position=1)
+
+        assert self.client.get(self._url(), {"chapter": 1}).status_code in (200, 302)
+        assert self.client.get(self._url(), {"chapter": 2}).status_code == 404
+        assert self.client.get(self._url()).status_code == 404
 
     def test_the_export_endpoint_will_not_serve_an_observations_media(self) -> None:
         # That endpoint authorizes a recording export by the recording alone, which is weaker than the

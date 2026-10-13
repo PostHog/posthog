@@ -465,7 +465,6 @@ class TestToolAccessControlDeclarations(BaseTest):
         "execute_sql",
         "generate_hogql_query",
         "fix_hogql_query",
-        "analyze_user_interviews",
         "call_mcp_server",  # Scoped to user's own MCP installations (team + user filtered) but no protected resources modified
         "diagnose_proxy",  # Explicit OrganizationMembership.Level >= ADMIN check inside _arun_impl; resource-level RBAC doesn't recognize membership level so we can't use get_required_resource_access here
     }

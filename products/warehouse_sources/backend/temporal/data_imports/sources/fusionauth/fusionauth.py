@@ -120,7 +120,8 @@ class _BoundedFusionAuthSession(requests.Session):
         # Never follow redirects: a validated host could 3xx to an internal address (SSRF). Pin the
         # timeout only when the caller didn't set one, and stream so the body is read incrementally.
         kwargs["allow_redirects"] = False
-        kwargs.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = DEFAULT_TIMEOUT_SECONDS
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         if response.is_redirect or response.is_permanent_redirect:
@@ -241,9 +242,22 @@ def _build_search_body(config: FusionAuthEndpointConfig, search_extra: dict[str,
     elif config.sort_mode == "asc":
         # AuditLogs/EventLogs document an explicit `orderBy` field (unlike LoginRecords),
         # so we can request ascending order and use a simple advancing watermark.
-        search["orderBy"] = "insertInstant ASC"
+        search["orderBy"] = config.order_by
     search.update(search_extra)
     return {"search": search}
+
+
+def _drop_fields(row: Any, paths: tuple[str, ...]) -> Any:
+    if not isinstance(row, dict):
+        return row
+    for path in paths:
+        *parents, leaf = path.split(".")
+        target: Any = row
+        for key in parents:
+            target = target.get(key) if isinstance(target, dict) else None
+        if isinstance(target, dict):
+            target.pop(leaf, None)
+    return row
 
 
 def _get_headers() -> dict[str, str]:
@@ -357,7 +371,7 @@ def fusionauth_source(
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(FusionAuthResumeConfig(offset=int(state["offset"])))
 
-    def items() -> Iterator[list[Any]]:
+    def pages() -> Iterator[list[Any]]:
         # Re-check at run time (not just at source-create) in case the base URL was edited to
         # now resolve to an internal address (SSRF / DNS rebinding). Only enforced on cloud. Refuse
         # plaintext HTTP before the key is used. Both raise before any request leaves the process.
@@ -429,6 +443,12 @@ def fusionauth_source(
             initial_paginator_state=initial_state,
         )
         yield from resource
+
+    def items() -> Iterator[list[Any]]:
+        for page in pages():
+            if config.exclude_fields:
+                page = [_drop_fields(row, config.exclude_fields) for row in page]
+            yield page
 
     return SourceResponse(
         name=endpoint,

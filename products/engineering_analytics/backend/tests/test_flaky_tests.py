@@ -326,6 +326,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         repo: str = "PostHog/posthog",
         job: str = "",
         runner_name: str = "",
+        ci_engine: str = "",
+        head_sha: str = "",
+        native_workflow_run_id: str = "",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is; attempt="" drops the
@@ -346,6 +349,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 ("ci.pr_number", pr),
                 ("ci.branch", branch),
                 ("ci.repository", repo),
+                ("ci.engine", ci_engine),
+                ("ci.sha", head_sha),
+                ("ci.native_workflow_run_id", native_workflow_run_id),
             )
             if value
         ]
@@ -442,6 +448,58 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     )
     def test_classification_needs_proof_to_call_a_test_flaky(self, _name: str, nodeid: str, expected: str) -> None:
         assert self._rows()[nodeid]["classification"] == expected
+
+    @parameterized.expand(
+        [
+            ("same_identity", ("github_actions", "workflow-a"), ("github_actions", "sha-a", "workflow-a"), 1),
+            ("different_engine", ("github_actions", "workflow-a"), ("depot_ci", "sha-a", "workflow-a"), 0),
+            ("different_commit", ("github_actions", "workflow-a"), ("github_actions", "sha-b", "workflow-a"), 0),
+            ("different_workflow", ("github_actions", "workflow-a"), ("github_actions", "sha-a", "workflow-b"), 0),
+            ("missing_depot_workflow", ("depot_ci", ""), ("depot_ci", "sha-a", ""), 0),
+        ]
+    )
+    def test_retry_recovery_requires_engine_workflow_and_commit_identity(
+        self, _name: str, failed: tuple[str, str], passed: tuple[str, str, str], recovered: int
+    ) -> None:
+        failed_engine, failed_workflow = failed
+        engine, sha, workflow = passed
+        nodeid = "posthog/api/test/test_identity/TestIdentity::test_retry"
+        stamp = datetime.now(UTC) - timedelta(hours=1)
+        rows = [
+            self._span(
+                9001,
+                nodeid,
+                "failed",
+                ts=stamp,
+                run="9900",
+                branch="master",
+                ci_engine=failed_engine,
+                head_sha="sha-a",
+                native_workflow_run_id=failed_workflow,
+            ),
+            self._span(
+                9002,
+                nodeid,
+                "passed",
+                ts=stamp,
+                run="9900",
+                attempt="2",
+                branch="master",
+                ci_engine=engine,
+                head_sha=sha,
+                native_workflow_run_id=workflow,
+            ),
+        ]
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, resource_attributes) VALUES "
+            + ",".join(rows)
+        )
+        try:
+            assert self._rows()[nodeid]["same_commit_recovery_run_count"] == recovered
+        finally:
+            sync_execute(
+                "ALTER TABLE trace_spans DELETE WHERE uuid IN ('uuid-9001', 'uuid-9002') SETTINGS mutations_sync = 2"
+            )
 
     def test_evidence_is_counted_once_per_run(self) -> None:
         rows = self._rows()

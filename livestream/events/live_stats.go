@@ -79,18 +79,19 @@ func (ts *Stats) KeepStats(statsChan chan CountEvent, flushInterval time.Duratio
 				return
 			}
 
-			ts.Counter.Increment()
-			ts.GetStoreForToken(event.Token).Add(event.DistinctID, NoSpaceType{})
-			ts.GlobalStore.Add(event.DistinctID, NoSpaceType{})
 			metrics.HandledEvents.Inc()
 
-			if ts.RedisStore != nil {
-				if pending[event.Token] == nil {
-					pending[event.Token] = make(map[string]float64)
-				}
-
-				pending[event.Token][event.DistinctID] = float64(time.Now().Unix())
+			if ts.RedisStore == nil {
+				ts.Counter.Increment()
+				ts.GetStoreForToken(event.Token).Add(event.DistinctID, NoSpaceType{})
+				ts.GlobalStore.Add(event.DistinctID, NoSpaceType{})
+				continue
 			}
+
+			if pending[event.Token] == nil {
+				pending[event.Token] = make(map[string]float64)
+			}
+			pending[event.Token][event.DistinctID] = float64(time.Now().Unix())
 		case <-ticker.C:
 			ts.flushUsersToRedis(pending)
 			pending = make(map[string]map[string]float64)

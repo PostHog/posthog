@@ -28,7 +28,13 @@ import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/fronte
 
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
-import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
+import {
+    SignalSourceToggleFailureReason,
+    captureSignalSourceConfigsLoadFailed,
+    captureSignalSourceConnected,
+    captureSignalSourceDisabled,
+    captureSignalSourceToggleFailed,
+} from './inboxAnalytics'
 import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams } from './types'
 
 /** product_enablement recipe names for products that back a signal source. */
@@ -148,6 +154,12 @@ export const WAREHOUSE_SOURCE_SETUP: Record<
         completion: { kind: 'ci_signals_bundle' },
     },
 }
+
+/**
+ * Shown when a toggle runs before the source list has loaded. Without the list an existing source
+ * looks new, and creating it again fails on the unique constraint with a message nobody can act on.
+ */
+const SOURCE_CONFIGS_UNAVAILABLE_MESSAGE = "Couldn't load your signal sources. Reload them and try again."
 
 /** Values subset used by data-warehouse source helpers */
 interface SignalSourcesLogicValuesForDw {
@@ -1056,7 +1068,22 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             )
         }
 
+        function failSignalSourceToggle(
+            sourceProduct: SignalSourceProduct,
+            sourceType: SignalSourceType,
+            enabled: boolean,
+            errorMessage: string,
+            reason: SignalSourceToggleFailureReason
+        ): void {
+            captureSignalSourceToggleFailed({ sourceProduct, sourceType, enabled, reason, errorMessage })
+            lemonToast.error(errorMessage)
+            actions.loadSourceConfigs()
+        }
+
         return {
+            loadSourceConfigsFailure: ({ error, errorObject }) => {
+                captureSignalSourceConfigsLoadFailed(errorObject?.detail || error || 'Failed to load signal sources')
+            },
             loadCiSignalsConfigFailure: ({ error, errorObject }) => {
                 // Silent failure would leave the card claiming setup is required for an armed source.
                 lemonToast.error(errorObject?.detail || error || 'Failed to load CI signals status')
@@ -1132,10 +1159,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     viaSetupWizard: true,
                 })
             },
-            toggleSignalSource: async ({ params }, breakpoint) => {
+            // No breakpoint here: every call settles its own source, and a breakpoint would let a
+            // toggle on another source cancel this one, leaving its spinner up and its error unshown.
+            toggleSignalSource: async ({ params }) => {
                 const { sourceProduct, sourceType, enabled, config } = params
+                if (values.sourceConfigs === null) {
+                    actions.toggleSignalSourceFailure(params, SOURCE_CONFIGS_UNAVAILABLE_MESSAGE)
+                    failSignalSourceToggle(
+                        sourceProduct,
+                        sourceType,
+                        enabled,
+                        SOURCE_CONFIGS_UNAVAILABLE_MESSAGE,
+                        'configs_unavailable'
+                    )
+                    return
+                }
                 try {
-                    const configs = values.sourceConfigs ?? []
+                    const configs = values.sourceConfigs
                     const existing = configs.find(
                         (c: SignalSourceConfig) => c.source_product === sourceProduct && c.source_type === sourceType
                     )
@@ -1154,7 +1194,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             config: config ?? {},
                         })
                     }
-                    breakpoint()
                     actions.toggleSignalSourceSuccess(params)
                     if (
                         sourceProduct === SignalSourceProduct.LlmAnalytics &&
@@ -1181,18 +1220,27 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
-                    breakpoint()
                     const errorMessage = error?.detail || error?.message || 'Failed to toggle signal source'
                     actions.toggleSignalSourceFailure(params, errorMessage)
-                    actions.loadSourceConfigs()
-                    lemonToast.error(errorMessage)
+                    failSignalSourceToggle(sourceProduct, sourceType, enabled, errorMessage, 'request_failed')
                 }
             },
             toggleErrorTracking: async (_, breakpoint) => {
                 // The row switch reads "on" as soon as one type is armed, so turning it off has to
                 // stand every type down rather than arm the remaining ones.
                 const desiredEnabled = !values.errorTrackingTypeStates.some(({ enabled }) => enabled)
-                const configs = values.sourceConfigs ?? []
+                if (values.sourceConfigs === null) {
+                    actions.toggleErrorTrackingComplete()
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        SignalSourceType.IssueCreated,
+                        desiredEnabled,
+                        SOURCE_CONFIGS_UNAVAILABLE_MESSAGE,
+                        'configs_unavailable'
+                    )
+                    return
+                }
+                const configs = values.sourceConfigs
                 const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 // First connection when no persisted error-tracking config existed before this enable.
                 const wasConnected = configs.some(
@@ -1235,12 +1283,29 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     breakpoint() // re-throws if superseded, skipping the lines below
                     actions.toggleErrorTrackingComplete()
                     const errorMessage = error?.detail || error?.message || 'Failed to toggle Error tracking signals'
-                    lemonToast.error(errorMessage)
-                    actions.loadSourceConfigs()
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        SignalSourceType.IssueCreated,
+                        desiredEnabled,
+                        errorMessage,
+                        'request_failed'
+                    )
                 }
             },
-            toggleErrorTrackingType: async ({ sourceType }, breakpoint) => {
-                const configs = values.sourceConfigs ?? []
+            // No breakpoint here either: each signal type is its own row, so a click on another type
+            // must not cancel this one or swallow its error.
+            toggleErrorTrackingType: async ({ sourceType }) => {
+                const configs = values.sourceConfigs
+                if (configs === null) {
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        sourceType,
+                        true,
+                        SOURCE_CONFIGS_UNAVAILABLE_MESSAGE,
+                        'configs_unavailable'
+                    )
+                    return
+                }
                 const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 const existing = configs.find(
                     (c) => c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
@@ -1257,10 +1322,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             config: inheritedConfig,
                         })
                     }
-                    breakpoint()
                 } catch (error: any) {
-                    breakpoint()
-                    lemonToast.error(error?.detail || error?.message || 'Failed to toggle this signal type')
+                    failSignalSourceToggle(
+                        SignalSourceProduct.ErrorTracking,
+                        sourceType,
+                        desiredEnabled,
+                        error?.detail || error?.message || 'Failed to toggle this signal type',
+                        'request_failed'
+                    )
+                    return
                 }
                 actions.loadSourceConfigs()
             },

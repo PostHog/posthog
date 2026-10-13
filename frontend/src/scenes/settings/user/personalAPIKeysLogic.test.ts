@@ -122,6 +122,29 @@ describe('personalAPIKeysLogic', () => {
         }
     )
 
+    it('clamps a group write to what each row can take', async () => {
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setEditingKeyValues({ access_type: 'teams' })
+        // integration is read-only, and organization is not available for a project scoped key.
+        logic.actions.setScopeGroupAccess(['survey', 'integration', 'organization'], 'write')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect([...logic.values.editingKey.scopes].sort()).toEqual([
+            'feature_flag:write',
+            'integration:read',
+            'survey:write',
+        ])
+    })
+
+    it('keeps only the groups with a row that matches the search', () => {
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setSearchTerm('survey')
+
+        expect(logic.values.filteredScopeGroups.flatMap(({ rows }) => rows.map(({ scope }) => scope.key))).toEqual([
+            'survey',
+        ])
+    })
+
     it('leaves the auto-selected feature_flag:write removable', async () => {
         logic.actions.setEditingKeyId('new')
         logic.actions.setScopeRadioValue('survey', 'write')

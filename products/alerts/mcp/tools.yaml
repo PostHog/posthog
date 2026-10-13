@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product alerts
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product alerts
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Alerts
 feature: alerts
 url_prefix: /alerts
@@ -219,18 +217,3 @@ tools:
             (`insight_id`), fuzzy name search (`search`), and creator (`created_by` user UUID). Alerts can use either
             threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via
             detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
-    alerts-simulate-create:
-        operation: alerts_simulate_create
-        enabled: false
-    alerts-test-delivery-create:
-        operation: alerts_test_delivery_create
-        enabled: false
-    alerts-update:
-        operation: alerts_update
-        enabled: false
-    insights-thresholds-list:
-        operation: insights_thresholds_list
-        enabled: false
-    insights-thresholds-retrieve:
-        operation: insights_thresholds_retrieve
-        enabled: false

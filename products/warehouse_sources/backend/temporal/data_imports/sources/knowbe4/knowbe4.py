@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -49,12 +51,17 @@ def _list_paginator() -> PageNumberPaginator:
     return PageNumberPaginator(base_page=1, page_param="page", stop_after_empty_page=True)
 
 
+def _paginator(config: KnowBe4EndpointConfig) -> BasePaginator:
+    return _list_paginator() if config.paginated else SinglePagePaginator()
+
+
 def get_resource(config: KnowBe4EndpointConfig) -> EndpointResource:
+    page_params: dict[str, Any] = {"per_page": config.page_size} if config.paginated else {}
     endpoint_config: Endpoint = {
         "path": config.path,
-        "params": {"per_page": config.page_size, **config.extra_params},
+        "params": {**page_params, **config.extra_params},
         "data_selector": config.data_selector,
-        "paginator": _list_paginator(),
+        "paginator": _paginator(config),
     }
     return {
         "name": config.name,
@@ -101,13 +108,13 @@ def knowbe4_source(
                 job_id=job_id,
                 db_incremental_field_last_value=None,
                 should_use_incremental_field=False,
-                page_size_param="per_page",
+                page_size_param="per_page" if config.paginated else None,
                 parent_endpoint_extra={
                     "paginator": _list_paginator(),
                     "data_selector": KNOWBE4_ENDPOINTS[config.fanout.parent_name].data_selector,
                 },
                 child_endpoint_extra={
-                    "paginator": _list_paginator(),
+                    "paginator": _paginator(config),
                     "data_selector": config.data_selector,
                 },
                 child_params_extra=config.extra_params or None,

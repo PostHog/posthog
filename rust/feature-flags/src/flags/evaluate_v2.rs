@@ -31,19 +31,83 @@ pub struct MatchedRule {
     pub kind: RuleKind,
 }
 
+/// `value` borrows the parsed JSON of the flag's return type from the configuration; `None`
+/// is a null default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Evaluation {
+pub enum Evaluation<'a> {
     TargetingMatch {
-        value: bool,
+        value: &'a Value,
         rule: MatchedRule,
     },
     RolloutMiss {
-        value: Option<bool>,
+        value: Option<&'a Value>,
         rule: MatchedRule,
     },
     NoRuleMatch {
-        value: Option<bool>,
+        value: Option<&'a Value>,
     },
+}
+
+impl RuleKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TargetedRelease => "targeted_release",
+            Self::PercentageRollout => "percentage_rollout",
+        }
+    }
+}
+
+impl<'a> Evaluation<'a> {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TargetingMatch { .. } => "targeting_match",
+            Self::RolloutMiss { .. } => "rollout_miss",
+            Self::NoRuleMatch { .. } => "no_rule_match",
+        }
+    }
+
+    pub fn value(self) -> Option<&'a Value> {
+        match self {
+            Self::TargetingMatch { value, .. } => Some(value),
+            Self::RolloutMiss { value, .. } | Self::NoRuleMatch { value } => value,
+        }
+    }
+
+    pub fn rule(self) -> Option<MatchedRule> {
+        match self {
+            Self::TargetingMatch { rule, .. } | Self::RolloutMiss { rule, .. } => Some(rule),
+            Self::NoRuleMatch { .. } => None,
+        }
+    }
+
+    pub fn description(self) -> String {
+        match self {
+            Self::TargetingMatch { rule, .. } => format!("Matched rule {}", rule.index + 1),
+            Self::RolloutMiss { rule, .. } => format!("Rule {} rollout miss", rule.index + 1),
+            Self::NoRuleMatch { .. } => "No rule matched".to_string(),
+        }
+    }
+}
+
+/// The parts of an [`Evaluation`] the v3 record reads, owned so they outlive the configuration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluationDetail {
+    pub code: &'static str,
+    /// `Value::Null` is a null default.
+    pub value: Value,
+    pub rule: Option<MatchedRule>,
+    pub description: String,
+}
+
+impl From<Evaluation<'_>> for EvaluationDetail {
+    fn from(evaluation: Evaluation<'_>) -> Self {
+        Self {
+            code: evaluation.code(),
+            value: evaluation.value().cloned().unwrap_or(Value::Null),
+            rule: evaluation.rule(),
+            description: evaluation.description(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,7 +165,10 @@ impl<'a> Evaluator<'a> {
         Self { config }
     }
 
-    pub fn evaluate(&self, context: &EvaluationContext<'_>) -> Result<Evaluation, EvaluationError> {
+    pub fn evaluate(
+        &self,
+        context: &EvaluationContext<'_>,
+    ) -> Result<Evaluation<'a>, EvaluationError> {
         self.evaluate_with_hash(context, |seed, subject| {
             calculate_hash(&format!("{seed}."), subject, "").map_err(|_| EvaluationError::Hash)
         })
@@ -113,7 +180,7 @@ impl<'a> Evaluator<'a> {
         &self,
         context: &EvaluationContext<'_>,
         mut hash: impl FnMut(&str, &str) -> Result<f64, EvaluationError>,
-    ) -> Result<Evaluation, EvaluationError> {
+    ) -> Result<Evaluation<'a>, EvaluationError> {
         let subject = truncate_chars(context.person_identifier, MAX_DISTINCT_ID_LEN);
         let matching =
             PropertyMatchingContext::new(context.timezone, context.use_explicit_exact_matching)
@@ -135,7 +202,7 @@ impl<'a> Evaluator<'a> {
                 kind,
             };
             let (kind, value) = match &rule.outcome {
-                Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, *value),
+                Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, value),
                 Outcome::PercentageRollout {
                     value,
                     rollout_percentage,
@@ -156,13 +223,13 @@ impl<'a> Evaluator<'a> {
                             RolloutMiss::Continue => continue,
                             RolloutMiss::ReturnDefault => {
                                 return Ok(Evaluation::RolloutMiss {
-                                    value: self.config.default_value,
+                                    value: self.config.default_value.as_ref(),
                                     rule: matched_rule(RuleKind::PercentageRollout),
                                 })
                             }
                         }
                     }
-                    (RuleKind::PercentageRollout, *value)
+                    (RuleKind::PercentageRollout, value)
                 }
             };
             return Ok(Evaluation::TargetingMatch {
@@ -171,7 +238,7 @@ impl<'a> Evaluator<'a> {
             });
         }
         Ok(Evaluation::NoRuleMatch {
-            value: self.config.default_value,
+            value: self.config.default_value.as_ref(),
         })
     }
 }

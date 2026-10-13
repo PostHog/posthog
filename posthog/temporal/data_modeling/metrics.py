@@ -132,10 +132,10 @@ def get_clickhouse_materialization_duration_metric() -> MetricHistogramFloat:
 # DAG-level metrics (v2 ExecuteDAGWorkflow)
 
 
-def get_dag_finished_metric(status: str) -> MetricCounter:
+def get_dag_finished_metric(status: str, engine: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"status": status, "engine": engine})
         .create_counter(
             "data_modeling_dag_finished",
             "Number of DAG executions finished. Status is completed, partial_failure, skipped, or failed.",
@@ -143,18 +143,22 @@ def get_dag_finished_metric(status: str) -> MetricCounter:
     )
 
 
-def get_dag_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_dag_duration_seconds",
-        "Total wall-clock duration of a DAG execution.",
-        "s",
+def get_dag_duration_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_dag_duration_seconds",
+            "Total wall-clock duration of a DAG execution.",
+            "s",
+        )
     )
 
 
-def get_dag_node_count_metric(outcome: str) -> MetricHistogramFloat:
+def get_dag_node_count_metric(outcome: str, engine: str) -> MetricHistogramFloat:
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"outcome": outcome})
+        .with_additional_attributes({"outcome": outcome, "engine": engine})
         .create_histogram_float(
             "data_modeling_dag_node_count",
             "Number of nodes per outcome (successful, failed, skipped) in a DAG execution.",

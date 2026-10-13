@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import close_old_connections, connection, transaction
 from django.db.models import Q
@@ -42,6 +43,7 @@ from products.growth.backend.enrichment.labels import (
     validate_input_fields,
     validate_output_fields,
 )
+from products.growth.backend.enrichment.tools import FirecrawlPacer
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -115,7 +117,7 @@ class Command(BaseCommand):
             "--max-failures",
             type=int,
             default=25,
-            help="Abort the run once this many consecutive fetches fail in a row (circuit breaker)",
+            help="Abort the run once this many consecutive fetches fail or defer on a web tool (circuit breaker)",
         )
         parser.add_argument(
             "--min-success-rate",
@@ -163,6 +165,11 @@ class Command(BaseCommand):
             validate_output_fields(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e
+        if gates.region_allowed() and not settings.FIRECRAWL_API_KEY:
+            raise CommandError(
+                "FIRECRAWL_API_KEY is not configured, so every org whose model turn calls a web tool would be "
+                "deferred after a paid model call; aborting before any spend"
+            )
 
         lock_key = _advisory_lock_key(label)
         with connection.cursor() as cursor:
@@ -192,6 +199,7 @@ class Command(BaseCommand):
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
         client = get_llm_client(product="growth").with_options(max_retries=0)
+        pacer = FirecrawlPacer()
 
         counts: dict[str, int] = {
             "attempted": 0,
@@ -285,8 +293,8 @@ class Command(BaseCommand):
                     # Thread-local DB connections: drop any stale one before ORM work on this
                     # thread. Kept inside the guarded region so a failure here counts as an
                     # ordinary failure instead of escaping through future.result() and killing
-                    # the run — and closed again below, since pool threads are reused and
-                    # otherwise sit on a held connection for the full 60s of every LLM call.
+                    # the run. Pool threads are reused, so the connection is closed again before
+                    # the model call and in the finally block below.
                     close_old_connections()
                 # Re-check right before spending: another run may have computed this since the
                 # target was enumerated.
@@ -306,7 +314,11 @@ class Command(BaseCommand):
                         counts["consent_revoked_after_attempt"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                if threaded:
+                    # The model call and its paced tool calls can take minutes, and an idle
+                    # connection held through them can be dropped before the write below.
+                    connection.close()
+                output = classify_payload(config, fetch.payload, signup_domain, client, pacer=pacer)
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
@@ -327,8 +339,13 @@ class Command(BaseCommand):
                     )
                 _apply_score(result, repair=False)
             except TransientToolError:
+                # A deferral follows a model call that is already paid for, so a run of them must
+                # stop the spend the same way a run of failures does.
                 with counts_lock:
                     counts["tools_deferred"] += 1
+                    failure_streak += 1
+                    if failure_streak >= max_failures:
+                        circuit_open.set()
                 return
             except Exception as e:
                 capture_exception(
@@ -443,14 +460,14 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted. Consent skips and tool deferrals are
-        # excluded for the same reason (an archive of orgs that all declined, or that all hit a
-        # transient Firecrawl outage, is a correct empty run, not a failed one), but only
-        # "consent_revoked_after_attempt" and "tools_deferred" need subtracting here - a declined
-        # org caught at enumeration time never incremented "attempted" to begin with (see
+        # work that was queued but never actually attempted. Consent skips are excluded for the
+        # same reason (an archive of orgs that all declined is a correct empty run, not a failed
+        # one), but only "consent_revoked_after_attempt" needs subtracting here - a declined org
+        # caught at enumeration time never incremented "attempted" to begin with (see
         # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
-        # double-subtract and could push "tried" negative.
-        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["tools_deferred"]
+        # double-subtract and could push "tried" negative. Tool deferrals stay in "tried": each
+        # one paid for a model call and produced no verdict.
+        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"]
         tried = counts["attempted"] - not_tried
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
@@ -482,9 +499,9 @@ class Command(BaseCommand):
         if counts["score_failures"]:
             raise CommandError(f"failed to apply {counts['score_failures']} stored AI labels ({summary})")
         if circuit_open.is_set():
-            raise CommandError(f"aborted after {max_failures} consecutive failures ({summary})")
+            raise CommandError(f"aborted after {max_failures} consecutive failures or tool deferrals ({summary})")
         if tried > 0 and counts["succeeded"] == 0:
-            raise CommandError(f"every attempted org failed ({summary})")
+            raise CommandError(f"no attempted org succeeded ({summary})")
         if success_rate is not None and success_rate < min_success_rate:
             raise CommandError(
                 f"success_rate {success_rate:.2f} is below --min-success-rate {min_success_rate} ({summary})"

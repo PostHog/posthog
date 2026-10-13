@@ -5,9 +5,10 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 REPORTS_PATH = "/api/reports/by-user-client-date"
 CREDITS_PATH = "/api/credits"
+USER_REGISTRY_PATH = "/api/reports/user-registry"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CodyEndpointConfig:
     name: str
     path: str
@@ -21,6 +22,7 @@ class CodyEndpointConfig:
     # (including the date column an incremental cursor would track) aren't documented, so every
     # endpoint ships full refresh until the response schema can be verified against a live token.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    primary_keys: Optional[list[str]] = None
     description: Optional[str] = None
     should_sync_default: bool = True
 
@@ -59,6 +61,13 @@ CODY_ENDPOINTS: dict[str, CodyEndpointConfig] = {
         name="credits",
         path=CREDITS_PATH,
         description="Credit bucket allocations and consumption for the instance. Full refresh only",
+    ),
+    "user_registry": CodyEndpointConfig(
+        name="user_registry",
+        path=USER_REGISTRY_PATH,
+        # The only Cody export with documented CSV columns; `Instance user ID` normalizes to this.
+        primary_keys=["instance_user_id"],
+        description="Current snapshot of the instance's users, with service account and site admin flags. Full refresh only",
     ),
 }
 

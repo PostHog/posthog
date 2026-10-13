@@ -38,6 +38,14 @@ from products.tasks.backend.logic.services.agentsh import (
     read_gh_guard_script,
 )
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
+from products.tasks.backend.logic.services.memory_watchdog import (
+    MEMORY_WATCHDOG_MISSING_MARKER,
+    MEMORY_WATCHDOG_PATH,
+    MEMORY_WATCHDOG_START_FAILED_MARKER,
+    build_memory_watchdog_probe_command,
+    build_memory_watchdog_start_command,
+    read_memory_watchdog_script,
+)
 from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
@@ -128,7 +136,9 @@ def _session_init_probe_hosts() -> list[str]:
     reason to exist.
     """
     hosts = list(SESSION_INIT_PROBE_HOSTS)
-    mcp_host = _hostname_from_url(resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL))
+    mcp_host = _hostname_from_url(
+        resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, mcp_server_url=settings.MCP_SERVER_URL)
+    )
     if mcp_host and mcp_host not in hosts:
         hosts.insert(0, mcp_host)
     for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
@@ -203,12 +213,15 @@ def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALT
 class AgentServerPreflight:
     reused: bool
     capabilities: frozenset[str]
+    memory_watchdog_missing: bool = False
 
     def supports(self, capability: str) -> bool:
         return capability in self.capabilities
 
 
-def build_agent_server_preflight_script(*, probe_health: bool, executable_paths: tuple[str, ...]) -> str:
+def build_agent_server_preflight_script(
+    *, probe_health: bool, executable_paths: tuple[str, ...], probe_memory_watchdog: bool = False
+) -> str:
     lines = [
         f"if ! ( {build_bundled_skills_clear_command()} ); then exit {AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE}; fi"
     ]
@@ -216,6 +229,8 @@ def build_agent_server_preflight_script(*, probe_health: bool, executable_paths:
         f"if ! chmod +x {shlex.quote(path)}; then exit {AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE}; fi"
         for path in executable_paths
     )
+    if probe_memory_watchdog:
+        lines.append(build_memory_watchdog_probe_command())
     lines.extend(
         f"if {build_agent_server_capability_probe(capability)}; then "
         f"echo {shlex.quote(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX + capability)}; fi"
@@ -324,11 +339,13 @@ class AgentServerLaunchMixin(SandboxBase):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
             agent_runtime=agent_runtime,
             sandbox_id=self.id,
+            sandbox_runtime=sandbox_runtime,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -399,6 +416,9 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
                 f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
             )
+
+    def _sandbox_runtime(self) -> str | None:
+        return None
 
     def _stage_codex_run_token(self, codex_run_token: str) -> None:
         self._write_required_file(CODEX_RUN_TOKEN_FILE, codex_run_token.encode())
@@ -515,6 +535,19 @@ class AgentServerLaunchMixin(SandboxBase):
                 cause=RuntimeError(f"chmod {mode} {path} exited {result.exit_code}"),
             )
 
+    def _install_memory_watchdog(self, preflight: AgentServerPreflight) -> bool:
+        if not settings.TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED:
+            return False
+        if not preflight.memory_watchdog_missing:
+            return True
+        try:
+            self._write_required_file(MEMORY_WATCHDOG_PATH, read_memory_watchdog_script())
+            self._chmod_required(MEMORY_WATCHDOG_PATH, "+x")
+        except Exception as error:
+            logger.warning(f"Failed to install the memory watchdog in sandbox {self.id}: {error}")
+            return False
+        return True
+
     def _validate_agent_server_launch(self) -> None:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -529,7 +562,9 @@ class AgentServerLaunchMixin(SandboxBase):
         executable_paths = self._install_agent_server_launch_files()
         result = self.execute(
             build_agent_server_preflight_script(
-                probe_health=self._agent_server_reuse_enabled(), executable_paths=executable_paths
+                probe_health=self._agent_server_reuse_enabled(),
+                executable_paths=executable_paths,
+                probe_memory_watchdog=settings.TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED,
             ),
             timeout_seconds=AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
         )
@@ -567,7 +602,11 @@ class AgentServerLaunchMixin(SandboxBase):
                 self._on_agent_server_reused()
                 return AgentServerPreflight(reused=True, capabilities=capabilities)
             self._free_agent_server_port()
-        return AgentServerPreflight(reused=False, capabilities=capabilities)
+        return AgentServerPreflight(
+            reused=False,
+            capabilities=capabilities,
+            memory_watchdog_missing=MEMORY_WATCHDOG_MISSING_MARKER in lines,
+        )
 
     def _launch_prepared_agent_server(
         self,
@@ -617,6 +656,8 @@ class AgentServerLaunchMixin(SandboxBase):
                 {"sandbox_id": self.id, "stderr": launch_result.stderr, "exit_code": str(launch_result.exit_code)},
                 cause=RuntimeError(launch_result.stderr or "launch command returned non-zero exit"),
             )
+        if MEMORY_WATCHDOG_START_FAILED_MARKER in launch_result.stdout:
+            logger.warning(f"Failed to start the memory watchdog in sandbox {self.id}")
 
         if wait_for_health:
             if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
@@ -663,6 +704,7 @@ class AgentServerLaunchMixin(SandboxBase):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -684,6 +726,7 @@ class AgentServerLaunchMixin(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self._prepare_agent_server_launch(allowed_domains)
+        memory_watchdog_ready = self._install_memory_watchdog(preflight)
 
         codex_run_token_file = CODEX_RUN_TOKEN_FILE if codex_run_token else None
 
@@ -715,7 +758,7 @@ class AgentServerLaunchMixin(SandboxBase):
             # The launch shell deletes the token file, so every launch attempt needs its own copy.
             if codex_run_token:
                 self._stage_codex_run_token(codex_run_token)
-            return self._build_agent_server_command(
+            command = self._build_agent_server_command(
                 repo_path,
                 task_id,
                 run_id,
@@ -748,7 +791,11 @@ class AgentServerLaunchMixin(SandboxBase):
                 claude_model_access=claude_model_access,
                 codex_model_access=codex_model_access,
                 codex_run_token_file=codex_run_token_file,
+                sandbox_runtime=sandbox_runtime or self._sandbox_runtime(),
             )
+            if memory_watchdog_ready:
+                return f"{build_memory_watchdog_start_command()}; {command}"
+            return command
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
         return self._launch_prepared_agent_server(

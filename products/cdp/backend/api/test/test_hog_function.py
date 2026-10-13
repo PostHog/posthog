@@ -89,6 +89,14 @@ def get_db_field_value(field, model_id):
     return cursor.fetchone()[0]
 
 
+def _alert_filters(event_id: str = "$logs_alert_firing", alert_id: str = "alert-1", **overrides: Any) -> dict:
+    return {
+        "events": [{"id": event_id, "type": "events"}],
+        "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}],
+        **overrides,
+    }
+
+
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
@@ -192,15 +200,16 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
 
-    def test_generic_api_cannot_subscribe_to_managed_alert_events(self):
+    @parameterized.expand([("$billing_alert_firing",), ("$logs_alert_incident_closed",)])
+    def test_generic_api_cannot_subscribe_to_managed_alert_events(self, event_id):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "name": "Forged billing destination",
+                "name": "Forged alert destination",
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
                 "enabled": True,
-                "filters": {"events": [{"id": "$billing_alert_firing", "type": "events"}]},
+                "filters": {"events": [{"id": event_id, "type": "events"}]},
             },
         )
 
@@ -248,33 +257,200 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         listed_ids = {item["id"] for item in list_response.json()["results"]}
         self.assertIn(function_id, listed_ids)
 
-    def test_generic_api_lists_but_cannot_patch_managed_alert_destinations(self):
-        managed = HogFunction.objects.create(
+    def _create_internal_destination(self, filters: dict, deleted: bool = False) -> HogFunction:
+        return HogFunction.objects.create(
             team=self.team,
-            name="Billing alert destination",
+            name="Alert destination",
             hog="return event",
             type="internal_destination",
             enabled=True,
-            inputs_schema=[],
-            inputs={},
-            filters={
-                "events": [{"id": "$billing_alert_firing", "type": "events"}],
-                "properties": [{"key": "alert_id", "value": "alert-1"}],
-            },
+            deleted=deleted,
+            inputs_schema=[{"key": "channel", "type": "string", "required": True}],
+            inputs={"channel": {"value": "#alerts"}},
+            filters=filters,
         )
+
+    def test_generic_api_lists_and_retrieves_managed_alert_destinations(self):
+        managed = self._create_internal_destination(_alert_filters())
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/")
-        patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
-            data={"name": "Renamed alert destination"},
-        )
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         listed_ids = {item["id"] for item in list_response.json()["results"]}
         self.assertIn(str(managed.id), listed_ids)
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
+
+    @parameterized.expand([("$logs_alert_firing",), ("$logs_alert_incident_opened",)])
+    def test_generic_api_can_edit_a_logs_alert_destination(self, event_id):
+        managed = self._create_internal_destination(_alert_filters(event_id))
+
+        # The editor echoes the stored filters back unchanged alongside the edited fields
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+            data={
+                "name": "Renamed alert destination",
+                "enabled": False,
+                "inputs": {"channel": {"value": "#oncall"}},
+                "filters": managed.filters,
+            },
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK, patch_response.json())
+        managed.refresh_from_db()
+        self.assertEqual(managed.name, "Renamed alert destination")
+        self.assertFalse(managed.enabled)
+        self.assertEqual((managed.inputs or {})["channel"]["value"], "#oncall")
+        self.assertEqual((managed.filters or {})["events"], [{"id": event_id, "type": "events"}])
+
+    @parameterized.expand(
+        [
+            ("another managed event", {"filters": _alert_filters("$logs_alert_resolved")}, "filters"),
+            ("another alert", {"filters": _alert_filters(alert_id="alert-2")}, "filters"),
+            ("no alert id", {"filters": _alert_filters(properties=[])}, "filters"),
+            (
+                "another operator",
+                {
+                    "filters": _alert_filters(
+                        properties=[{"key": "alert_id", "value": "alert-1", "operator": "is_not", "type": "event"}]
+                    )
+                },
+                "filters",
+            ),
+            (
+                "another property type",
+                {
+                    "filters": _alert_filters(
+                        properties=[{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "person"}]
+                    )
+                },
+                "filters",
+            ),
+            ("no managed event", {"filters": _alert_filters("$pageview")}, "filters"),
+            ("soft delete", {"deleted": True}, "deleted"),
+        ]
+    )
+    def test_generic_api_cannot_change_which_alert_owns_a_managed_destination(self, _name, data, attr):
+        managed = self._create_internal_destination(_alert_filters())
+
+        patch_response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/", data=data)
+
         self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertEqual(patch_response.json()["attr"], attr)
+        managed.refresh_from_db()
+        self.assertFalse(managed.deleted)
+        self.assertEqual({key: (managed.filters or {})[key] for key in ("events", "properties")}, _alert_filters())
+
+    @parameterized.expand([("$billing_alert_firing",), ("$replay_vision_alert_match",)])
+    def test_generic_api_cannot_edit_another_alert_products_destination(self, event_id):
+        managed = self._create_internal_destination(_alert_filters(event_id))
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+            data={"name": "Renamed alert destination", "inputs": {"channel": {"value": "#oncall"}}},
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertIn("managed through the alert API", patch_response.json()["detail"])
+        managed.refresh_from_db()
+        self.assertEqual((managed.inputs or {})["channel"]["value"], "#alerts")
+
+    @parameterized.expand(
+        [
+            ("edit with both write scopes", "patch", "", ["hog_function:write", "logs:write"], status.HTTP_200_OK),
+            ("edit with hog function write only", "patch", "", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("edit with logs write only", "patch", "", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("restore revision", "post", "revisions/1/restore", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("publish", "post", "publish/", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("discard draft", "post", "discard_draft/", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "rerun without logs write",
+                "post",
+                "rerun/",
+                ["hog_function:write", "person:read", "group:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "rerun without the data read scopes",
+                "post",
+                "rerun/",
+                ["hog_function:write", "logs:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_writing_to_a_logs_alert_destination_needs_the_logs_write_scope_too(
+        self, _name, method, path, scopes, expected_status
+    ):
+        managed = self._create_internal_destination(_alert_filters())
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/{path}",
+            data={"name": "Renamed alert destination"},
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        managed.refresh_from_db()
+        self.assertEqual(managed.name == "Renamed alert destination", expected_status == status.HTTP_200_OK)
+
+    def test_editing_a_logs_alert_destination_needs_logs_editor_access(self):
+        managed = self._create_internal_destination(_alert_filters())
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: resource != "logs",
+        ):
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+                data={"name": "Renamed alert destination"},
+            )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_403_FORBIDDEN, patch_response.json())
+        managed.refresh_from_db()
+        self.assertEqual(managed.name, "Alert destination")
+
+    def test_generic_api_cannot_restore_a_managed_alert_destination(self):
+        managed = self._create_internal_destination(_alert_filters(), deleted=True)
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/", data={"deleted": False}
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertEqual(patch_response.json()["attr"], "deleted")
+        managed.refresh_from_db()
+        self.assertTrue(managed.deleted)
+
+    def test_generic_api_can_test_invoke_a_managed_alert_destination(self):
+        managed = self._create_internal_destination(_alert_filters())
+        stored = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/").json()
+        configuration = {key: stored[key] for key in ("name", "hog", "inputs_schema", "inputs", "filters")}
+
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{managed.id}/invocations/",
+                data={"configuration": configuration},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(mock_invocation.call_args.kwargs["hog_function_id"], str(managed.id))
+
+    def test_generic_api_cannot_turn_a_destination_into_a_managed_alert_destination(self):
+        destination = self._create_internal_destination(
+            {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]}
+        )
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
+            data={"filters": _alert_filters()},
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertEqual(patch_response.json()["attr"], "filters")
         self.assertIn("managed through the alert API", patch_response.json()["detail"])
 
     def test_functions_filtered_on_all_events_are_listed_and_retrievable(self):
@@ -1121,6 +1297,161 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         obj = HogFunction.objects.get(id=res.json()["id"])
         assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
+
+    def test_secret_input_turned_public_keeps_a_new_value(self, *args):
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True, "required": True}],
+            "inputs": {"token": {"value": "I AM SECRET"}},
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        function_id = res.json()["id"]
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "required": True}],
+                "inputs": {"token": {"value": "I AM PUBLIC NOW"}},
+            },
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["inputs"]["token"]["value"] == "I AM PUBLIC NOW"
+        obj = HogFunction.objects.get(id=function_id)
+        assert (obj.inputs or {})["token"]["value"] == "I AM PUBLIC NOW"
+        assert (obj.encrypted_inputs or {}) == {}
+
+    @parameterized.expand(
+        [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]
+    )
+    def test_stored_duplicate_input_keys_do_not_block_updates(self, _name: str, payload: dict) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy duplicates",
+            type="destination",
+            enabled=True,
+            hog="print(inputs.message)",
+            inputs_schema=[{"key": "message", "type": "string"}, {"key": "message", "type": "string"}],
+            inputs={"message": {"value": "hello"}},
+        )
+
+        res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=payload)
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    @parameterized.expand(
+        [
+            ("resend_stored_mapping", [], False, status.HTTP_200_OK),
+            ("add_duplicate_to_mapping", [{"key": "added", "type": "string"}] * 2, False, status.HTTP_400_BAD_REQUEST),
+            ("add_third_copy", [{"key": "click_id", "type": "string"}], False, status.HTTP_400_BAD_REQUEST),
+            ("new_mapping_repeats_key", [], True, status.HTTP_400_BAD_REQUEST),
+            ("new_mapping_in_the_stored_position", [], "replace", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_stored_duplicate_mapping_keys_do_not_block_full_saves(
+        self, _name: str, extra_schema: list[dict], add_mapping: bool | str, expected_status: int
+    ) -> None:
+        mapping = {
+            "name": "Signed up",
+            "inputs_schema": [{"key": "click_id", "type": "string"}, {"key": "click_id", "type": "string"}],
+            "inputs": {"click_id": {"value": "{event.properties.click_id}"}},
+        }
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy mapping duplicates",
+            type="destination",
+            hog="print(inputs.click_id)",
+            inputs_schema=[],
+            inputs={},
+            mappings=[mapping],
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={
+                "name": "Renamed",
+                "mappings": (
+                    [{**mapping, "name": "Logged in"}]
+                    if add_mapping == "replace"
+                    else [
+                        {**mapping, "inputs_schema": [*mapping["inputs_schema"], *extra_schema]},
+                        *([{**mapping, "name": "Logged in"}] if add_mapping else []),
+                    ]
+                ),
+            },
+        )
+
+        assert res.status_code == expected_status, res.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert res.json()["attr"] == f"mappings__{1 if add_mapping is True else 0}__inputs_schema"
+
+    @parameterized.expand(
+        [
+            ("clean", ["message"], ["added", "added"]),
+            ("already_duplicated", ["message", "message"], ["added", "added"]),
+            ("third_copy", ["message", "message"], ["message"]),
+        ]
+    )
+    def test_newly_duplicated_input_key_is_rejected(
+        self, _name: str, stored_keys: list[str], added_keys: list[str]
+    ) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy duplicates",
+            type="destination",
+            hog="print(inputs.message)",
+            inputs_schema=[{"key": key, "type": "string"} for key in stored_keys],
+            inputs={"message": {"value": "hello"}},
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={
+                "inputs_schema": [
+                    *({"key": key, "type": "string"} for key in [*stored_keys, *added_keys]),
+                ]
+            },
+        )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["detail"] == "Each input key must be unique. Remove duplicate keys."
+
+    @parameterized.expand(
+        [("rename", {"name": "Renamed"}), ("disable", {"enabled": False}), ("delete", {"deleted": True})]
+    )
+    def test_stored_secret_mapping_does_not_block_updates(self, _name: str, payload: dict) -> None:
+        mappings = [
+            {
+                "name": "Secret mapping",
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True}],
+                "inputs": {"token": {"value": "legacy-plaintext-value"}},
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            }
+        ]
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy secret mapping",
+            type="destination",
+            enabled=True,
+            hog="print(inputs.token)",
+            inputs_schema=[],
+            mappings=mappings,
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={"mappings": mappings},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data=payload,
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
 
     def test_secret_inputs_updated_if_changed(self, *args):
         payload = {
@@ -2039,7 +2370,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         }
 
-    def test_validates_mappings(self):
+    @parameterized.expand(
+        [
+            ("required", {"required": True}, "inputs__required_field", "This field is required."),
+            ("duplicate", {"key": "message"}, "inputs_schema", "Each input key must be unique. Remove duplicate keys."),
+            (
+                "secret",
+                {"secret": True},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+            (
+                "secret_string",
+                {"secret": "true"},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+        ]
+    )
+    def test_validates_mappings(self, _name: str, schema_options: dict, error_attr: str, error_detail: str) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
@@ -2049,7 +2398,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
                         {"key": "message", "type": "string", "label": "Message", "required": True},
-                        {"key": "required_field", "type": "string", "label": "Required", "required": True},
+                        {"key": "required_field", "type": "string", "label": "Required", **schema_options},
                     ],
                 },
             ],
@@ -2067,11 +2416,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "This field is required.",
-            "attr": "mappings__0__inputs__required_field",
+            "detail": error_detail,
+            "attr": f"mappings__0__{error_attr}",
         }
 
-    def test_compiles_valid_mappings(self):
+    @parameterized.expand([("default", {}), ("false", {"secret": False}), ("string_false", {"secret": "false"})])
+    def test_compiles_valid_mappings(self, _name: str, schema_options: dict) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "print(inputs.message)",
@@ -2080,7 +2430,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {
                     "inputs": {"message": {"value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
-                        {"key": "message", "type": "string", "label": "Message", "required": True},
+                        {"key": "message", "type": "string", "label": "Message", "required": True, **schema_options},
                     ],
                     "filters": {
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
@@ -3363,6 +3713,20 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["error"] == "Backfills are only supported for event-sourced destinations."
+
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=True)
+    def test_enable_backfills_rejects_filters_a_batch_export_cannot_apply(self, _mock_feature_enabled):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"error": "Each filter must have a 'type' of one of: 'event', 'hogql', 'person'"}
+        assert HogFunction.objects.get(id=function_id).batch_export_id is None
 
 
 class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

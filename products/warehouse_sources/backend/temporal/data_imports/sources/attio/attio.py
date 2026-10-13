@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -13,7 +15,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+
+
+@frozen
+class AttioResumeConfig:
+    # Row offset of the next page to fetch. The Redis key is per job, so one job never reads
+    # another endpoint's offset.
+    offset: int
 
 
 class AttioOffsetPaginator(BasePaginator):
@@ -80,6 +90,17 @@ class AttioOffsetPaginator(BasePaginator):
                 request.params = {}
             request.params["offset"] = self._current_offset
             request.params["limit"] = self._limit
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # update_request has already moved _current_offset to the next page.
+        return {"offset": self._current_offset} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self._current_offset = int(offset)
+            self._next_offset = self._current_offset
+            self._has_next_page = True
 
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -160,6 +181,7 @@ def attio_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -189,7 +211,31 @@ def attio_source(
         "resources": [get_resource(endpoint)],
     }
 
-    resource = rest_api_resource(config, team_id, job_id, None).add_map(_flatten_item)
+    # The GET endpoints take no sort order, so a row deleted during the walk moves every later
+    # offset down by one and the walk misses one live row. A resumed attempt has the same exposure
+    # as one long attempt, because it continues at the offset after the last written page. Without
+    # resume, a walk of a large workspace cannot move to another worker, and a restart reads every
+    # page again.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # The offset points at the page after the one that carries this state, so a resume never
+        # skips a page that the pipeline has not written.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(AttioResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    ).add_map(_flatten_item)
 
     return SourceResponse(
         name=endpoint,

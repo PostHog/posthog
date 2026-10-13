@@ -126,7 +126,15 @@ export function ClipOverlay(): JSX.Element | null {
  * Only exists because its parameters change once a second rather than on every player tick
  * so reduces the number of re-renders of the button itself
  */
-function ClipRecording_({ current, className }: { current: string; className?: string }): JSX.Element {
+function ClipRecording_({
+    current,
+    className,
+    'data-attr': dataAttr,
+}: {
+    current: string
+    className?: string
+    'data-attr'?: string
+}): JSX.Element {
     const { showingClipParams } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
 
@@ -150,16 +158,22 @@ function ClipRecording_({ current, className }: { current: string; className?: s
             }}
             tooltip={tooltipContent}
             icon={<IconRecordingClip className={cn('text-xl', className)} />}
-            data-attr="replay-clip"
+            data-attr={dataAttr ?? 'replay-clip'}
             tooltipPlacement="top"
         />
     )
 }
 
-export function ClipRecording({ className }: { className?: string }): JSX.Element {
+export function ClipRecording({
+    className,
+    'data-attr': dataAttr,
+}: {
+    className?: string
+    'data-attr'?: string
+}): JSX.Element {
     const { currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
 
     const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, MIN_CLIP_DURATION_SECONDS)
 
-    return <ClipRecording_ current={current} className={className} />
+    return <ClipRecording_ current={current} className={className} data-attr={dataAttr} />
 }

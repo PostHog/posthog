@@ -28,6 +28,7 @@ class TeamCustomerAnalyticsConfig(models.Model):
     subscription_event = field_access_control(models.JSONField(default=dict), "project", "admin")
     payment_event = field_access_control(models.JSONField(default=dict), "project", "admin")
     account_group_type_index = field_access_control(models.IntegerField(null=True, blank=True), "project", "admin")
+    default_pinned_properties = field_access_control(models.JSONField(default=list), "project", "admin")
     account_track_rules = field_access_control(
         models.JSONField(default=default_account_track_rules), "project", "admin"
     )

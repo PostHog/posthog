@@ -173,6 +173,20 @@ class TestJSONResponseCursorPaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
+    def test_repeated_cursor_guard_is_opt_in(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="next_cursor")
+        response = _make_response({"next_cursor": "same-cursor"})
+        p.update_state(response)
+        p.update_state(response)
+        assert p.has_next_page is True
+
+    def test_can_raise_when_cursor_does_not_advance(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="next_cursor", raise_on_repeated_cursor=True)
+        response = _make_response({"next_cursor": "same-cursor"})
+        p.update_state(response)
+        with pytest.raises(ValueError, match="not advancing"):
+            p.update_state(response)
+
 
 class TestOffsetPaginator:
     def test_increments_offset(self) -> None:

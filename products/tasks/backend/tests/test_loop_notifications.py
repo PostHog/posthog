@@ -303,6 +303,23 @@ class TestDispatchLoopEventSlackReport(LoopNotificationsTestCase):
 
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
+    def test_slack_report_over_the_limit_keeps_links_out_of_the_cut(self, mock_slack_cls, _mock_create_notification):
+        loop = self.create_loop_with_slack()
+        fake_client = MagicMock()
+        mock_slack_cls.return_value.client = fake_client
+        sql_link = "[the query](https://us.posthog.com/project/2/sql?open_query=" + "SELECT%201%20" * 300 + ")"
+
+        dispatch_loop_event(loop, "run_completed", {"report": f"Errors rose, see {sql_link} for details."})
+
+        fake_client.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            text='*Loop "Daily digest" finished*\nErrors rose, see the query for details.',
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
     def test_slack_report_escapes_control_tokens(self, mock_slack_cls, _mock_create_notification):
         loop = self.create_loop_with_slack(name='Digest <!channel> & "more"')
         fake_client = MagicMock()

@@ -56,6 +56,7 @@ def _request(
     trace_id: str | None = None,
     properties: dict[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> DecisionRequest:
     return DecisionRequest(
         team_id=42,
@@ -65,6 +66,7 @@ def _request(
         trace_id=trace_id,
         properties=properties,
         distinct_id=distinct_id,
+        privacy_mode=privacy_mode,
     )
 
 
@@ -103,14 +105,14 @@ def test_a_question_refuses_more_options_than_the_model_has_letters(criteria: di
 
 class TestDecide:
     @pytest.mark.parametrize(
-        "gateway_url,state,ai_product",
+        "gateway_url,state,ai_product,privacy_mode",
         [
-            ("https://gateway.example.com/v1", "ticket text", "ml_inference"),
-            ("https://gateway.example.com/v1/", {"policy": "rules", "record": "ticket text"}, "signals"),
+            ("https://gateway.example.com/v1", "ticket text", "ml_inference", False),
+            ("https://gateway.example.com/v1/", {"policy": "rules", "record": "ticket text"}, "signals", True),
         ],
     )
     def test_posts_to_the_decision_route_off_the_gateway_origin(
-        self, gateway_url: str, state: JsonValue, ai_product: str
+        self, gateway_url: str, state: JsonValue, ai_product: str, privacy_mode: bool
     ) -> None:
         seen: list[httpx.Request] = []
 
@@ -125,6 +127,7 @@ class TestDecide:
                     ai_product=ai_product,
                     trace_id="decision-1",
                     properties={"signals_decision_id": "decision-1", "ai_stage": "signal_safety"},
+                    privacy_mode=privacy_mode,
                 ),
                 transport=httpx.MockTransport(handler),
             )
@@ -141,6 +144,11 @@ class TestDecide:
         }
         assert request.headers["X-PostHog-Trace-Id"] == "decision-1"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
+        # The gateway records the request state unless this header asks it not to.
+        if privacy_mode:
+            assert request.headers["X-PostHog-Privacy-Mode"] == "true"
+        else:
+            assert "X-PostHog-Privacy-Mode" not in request.headers
         body = json.loads(request.content)
         assert body["model"] == "posthog/hogference/jevk5-fp8-0.2"
         assert body["state"] == state

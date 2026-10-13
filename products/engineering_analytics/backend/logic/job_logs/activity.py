@@ -27,6 +27,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.engineering_analytics.backend.facade.contracts import CIEngine
 from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_depot_job_log, fetch_job_log
 from products.engineering_analytics.backend.logic.job_logs.thinning import thin_log_lines
@@ -42,6 +43,9 @@ _FETCH_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=30),
     maximum_interval=timedelta(minutes=15),
 )
+
+# Reserve a trace namespace for Depot without changing GitHub's existing trace IDs.
+_DEPOT_TRACE_NAMESPACE = 1 << 127
 
 
 @dataclasses.dataclass(frozen=True)
@@ -74,6 +78,9 @@ class FetchDepotJobLogInputs:
     job_name: str
     run_attempt: int
     head_sha: str
+    native_run_id: str = ""
+    native_workflow_run_id: str = ""
+    native_job_id: str = ""
 
 
 @frozen
@@ -111,7 +118,7 @@ def _require_logs_endpoint() -> None:
 
 
 def _thin_and_emit(
-    log_text: str, attributes: dict[str, str | int], *, log_ingest_token: str, run_id: int | None, job_id: int
+    log_text: str, attributes: dict[str, str | int], *, log_ingest_token: str, trace_id: int | None, job_id: int
 ) -> int:
     # CI failure logs are team-level operational data: they ride the owning team's project Logs
     # (visible to any logs:read holder) by design and intentionally do NOT inherit the GitHub
@@ -123,7 +130,7 @@ def _thin_and_emit(
             thinned,
             # Total lines in the full log before thinning, which is the denominator for each line's orig_line.
             attributes={**attributes, "orig_total": len(log_text.splitlines())},
-            trace_id=run_id,
+            trace_id=trace_id,
             span_id=job_id,
         )
 
@@ -145,6 +152,11 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         log.info("github_job_log_unavailable")
         return {"status": "log_unavailable", "job_id": inputs.job_id, "lines": 0}
     attributes: dict[str, str | int] = {
+        "ci_engine": CIEngine.GITHUB_ACTIONS.value,
+        "native_run_id": str(inputs.run_id or 0),
+        "native_workflow_run_id": str(inputs.run_id or 0),
+        "native_job_id": str(inputs.job_id),
+        "native_attempt_id": str(inputs.job_id),
         "job_id": inputs.job_id,
         "run_id": inputs.run_id or 0,
         "repo": inputs.repo,
@@ -163,7 +175,7 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         archive,
         attributes,
         log_ingest_token=log_ingest_token,
-        run_id=inputs.run_id,
+        trace_id=inputs.run_id,
         job_id=inputs.job_id,
     )
     log.info("github_job_log_emitted", lines=lines)
@@ -182,6 +194,11 @@ async def fetch_and_emit_depot_job_log_activity(inputs: FetchDepotJobLogInputs) 
         log.info("depot_job_log_unavailable")
         return {"status": "log_unavailable", "job_id": inputs.job_id, "lines": 0}
     attributes: dict[str, str | int] = {
+        "ci_engine": CIEngine.DEPOT_CI.value,
+        "native_attempt_id": inputs.attempt_id,
+        "native_run_id": inputs.native_run_id,
+        "native_workflow_run_id": inputs.native_workflow_run_id,
+        "native_job_id": inputs.native_job_id,
         "job_id": inputs.job_id,
         "run_id": inputs.run_id,
         "repo": inputs.repo,
@@ -198,7 +215,7 @@ async def fetch_and_emit_depot_job_log_activity(inputs: FetchDepotJobLogInputs) 
         log_text,
         attributes,
         log_ingest_token=credentials.log_ingest_token,
-        run_id=inputs.run_id,
+        trace_id=inputs.run_id | _DEPOT_TRACE_NAMESPACE,
         job_id=inputs.job_id,
     )
     log.info("depot_job_log_emitted", lines=lines)

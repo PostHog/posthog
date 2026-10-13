@@ -1,24 +1,25 @@
 import './Navigation.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode, useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { TodayShell } from '~/layout/today/TodayShell'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
-import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
+import { SceneTitlePanelButton } from '../scenes/components/SceneTitlePanelButton'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
@@ -48,6 +49,16 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const {
+        leftNavWidth: todayLeftNavWidth,
+        todayRailEnabled: todayRail,
+        sidebarVisible: todaySidebarVisible,
+        phoneLayout: todayPhoneLayout,
+        phoneHeaderHidden: todayPhoneHeaderHidden,
+    } = useValues(todayShellLogic)
+    const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
+    const todayPhone = todayRail && todayPhoneLayout
+    const todayFramed = todayRail && !todayPhone
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -96,17 +107,16 @@ export function Navigation({
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
 
-    // Register `create_user_interview_topic` globally so Max can create user interview
-    // topics from any page (including the homepage), not only from the user-interviews
-    // scene. The scene wires its own richer `useMaxTool` for the "New topic" button.
-    const userInterviewsEnabled = useFeatureFlag('USER_INTERVIEWS')
-    useMaxTool({
-        identifier: 'create_user_interview_topic',
-        active: userInterviewsEnabled,
-        context: {},
-    })
-
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+
+    const todayPhoneBodyClass = todayPhone && mode === 'full'
+    useLayoutEffect(() => {
+        if (!todayPhoneBodyClass) {
+            return
+        }
+        document.body.classList.add('has-today-phone-layout')
+        return () => document.body.classList.remove('has-today-phone-layout')
+    }, [todayPhoneBodyClass])
 
     if (mode !== 'full') {
         const showMinimalNavigation = mode === 'minimal' || mode === 'zen'
@@ -126,7 +136,17 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
-                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
+                <main
+                    className={
+                        mode === 'zen'
+                            ? 'p-4'
+                            : mode === 'embedded'
+                              ? '@container/main-content min-h-screen p-4'
+                              : undefined
+                    }
+                >
+                    {children}
+                </main>
             </div>
         )
     }
@@ -143,7 +163,11 @@ export function Navigation({
             </a>
             <div
                 className={cn('app-layout bg-surface-tertiary', {
-                    'app-layout--mobile': mobileLayout,
+                    'app-layout--mobile': (mobileLayout && !todayRail) || todayPhone,
+                    'TodayAppLayout scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-bg-fill-scroll-thumb)]':
+                        todayRail,
+                    'TodayAppLayout--phone': todayPhone,
+                    'TodayAppLayout--no-phone-header': todayPhoneHeaderHidden,
                 })}
                 style={
                     {
@@ -163,31 +187,51 @@ export function Navigation({
                         // --project-navbar-width. Collapsed/mobile fall back to the base default.
                         '--project-navbar-width':
                             !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
-                        '--left-nav-width': isLayoutNavCollapsed
-                            ? 'var(--project-navbar-width-collapsed)'
-                            : 'var(--project-navbar-width)',
+                        '--left-nav-width': todayRail
+                            ? `${todayLeftNavWidth}px`
+                            : isLayoutNavCollapsed
+                              ? 'var(--project-navbar-width-collapsed)'
+                              : 'var(--project-navbar-width)',
                     } as React.CSSProperties
                 }
             >
                 <ProjectDragAndDropProvider>
-                    <PanelLayout className="left-nav" />
+                    {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
+                    {todayFramed && (
+                        // The chrome token exists only inside a quill scope, so the backdrop that fills the gap above the frame carries data-quill.
+                        <div data-quill aria-hidden className="TodayAppLayout__backdrop bg-[var(--chrome)]" />
+                    )}
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
-                            {
-                                'rounded-r-none': sidePanelOpen,
-                            }
+                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
+                            todayRail
+                                ? todayFramed && [
+                                      'TodayAppLayout__content',
+                                      // A docked sidebar owns the corner and the seam, so the content draws them only without one.
+                                      (mobileLayout || !todaySidebarVisible) && 'TodayAppLayout__content--corner',
+                                  ]
+                                : [
+                                      'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
+                                      sidePanelOpen && 'rounded-r-none',
+                                  ]
                         )}
+                        {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
+                        {todayFramed && (
+                            // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
+                            <div data-quill aria-hidden className="TodayAppLayout__frame" />
+                        )}
                         <main
                             ref={mainRef}
                             role="main"
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t focus-visible:outline-none flex flex-col',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 focus-visible:outline-none flex flex-col',
                                 {
+                                    // The Today layout's content meets the chrome on straight seams.
+                                    'rounded-t': !todayRail,
                                     'p-0': noPaddingScene,
                                     'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
                                 }

@@ -80,7 +80,12 @@ export const FeatureFlagsListParams = () => zod.object({
 })
 
 export const FeatureFlagsListQueryParams = () => zod.object({
-    active: zod.enum(['STALE', 'false', 'true']).optional(),
+    active: zod
+        .enum(['STALE', 'false', 'true'])
+        .optional()
+        .describe(
+            "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
+        ),
     archived: zod
         .enum(['false', 'true'])
         .optional()
@@ -118,7 +123,12 @@ export const FeatureFlagsListQueryParams = () => zod.object({
     key: zod.string().optional().describe('Filter by exact feature flag key match. Case insensitive.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('Search by feature flag key or name. Case insensitive.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.'
+        ),
     tags: zod.string().optional().describe('JSON-encoded list of tag names to filter feature flags by.'),
     type: zod.enum(['boolean', 'experiment', 'multivariant', 'remote_config']).optional(),
 })
@@ -1154,8 +1164,9 @@ export const FeatureFlagsUnarchiveCreateParams = () => zod.object({
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 export const FeatureFlagsBulkDeleteCreateParams = () => zod.object({
     project_id: zod
@@ -1172,9 +1183,16 @@ export const FeatureFlagsBulkDeleteCreateBody = () => zod.object({
                 .enum(['true', 'false', 'STALE'])
                 .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
                 .optional()
-                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+                .describe(
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
+                ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
-            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
+            search: zod
+                .string()
+                .optional()
+                .describe(
+                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.'
+                ),
             type: zod
                 .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
                 .describe(

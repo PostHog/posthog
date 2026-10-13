@@ -5,9 +5,16 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import cursor_to_payload
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import (
+    XminCursor,
+    xmin_cursor_from_legacy,
+)
 
 
 class TestResetWrappedXminCursors(BaseTest):
@@ -27,16 +34,24 @@ class TestResetWrappedXminCursors(BaseTest):
             sync_type_config=sync_type_config,
         )
 
-    def _xmin_schema(self, name: str, *, num_wraparound: int) -> ExternalDataSchema:
-        return self._schema(
-            name,
-            sync_type=ExternalDataSchema.SyncType.XMIN,
-            sync_type_config={
-                "xmin_last_value": 500,
-                "xmin_ceiling": (num_wraparound << 32) | 500,
-                "xmin_num_wraparound": num_wraparound,
-            },
+    def _xmin_schema(self, name: str, *, num_wraparound: int, legacy: bool = False) -> ExternalDataSchema:
+        cursor = XminCursor(ceiling_xid=500, ceiling_xid8=(num_wraparound << 32) | 500, num_wraparound=num_wraparound)
+        sync_type_config = (
+            {
+                "xmin_last_value": cursor.ceiling_xid,
+                "xmin_ceiling": cursor.ceiling_xid8,
+                "xmin_num_wraparound": cursor.num_wraparound,
+            }
+            if legacy
+            else {"source_cursor": cursor_to_payload(cursor)}
         )
+        return self._schema(name, sync_type=ExternalDataSchema.SyncType.XMIN, sync_type_config=sync_type_config)
+
+    def _ceiling_xid(self, schema: ExternalDataSchema) -> int | None:
+        schema.refresh_from_db()
+        payload = schema.sync_type_config.get("source_cursor")
+        cursor = XminCursor(**payload["data"]) if payload else xmin_cursor_from_legacy(schema.sync_type_config)
+        return cursor.ceiling_xid if cursor else None
 
     def _running_job(self, schema: ExternalDataSchema) -> ExternalDataJob:
         return ExternalDataJob.objects.create(
@@ -58,12 +73,12 @@ class TestResetWrappedXminCursors(BaseTest):
         output = self._run()
 
         assert str(schema.id) in output
-        schema.refresh_from_db()
-        assert schema.xmin_last_value == 500
+        assert self._ceiling_xid(schema) == 500
 
-    def test_live_run_clears_only_wrapped_xmin_cursors(self) -> None:
-        wrapped = self._xmin_schema("orders", num_wraparound=12)
-        never_wrapped = self._xmin_schema("customers", num_wraparound=0)
+    @parameterized.expand([("source_cursor", False), ("legacy_keys", True)])
+    def test_live_run_clears_only_wrapped_xmin_cursors(self, _name: str, legacy: bool) -> None:
+        wrapped = self._xmin_schema("orders", num_wraparound=12, legacy=legacy)
+        never_wrapped = self._xmin_schema("customers", num_wraparound=0, legacy=legacy)
         incremental = self._schema(
             "events",
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
@@ -72,13 +87,8 @@ class TestResetWrappedXminCursors(BaseTest):
 
         self._run(live_run=True)
 
-        wrapped.refresh_from_db()
-        assert wrapped.xmin_last_value is None
-        assert wrapped.xmin_ceiling is None
-        assert wrapped.xmin_num_wraparound is None
-
-        never_wrapped.refresh_from_db()
-        assert never_wrapped.xmin_last_value == 500
+        assert self._ceiling_xid(wrapped) is None
+        assert self._ceiling_xid(never_wrapped) == 500
 
         incremental.refresh_from_db()
         assert incremental.sync_type_config["incremental_field_last_value"] == "5"
@@ -89,8 +99,7 @@ class TestResetWrappedXminCursors(BaseTest):
 
         output = self._run(live_run=True)
 
-        wrapped.refresh_from_db()
-        assert wrapped.xmin_last_value == 500
+        assert self._ceiling_xid(wrapped) == 500
         assert "sync is running" in output
 
     def test_named_schemas_skip_the_wraparound_filter(self) -> None:
@@ -98,5 +107,4 @@ class TestResetWrappedXminCursors(BaseTest):
 
         self._run(live_run=True, schema_id=[str(never_wrapped.id)])
 
-        never_wrapped.refresh_from_db()
-        assert never_wrapped.xmin_last_value is None
+        assert self._ceiling_xid(never_wrapped) is None

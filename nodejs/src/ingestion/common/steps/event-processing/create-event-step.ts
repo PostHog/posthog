@@ -7,7 +7,7 @@ import { createEvent } from '~/ingestion/common/steps/event-processing/create-ev
 import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { EventHeaders, Person, PreIngestionEvent } from '~/types'
+import { EventHeaders, Person, PreIngestionEvent, Team } from '~/types'
 
 import { EventToEmit } from './emit-event-step'
 
@@ -34,6 +34,7 @@ function isMultivariateFeatureFlagCalledEvent(event: PreIngestionEvent): boolean
 }
 
 export interface CreateEventStepInput {
+    team: Team
     person?: Person
     preparedEvent: PreIngestionEvent
     processPerson: boolean
@@ -45,6 +46,7 @@ export interface CreateEventStepInput {
 }
 
 export interface CreateEventStepResult<O extends string> {
+    team: Team
     eventsToEmit: EventToEmit<O>[]
     teamId: number
     headers: EventHeaders
@@ -61,6 +63,7 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
 
     return function createEventStep(input) {
         const {
+            team,
             person,
             preparedEvent,
             processPerson,
@@ -95,6 +98,7 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
         }
 
         const result: CreateEventStepResult<O> = {
+            team,
             eventsToEmit,
             teamId: preparedEvent.teamId,
             headers,

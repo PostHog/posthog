@@ -1,4 +1,7 @@
-import type { CommentScope } from "@posthog/api-client/posthog-client";
+import {
+  COMMENT_SCOPES,
+  type CommentScope,
+} from "@posthog/api-client/posthog-client";
 import { z } from "zod";
 
 const CONTEXT_LENGTH = 32;
@@ -13,6 +16,13 @@ export type CommentTarget = {
   scope: CommentScope;
   itemId: string;
 };
+
+export function commentScopeFromWire(
+  scope: string | null | undefined,
+): CommentScope | null {
+  const canonical = scope === "desktop_canvas" ? "canvas" : scope;
+  return COMMENT_SCOPES.find((known) => known === canonical) ?? null;
+}
 
 /** The target as one string, for map keys and cache-key membership tests. */
 export function commentTargetKey(target: CommentTarget): string {

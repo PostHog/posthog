@@ -11,8 +11,10 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
     is_invalid_version_race,
     is_transient_maintenance_error,
+    is_transient_object_store_error,
 )
 
 T = TypeVar("T")
@@ -26,14 +28,20 @@ T = TypeVar("T")
 #   `CommitFailedError` wrapping the same sentence, because delta-rs maps every
 #   `DeltaTableError::Transaction` onto that class regardless of what the transaction failed on.
 # - s3fs translates an explicit S3 `AccessDenied` response code into `PermissionError("Access
-#   Denied")`.
-# Both mean the bucket policy or the worker's role refuses the call on that key, so running the same
-# call again returns the same refusal. A bodyless 403 is deliberately not matched: AWS omits the
-# error code from a HEAD response, so s3fs raises `PermissionError("Forbidden")` for a brief
-# credential-resolution race as well as for a real refusal, and `_purge_s3_prefix` still retries it.
+#   Denied")`, and an `InvalidAccessKeyId` response (the worker's own access key no longer exists,
+#   e.g. a rotated or revoked credential) into `PermissionError("The AWS Access Key Id you provided
+#   does not exist in our records.")` — s3fs always uses the response's own `Message` field, so both
+#   collapse to the same `PermissionError` type but keep their own fixed text.
+# `AccessDenied` means the bucket policy or the worker's role refuses the call on that key;
+# `InvalidAccessKeyId` means AWS doesn't recognize the worker's access key at all. Neither is a race,
+# so running the same call again returns the same refusal either way. A bodyless 403 is deliberately
+# not matched: AWS omits the error code from a HEAD response, so s3fs raises
+# `PermissionError("Forbidden")` for a brief credential-resolution race as well as for a real
+# refusal, and `_purge_s3_prefix` still retries it.
 OBJECT_STORE_PERMISSION_DENIED_ERRORS = (
     "The operation lacked the necessary privileges to complete",
     "Access Denied",
+    "The AWS Access Key Id you provided does not exist in our records.",
 )
 
 # Reaches the customer as the sync run's error text, so it names neither the bucket nor the object
@@ -42,6 +50,13 @@ OBJECT_STORE_PERMISSION_DENIED_ERRORS = (
 OBJECT_STORE_PERMISSION_DENIED_MESSAGE = (
     "PostHog could not read or write this table's files in its own storage. This is a problem on "
     "PostHog's side, not with your source. Contact support if it keeps happening."
+)
+
+# Same reasoning as OBJECT_STORE_PERMISSION_DENIED_MESSAGE: this is what a customer reads if every
+# retry is exhausted, so it names neither the bucket nor the object key either.
+OBJECT_STORE_TRANSIENT_MESSAGE = (
+    "PostHog hit a temporary problem reading or writing this table's files in its own storage. "
+    "The next scheduled run will try again."
 )
 
 
@@ -99,6 +114,8 @@ async def execute_with_conflict_retry(
     operation_fn: Callable[[], T],
     operation_name: str,
     logger: FilteringBoundLogger,
+    *,
+    conflict_retries: int = DELTA_MERGE_CONFLICT_RETRIES,
 ) -> T:
     """Run a Delta operation that commits (merge, overwrite, append, optimize.compact, vacuum, ...),
     refreshing the table and re-running it on a commit conflict.
@@ -122,16 +139,25 @@ async def execute_with_conflict_retry(
                 # tells which layer translated the refusal, without repeating the key.
                 await logger.awarning(f"{operation_name}: the object store denied the operation ({type(e).__name__})")
                 raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            if is_transient_object_store_error(e):
+                # Same blip get_delta_table already classifies (see table.py's
+                # _capture_unless_transient) - a bare re-raise here would still mint a fresh
+                # error-tracking issue at the activity boundary, and burn the conflict-retry budget
+                # on a call that isn't a commit conflict. The raw text (kept only on __cause__) can
+                # name the bucket and the object key, so the wrapper's own message stays generic in
+                # case every retry is exhausted and it reaches the customer as the sync's error text.
+                await logger.awarning(f"{operation_name}: transient object-store error, not reporting: {e}")
+                raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
             if not isinstance(e, deltalake.exceptions.DeltaError):
                 raise
             if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
                 raise
-            if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
+            if attempt >= conflict_retries:
                 raise
             attempt += 1
             await logger.awarning(
                 f"{operation_name}: commit conflict, retrying with refreshed table "
-                f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
+                f"(attempt {attempt}/{conflict_retries})"
             )
             await asyncio.to_thread(table.update_incremental)
 

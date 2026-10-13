@@ -240,8 +240,11 @@ class TestDataDeletionRequestAPIAccess(APIBaseTest):
         url = f"/api/projects/{self.team.id}/data_deletion_requests"
 
         with patch(FEATURE_FLAG, return_value=False):
-            assert self.client.get(f"{url}/").status_code == status.HTTP_403_FORBIDDEN
-            assert self.client.post(f"{url}/preview/", {}).status_code == status.HTTP_403_FORBIDDEN
+            responses = [self.client.get(f"{url}/"), self.client.post(f"{url}/preview/", {})]
+
+        for response in responses:
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.json()["detail"] == "This endpoint is in alpha and is not yet publicly available."
 
     def test_organization_member_has_no_deletion_access_by_default(self) -> None:
         url = f"/api/projects/{self.team.id}/data_deletion_requests/"

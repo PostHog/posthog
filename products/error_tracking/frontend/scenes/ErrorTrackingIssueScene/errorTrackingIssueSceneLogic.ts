@@ -122,6 +122,13 @@ export interface errorTrackingIssueSceneLogicActions {
         issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
+    splitIssueSuccess: (
+        id: string,
+        newIssueIds: string[]
+    ) => {
+        id: string
+        newIssueIds: string[]
+    } // issueActionsLogic
     updateIssueAssignee: (
         id: string,
         assignee: ErrorTrackingIssueAssignee | null
@@ -180,9 +187,11 @@ export interface errorTrackingIssueSceneLogicActions {
     loadLinkedReports: () => any // linkedReportsLogic
     createExternalReference: (
         integrationId: IntegrationType['id'],
-        config: Record<string, string>
+        config: Record<string, string>,
+        includeStacktrace: boolean
     ) => {
         config: Record<string, string>
+        includeStacktrace: boolean
         integrationId: number
     }
     createExternalReferenceFailure: (
@@ -206,6 +215,7 @@ export interface errorTrackingIssueSceneLogicActions {
         } | null,
         payload?: {
             config: Record<string, string>
+            includeStacktrace: boolean
             integrationId: number
         }
     ) => {
@@ -222,6 +232,7 @@ export interface errorTrackingIssueSceneLogicActions {
         } | null
         payload?: {
             config: Record<string, string>
+            includeStacktrace: boolean
             integrationId: number
         }
     }
@@ -673,6 +684,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 'updateIssueName',
                 'updateIssueDescription',
                 'mutationFailure',
+                'splitIssueSuccess',
             ],
             linkedReportsLogic({ issueId: props.id }),
             ['loadLinkedReports'],
@@ -690,9 +702,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
-        createExternalReference: (integrationId: IntegrationType['id'], config: Record<string, string>) => ({
+        createExternalReference: (
+            integrationId: IntegrationType['id'],
+            config: Record<string, string>,
+            includeStacktrace: boolean
+        ) => ({
             integrationId,
             config,
+            includeStacktrace,
         }),
         linkExternalReference: (
             integrationId: IntegrationType['id'],
@@ -760,12 +777,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: {
             setIssue: ({ issue }) => issue,
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
-            createExternalReference: async ({ integrationId, config }) => {
+            createExternalReference: async ({ integrationId, config, includeStacktrace }) => {
                 if (values.issue) {
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
                     posthog.capture('error_tracking_issue_pushed', {
                         issue_id: props.id,
                         destination: response.integration.kind,
+                        stacktrace_included: includeStacktrace,
+                        assignee_set: !!config.assignee,
                     })
                     const externalIssues = values.issue.external_issues ?? []
                     return { ...values.issue, external_issues: [...externalIssues, response] }
@@ -1052,9 +1071,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateAssignee: ({ assignee }) => actions.updateIssueAssignee(props.id, assignee),
             updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
             updateSeverity: ({ severity }) => actions.updateIssueSeverity(props.id, severity),
-            mutationFailure: ({ mutationName }) => {
-                if (mutationName === 'updateIssueSeverity') {
+            mutationFailure: ({ mutationName, issueId }) => {
+                if (mutationName === 'updateIssueSeverity' && issueId === props.id) {
                     actions.loadIssue()
+                }
+            },
+            splitIssueSuccess: ({ id }) => {
+                if (id === props.id) {
+                    actions.loadIssue()
+                    actions.loadSummary()
+                    actions.loadIssueFingerprints()
+                    actions.loadSpikeEvents()
+                    eventsSourceLogic
+                        .findMounted({ query: values.eventsQuery, queryKey: values.eventsQueryKey })
+                        ?.actions.loadData('force_blocking')
                 }
             },
             selectEvent: ({ event }) => {
@@ -1069,17 +1099,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     )
                 }
             },
-            [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName }) => {
-                if (mutationName === 'mergeIssues' || mutationName === 'splitIssues') {
-                    actions.loadIssue()
-                    actions.loadSummary()
-                    actions.loadIssueFingerprints()
-                    actions.loadSpikeEvents()
-                    eventsSourceLogic
-                        .findMounted({ query: values.eventsQuery, queryKey: values.eventsQueryKey })
-                        ?.actions.loadData('force_blocking')
-                }
-                if (mutationName === 'createIssueCohort') {
+            [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName, issueId }) => {
+                if (mutationName === 'createIssueCohort' && issueId === props.id) {
                     actions.loadIssue()
                 }
             },

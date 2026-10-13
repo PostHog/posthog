@@ -68,9 +68,3 @@ class OrgMemberCountResponseSerializer(serializers.Serializer):
 
 class PosthogMembershipResponseSerializer(serializers.Serializer):
     has_posthog_account = serializers.BooleanField(help_text="Whether the target holds a posthog.com account.")
-
-
-class RadarBypassExportResponseSerializer(serializers.Serializer):
-    emails = serializers.ListField(
-        child=serializers.CharField(), help_text="Addresses on the legacy Redis Radar bypass list, lowercase."
-    )

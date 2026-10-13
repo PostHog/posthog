@@ -77,6 +77,7 @@ HEALTH_CHECK_MODULES = [
 ### 3. Done
 
 If your class sets a `schedule`, a Temporal schedule is automatically created at deploy time via `init_schedules`. No additional wiring is needed.
+The schedule adds up to 30 minutes of jitter, so a check starts within half an hour after its cron time.
 Omit `schedule` if you only want the check to be triggered manually from the admin UI.
 
 ## `HealthCheck` class reference

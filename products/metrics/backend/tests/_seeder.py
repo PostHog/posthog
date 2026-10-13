@@ -1,11 +1,10 @@
-"""Test-only metric row seeder for the metrics2 chain.
+"""Test-only metric row seeder for the metrics4 chain.
 
-Inserts rows into `metrics2_input` via `sync_execute` rather than driving the
+Inserts rows into `metrics4_input` via `sync_execute` rather than driving the
 OTLP pipe, so tests don't depend on capture-logs + metrics-ingestion-consumer
-running. `metrics2_input` is the Null-engine table the Kafka MV writes to, so one
-insert fans out through the same MVs production uses: `metrics2` (data points),
-`metric_series2` (labels, one row per series) and `metric_attributes2` (the
-attribute rollups).
+running. `metrics4_input` is the Null-engine table the Kafka MV writes to, so one
+insert fans out through the same MVs production uses into the metrics4 tables
+that HogQL reads.
 
 The shape mirrors what `rust/capture-logs/src/metric_record.rs` emits — every
 query-runner test (filters, group-by, rate, histogram_quantile) leans on this
@@ -23,7 +22,7 @@ from typing import Any
 
 from posthog.clickhouse.client import sync_execute
 
-# `metrics2` and `metric_series2` hardcode `TTL original_expiry_timestamp`
+# The metrics4 tables hardcode their TTL on the original expiry columns
 # instead of going through `ttl_period()`, so the seeder has to keep its rows
 # alive itself. A far-future expiry pins that independent of the wall clock.
 _EXPIRY = dt.datetime(2200, 1, 1, tzinfo=dt.UTC)
@@ -59,7 +58,12 @@ def _series_fingerprint(
 def truncate_metrics_tables() -> None:
     """Clear every table the seeder's inserts fan out into, so leftovers can't
     leak between tests."""
-    for table in ("metrics2", "metric_series2", "metric_attributes2"):
+    for table in (
+        "metrics4_samples",
+        "metrics4_series",
+        "metrics4_names",
+        "metrics4_attributes",
+    ):
         sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
 
 
@@ -85,9 +89,9 @@ def seed_metric(
     span_id: str = "",
     count: int = 1,
 ) -> None:
-    """Insert one `metrics2_input` row per `(timestamp, value)` point; the
-    ingest MVs write the `metrics2` rows, the `metric_series2` row and the
-    `metric_attributes2` rollups from it.
+    """Insert one `metrics4_input` row per `(timestamp, value)` point; the
+    ingest MVs write the metrics4 samples, series, names and attribute rollups
+    from it.
 
     Every point in one call is a sample of the *same* series, since the series
     identity (`service_name`, `metric_type`, both attribute maps) is fixed per
@@ -142,7 +146,7 @@ def seed_metric(
         )
 
     payload = "\n".join(json.dumps(row) for row in rows)
-    sync_execute(f"INSERT INTO metrics2_input FORMAT JSONEachRow {payload}")
+    sync_execute(f"INSERT INTO metrics4_input FORMAT JSONEachRow {payload}")
 
 
 def seed_metric_event(

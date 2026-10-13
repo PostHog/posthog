@@ -5,9 +5,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { billingLogic } from './billingLogic'
 
 export const StripePortalButton = (): JSX.Element | null => {
-    const { billing, isExternallyBilled } = useValues(billingLogic)
+    const { billing, isExternallyBilled, isBillingManagedByPartner } = useValues(billingLogic)
 
-    if (!billing || (!isExternallyBilled && !billing.customer_id)) {
+    if (!billing || isBillingManagedByPartner || (!isExternallyBilled && !billing.customer_id)) {
         return null
     }
 

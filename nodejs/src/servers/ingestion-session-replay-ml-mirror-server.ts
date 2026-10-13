@@ -28,6 +28,7 @@ import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outpu
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/s3-session-batch-writer'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
+import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { RedisPool } from '~/types'
@@ -179,6 +180,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
             // would then fetch a missing key and record cleartext.
             redisKeyNamespace: 'ml-mirror',
+            captureWatermark: new CaptureWatermark('ml_mirror'),
         }
 
         const ingester = new SessionRecordingIngester(

@@ -97,4 +97,6 @@ export interface SessionBlockMetadata {
     retentionPeriodDays: number | null
     /** Whether this recording has been deleted */
     isDeleted: boolean
+    /** Kafka timestamp of the earliest message in the block, which is the capture clock that the ML lanes compare */
+    earliestCapturedAtMs?: number
 }

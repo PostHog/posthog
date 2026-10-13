@@ -122,6 +122,7 @@ jobs:
                   printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
 
                   echo 'resolved=true' >> "$GITHUB_OUTPUT"
+                  echo "merge_base=$merge_base" >> "$GITHUB_OUTPUT"
                   if printf '%s\n' "$changed" | grep -qE '^(rust|proto)/'; then
                       echo 'rust_affected=true' >> "$GITHUB_OUTPUT"
                   fi
@@ -167,6 +168,7 @@ jobs:
                   # needs no special case: it fills `crates` with the whole
                   # workspace, which lands on the same target set.
                   RUST_AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
+                  LANE_MERGE_BASE: ${{ steps.changes.outputs.merge_base }}
               run: |
                   set -uo pipefail
 
@@ -181,17 +183,17 @@ jobs:
                   computed="$(node .github/scripts/trunk-impacted-targets.js < "$RUNNER_TEMP/changed-files.txt")"
                   printf 'targets=%s\n' "$(jq -cn --argjson t "$computed" '{impactedTargets: $t}')" >> "$GITHUB_OUTPUT"
 
-            # Summarizes the change set and the targets for the lane-cost
-            # dashboard. Never gates: a telemetry problem must not keep a PR out
-            # of the queue. The early exits above leave no file behind, which
-            # the script reports as the degraded case rather than as a PR that
-            # touched nothing.
+            # Lane-cost telemetry. The cross-lane job gates on its output and
+            # passes if this step fails.
             - name: Summarize lane assignment
               id: telemetry
               if: ${{ !cancelled() }}
               continue-on-error: true
               env:
                   IMPACTED_TARGETS: ${{ steps.targets.outputs.targets }}
+                  # Same inputs as the upload, for the cross-lane verdict.
+                  RUST_AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
+                  LANE_MERGE_BASE: ${{ steps.changes.outputs.merge_base }}
               run: |
                   set -uo pipefail
                   touch "$RUNNER_TEMP/changed-files.txt"
@@ -334,6 +336,55 @@ jobs:
                       -X POST "$POSTHOG_TELEMETRY_HOST/i/v0/e/" \
                       -H "Content-Type: application/json" \
                       --data "$event" > /dev/null
+
+    cross-lane:
+        name: Check the PR does not mix lanes
+        needs: compute
+        # The queue's batch PR is the union of PRs that each passed this check.
+        if: >-
+            ${{
+                !(github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/'))
+            }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Fail when Python or frontend changes ride with Node or Rust changes
+              env:
+                  LANE_PROPERTIES: ${{ needs.compute.outputs.telemetry }}
+                  OVERRIDDEN: ${{ contains(github.event.pull_request.labels.*.name, 'cross-lane-change') }}
+              run: |
+                  set -uo pipefail
+                  props="${LANE_PROPERTIES:-}"
+                  [ -n "$props" ] || props='{}'
+                  verdict="$(printf '%s' "$props" | jq -r 'if .cross_lane == true then "mixed" elif .cross_lane == false then "clean" else "unknown" end' 2>/dev/null || echo unknown)"
+
+                  if [ "$verdict" = "clean" ]; then
+                      echo "This PR stays on one side of the merge queue lanes."
+                      exit 0
+                  fi
+                  # No verdict means the lane rules could not classify the diff; blocking on that would block on a CI fault.
+                  if [ "$verdict" = "unknown" ]; then
+                      echo "::notice::Could not classify this PR by lane side; not blocking."
+                      exit 0
+                  fi
+
+                  echo "Python or frontend files:"
+                  printf '%s' "$props" | jq -r '.cross_lane_heavy_files[]? | "  " + .'
+                  echo "Node or Rust files:"
+                  printf '%s' "$props" | jq -r '.cross_lane_light_files[]? | "  " + .'
+                  echo ""
+                  echo "The merge queue tests each PR on top of the PRs ahead of it in its lane, so every"
+                  echo "Node or Rust PR queued behind this one would run the Django and frontend suites."
+                  echo "Split it into separate PRs. hogli ci:preflight reports this before you push."
+
+                  if [ "$OVERRIDDEN" = "true" ]; then
+                      echo "::warning::This PR mixes lanes and carries the 'cross-lane-change' label, so the check passes."
+                      exit 0
+                  fi
+                  echo "::error::This PR mixes Python or frontend changes with Node or Rust changes. Split it, or, if the halves must land together, add the 'cross-lane-change' label and push again."
+                  exit 1
 
     comment:
         name: Update Trunk lane in CI report

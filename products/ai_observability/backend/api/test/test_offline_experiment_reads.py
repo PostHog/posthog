@@ -102,6 +102,9 @@ class TestOfflineExperimentReads(APIBaseTest):
 
     def _score_paths(self) -> list[str]:
         return [
+            self._endpoint(
+                f"{self.experiment.id}/result_cells/?item_ids={self.item.id}&scorer_version_ids={self.version.id}"
+            ),
             self._endpoint(f"{self.experiment.id}/items/{self.item.id}/results/"),
             self._endpoint(f"{self.experiment.id}/results/{self.result.id}/payload/"),
             self._endpoint(f"{self.experiment.id}/scorer_summaries/"),
@@ -256,6 +259,18 @@ class TestOfflineExperimentReads(APIBaseTest):
             self.assertNotIn("scorer", result)
         self.assertEqual(response.content.count(label.encode()), 2)
 
+        fixed_cells = self.client.get(
+            self._endpoint(f"{self.experiment.id}/result_cells/"),
+            {"item_ids": str(items[1].id), "scorer_version_ids": f"{unused_version.id},{version.id}"},
+        )
+        self.assertEqual(fixed_cells.status_code, status.HTTP_200_OK, fixed_cells.data)
+        self.assertEqual(fixed_cells.data["scorer_versions"], response.data["scorer_versions"])
+        self.assertEqual(len(fixed_cells.data["results"]), 1)
+        self.assertEqual(fixed_cells.data["results"][0]["item_id"], str(items[1].id))
+        self.assertEqual(fixed_cells.data["results"][0]["scorer_version_id"], str(version.id))
+        self.assertNotIn("data", fixed_cells.data["results"][0])
+        self.assertEqual(fixed_cells.content.count(label.encode()), 2)
+
         results = self.client.get(self._endpoint(f"{self.experiment.id}/items/{items[1].id}/results/"))
         self.assertEqual(results.status_code, status.HTTP_200_OK, results.data)
         self.assertEqual(results.data["results"][0]["scorer"]["id"], str(version.id))
@@ -338,6 +353,13 @@ class TestOfflineExperimentReads(APIBaseTest):
         )
         self.assertEqual(hidden_cells.status_code, status.HTTP_404_NOT_FOUND, hidden_cells.data)
         self.assertEqual(hidden_cells.data, missing_cells.data)
+        fixed_path = self._endpoint(f"{self.experiment.id}/result_cells/")
+        hidden_fixed = self.client.get(
+            fixed_path, {"item_ids": str(self.item.id), "scorer_version_ids": str(self.version.id)}
+        )
+        missing_fixed = self.client.get(fixed_path, {"item_ids": str(self.item.id), "scorer_version_ids": str(uuid4())})
+        self.assertEqual(hidden_fixed.status_code, status.HTTP_404_NOT_FOUND, hidden_fixed.data)
+        self.assertEqual(hidden_fixed.data, missing_fixed.data)
         hidden_payload = self.client.get(self._endpoint(f"{self.experiment.id}/results/{self.result.id}/payload/"))
         self.assertEqual(hidden_payload.status_code, status.HTTP_404_NOT_FOUND, hidden_payload.data)
         visible_history = self.client.get(self._history(str(visible.id)))
@@ -353,6 +375,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             submission_fingerprint="e" * 64,
         )
         for suffix in [
+            f"{other.id}/result_cells/?item_ids={self.item.id}&scorer_version_ids={self.version.id}",
             f"{other.id}/items/{self.item.id}/",
             f"{other.id}/items/{self.item.id}/results/",
             f"{other.id}/items/{self.item.id}/payload/",
@@ -364,6 +387,11 @@ class TestOfflineExperimentReads(APIBaseTest):
 
     def test_query_validation_is_wired_into_the_read_endpoints(self) -> None:
         cases: list[tuple[str, dict[str, str | int], str]] = [
+            (
+                self._endpoint(f"{self.experiment.id}/result_cells/"),
+                {"scorer_version_ids": str(self.version.id)},
+                "item_ids",
+            ),
             (self._endpoint(), {"limit": 101}, "limit"),
             (self._endpoint(f"{self.experiment.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/"), {"limit": 1}, "limit"),

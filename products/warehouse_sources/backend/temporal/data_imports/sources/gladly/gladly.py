@@ -191,15 +191,17 @@ def _report_csv_lines(stream: io.TextIOBase) -> Iterator[str]:
         yield line
 
 
-def _report_row_id(row: dict[str, Any]) -> str:
+def _report_row_id(row: dict[str, Any], key_columns: Sequence[str] = ()) -> str:
     """Deterministic id for report rows that carry no natural key.
 
     Timestamps-report rows are immutable events with no event id column, so the
     id is a hash of the whole normalized row: the same row re-read from an
     overlapping window merges onto itself, while rows differing in any field
-    stay distinct.
+    stay distinct. Rows that restate in place hash only their identifying
+    ``key_columns`` instead, so the newer version replaces the older one.
     """
-    return hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    keyed = {column: row.get(column) for column in key_columns} if key_columns else row
+    return hashlib.sha256(json.dumps(keyed, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _report_start_date(
@@ -308,10 +310,6 @@ def get_rows(
         )
         return
 
-    filename = config.filename
-    if filename is None:
-        raise ValueError(f"Gladly endpoint {endpoint} declares neither an export filename nor a report metric set")
-
     @retry(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
@@ -331,6 +329,19 @@ def get_rows(
             response.raise_for_status()
 
         return response
+
+    if config.list_path is not None:
+        body = fetch(f"{base_url}{config.list_path}").json()
+        rows = body if isinstance(body, list) else []
+        if rows:
+            yield rows
+        return
+
+    filename = config.filename
+    if filename is None:
+        raise ValueError(
+            f"Gladly endpoint {endpoint} declares neither an export filename, a list path, nor a report metric set"
+        )
 
     # The cutoff is the later of the incremental watermark and the resume
     # state, so retried syncs skip already-processed jobs either way.
@@ -437,6 +448,9 @@ def _report_rows(
     # The columns the stream is keyed on. An injected `_row_id` is built from the row
     # rather than read from the report, so it is never required of the header.
     required_columns = {incremental_field["field"] for incremental_field in config.incremental_fields}
+    required_columns.update(config.report_row_id_columns)
+    if config.report_final_row_column is not None:
+        required_columns.add(config.report_final_row_column)
     if not inject_row_id:
         required_columns.add(config.primary_key)
 
@@ -482,20 +496,22 @@ def _report_rows(
         if not is_first_request:
             time.sleep(REPORT_REQUEST_INTERVAL_SECONDS)
         is_first_request = False
+        payload = {
+            "metricSet": metric_set,
+            # Explicit UTC keeps window boundaries and rendered timestamps
+            # stable even if the organization's default timezone changes.
+            "timezone": "UTC",
+        }
+        if config.report_uses_time_range:
+            # endAtTime is inclusive through the 59th second of the minute given.
+            payload["startAtTime"] = f"{window_start.isoformat()}T00:00Z"
+            payload["endAtTime"] = f"{window_end.isoformat()}T23:59Z"
+        else:
+            # endAt is inclusive: the report covers through the end of that day.
+            payload["startAt"] = window_start.isoformat()
+            payload["endAt"] = window_end.isoformat()
         try:
-            reader = open_report(
-                {
-                    "metricSet": metric_set,
-                    # Explicit UTC keeps window boundaries and rendered timestamps
-                    # stable even if the organization's default timezone changes.
-                    "timezone": "UTC",
-                    # endAt is inclusive: the report covers through the end of that day.
-                    "startAt": window_start.isoformat(),
-                    "endAt": window_end.isoformat(),
-                },
-                window_start,
-                window_end,
-            )
+            reader = open_report(payload, window_start, window_end)
         except GladlyReportUnavailableError as e:
             if report_never_served:
                 raise GladlyReportNotAvailableForAccountError(metric_set, e.header) from e
@@ -513,10 +529,12 @@ def _report_rows(
                 value = csv_row.get(raw_name)
                 # Blank CSV cells become NULL (e.g. topic columns of non-topic events).
                 row[column] = None if value == "" else value
-            if inject_row_id:
-                row[REPORT_ROW_ID_COLUMN] = _report_row_id(row)
-            chunk.append(row)
             row_count += 1
+            if config.report_final_row_column is not None and row.get(config.report_final_row_column) is None:
+                continue
+            if inject_row_id:
+                row[REPORT_ROW_ID_COLUMN] = _report_row_id(row, config.report_row_id_columns)
+            chunk.append(row)
             if len(chunk) >= CHUNK_SIZE:
                 yield chunk
                 chunk = []

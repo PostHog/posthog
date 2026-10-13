@@ -20,6 +20,7 @@ const buildConfig = (overrides: Partial<UserCustomerAnalyticsConfigApi> = {}): U
     ({
         pinned_properties: PINNED_PROPERTIES,
         task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
+        account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
         ...overrides,
     }) as UserCustomerAnalyticsConfigApi
 

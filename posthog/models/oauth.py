@@ -1,5 +1,6 @@
 import enum
 import uuid
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -27,7 +28,13 @@ from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.user import User
-from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
+from posthog.models.utils import (
+    UUIDT,
+    generate_random_oauth_access_token,
+    generate_random_token,
+    hash_key_value,
+    mask_key_value,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -644,6 +651,31 @@ class OAuthGrant(AbstractGrant):
         blank=True,
         related_name="+",
         db_index=True,
+    )
+
+
+def mint_oauth_access_token(
+    *,
+    application: OAuthApplication,
+    user: "User | None",
+    scope: str,
+    lifetime: timedelta,
+    scoped_teams: list[int],
+    sandbox_task_id: uuid.UUID | None = None,
+) -> OAuthAccessToken:
+    """Mint a fresh access token directly, outside the OAuth grant flow.
+
+    The caller owns the scope and lifetime decision. Callers that also issue a refresh token
+    or rotate an existing one create their rows by hand, inside their own transaction.
+    """
+    return OAuthAccessToken.objects.create(
+        application=application,
+        user=user,
+        token=generate_random_oauth_access_token(None),
+        expires=timezone.now() + lifetime,
+        scope=scope,
+        scoped_teams=scoped_teams,
+        sandbox_task_id=sandbox_task_id,
     )
 
 

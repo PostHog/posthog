@@ -1,0 +1,47 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product today
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product today
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Today
+feature: today
+url_prefix: /home
+ui_apps: {}
+tools:
+    today-briefing-get:
+        operation: today_briefing_retrieve
+        enabled: true
+        scopes:
+            - today:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Get my Today briefing
+        description: >
+            The current user's Today briefing for this project, as shown on the Today home page: a short text about the
+            self-driving reports that need them most (reports that wait for them, that they claimed or review, and
+            urgent reports nobody owns), plus up to 5 items with a label, a signal and a link. A new one is written
+            every morning from 8:00 local time. The first call of the day starts generation and returns status
+            "collecting"; while a refresh is being written, the ready briefing comes back with status "writing" and its
+            text. Generation takes a few minutes; call again later for the "ready" text. 404 when the person gets no
+            briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead.
+            Use this to answer "what should I look at today?".
+        feature_flag: today-rail-nav
+        feature_flag_behavior: enable
+    today-candidates-list:
+        operation: today_candidates_retrieve
+        enabled: true
+        scopes:
+            - today:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List my Today candidates
+        description: >
+            The items behind the current user's briefing, each with its source, the reason it was picked, a link, and
+            the facts the text rests on (the report's status, its priority, and whether an implementation PR exists).
+            Use this when you need the numbers and details, not the written text. Items are in briefing order, most
+            urgent first.
+        feature_flag: today-rail-nav
+        feature_flag_behavior: enable

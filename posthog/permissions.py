@@ -46,6 +46,7 @@ from posthog.scopes import (
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
@@ -56,7 +57,10 @@ from products.access_control.backend.facade.user_access_control import (
 CREATE_ACTIONS = ["create", "update"]
 
 
-def extract_organization(object: Model, view: ViewSet) -> Organization:
+def extract_organization(object: Model | ObjectAccessRef, view: ViewSet) -> Organization:
+    if isinstance(object, ObjectAccessRef):
+        return _organization_for_ref(object, view)
+
     # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
     if organization_id_rewrite:
@@ -99,6 +103,20 @@ def get_organization_from_view(view) -> Organization:
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
+
+
+def _organization_for_ref(ref: ObjectAccessRef, view: Any) -> Organization:
+    """The ref's organization, read from the view when the view serves the ref's team.
+
+    On a root route the view's organization is the user's current one, which can differ from the ref's,
+    so any other case looks the organization up from the ref's team."""
+    try:
+        view_team_id = view.team_id
+    except (KeyError, AttributeError, AssertionError):
+        view_team_id = None
+    if view_team_id == ref.team_id:
+        return get_organization_from_view(view)
+    return Team.objects.select_related("organization").get(pk=ref.team_id).organization
 
 
 def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
@@ -436,7 +454,6 @@ def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
             "project_feature_flags-local-evaluation",
-            "project_live_debugger_breakpoints-active-breakpoints",
         }
     )
 
@@ -571,6 +588,10 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
+        # A sharing configuration grants access to specific model instances, so it never covers a
+        # contract-backed object.
+        if isinstance(object, ObjectAccessRef):
+            return False
         if not isinstance(
             request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
         ):
@@ -1093,6 +1114,13 @@ class AccessControlPermission(ScopeBasePermission):
 
         return READ_LEVEL
 
+    def required_access_level(self, request, view) -> Optional[AccessControlLevel]:
+        """The access level this request needs on the view's resource and its objects.
+
+        Subclasses change the level by overriding `_get_required_access_level`.
+        """
+        return self._get_required_access_level(request, view)
+
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
@@ -1118,7 +1146,10 @@ class AccessControlPermission(ScopeBasePermission):
         if not required_level:
             return True
 
-        has_access = uac.check_access_level_for_object(object, required_level=required_level)
+        if isinstance(object, ObjectAccessRef):
+            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
+        else:
+            has_access = uac.check_access_level_for_object(object, required_level=required_level)
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."

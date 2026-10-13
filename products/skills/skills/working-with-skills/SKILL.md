@@ -5,8 +5,10 @@ description: >-
   how to discover, read, create, update, and refactor skills efficiently, especially
   large skills with many bundled files. Use whenever you are about to call any
   `skill-*` tool, asked to author or edit a shared skill, or troubleshoot
-  why a skill write was rejected. Pairs with `skills-store` (which covers the
-  raw tool surface) by adding the decision-tree, efficiency, and pitfall guidance.
+  why a skill write was rejected. Also use when asked what skills are good for
+  or how to shape one (project hub, runbook, catalog, handover, daily driver).
+  Pairs with `skills-store` (which covers the raw tool surface) by adding the
+  decision-tree, efficiency, pattern, and pitfall guidance.
 ---
 
 # Working with PostHog skills
@@ -383,6 +385,14 @@ When migrating a local skill folder (e.g. `my-skill/SKILL.md` plus
    calls.
 
 After the create, the skill is live for everyone via `skill-get`.
+
+## Patterns: what to use skills for
+
+A skill in the store is a shared, versioned memory that agents with write access can update.
+That makes it useful for much more than instructions: a project hub that agents maintain across sessions, a catalog of the PostHog objects a team owns, a runbook that grows with every investigation, a daily "what needs me" queue, or a handover a teammate's agent can load directly.
+
+[`references/skill-patterns.md`](references/skill-patterns.md) is a cookbook of these shapes, with a file layout, a maintenance contract, and a starting point for each.
+Read it when a user asks what skills are good for, or before you create a skill that agents will maintain over time.
 
 ## When a skill is the wrong answer
 

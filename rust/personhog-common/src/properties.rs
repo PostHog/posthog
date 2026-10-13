@@ -73,6 +73,7 @@ static PROTECTED_PROPERTIES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "epik",
         "qclid",
         "sccid",
+        "oppref",
         "$fbc",
         // Session and page tracking
         "$session_id",

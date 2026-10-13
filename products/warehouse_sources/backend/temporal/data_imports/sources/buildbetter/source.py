@@ -13,10 +13,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildbette
     validate_credentials as validate_buildbetter_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import (
+    BUILDBETTER_API_VERSION_V1,
+    BUILDBETTER_API_VERSION_V3,
     ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    incremental_fields_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -36,9 +42,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v1",)
-    default_version = "v1"
-    api_docs_url = "https://docs.buildbetter.app/"
+    # `v1` reads every table from the GraphQL API. `v3` reads interviews, attendees and transcripts
+    # from the REST API, the only data REST serves so far, and keeps the other tables on GraphQL.
+    supported_versions = (BUILDBETTER_API_VERSION_V1, BUILDBETTER_API_VERSION_V3)
+    default_version = BUILDBETTER_API_VERSION_V3
+    api_docs_url = "https://docs.buildbetter.ai/pages/api/index"
+    # BuildBetter deprecates GraphQL for customer integrations but publishes no sunset date
+    deprecated_versions = (VersionDeprecation(version=BUILDBETTER_API_VERSION_V1, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -75,7 +85,9 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS, incremental_fields_for_version(self.resolve_api_version(api_version)), names
+        )
 
     def validate_credentials(
         self,
@@ -84,7 +96,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_buildbetter_credentials(config.api_key)
+        return validate_buildbetter_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BuildBetterResumeConfig]:
         return ResumableSourceManager[BuildBetterResumeConfig](inputs, BuildBetterResumeConfig)
@@ -102,6 +114,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         return buildbetter_source(
             api_key=config.api_key,
             endpoint_name=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,

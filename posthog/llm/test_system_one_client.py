@@ -23,6 +23,7 @@ from posthog.llm.system_one_client import (
     TypeSafeFallback,
     TypeSafeSystemOneClient,
     build_system_one_client,
+    system_one_configured,
 )
 
 GATEWAY_MODEL = "posthog/hogference/jevk5-fp8-0.2"
@@ -55,6 +56,7 @@ def _build(typesafe_fallback: TypeSafeFallback | None = FALLBACK) -> SystemOneCl
     )
 
 
+@override_settings(CLOUD_DEPLOYMENT="LOCAL")
 class TestBuildSystemOneClient(SimpleTestCase):
     @parameterized.expand(
         [
@@ -98,6 +100,17 @@ class TestBuildSystemOneClient(SimpleTestCase):
     ) -> None:
         with override_settings(**configured), self.assertRaises(SystemOneNotConfigured):
             _build(typesafe_fallback)
+
+    @parameterized.expand(["US", "EU", "DEV", "E2E"])
+    def test_cloud_ignores_typesafe_fallback_even_with_a_key(self, deployment: str) -> None:
+        with override_settings(**{**NOTHING, "TYPESAFE_API_KEY": "ts-key", "CLOUD_DEPLOYMENT": deployment}):
+            assert not system_one_configured(FALLBACK)
+            with self.assertRaisesRegex(SystemOneNotConfigured, "AI_GATEWAY_URL"):
+                _build()
+
+        with override_settings(**{**GATEWAY, "CLOUD_DEPLOYMENT": deployment}):
+            assert system_one_configured(FALLBACK)
+            assert isinstance(_build(), GatewaySystemOneClient)
 
     def test_gateway_request_reaches_the_system_one_route_with_its_labels(self) -> None:
         with override_settings(**{**NOTHING, **GATEWAY}):
