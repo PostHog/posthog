@@ -4,6 +4,7 @@ import { FlatList, Linking, RefreshControl, StyleSheet, View } from 'react-nativ
 
 import { projectWebUrl } from '@/api/client'
 import { useAuthStore } from '@/auth/authStore'
+import { useBootGate } from '@/auth/bootGate'
 import { useViewer } from '@/auth/useViewer'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
@@ -42,6 +43,15 @@ export function InboxScreen(): ReactElement {
     useEffect(() => {
         track('mobile_inbox_opened')
     }, [])
+
+    // The native splash waits for this, so release it only after the loaded list has had a frame to paint.
+    useEffect(() => {
+        if (query.isLoading) {
+            return
+        }
+        const frame = requestAnimationFrame(() => useBootGate.getState().markFirstScreenReady())
+        return () => cancelAnimationFrame(frame)
+    }, [query.isLoading])
 
     const openReport = useCallback((reportId: string) => router.push(`/report/${reportId}`), [router])
     const refresh = (): void => {

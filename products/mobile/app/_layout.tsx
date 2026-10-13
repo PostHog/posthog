@@ -1,8 +1,8 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { Stack } from 'expo-router'
+import { Stack, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { type ReactElement, useEffect } from 'react'
+import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { queryClient } from '@/api/queryClient'
 import { installAuthProvider, useAuthStore } from '@/auth/authStore'
 import { BootSplash } from '@/auth/BootSplash'
+import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGate'
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
 import { useDemoHydrated } from '@/demo/demoMode'
 import { configureNotifications } from '@/features/notifications/pushRegistration'
@@ -23,6 +24,7 @@ import { colors } from '@/ui/tokens'
 export { RouteErrorBoundary as ErrorBoundary }
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined)
+SplashScreen.setOptions({ fade: true, duration: 250 })
 installAuthProvider()
 configureNotifications()
 initAnalytics()
@@ -31,16 +33,32 @@ export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
     const authStatus = useAuthStore((state) => state.status)
     const ready = demoHydrated && authStatus !== 'loading'
+    const firstScreenReady = useBootGate((state) => state.firstScreenReady)
+    const firstSegment = useSegments()[0]
+    const [timedOut, setTimedOut] = useState(false)
+    const splashHidden = useRef(false)
 
     useEffect(() => {
         void useAuthStore.getState().restore()
     }, [])
 
     useEffect(() => {
-        if (ready) {
+        if (!ready) {
+            return
+        }
+        const timer = setTimeout(() => setTimedOut(true), SPLASH_TIMEOUT_MS)
+        return () => clearTimeout(timer)
+    }, [ready])
+
+    useEffect(() => {
+        if (splashHidden.current) {
+            return
+        }
+        if (shouldHideSplash({ sessionReady: ready, firstScreenReady, firstSegment, timedOut })) {
+            splashHidden.current = true
             SplashScreen.hideAsync().catch(() => undefined)
         }
-    }, [ready])
+    }, [ready, firstScreenReady, firstSegment, timedOut])
 
     useAuthRedirect()
     usePushRegistration()
