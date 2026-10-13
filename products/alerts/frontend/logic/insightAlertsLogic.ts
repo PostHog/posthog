@@ -79,8 +79,7 @@ export const areAnomalyAlertsSupportedForInsight = (
         const display = query.source.trendsFilter?.display
         return !display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(display)
     }
-    // The backend has an anomaly detector only for trends and SQL (DETECTOR_EXTRACTORS), and it rejects
-    // an anomaly alert on a funnel or metrics insight when the user saves it.
+    // Matches the backend DETECTOR_EXTRACTORS, which rejects an anomaly alert on any kind but trends and SQL.
     return containsHogQLQuery(query)
 }
 
@@ -91,9 +90,7 @@ const ALERT_SURVIVING_QUERY_KINDS: ReadonlySet<string> = new Set([
     NodeKind.MetricsQuery,
 ])
 
-// Mirrors Insight.alertable_query_kind on the backend, which deletes an insight's alerts on save only when
-// the innermost query kind can carry no alert. That check reads no feature flag and no funnel viz type, so
-// this one must not either. If it did, the deletion banner would warn about a deletion that never happens.
+// Matches the backend Insight.alertable_query_kind, which reads no flag or funnel viz when it deletes alerts on save.
 const alertsSurviveQuery = (query?: Record<string, any> | null): boolean => {
     let node = query
     while (node?.source) {

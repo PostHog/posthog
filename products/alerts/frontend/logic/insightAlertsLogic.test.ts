@@ -294,6 +294,7 @@ describe('insightAlertsLogic', () => {
         { name: 'metrics', query: METRICS_QUERY, metricsEnabled: true, expectedWarning: false },
         { name: 'metrics', query: METRICS_QUERY, metricsEnabled: false, expectedWarning: false },
         { name: 'flow funnel', query: funnelWithViz('flow'), metricsEnabled: false, expectedWarning: false },
+        { name: 'SQL', query: SQL_QUERY, metricsEnabled: false, expectedWarning: false },
         { name: 'retention', query: RETENTION_QUERY, metricsEnabled: true, expectedWarning: true },
     ])(
         'with metrics flag $metricsEnabled, a $name query on an insight with alerts sets the deletion warning to $expectedWarning',
