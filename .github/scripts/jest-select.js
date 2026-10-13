@@ -84,7 +84,7 @@ function main() {
     const testCount = listRelatedTests(changedFiles).length
     const outputs = planOutputs({ changedFiles, changedFileCount: process.env.CHANGED_FILE_COUNT ?? '', testCount })
     const lines = Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`)
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join(''))
+    fs.appendFileSync(process.env.GITHUB_OUTPUT ?? '/dev/stdout', lines.join(''))
     console.log(
         `Selective mode: ${changedFiles.length} changed files, ${testCount} related tests, ` +
             `${outputs.shard_count} shards, slowest estimated at ${outputs.estimated_seconds}s`

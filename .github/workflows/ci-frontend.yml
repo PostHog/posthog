@@ -142,6 +142,7 @@ jobs:
                           - 'products/**/*.tsx'
                       frontend:
                         - '.github/scripts/jest-retries.cjs'
+                        - '.github/scripts/jest-select.js'
                         - 'patches/jest-junit@16.0.0.patch'
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here.
@@ -191,6 +192,7 @@ jobs:
                       # when only markdown or YAML files change.
                       frontend_code:
                         - '.github/scripts/jest-retries.cjs'
+                        - '.github/scripts/jest-select.js'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'bin/**'
                         - 'frontend/**'
@@ -274,7 +276,7 @@ jobs:
     select-jest-tests:
         name: Select jest tests
         runs-on: ubuntu-24.04
-        # Installs the frontend workspace to list the related tests; about two minutes.
+        # Installs the frontend workspace to list the related tests.
         timeout-minutes: 10
         needs: changes
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
@@ -315,6 +317,8 @@ jobs:
                   skip-token-revoke: true
 
             - name: Install pnpm dependencies
+              # A failed install makes the script below fail, and that falls back.
+              continue-on-error: true
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
@@ -397,7 +401,7 @@ jobs:
                       case "$f" in
                           frontend/jest.*|babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
-                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
+                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|.github/scripts/jest-select.js|patches/jest-junit@16.0.0.patch|.nvmrc)
                               fall_back config_change "$f"
                               exit 0
                               ;;
@@ -447,27 +451,9 @@ jobs:
                   fi
 
                   # The script counts the tests --findRelatedTests will run and sizes the
-                  # matrix so the slowest shard meets its wall target. A checkout from
-                  # before the script keeps the fixed three shards below.
-                  if [[ -f .github/scripts/jest-select.js ]]; then
-                      CHANGED_FILES="$CHANGED_FILES" CHANGED_FILE_COUNT="$changed_count" \
-                          node .github/scripts/jest-select.js || fall_back selector_crash "jest-select.js exited $?"
-                      exit 0
-                  fi
-
-                  SELECTED_COUNT=$(echo "$CHANGED_FILES" | wc -w | tr -d ' ')
-                  {
-                      echo "mode=selective"
-                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":3},{"segment":"app","chunk":2,"shard_count":3},{"segment":"app","chunk":3,"shard_count":3}]}'
-                      echo "should_run=true"
-                      echo "changed_files=$CHANGED_FILES"
-                      echo "changed_file_count=$changed_count"
-                      echo "selected_file_count=$SELECTED_COUNT"
-                      echo "shard_count=3"
-                      echo "full_run_reason_category="
-                      echo "full_run_reason_detail="
-                  } >> "$GITHUB_OUTPUT"
-                  echo "Selective mode: $SELECTED_COUNT frontend source files"
+                  # matrix so the slowest shard meets its wall target.
+                  CHANGED_FILES="$CHANGED_FILES" CHANGED_FILE_COUNT="$changed_count" \
+                      node .github/scripts/jest-select.js || fall_back selector_crash "jest-select.js exited $?"
 
     frontend-format:
         name: Frontend formatting
@@ -930,7 +916,7 @@ jobs:
             # ubuntu-24.04 hands out several CPU models, and the same shard runs up to
             # 1.4x slower on one than another, so timings are only comparable per model.
             - name: Print runner CPU
-              run: lscpu | grep 'Model name'
+              run: lscpu | grep 'Model name' || true
 
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
