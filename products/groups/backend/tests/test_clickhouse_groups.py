@@ -26,6 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.filters.utils import GroupTypeIndex
@@ -38,18 +39,20 @@ from posthog.models.group_type_mapping import (
     get_group_types_for_project,
     update_group_type_mapping_fields,
 )
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
+from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
-from ee.clickhouse.views.groups import _decode_groups_cursor, _encode_groups_cursor
-
-PATH = "ee.clickhouse.views.groups"
+PATH = "products.groups.backend.presentation.views"
 
 
 def typed_group_type_index(value: int) -> GroupTypeIndex:
@@ -371,7 +374,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(message["event"], "Group notebook creation failed")
 
     @time_machine.travel("2021-05-02", tick=False)
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_missing_group_properties(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -403,7 +406,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         mock_capture.assert_called_once()
 
     @time_machine.travel("2021-05-02", tick=False)
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     @pytest.mark.flaky(reruns=2)
     def test_create_group(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
@@ -491,7 +494,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             prop_name = result["detail"]["name"]
             self.assertEqual(result["detail"]["changes"][0]["after"], group_properties[prop_name])
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_duplicated_group_key(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -528,10 +531,9 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         mock_capture.assert_not_called()
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_duplicated_group_key_via_personhog(self, mock_capture):
         """Personhog upserts on duplicate so the pre-check must catch it."""
-        from posthog.personhog_client.fake_client import fake_personhog_client
 
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -564,7 +566,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(create_calls), 0, "create_group should not be called for duplicates")
         mock_capture.assert_not_called()
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_missing_group_key(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -594,7 +596,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         mock_capture.assert_not_called()
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_missing_group_type_index(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/groups",
@@ -618,7 +620,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         mock_capture.assert_not_called()
 
     @time_machine.travel("2021-05-02", tick=False)
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -703,7 +705,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
     @time_machine.travel("2021-05-02", tick=False)
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -784,7 +786,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_update_reuses_definition_from_another_environment(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -866,7 +868,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @time_machine.travel("2021-05-02", tick=False)
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -1001,7 +1003,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 400)
 
     @time_machine.travel("2021-05-02", tick=False)
-    @patch("ee.clickhouse.views.groups.capture_internal")
+    @patch("products.groups.backend.presentation.views.capture_internal")
     def test_delete_property_nonexistent_property(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         create_group_type_mapping_without_created_at(
@@ -1046,7 +1048,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 400)
 
     @time_machine.travel("2021-05-02", tick=False)
-    @patch("ee.clickhouse.views.groups.capture_internal")
+    @patch("products.groups.backend.presentation.views.capture_internal")
     def test_get_group_activities_success(self, mock_capture):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)
@@ -1086,7 +1088,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
 
     @time_machine.travel("2021-05-02", tick=False)
-    @patch("ee.clickhouse.views.groups.capture_internal")
+    @patch("products.groups.backend.presentation.views.capture_internal")
     def test_get_group_activities_invalid_group(self, mock_capture):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)
@@ -1868,11 +1870,6 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(cache.get(stale_cache_key))
 
     def test_update_metadata_non_admin_cannot_modify_protected_fields(self):
-        from posthog.constants import AvailableFeature
-        from posthog.models.organization import OrganizationMembership
-
-        from products.access_control.backend.models.access_control import AccessControl
-
         group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
@@ -1904,8 +1901,6 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(group_type.name_plural)
 
     def test_update_metadata_admin_can_modify_protected_fields(self):
-        from posthog.models.organization import OrganizationMembership
-
         group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
@@ -2114,11 +2109,6 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertTrue(GroupUsageMetric.objects.filter(id=other_metric.id).exists())
 
     def test_non_admin_cannot_update_metric(self):
-        from posthog.constants import AvailableFeature
-        from posthog.models.organization import OrganizationMembership
-
-        from products.access_control.backend.models.access_control import AccessControl
-
         metric = self._create_metric()
         url = f"{self.url}/{metric.id}"
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2142,8 +2132,6 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(metric.name, "Events")
 
     def test_admin_can_update_metric(self):
-        from posthog.models.organization import OrganizationMembership
-
         metric = self._create_metric()
         url = f"{self.url}/{metric.id}"
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2156,8 +2144,6 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(metric.name, "Updated by admin")
 
     def _create_dw_table(self, name: str = "stripe_charges"):
-        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         return DataWarehouseTable.objects.create(
             team=self.team,
@@ -2301,7 +2287,7 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         self.group_key = "test_company"
         self.base_url = f"/api/projects/{self.team.id}/groups/"
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_creates_property_definitions(self, mock_capture):
         data = {
             "group_type_index": self.group_type_index,
@@ -2335,7 +2321,7 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(revenue_prop.property_type, "Numeric")
         self.assertTrue(revenue_prop.is_numerical)
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_update_property_creates_property_definition(self, mock_capture):
         create_group(
             team_id=self.team.pk,
@@ -2365,7 +2351,7 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop_def.property_type, "String")
         self.assertFalse(prop_def.is_numerical)
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_update_property_with_different_types(self, mock_capture):
         create_group(
             team_id=self.team.pk, group_type_index=self.group_type_index, group_key=self.group_key, properties={}
@@ -2402,7 +2388,7 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(prop_def.property_type, expected_type)
                 self.assertEqual(prop_def.is_numerical, expected_numerical)
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_update_existing_property_definition(self, mock_capture):
         create_group(
             team_id=self.team.pk, group_type_index=self.group_type_index, group_key=self.group_key, properties={}
@@ -2430,7 +2416,7 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop_def.property_type, "Numeric")
         self.assertTrue(prop_def.is_numerical)
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_update_property_missing_key(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         create_group(
@@ -2444,7 +2430,7 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_update_property_empty_key(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         create_group(
@@ -2458,7 +2444,7 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_property_definitions_have_correct_group_type_index(self, mock_capture):
         self.group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -2811,7 +2797,7 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 404
 
     @time_machine.travel("2021-05-02", tick=False)
-    @patch("ee.clickhouse.views.groups.list_groups")
+    @patch("products.groups.backend.presentation.views.list_groups")
     def test_list_api_has_more_produces_next_url(self, mock_list_groups):
         # The viewset turns a has_more result into a forward cursor in the `next` URL.
         groups = [
