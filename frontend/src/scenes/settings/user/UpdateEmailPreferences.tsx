@@ -2,13 +2,22 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconQuestion } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSwitch,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+import { AvailableFeature, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
 import { LOCKED_BY_ORGANIZATION, lockedValueFor } from '../shared/notificationLocks'
 import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
@@ -23,6 +32,7 @@ enum NotificationBlock {
     WaWeeklyDigest = 'wa-weekly-digest',
     DataCatalogWeeklyDigest = 'data-catalog-weekly-digest',
     CommentMentions = 'comment-mentions',
+    Approvals = 'approvals',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
     AiEvaluationDisabled = 'ai-evaluation-disabled',
@@ -51,6 +61,8 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     materialized_view_sync_failed_immediate: false,
     web_analytics_weekly_digest: true,
     data_catalog_weekly_digest: true,
+    approval_requested: true,
+    approval_resolved: true,
 }
 
 function ProjectDigestSelector({
@@ -347,7 +359,7 @@ function PipelineNotificationSelector(): JSX.Element {
 }
 
 export function UpdateEmailPreferences(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
+    const { user, userLoading, hasAvailableFeature } = useValues(userLogic)
     const {
         updateWeeklyDigestForTeam,
         updateWeeklyDigestForAllTeams,
@@ -567,6 +579,28 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
         ),
+        [NotificationBlock.Approvals]: (
+            <div className="border rounded p-4 space-y-3">
+                <div className="flex items-center gap-1 font-semibold">
+                    <span>Approvals</span>
+                    <Tooltip title="These switches apply to approval emails from all your organizations.">
+                        <IconQuestion className="text-secondary text-base" />
+                    </Tooltip>
+                </div>
+                <SimpleSwitch
+                    setting="approval_requested"
+                    label="Approval requests"
+                    description="Get an email when a change needs your approval"
+                    dataAttr="approval_requested_enabled"
+                />
+                <SimpleSwitch
+                    setting="approval_resolved"
+                    label="Change request updates"
+                    description="Get an email when your change request is approved, declined, expires, or goes live"
+                    dataAttr="approval_resolved_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.ApiKeyExposure]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
@@ -600,7 +634,10 @@ export function UpdateEmailPreferences(): JSX.Element {
         ),
     }
 
-    const highlightedBlock = highlight && NOTIFICATION_BLOCK_ORDER.includes(highlight) ? highlight : null
+    const visibleBlocks = NOTIFICATION_BLOCK_ORDER.filter(
+        (block) => block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)
+    )
+    const highlightedBlock = highlight && visibleBlocks.includes(highlight) ? highlight : null
     const highlightRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -611,7 +648,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     return (
         <div className="space-y-3">
-            {NOTIFICATION_BLOCK_ORDER.map((key) => (
+            {visibleBlocks.map((key) => (
                 <div
                     key={key}
                     ref={key === highlightedBlock ? highlightRef : undefined}

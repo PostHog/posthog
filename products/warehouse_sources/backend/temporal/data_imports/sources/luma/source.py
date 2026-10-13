@@ -78,6 +78,12 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
             "403 Client Error: Forbidden for url: https://public-api.luma.com": "Your Luma API key does not have access to this data. Check the key's calendar or organization scope, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried in-process by `_fetch_page`'s tenacity backoff (see luma.py);
+        # if that budget still exhausts, Temporal's activity retry picks it back up, so this is
+        # self-recovering rather than a tracked-exception-worthy failure.
+        return {"Luma API error (retryable): status=429", "Luma API error (retryable): status=5"}
+
     def get_schemas(
         self,
         config: LumaSourceConfig,

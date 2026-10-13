@@ -6,8 +6,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.cdp.workflow_step_resume import RESULT_BYTE_CAP
-
+from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP
 from products.tasks.backend.facade.api import update_task_run
 from products.tasks.backend.logic.services.workflow_step_resume import (
     DEFERRED_RESUME_TASK,

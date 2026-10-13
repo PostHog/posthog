@@ -120,7 +120,7 @@ function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONT
  * Wrap raw html in an Unlayer design holding a single custom HTML block. Emails authored
  * programmatically (API/MCP) often have html but no design; loading a wrapped design shows the
  * email in the canvas instead of a blank editor whose save would clobber the stored html.
- * Mirrors build_html_wrap_design in posthog/cdp/validation.py.
+ * Mirrors build_html_wrap_design in products/cdp/backend/validation.py.
  */
 export function buildHtmlWrapDesign(html: string): JSONTemplate {
     // Fixed ids keep the wrap deterministic: re-wrapping the same html yields an identical

@@ -156,6 +156,7 @@ class TestEndpointDataKeys:
         [
             ("messages_outbound", "Messages", "MessageID"),
             ("messages_inbound", "InboundMessages", "MessageID"),
+            ("opens", "Opens", "MessageID"),
             ("templates", "Templates", "TemplateId"),
             ("message_streams", "MessageStreams", "ID"),
             ("bounces", "Bounces", "ID"),
@@ -179,7 +180,7 @@ class TestSourceResponseShape:
     def _assert_shape(endpoint: str, response: Any) -> None:
         config = POSTMARK_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
 
         if config.partition_key:
             assert response.partition_mode == "datetime"
@@ -270,7 +271,7 @@ class TestWebhookItemsWiring:
         # Only bounces has a matching Postmark trigger; the rest must keep polling regardless
         # of whether a webhook function exists for the source. Consulting the manager would read
         # the database, which the driver blocks, so a clean run shows it was never consulted.
-        result = _run(endpoint, [_list_response(endpoint, [{POSTMARK_ENDPOINTS[endpoint].primary_key: "x1"}])])
+        result = _run(endpoint, [_list_response(endpoint, [{POSTMARK_ENDPOINTS[endpoint].primary_keys[0]: "x1"}])])
 
         assert result.raised is None
         assert len(result.rows) == 1

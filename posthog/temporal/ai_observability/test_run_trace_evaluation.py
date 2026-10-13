@@ -15,7 +15,6 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.hogql import ast
 
 from posthog.api.capture import CaptureInternalError
-from posthog.cdp.validation import compile_hog
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team, User
 from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
@@ -25,6 +24,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+from products.cdp.backend.validation import compile_hog
 
 from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult

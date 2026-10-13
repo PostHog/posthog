@@ -433,9 +433,8 @@ async fn process_events_inner(
     // pipelines its host capture deployment serves; the pipeline argument
     // selects which slice of restrictions applies to each event. A DropEvent
     // tagged only for `analytics` will never silently drop an exception event
-    // on the way to the error tracking topic, and vice versa. Data types
-    // without a pipeline (heatmaps, ingestion warnings, snapshots) flow
-    // through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
+    // on the way to the error tracking topic, and vice versa. Snapshots have
+    // no pipeline here and flow through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
     // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
     // win over the lane, redirect_to_topic beats the AI topic in the sink,
     // force_overflow keeps it on the AI lane) -- mirroring v1.
@@ -1972,7 +1971,7 @@ mod tests {
     /// An ai-scoped RedirectToTopic applies to a diverted AI event: the
     /// event keeps its AI lane, but the stamped redirect beats the data type
     /// in the sink so operators can reroute an AI token's traffic ad hoc,
-    /// matching v1 where the restriction overwrites `Destination::AiEvents`
+    /// matching v1 where the restriction overwrites `Destination::AiMain`
     /// with `Destination::Custom`.
     #[tokio::test]
     async fn test_process_events_restriction_redirect_applies_to_ai_events() {

@@ -357,6 +357,9 @@ class TurnMarkerArtefact(BaseModel):
     skipped_paths: list[str] | None = Field(
         default=None, description="The changed files the turn left out of the review."
     )
+    review_design: str | None = Field(
+        default=None, description="The design the turn ran on (pipeline or single_agent)."
+    )
 
 
 RUN_OUTCOME_NOTE_AUTHOR = "review_hog_run_outcome"
