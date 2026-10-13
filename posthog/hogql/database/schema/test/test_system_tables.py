@@ -13,6 +13,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
@@ -117,7 +118,8 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.surveys.backend.models import Survey, SurveyResponseArchive
-from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskArtifact, TaskRun
+from products.tasks.backend.facade import testing as tasks_testing
+from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataJob,
@@ -213,10 +215,56 @@ class TestSystemTablesTeamScoping(BaseTest):
         assert "storage_ptr" not in table.fields
         assert "content_hash" not in table.fields
 
-    def test_scout_configs_do_not_expose_staff_only_rubrics(self):
-        table = SystemTables().children["scout_configs"].get()
+    @parameterized.expand(
+        [
+            ("scout_configs", "rubrics"),
+            ("scout_configs", "status_changed_by_id"),
+            ("scout_configs", "created_by_id"),
+            ("scout_configs", "enabled_by_id"),
+            ("inbox_reports", "metrics"),
+            ("inbox_report_checks", "config"),
+            ("inbox_report_artefacts", "content"),
+            ("inbox_report_actions", "metadata"),
+        ]
+    )
+    def test_viewer_restricted_fields_are_not_queryable(self, table_name, field_name):
+        table = SystemTables().children[table_name].get()
         assert isinstance(table, Table)
-        assert "rubrics" not in table.fields
+        assert field_name not in table.fields
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database.create_for(team=self.team, user=self.user),
+        )
+        with self.assertRaises(QueryError):
+            prepare_and_print_ast(
+                parse_select(f"SELECT {field_name} FROM system.{table_name}"), context, dialect="clickhouse"
+            )
+
+    @parameterized.expand(
+        [
+            ("inbox_report_artefacts", "inbox_reports", "report_id"),
+            ("inbox_report_checks", "inbox_reports", "report_id"),
+            ("scout_run_emissions", "scout_runs", "run_id"),
+        ]
+    )
+    def test_joined_inbox_and_scout_reads_push_team_filter_into_postgres(self, child, parent, parent_id):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database.create_for(team=self.team, user=self.user),
+        )
+        query, _ = prepare_and_print_ast(
+            parse_select(
+                f"SELECT p.id, c.id FROM system.{parent} p LEFT JOIN system.{child} c ON c.{parent_id} = p.id LIMIT 20"
+            ),
+            context,
+            dialect="clickhouse",
+        )
+
+        assert query.count("postgresql(") >= 2
+        assert query.count("postgresql(") == query.count(f"WHERE team_id = {self.team.pk})")
 
     def test_data_deletion_requests_exposes_only_customer_safe_fields(self):
         table = SystemTables().children["data_deletion_requests"].get()
@@ -996,15 +1044,13 @@ def _create_scout_run_emission(team: Team, label: str) -> SignalScoutEmission:
     )
 
 
-def _create_task_artifact(team: Team, label: str) -> TaskArtifact:
+def _create_task_artifact(team: Team, label: str) -> uuid.UUID:
     run = _create_task_run(team, label)
-    return TaskArtifact.objects.for_team(team.pk).create(
-        team=team,
-        task=run.task,
-        task_run=run,
+    return tasks_testing.create_task_artifact(
+        team_id=team.pk,
+        task_id=run.task_id,
+        task_run_id=run.pk,
         name=label,
-        artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
-        adapter=TaskArtifact.Adapter.DOCUMENT_CONNECTOR,
     )
 
 
@@ -1493,7 +1539,10 @@ class TestSystemTablesInboxDeletedExclusionIsolation(NonAtomicBaseTest):
         SignalReportArtefact.objects.filter(pull_request=ranking).update(type="ranking_score")
 
         artefacts = execute_hogql_query(
-            "SELECT pull_request_id FROM system.inbox_report_artefacts", team=self.team, user=self.user
+            "SELECT a.pull_request_id FROM system.inbox_reports r "
+            "JOIN system.inbox_report_artefacts a ON a.report_id = r.id",
+            team=self.team,
+            user=self.user,
         )
         pull_requests = execute_hogql_query(
             "SELECT id FROM system.inbox_report_pull_requests", team=self.team, user=self.user
@@ -1578,13 +1627,11 @@ class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
         TaskRun.objects.create(task=unfiled_task, team=self.team)
         TaskRun.objects.create(task=deleted_channel_task, team=self.team)
         for task in (public_task, private_task, unfiled_task, deleted_channel_task):
-            TaskArtifact.objects.for_team(self.team.pk).create(
-                team=self.team,
-                task=task,
-                task_run=TaskRun.objects.get(team=self.team, task=task),
+            tasks_testing.create_task_artifact(
+                team_id=self.team.pk,
+                task_id=task.pk,
+                task_run_id=TaskRun.objects.get(team=self.team, task=task).pk,
                 name=task.title,
-                artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
-                adapter=TaskArtifact.Adapter.DOCUMENT_CONNECTOR,
             )
 
         task_response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team, user=self.user)

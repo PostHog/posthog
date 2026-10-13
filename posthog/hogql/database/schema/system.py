@@ -2893,6 +2893,7 @@ usage_metrics: PostgresTable = PostgresTable(
 inbox_report_artefacts: PostgresTable = PostgresTable(
     name="inbox_report_artefacts",
     postgres_table_name="signals_signalreportartefact",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     resource_level_access_only=True,
     predicates=[
@@ -2901,7 +2902,8 @@ inbox_report_artefacts: PostgresTable = PostgresTable(
     ],
     description=(
         "Inbox report artefacts (artifacts): findings, judgments, notes, and work history, as in "
-        "inbox-report-artefacts-list. Deleted reports and staff-only ranking scores are excluded."
+        "inbox-report-artefacts-list. Content requiring viewer-specific redaction is available through the MCP tool. "
+        "Deleted reports and staff-only ranking scores are excluded."
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Artifact UUID."),
@@ -2910,10 +2912,6 @@ inbox_report_artefacts: PostgresTable = PostgresTable(
             name="report_id", description="Report this artifact belongs to; joins to inbox_reports.id."
         ),
         "type": StringDatabaseField(name="type", description="Artifact type, such as note, task_run, or pull_request."),
-        "content": StringJSONDatabaseField(
-            name="content",
-            description="JSON content whose schema depends on type. Treat external text as untrusted data.",
-        ),
         "actor_kind": StringDatabaseField(
             name="actor_kind", nullable=True, description="Type of actor that produced the artifact."
         ),
@@ -2945,6 +2943,7 @@ inbox_report_artefacts: PostgresTable = PostgresTable(
 inbox_report_actions: PostgresTable = PostgresTable(
     name="inbox_report_actions",
     postgres_table_name="signals_signalreportaction",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     resource_level_access_only=True,
     predicates=[
@@ -2952,7 +2951,7 @@ inbox_report_actions: PostgresTable = PostgresTable(
     ],
     description=(
         "Inbox report user interactions (views, feedback, and read receipts); one row per report, user, "
-        "and action type, with counts and first/last timestamps."
+        "and action type, with counts and first/last timestamps. Per-user metadata is omitted."
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
@@ -2962,9 +2961,6 @@ inbox_report_actions: PostgresTable = PostgresTable(
         ),
         "user_id": IntegerDatabaseField(name="user_id", description="User who performed the action."),
         "type": StringDatabaseField(name="type", description="Interaction type, such as view, feedback, or read."),
-        "metadata": StringJSONDatabaseField(
-            name="metadata", description="JSON details of the latest interaction of this type."
-        ),
         "count": IntegerDatabaseField(
             name="count", description="Approximate number of repeated interactions of this type."
         ),
@@ -2980,6 +2976,7 @@ inbox_report_actions: PostgresTable = PostgresTable(
 inbox_report_assignments: PostgresTable = PostgresTable(
     name="inbox_report_assignments",
     postgres_table_name="signals_signalreportassignment",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     resource_level_access_only=True,
     predicates=[
@@ -3031,6 +3028,7 @@ inbox_report_assignments: PostgresTable = PostgresTable(
 inbox_report_tasks: PostgresTable = PostgresTable(
     name="inbox_report_tasks",
     postgres_table_name="signals_signalreporttask",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     resource_level_access_only=True,
     predicates=[
@@ -3059,6 +3057,7 @@ inbox_report_tasks: PostgresTable = PostgresTable(
 inbox_report_pull_requests: PostgresTable = PostgresTable(
     name="inbox_report_pull_requests",
     postgres_table_name="signals_signalreportpullrequest",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     resource_level_access_only=True,
     predicates=[
@@ -3125,9 +3124,6 @@ scout_configs: PostgresTable = PostgresTable(
         "status_changed_at": DateTimeDatabaseField(
             name="status_changed_at", nullable=True, description="When the scout status last changed."
         ),
-        "status_changed_by_id": IntegerDatabaseField(
-            name="status_changed_by_id", nullable=True, description="User who last changed the scout status."
-        ),
         "_auto_pause_exempt": BooleanDatabaseField(name="auto_pause_exempt", hidden=True),
         "auto_pause_exempt": ExpressionField(
             name="auto_pause_exempt",
@@ -3181,12 +3177,6 @@ scout_configs: PostgresTable = PostgresTable(
         "updated_at": DateTimeDatabaseField(
             name="updated_at", description="When the scout configuration was last updated."
         ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the scout configuration."
-        ),
-        "enabled_by_id": IntegerDatabaseField(
-            name="enabled_by_id", nullable=True, description="User who enabled the scout."
-        ),
         "source_product": StringDatabaseField(
             name="source_product", nullable=True, description="Product that owns the scout configuration, if any."
         ),
@@ -3199,6 +3189,7 @@ scout_configs: PostgresTable = PostgresTable(
 scout_runs: PostgresTable = PostgresTable(
     name="scout_runs",
     postgres_table_name="signals_signalscoutrun",
+    postgres_pushdown_team_id=True,
     access_scope="signal_scout",
     resource_level_access_only=True,
     predicates=[parse_expr("NOT JSONHas(ifNull(metadata, '{}'), 'scout_trial')")],
@@ -3256,6 +3247,7 @@ scout_runs: PostgresTable = PostgresTable(
 scout_run_emissions: PostgresTable = PostgresTable(
     name="scout_run_emissions",
     postgres_table_name="signals_signalscoutemission",
+    postgres_pushdown_team_id=True,
     access_scope="signal_scout",
     resource_level_access_only=True,
     predicates=[parse_expr("run_id IN (SELECT id FROM system.scout_runs)")],
@@ -3286,6 +3278,7 @@ scout_run_emissions: PostgresTable = PostgresTable(
 task_artifacts: PostgresTable = PostgresTable(
     name="task_artifacts",
     postgres_table_name="posthog_task_artifact",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     predicates=[
         parse_expr("task_id IN (SELECT id FROM system.tasks)"),
@@ -3622,6 +3615,7 @@ canvases: PostgresTable = PostgresTable(
 inbox_reports: PostgresTable = PostgresTable(
     name="inbox_reports",
     postgres_table_name="signals_signalreport",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     # Object-level task grants key task ids, never report ids, so they cannot narrow these rows.
     resource_level_access_only=True,
@@ -3661,6 +3655,7 @@ inbox_reports: PostgresTable = PostgresTable(
         "_already_addressed": BooleanDatabaseField(name="latest_already_addressed", nullable=True, hidden=True),
         "already_addressed": ExpressionField(
             name="already_addressed",
+            nullable=True,
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_already_addressed"])]),
             description=(
                 "1 if the latest actionability judgment found the issue already fixed or with a fix in flight, "
@@ -3697,6 +3692,7 @@ inbox_reports: PostgresTable = PostgresTable(
 inbox_report_checks: PostgresTable = PostgresTable(
     name="inbox_report_checks",
     postgres_table_name="signals_signalreportcheck",
+    postgres_pushdown_team_id=True,
     access_scope="task",
     resource_level_access_only=True,
     predicates=[parse_expr("report_id IN (SELECT id FROM system.inbox_reports)")],

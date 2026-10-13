@@ -1116,9 +1116,8 @@ class ClickHousePrinter(BasePrinter):
         # ClickHouse doesn't push the outer team_id guard through joins into a postgresql()
         # read, so a joined federated table gets COPY'd out of Postgres in full. Repeat the
         # filter adjacent to the table function, where it does get pushed down; the outer
-        # guard stays and column pruning still applies through the SELECT *. Tables with
-        # predicates can opt into the wrapper when they also declare equality filters that
-        # must prune the PostgreSQL read.
+        # guard stays and column pruning still applies through the SELECT *. Predicate-bearing
+        # tables can opt in to team pushdown when their joins would otherwise read every team.
         from posthog.hogql.database.postgres_table import (
             PostgresTable,  # noqa: PLC0415 (keeps persons-DB deps off the printer import path)
         )
@@ -1135,6 +1134,7 @@ class ClickHousePrinter(BasePrinter):
             # in the enclosing select and run in ClickHouse over the already-bounded row set.
             and (
                 table.retention_field is not None
+                or table.postgres_pushdown_team_id
                 or table.postgres_pushdown_values
                 or not table.get_predicates(self.context)
             )

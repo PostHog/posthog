@@ -9605,16 +9605,6 @@
                   "table": null,
                   "type": "string"
               },
-              "metadata": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "metadata",
-                  "id": null,
-                  "name": "metadata",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "json"
-              },
               "count": {
                   "chain": null,
                   "fields": null,
@@ -9683,16 +9673,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "content": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "content",
-                  "id": null,
-                  "name": "content",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "json"
               },
               "actor_kind": {
                   "chain": null,
@@ -11936,16 +11916,6 @@
                   "table": null,
                   "type": "datetime"
               },
-              "status_changed_by_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "status_changed_by_id",
-                  "id": null,
-                  "name": "status_changed_by_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
               "auto_pause_exempt": {
                   "chain": null,
                   "fields": null,
@@ -12105,26 +12075,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
-              },
-              "created_by_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "created_by_id",
-                  "id": null,
-                  "name": "created_by_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
-              "enabled_by_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "enabled_by_id",
-                  "id": null,
-                  "name": "enabled_by_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
               },
               "source_product": {
                   "chain": null,
@@ -23866,16 +23816,6 @@
                   "table": null,
                   "type": "string"
               },
-              "metadata": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "metadata",
-                  "id": null,
-                  "name": "metadata",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "json"
-              },
               "count": {
                   "chain": null,
                   "fields": null,
@@ -23944,16 +23884,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "content": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "content",
-                  "id": null,
-                  "name": "content",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "json"
               },
               "actor_kind": {
                   "chain": null,
@@ -26197,16 +26127,6 @@
                   "table": null,
                   "type": "datetime"
               },
-              "status_changed_by_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "status_changed_by_id",
-                  "id": null,
-                  "name": "status_changed_by_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
               "auto_pause_exempt": {
                   "chain": null,
                   "fields": null,
@@ -26366,26 +26286,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
-              },
-              "created_by_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "created_by_id",
-                  "id": null,
-                  "name": "created_by_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
-              "enabled_by_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "enabled_by_id",
-                  "id": null,
-                  "name": "enabled_by_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
               },
               "source_product": {
                   "chain": null,

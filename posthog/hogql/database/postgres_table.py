@@ -128,6 +128,8 @@ class PostgresTable(FunctionCallTable):
     # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
     # rather than after the rows have been copied out. None means the table has no retention window.
     retention_field: Optional[str] = None
+    # Bound joined reads to the team even when the remaining predicates must run in ClickHouse.
+    postgres_pushdown_team_id: bool = False
     postgres_pushdown_values: dict[str, str | int | bool] = {}
     predicates: list[Expr] = []
 
