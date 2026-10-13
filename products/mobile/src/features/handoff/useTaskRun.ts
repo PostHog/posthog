@@ -19,7 +19,7 @@ import {
 import type { RunTarget } from './types'
 
 /** The server sends a keepalive every 20 s, so a minute of silence means the connection is dead. */
-const IDLE_TIMEOUT_MS = 60_000
+export const IDLE_TIMEOUT_MS = 60_000
 const BOOTSTRAP_ATTEMPTS = 4
 
 // Kept across screen visits and app foregrounds so a return resumes after the last event instead of replaying the log.
@@ -34,7 +34,7 @@ function cursorFor(runId: string): RunStreamCursor {
     return cursor
 }
 
-function useAppActive(): boolean {
+export function useAppActive(): boolean {
     const [active, setActive] = useState(() => AppState.currentState !== 'background')
     useEffect(() => {
         const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -45,11 +45,11 @@ function useAppActive(): boolean {
     return active
 }
 
-function isAbort(error: unknown, signal: AbortSignal): boolean {
+export function isAbort(error: unknown, signal: AbortSignal): boolean {
     return signal.aborted || (error instanceof Error && error.name === 'AbortError')
 }
 
-function isFatal(error: unknown): boolean {
+export function isFatal(error: unknown): boolean {
     return (
         error instanceof NotSignedInError ||
         (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 404))

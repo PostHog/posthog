@@ -67,14 +67,14 @@ export function extractAgentToolName(meta: unknown): string | undefined {
     return extractClaudeToolName(meta)
 }
 
-interface ResolvedToolCall {
+export interface ResolvedToolCall {
     resolvedKey: string
     innerToolName?: string
 }
 
 // The PostHog MCP server exposes one `exec` tool, so the inner tool comes from `input.command`. An unparsable `call`
 // resolves to the unknown sentinel so the gate fails closed instead of treating it as harmless.
-function resolveToolCall(toolCall: PermissionToolCall): ResolvedToolCall {
+export function resolveToolCall(toolCall: PermissionToolCall): ResolvedToolCall {
     const agentToolName = extractAgentToolName(toolCall.meta)
     const mcp = agentToolName?.match(/^mcp__(.+?)__(.+)$/)
     const serverName = mcp?.[1] ?? toolCall.rawServerName

@@ -86,8 +86,8 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   New chat button. A search field above the list filters titles on the device. Rows are grouped
   under day labels (Today, Yesterday, a weekday, a date, Earlier) and use the inbox row geometry:
   a chat bubble tile for a PostHog AI chat, a branch tile with a status dot for a sandbox session.
-  A chat row opens the chat sheet on that conversation. A session row opens the session in the web
-  app, and is dimmed in demo mode. The nav pill shows Chats selected. Loading, error, empty and
+  A chat row opens the chat sheet on that conversation. A session row opens the session in the chat
+  sheet: the agent's thread, its PR card, and a pending decision above the composer. The nav pill shows Chats selected. Loading, error, empty and
   "No matches" are separate screens; when one of the two sources fails, a line above the list
   says so and offers Try again.
 - **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.

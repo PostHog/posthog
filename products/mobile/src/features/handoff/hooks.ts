@@ -61,7 +61,7 @@ export interface HandoffActions {
     undoDecision: AsyncAction<[]>
 }
 
-function answerErrorMessage(error: unknown): string {
+export function answerErrorMessage(error: unknown): string {
     if (error instanceof CommandFailedError) {
         return "PostHog didn't accept your answer. Try again."
     }

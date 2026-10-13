@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
-import { Linking, RefreshControl, SectionList, StyleSheet, View } from 'react-native'
+import { RefreshControl, SectionList, StyleSheet, View } from 'react-native'
 
 import { chatKeys } from '@/api/conversations'
 import { useProjectScope } from '@/auth/useProjectScope'
@@ -60,13 +60,8 @@ export function ChatsScreen(): ReactElement {
     const openChat = useCallback(
         (item: ChatListItem) => {
             track('mobile_chat_opened', { kind: item.kind })
-            if (item.kind === 'conversation') {
-                router.push({ pathname: '/chat', params: { conversationId: item.sourceId } })
-                return
-            }
-            if (item.webUrl) {
-                Linking.openURL(item.webUrl).catch(() => undefined)
-            }
+            const params = item.kind === 'session' ? { taskId: item.sourceId } : { conversationId: item.sourceId }
+            router.push({ pathname: '/chat', params })
         },
         [router]
     )

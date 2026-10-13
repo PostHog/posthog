@@ -71,7 +71,7 @@ describe('chatListFromSources', () => {
         ])
     })
 
-    test('drops archived sessions and chats that handed off to a listed session', () => {
+    test('drops archived sessions and chats that handed off to a fetched session', () => {
         const items = chatListFromSources({
             conversations: [
                 conversation({ id: 'linked', task: { id: 't1' } }),
@@ -80,8 +80,28 @@ describe('chatListFromSources', () => {
             sessions: [session({ id: 't1' }), session({ id: 't-archived', archived: true })],
             scope: null,
         })
-        expect(items.map((item) => item.id)).toEqual(['session:t1', 'conversation:linked-to-archived'])
+        expect(items.map((item) => item.id)).toEqual(['session:t1'])
         expect(items.every((item) => item.webUrl === undefined)).toBe(true)
+    })
+
+    test('turns a chat that handed off to a session outside the page into a session row', () => {
+        const items = chatListFromSources({
+            conversations: [conversation({ id: 'c1', task: { id: 't-old' } })],
+            sessions: [],
+            scope,
+        })
+        expect(items).toEqual([
+            {
+                id: 'session:t-old',
+                kind: 'session',
+                sourceId: 't-old',
+                title: 'Why did signups drop?',
+                updatedAt: '2026-10-10T09:00:00Z',
+                status: 'idle',
+                pullRequestUrl: null,
+                webUrl: 'https://us.posthog.com/project/7/ai?task=t-old',
+            },
+        ])
     })
 
     test('falls back to a placeholder title when the server has none', () => {

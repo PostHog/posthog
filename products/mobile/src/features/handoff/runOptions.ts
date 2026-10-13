@@ -28,7 +28,7 @@ const DEFAULT_PERMISSION_MODE: PermissionModeApi = 'auto'
 export const DEFAULT_RUN_OPTIONS: RunOptions = { model: 'default', permissionMode: DEFAULT_PERMISSION_MODE, branch: '' }
 
 /** What the web Inbox's Create PR pins when the user has no stored default (`REPORT_FALLBACK_RUNTIME`). */
-const HANDOFF_FALLBACK_RUNTIME: RunRuntimeSelectionApi & { reasoning_effort: ReasoningEffortApi } = {
+export const HANDOFF_FALLBACK_RUNTIME: RunRuntimeSelectionApi & { reasoning_effort: ReasoningEffortApi } = {
     runtime_adapter: 'claude',
     model: 'claude-opus-5-5',
     reasoning_effort: 'high',

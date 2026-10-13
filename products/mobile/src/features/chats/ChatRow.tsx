@@ -23,16 +23,12 @@ export const ChatRow = memo(function ChatRow({ item, now, onOpen }: ChatRowProps
     const when = formatRelativeAgo(item.updatedAt, now)
     const status = item.kind === 'session' && item.status ? sessionStatusDisplay(item.status) : null
     const metaText = status ? `${status.label}, ${when}` : when
-    // A session opens in the web app, so without a web URL (demo mode) it has nowhere to go.
-    const disabled = item.kind === 'session' && !item.webUrl
     return (
         <Pressable44
             onPress={() => onOpen(item)}
-            disabled={disabled}
             pressedBackground={colors.sunken}
-            style={[styles.row, disabled && styles.disabled]}
+            style={styles.row}
             accessibilityLabel={`${item.title}, ${metaText}${item.pullRequestUrl ? ', has a pull request' : ''}`}
-            accessibilityState={{ disabled }}
             testID={`chat-row-${item.id.replace(':', '-')}`}
         >
             <IconTile>{item.kind === 'session' ? <GitBranchIcon size={18} /> : <ChatBubbleIcon size={18} />}</IconTile>
@@ -75,9 +71,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 2,
         borderBottomWidth: 1,
         borderBottomColor: colors.rowDivider,
-    },
-    disabled: {
-        opacity: 0.4,
     },
     // The handoff's 44pt min-height applies to the row's content box, so the row renders 71pt tall.
     body: {

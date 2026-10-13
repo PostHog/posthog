@@ -21,7 +21,9 @@ The flow:
 3. snoozes the report until tomorrow and checks that the inbox row says so,
 4. opens "3,721 errors", picks an answer in the decision card, then taps Undo,
 5. opens Chat from the action pill, sends a question and waits for the demo reply,
-6. goes back and taps **Exit demo** in Settings.
+6. goes back, opens Chats, and opens and closes "Why did signups drop on Tuesday?",
+7. opens the session "Fix the flaky checkout test" and checks its reply, then opens "Add dark mode to settings" and waits for its decision card,
+8. goes Home and taps **Exit demo** in Settings.
 
 It starts and ends on the sign-in screen with demo mode off, so you can run it again right away.
 Every step uses the app's `testID`s, except the scrim tap, which uses the scrim's "Close" label.

@@ -16,7 +16,7 @@ products/mobile/
       chats.tsx           -> src/features/chats/ChatsScreen
     report/[id].tsx       -> src/features/report/ReportScreen
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
-                          `conversationId` resumes a stored chat)
+                          `conversationId` resumes a stored chat, `taskId` and `runId` open a session)
     settings.tsx          -> src/features/settings/SettingsScreen
   src/
     api/                  client.ts (fetch wrapper: base URL, bearer, refresh on 401, mobile header),
@@ -30,7 +30,8 @@ products/mobile/
     model/                types.ts (the view-model contract), sources.ts, agent.ts, queryStates.ts,
                           adapters/ (Today and signals responses -> view models)
     demo/                 briefings.ts (raw prototype data), fixtures.ts (view models), derive.ts,
-                          demoMode.ts (zustand store), hooks.ts (demo query hooks)
+                          demoMode.ts (zustand store), hooks.ts (demo query hooks),
+                          sessionThreads.ts (demo session run logs)
     features/
       tabs/               TabsLayout (Inbox and Chats tab navigator, Products link), BottomBar (rendered once)
       inbox/              InboxScreen, InboxRow, InboxHeader, NavMenu, hooks,
@@ -47,6 +48,8 @@ products/mobile/
       priority/           PrioritySheet, hooks
       chat/               ChatSheet, Composer, MentionPopover, Thread, ChatEmptyState, ChatMarkdown,
                           conversation (reducer), contextPrompt, chatErrors, webLinks, hooks
+        session/          useSession, sessionReducer, sessionDisplay, SessionThread and its rows,
+                          SessionDecisionPanel
       chats/              ChatsScreen, ChatsHeader, ChatsSearchField, ChatsPartialNotice, ChatRow,
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
@@ -94,6 +97,7 @@ Hand-off and decision actions resolve on failure and surface the error through
 | Chat | `POST conversations/` (SSE) | none |
 | Stored chat | `GET conversations/{id}/` | none |
 | Chats list | `GET conversations/?limit=30` and `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30` | The list shows whichever source loaded; a 403 or 404 from tasks means no sessions |
+| Session thread | `GET tasks/{id}/` then `GET tasks/{id}/runs/{run}/logs/` for an ended run, or `GET tasks/{id}/runs/{run}/stream/` for a live one | A failed load shows Try again; demo sessions come from `src/demo/sessionThreads.ts` |
 | Reviewers | `GET signals/reports/available_reviewers/`, `PUT signals/reports/{id}/reviewers/` | none |
 | Priority | `POST signals/reports/{id}/artefacts/` (`priority_judgment`) | none |
 | Snooze | `POST signals/reports/{id}/state/` for "until more signals"; on-device store for times | none |
