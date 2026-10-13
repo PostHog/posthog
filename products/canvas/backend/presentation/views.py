@@ -378,6 +378,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "view",
         "comments",
         "comment",
+        "actions",
     ]
     scope_object_write_actions = [
         "create",
@@ -1824,7 +1825,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         own permissions, exactly as if they acted in the app.
         """
         canvas = self._canvas()
-        user = self._state_actor(request)
+        # A sandbox token resolves to its task's user, so check the credential, not just the user.
+        user = None if self._is_sandbox_authenticated(request) else self._state_actor(request)
         if user is None:
             return Response(
                 {"detail": "Canvas actions are invoked by viewers; sandbox tokens cannot use them."},
