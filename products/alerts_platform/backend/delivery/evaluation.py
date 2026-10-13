@@ -32,13 +32,14 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import announcement
+from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
-# Whether the platform may contact a team's destinations. Only the platform reads it: the
-# production logs path keeps delivering regardless, so a team with this on receives the legacy
-# message and the native one. Flipping a team from one deliverer to the other is the cutover,
-# and it is not this.
+# Whether the platform may contact a team's destinations for an alert its source still owns. Only
+# the platform reads it: the source keeps delivering regardless, so a team with this on receives
+# the legacy message and the native one. An alert the platform owns never reads it, because the
+# source sends nothing for that alert and a flag-eval failure would silence it.
 LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 
 # A destination type with no entry here has no native transport, and delivery skips it. Make a
@@ -96,7 +97,7 @@ def destinations_are_live(team: Team) -> bool:
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
     team = Team.objects.filter(id=request.team_id).first()
-    if team is None or not destinations_are_live(team):
+    if team is None or not (_owned_by_platform(request) or destinations_are_live(team)):
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
 
     announced = announcement(
@@ -160,6 +161,14 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     if failures:
         raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
+
+
+def _owned_by_platform(request: AlertDeliveryRequest) -> bool:
+    return (
+        PlatformAlertConfiguration.objects.for_team(request.team_id)
+        .filter(id=request.configuration_id, owner=PlatformAlertConfiguration.Owner.PLATFORM.value)
+        .exists()
+    )
 
 
 def _by_subscription(

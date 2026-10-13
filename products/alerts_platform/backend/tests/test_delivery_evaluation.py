@@ -7,11 +7,14 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.scoping import team_scope
+
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -77,12 +80,16 @@ class HeldTransport(RecordingTransport):
 
 
 def _request(
-    team_id: int, *, sends_messages: bool = True, incident_actions: dict[str, IncidentAction] | None = None
+    team_id: int,
+    *,
+    sends_messages: bool = True,
+    incident_actions: dict[str, IncidentAction] | None = None,
+    configuration_id: str = "01936a2e-0000-7000-8000-000000000001",
 ) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=team_id,
-        configuration_id="cfg-1",
+        configuration_id=configuration_id,
         evaluation_key="eval-1",
         destination_alert_id="legacy-1",
         event_ids_by_kind={"firing": FIRING_EVENT, "resolved": RESOLVED_EVENT},
@@ -294,12 +301,29 @@ class TestDeliverEvaluation(APIBaseTest):
         assert flag.call_args.args[0] == LIVE_DELIVERY_FLAG
         assert flag.call_args.kwargs["groups"]["project"] == str(self.team.id)
 
-    def test_a_flag_that_cannot_be_read_leaves_the_legacy_path_as_the_only_deliverer(self) -> None:
-        with patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")):
-            outcome = deliver_evaluation(_request(self.team.id))
+    @parameterized.expand([("source", False), ("platform", True)])
+    def test_a_flag_that_cannot_be_read_silences_only_alerts_the_source_still_delivers(
+        self, owner: str, delivers: bool
+    ) -> None:
+        with team_scope(self.team.id):
+            configuration = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="API errors",
+                source_kind="logs",
+                check_interval_minutes=5,
+                owner=owner,
+            )
 
-        assert RecordingTransport.sends == []
-        assert outcome.live is False
+        with (
+            patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")),
+            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
+            patch(f"{_MODULE}.DatabaseThreadStore"),
+            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
+        ):
+            outcome = deliver_evaluation(_request(self.team.id, configuration_id=str(configuration.id)))
+
+        assert (outcome.live, len(RecordingTransport.sends)) == (delivers, int(delivers))
 
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.
