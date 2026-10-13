@@ -1,12 +1,18 @@
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from posthog.schema import DateRange, MarketingAnalyticsTableQuery
+from parameterized import parameterized
+
+from posthog.schema import DateRange, MarketingAnalyticsSearchQuery, MarketingAnalyticsTableQuery
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import BACKGROUND_WARMING_TRIGGERS
+from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
+    MarketingAnalyticsSearchQueryRunner,
+)
 from products.marketing_analytics.backend.tasks.lazy_precompute_revalidation import (
     revalidate_marketing_analytics_precompute,
 )
@@ -62,3 +68,26 @@ class TestMarketingLazyPrecomputeRevalidation(BaseTest):
         # Best-effort by design: the next stale hit re-enqueues and the warmer converges, so a failure here
         # must not surface as a task error.
         revalidate_marketing_analytics_precompute(team_id=self.team.pk, query=self.query)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_search_warms_sessions_without_reading_sources_or_caching_results(self, ready: bool) -> None:
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False, "live_sessions": False}  # type: ignore[attr-defined]
+        query = MarketingAnalyticsSearchQuery(sources=[], breakdown="page", includePostHogConversions=True)
+        runner = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team)
+        with (
+            mock.patch(f"{_MODULE}.get_query_runner", return_value=runner),
+            mock.patch.object(runner, "to_query") as build,
+            mock.patch.object(runner, "run") as run,
+            mock.patch(f"{_MODULE}.REVALIDATION_RUN") as metric,
+            mock.patch(
+                "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.ensure_marketing_sessions_precomputed",
+                return_value=LazyComputationResult(
+                    ready=ready, job_ids=[], errors=[] if ready else ["Computation timed out"]
+                ),
+            ) as ensure,
+        ):
+            revalidate_marketing_analytics_precompute(team_id=self.team.pk, query=query.model_dump(mode="json"))
+        ensure.assert_called_once()
+        build.assert_not_called()
+        run.assert_not_called()
+        metric.labels.assert_called_once_with(outcome="succeeded" if ready else "failed", query_kind=query.kind)

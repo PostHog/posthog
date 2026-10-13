@@ -1,18 +1,46 @@
+from datetime import timedelta
+
 from posthog.schema import MarketingAnalyticsAttributionBreakdown, NativeMarketingSource
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+
 from .attribution_base import PERSON_ARRAYS_CTE
-from .attribution_sessions_read import session_ctes
+from .attribution_sessions_read import ReadWindow, _eligible, session_ctes, window
 from .attribution_table_query_runner import _WEIGHT_ALIASES, MarketingAnalyticsAttributionQueryRunner
 from .constants import INTEGRATION_PRIMARY_SOURCE
+from .marketing_lazy_precompute import PRECOMPUTE_ONLY_MAX_STALE_SECONDS
+from .marketing_sessions_precompute import ensure_marketing_sessions_precomputed
 
 
 class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
     search_keys: list[str]
+    session_precompute_results: dict[ReadWindow, LazyComputationResult] | None = None
+
+    @property
+    def uses_shared_session_resolution(self) -> bool:
+        return self.config.conversion_goal_precomputation_enabled or super().uses_shared_session_resolution
+
+    def prepare_session_precompute(self) -> LazyComputationResult | None:
+        if not self.config.conversion_goal_precomputation_enabled or not _eligible(self, self.query_date_range):
+            return None
+        read = window(self, self.query_date_range)
+        if self.session_precompute_results is None:
+            self.session_precompute_results = {}
+        if read not in self.session_precompute_results:
+            self.session_precompute_results[read] = ensure_marketing_sessions_precomputed(
+                self.team,
+                read.start - timedelta(days=SESSION_BUFFER_DAYS),
+                read.end,
+                run_inserts=False,
+                stale_while_revalidate_seconds=PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
+            )
+        return self.session_precompute_results[read]
 
     @staticmethod
     def row_key(value: str | None, platform: str) -> str:
@@ -102,7 +130,13 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        query.ctes = session_ctes(self, self.query_date_range)
+        precomputed = self.prepare_session_precompute()
+        query.ctes = session_ctes(
+            self,
+            self.query_date_range,
+            converters_only=True,
+            session_job_ids=precomputed.job_ids if precomputed and precomputed.ready else None,
+        )
         query.ctes[PERSON_ARRAYS_CTE] = ast.CTE(
             name=PERSON_ARRAYS_CTE, expr=self._person_arrays_select(self.query_date_range), cte_type="subquery"
         )

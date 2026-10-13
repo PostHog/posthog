@@ -4,6 +4,7 @@ Stored person IDs can outlive a merge, so identity always comes from events.
 """
 
 import os
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
@@ -176,7 +177,7 @@ def _eligible(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) 
     return runner._live_session_resolution_eligible
 
 
-def _session_identities(start: datetime, end: datetime) -> ast.SelectQuery:
+def _session_identities(start: datetime, end: datetime, *, converters_only: bool = False) -> ast.SelectQuery:
     query = parse_select(
         """
             SELECT events.$session_id_uuid AS session_id_v7, events.person_id AS person_id,
@@ -191,6 +192,18 @@ def _session_identities(start: datetime, end: datetime) -> ast.SelectQuery:
         placeholders={"start": ast.Constant(value=start), "end": ast.Constant(value=end)},
     )
     assert isinstance(query, ast.SelectQuery)
+    if converters_only:
+        assert query.where is not None
+        query.where = ast.And(
+            exprs=[
+                query.where,
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "person_id"]),
+                    op=ast.CompareOperationOp.GlobalIn,
+                    right=parse_select("SELECT conv_person_id FROM cached_session_conversions"),
+                ),
+            ]
+        )
     return query
 
 
@@ -389,8 +402,14 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
     )
 
 
-def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> dict[str, ast.CTE]:
-    if not runner.config.live_session_resolution_enabled:
+def session_ctes(
+    runner: "AttributionQueryRunnerBase",
+    date_range: QueryDateRange,
+    *,
+    converters_only: bool = False,
+    session_job_ids: list[uuid.UUID] | None = None,
+) -> dict[str, ast.CTE]:
+    if not runner.uses_shared_session_resolution:
         return {}
     if not _eligible(runner, date_range):
         return {}
@@ -405,12 +424,19 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
         columns,
         read.start,
         read.end,
+        job_ids=session_job_ids,
     )
     sessions = _read_sessions(dimensions, columns)
-    ctes: dict[str, ast.CTE] = {}
+    conversions_cte = ast.CTE(
+        name=_CONVERSIONS_CTE,
+        expr=_conversions_per_person(runner, date_range),
+        cte_type="subquery",
+        materialized=True,
+    )
+    ctes: dict[str, ast.CTE] = {_CONVERSIONS_CTE: conversions_cte} if converters_only else {}
     ctes["attribution_session_identities"] = ast.CTE(
         name="attribution_session_identities",
-        expr=_session_identities(read.start, read.end),
+        expr=_session_identities(read.start, read.end, converters_only=converters_only),
         cte_type="subquery",
         materialized=True,
     )
@@ -421,12 +447,7 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
         cte_type="subquery",
         materialized=True,
     )
-    ctes[_CONVERSIONS_CTE] = ast.CTE(
-        name=_CONVERSIONS_CTE,
-        expr=_conversions_per_person(runner, date_range),
-        cte_type="subquery",
-        materialized=True,
-    )
+    ctes[_CONVERSIONS_CTE] = conversions_cte
     return ctes
 
 

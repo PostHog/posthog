@@ -58,6 +58,11 @@ SELECT
     any(toString(ifNull(events.session.$entry_utm_content, ''))) AS utm_content,
     any(toString(ifNull(events.session.$entry_referring_domain, ''))) AS referring_domain,
     any(toString(ifNull(events.session.$entry_pathname, ''))) AS entry_pathname,
+    any(cutQueryStringAndFragment(ifNull(events.session.$entry_current_url, ''))) AS entry_url,
+    any(notEmpty(ifNull(events.session.$entry_gclid, ''))) AS has_gclid,
+    any(notEmpty(ifNull(events.session.$entry_msclkid, ''))
+        OR notEmpty(extractURLParameter(ifNull(events.session.$entry_current_url, ''), 'msclkid'))) AS has_msclkid,
+    max(events.session.max_inserted_at) AS session_max_inserted_at,
     count() AS pageview_count
 FROM events
 WHERE and(

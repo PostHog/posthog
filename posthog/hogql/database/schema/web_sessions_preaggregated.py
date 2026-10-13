@@ -25,6 +25,7 @@ _DIMENSIONS = {
     "utm_content": "Entry utm_content.",
     "referring_domain": "Entry referring domain.",
     "entry_pathname": "Path of the session's first pageview.",
+    "entry_url": "Full entry URL without query parameters or fragment.",
 }
 
 
@@ -51,6 +52,9 @@ def _build_fields() -> dict[str, FieldOrTable]:
     }
     for name, description in _DIMENSIONS.items():
         fields[name] = StringDatabaseField(name=name, description=description)
+    fields["session_max_inserted_at"] = DateTimeDatabaseField(name="session_max_inserted_at")
+    fields["has_gclid"] = IntegerDatabaseField(name="has_gclid")
+    fields["has_msclkid"] = IntegerDatabaseField(name="has_msclkid")
     fields["pageview_count"] = IntegerDatabaseField(name="pageview_count", description="Pageviews in the session.")
     fields["computed_at"] = DateTimeDatabaseField(
         name="computed_at", description="When this row was computed; also the ReplacingMergeTree version."

@@ -71,7 +71,11 @@ Canonical Google and Bing source names match regardless of capitalization.
 Paid Search sessions can also identify Google through `gclid` and Bing through `msclkid`.
 A click ID alone does not classify a session as search traffic; the session must have the Paid Search channel.
 When `marketing-analytics-live-session-resolution` is enabled, eligible search goals reuse shared live session resolution.
-They do not read session or conversion precomputation tables.
+When `marketing-analytics-precomputation` is enabled, eligible search goals reuse the session precomputation table.
+The request reads completed jobs without building them inline and schedules missing or stale windows in the background.
+Sessions missing from the cache, or updated after their stored ingestion watermark, resolve from live session data.
+Conversion events and person identities stay live so goals preserve event counts and current identity merges.
+The attribution calculation still applies the current model and lookback window to the complete journey before matching search rows.
 Organic rows have no cost per conversion, and pages with spend in multiple currencies leave PostHog metrics empty because credit cannot be assigned to individual ad accounts.
 Data warehouse goals are not supported by search attribution.
 Turning the switch off removes PostHog goal columns and stops their queries while keeping platform-reported conversions.

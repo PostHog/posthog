@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -19,6 +20,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     HogQLQueryResponse,
+    MarketingAnalyticsSearchConversion,
     MarketingAnalyticsSearchMetrics,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchSource,
@@ -34,14 +36,36 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 from .marketing_search_query_runner import MarketingAnalyticsSearchQueryRunner
+from .marketing_sessions_precompute import ensure_marketing_sessions_precomputed
 from .search_conversion_query_runner import SearchConversionQueryRunner
 
 
 class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
+    def _assert_precomputed_conversions(
+        self, query: MarketingAnalyticsSearchQuery, expected: list[list[MarketingAnalyticsSearchConversion] | None]
+    ) -> None:
+        jobs = []
+        for day in ("2022-12-15", "2023-01-09"):
+            start = datetime.fromisoformat(day).replace(tzinfo=UTC)
+            result = ensure_marketing_sessions_precomputed(self.team, start, start + timedelta(days=1))
+            assert result.ready, result.errors
+            jobs.extend(result.job_ids)
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False, "live_sessions": False}  # type: ignore[attr-defined]
+        module = "products.marketing_analytics.backend.hogql_queries.search_conversion_query_runner"
+        with patch(
+            f"{module}.ensure_marketing_sessions_precomputed",
+            return_value=LazyComputationResult(ready=True, job_ids=jobs),
+        ) as ensure:
+            actual = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        assert ensure.call_count == 2
+        assert all(call.kwargs["run_inserts"] is False for call in ensure.call_args_list)
+        assert [row.posthogConversions for row in actual.results] == expected
+
     def _table(self, name: str, columns: dict[str, str], csv: str) -> str:
         with TemporaryDirectory() as directory:
             path = Path(directory) / f"{name}.csv"
@@ -615,6 +639,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert bing_row.posthogConversions[0].costPerConversion == 10
         assert bing_row.posthogConversions[0].previousConversions == 2
         assert bing_row.posthogConversions[0].previousCostPerConversion == 3
+        self._assert_precomputed_conversions(query, [row.posthogConversions for row in result.results])
         query.includePostHogConversions = False
         result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
         assert result.posthogConversionGoals is None
@@ -818,6 +843,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             else:
                 assert goal.conversions is None and goal.costPerConversion is None
                 assert goal.previousConversions is None and goal.previousCostPerConversion is None
+        self._assert_precomputed_conversions(query, [row.posthogConversions for row in result.results])
         query.includePostHogConversions = False
         result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
         assert result.posthogConversionGoals is None
@@ -827,6 +853,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
 class TestMarketingSearchConversionBudget(BaseTest):
     @parameterized.expand([(3, 3), (6, 5)])
     def test_bounds_goal_queries_and_reports_excluded_goals(self, goal_count: int, expected_count: int) -> None:
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False, "live_sessions": False}  # type: ignore[attr-defined]
         config = self.team.marketing_analytics_config
         goals = [
             ConversionGoalFilter1(
@@ -870,6 +897,13 @@ class TestMarketingSearchConversionBudget(BaseTest):
                 return_value=HogQLQueryResponse(results=[]),
             ) as execute_attribution,
             patch.object(Database, "create_for", wraps=Database.create_for) as create_database,
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.search_conversion_query_runner.ensure_marketing_sessions_precomputed",
+                return_value=LazyComputationResult(ready=False, job_ids=[]),
+            ) as precompute,
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.enqueue_stale_revalidation"
+            ) as enqueue,
         ):
             result = MarketingAnalyticsSearchQueryRunner(
                 query=MarketingAnalyticsSearchQuery(
@@ -882,6 +916,11 @@ class TestMarketingSearchConversionBudget(BaseTest):
                 team=self.team,
                 user=self.user,
             ).calculate()
+        assert precompute.call_count == 2
+        assert enqueue.call_count == 2
+        windows = [call.kwargs["query"].dateRange for call in enqueue.call_args_list]
+        assert windows[0] != windows[1]
+        assert all(call.kwargs["query"].compareFilter is None for call in enqueue.call_args_list)
         assert execute_attribution.call_count == expected_count * 2
         assert create_database.call_count == 1
         assert result.posthogConversionGoals is not None
@@ -910,14 +949,21 @@ class TestMarketingSearchCacheAccessControl(BaseTest):
         self.organization_membership.save()
         self.addCleanup(cache.clear)
 
-    @parameterized.expand([True, False])
-    def test_live_resolution_rollout_partitions_search_conversion_cache(self, include_conversions: bool) -> None:
+    @parameterized.expand([(include, flag) for include in (True, False) for flag in ("conversion", "live_sessions")])
+    def test_live_resolution_rollout_partitions_search_conversion_cache(
+        self, include_conversions: bool, flag: str
+    ) -> None:
         query = MarketingAnalyticsSearchQuery(
             sources=[], breakdown="page", includePostHogConversions=include_conversions
         )
         keys = []
         for enabled in (False, True, False):
-            self.team._ma_precompute_flags = {"conversion": False, "costs": False, "live_sessions": enabled}  # type: ignore[attr-defined]
+            self.team._ma_precompute_flags = {  # type: ignore[attr-defined]
+                "conversion": False,
+                "costs": False,
+                "live_sessions": False,
+                flag: enabled,
+            }
             keys.append(
                 MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
             )

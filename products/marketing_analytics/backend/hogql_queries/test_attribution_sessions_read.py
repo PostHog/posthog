@@ -40,6 +40,9 @@ from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
+from products.marketing_analytics.backend.hogql_queries.search_conversion_query_runner import (
+    SearchConversionQueryRunner,
+)
 
 
 class TestAttributionSessionsRead(SimpleTestCase):
@@ -146,8 +149,11 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 required_start = read.start
                 assert attribution_sessions_read.earliest_session_start(self.team, datetime.now(UTC)) <= required_start
 
-    def test_failed_access_rule_lookup_falls_back(self) -> None:
-        runner = MarketingAnalyticsAttributionQueryRunner(
+    @parameterized.expand([(MarketingAnalyticsAttributionQueryRunner,), (SearchConversionQueryRunner,)])
+    def test_failed_access_rule_lookup_falls_back(
+        self, runner_type: type[MarketingAnalyticsAttributionQueryRunner]
+    ) -> None:
+        runner = runner_type(
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
             query=MarketingAnalyticsAttributionQuery(
@@ -157,11 +163,14 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
             ),
         )
+        runner.config.conversion_goal_precomputation_enabled = True
         with patch.object(
             attribution_sessions_read,
             "team_has_property_access_rules",
             side_effect=RuntimeError("Access rule lookup failed"),
         ) as ensure:
+            if isinstance(runner, SearchConversionQueryRunner):
+                assert runner.prepare_session_precompute() is None
             assert attribution_sessions_read.build_person_arrays(runner, runner.query_date_range) is None
         ensure.assert_called_once()
 

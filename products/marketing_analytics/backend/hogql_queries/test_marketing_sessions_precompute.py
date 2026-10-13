@@ -12,10 +12,12 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.schema_enums import SessionTableVersion
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.persons import create_person
 from posthog.uuidt import uuid7
 
@@ -24,6 +26,11 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.marketing_analytics.backend.hogql_queries.attribution_session_dimensions import (
+    _cached_dimensions,
+    session_dimensions,
+)
+from products.marketing_analytics.backend.hogql_queries.attribution_sessions_read import _session_identities
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSIONS_INSERT_TEMPLATE,
     base_placeholders,
@@ -33,6 +40,87 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 
 @time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (version, event)
+            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
+            for event in ("$autocapture", "$pageview")
+        ]
+        + [(SessionTableVersion.V3, "replay")]
+    )
+    def test_cached_dimensions_fall_back_after_session_changes(self, version: SessionTableVersion, event: str) -> None:
+        self.team.modifiers = {**(self.team.modifiers or {}), "sessionTableVersion": version}
+        self.team.save()
+        modifiers = create_default_modifiers_for_team(self.team)
+        start = datetime(2026, 9, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        session_id = str(uuid7(int(start.timestamp() * 1000)))
+        create_person(team=self.team, distinct_ids=["search-visitor"])
+        _create_event(
+            team=self.team,
+            distinct_id="search-visitor",
+            event="$pageview",
+            timestamp=start + timedelta(hours=1),
+            inserted_at=start + timedelta(days=2),
+            properties={"$session_id": session_id, "$current_url": "https://example.com/original"},
+        )
+        flush_persons_and_events()
+        warmed = ensure_marketing_sessions_precomputed(self.team, start, end)
+        assert warmed.ready, warmed.errors
+        columns = {"entry_url"}
+
+        def read(*, cached_only: bool = False, live: bool = False) -> list[tuple[int, tuple[object, ...]]]:
+            dimensions = (
+                _cached_dimensions(modifiers, columns, warmed.job_ids, start, end)
+                if cached_only
+                else session_dimensions(modifiers, columns, start, end, job_ids=None if live else warmed.job_ids)
+            )
+            query = parse_select(
+                "SELECT session_id_v7, latest FROM {dimensions}", placeholders={"dimensions": dimensions}
+            )
+            assert isinstance(query, ast.SelectQuery)
+            query.ctes = {
+                "attribution_session_identities": ast.CTE(
+                    name="attribution_session_identities",
+                    expr=_session_identities(start, end),
+                    cte_type="subquery",
+                    materialized=True,
+                )
+            }
+            return execute_hogql_query(query, team=self.team, modifiers=modifiers).results or []
+
+        before = read(cached_only=True)
+        assert len(before) == 1
+        assert before == read(live=True)
+        if event == "replay":
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=session_id,
+                distinct_id="search-visitor",
+                first_timestamp=start - timedelta(hours=1),
+                last_timestamp=start,
+                first_url="https://example.com/replay",
+                ensure_analytics_event_in_session=False,
+            )
+        else:
+            _create_event(
+                team=self.team,
+                distinct_id="search-visitor",
+                event=event,
+                timestamp=start - timedelta(hours=1),
+                inserted_at=start + timedelta(days=3),
+                properties={"$session_id": session_id, "$current_url": "https://example.com/updated"},
+            )
+        flush_persons_and_events()
+        assert read(cached_only=True) == []
+        after = read()
+        assert after == read(live=True)
+        assert after != before
+        expected_path = (
+            "original" if version == SessionTableVersion.V3 and event in {"$autocapture", "replay"} else "updated"
+        )
+        assert after[0][1][-1] == f"https://example.com/{expected_path}"
+
     @parameterized.expand(
         [
             ("UTC", 8),
