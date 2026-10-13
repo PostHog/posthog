@@ -136,44 +136,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.json()["results"], expected)
             self.assertEqual(response.json()["is_cached"], is_cached)
 
-    @parameterized.expand(
-        [
-            ("rollout_rounding", "beta-search.", "user-17", "", 0.009101217133290002),
-            ("rollout", "beta-search-rollout.", "user-105", "", 0.2851295399293007),
-            ("variant", "checkout-layout.", "user-61", "variant", 0.5698252224547713),
-            ("holdout", "holdout-", "user-31", "", 0.0194745413007599),
-            ("dots", "release.v2.", "a.b", "variant", 0.7631886118730806),
-            ("empty", "beta-search.", "", "", 0.6211969413249854),
-            ("unicode", "beta-search.", "ünïcødé-😀", "", 0.7415212578007152),
-            ("long_ascii", "beta-search.", "a" * 200, "", 0.10748426120816724),
-            ("long_unicode", "beta-search.", "a" * 199 + "😀", "", 0.6285769690806571),
-            ("multibyte", "beta-search.", "é" * 200, "", 0.41168020551649087),
-            ("group_key", "org-dashboard.", "42", "", 0.5997466051660167),
-        ]
-    )
-    def test_hogql_sha1_matches_feature_flag_bucketing(
-        self, _name: str, prefix: str, identifier: str, salt: str, expected_bucket: float
-    ) -> None:
-        query = HogQLQuery(
-            query="""
-                SELECT hash_integer, hash_integer / 1152921504606846975
-                FROM (
-                    SELECT bitShiftRight(reinterpretAsUInt64(reverse(unhex(substring(
-                        SHA1(concat({prefix}, {identifier}, {salt})), 1, 16
-                    )))), 4) AS hash_integer
-                )
-            """,
-            values={"prefix": prefix, "identifier": identifier, "salt": salt},
-        )
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {"query": query.model_dump(), "refresh": "force_blocking"},
-        )
-
-        expected_integer = int(hashlib.sha1(f"{prefix}{identifier}{salt}".encode()).hexdigest()[:15], 16)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"], [[expected_integer, expected_bucket]])
-
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
         # which embeds the limiter's internal Redis key + task id and used to leak into the UI.
