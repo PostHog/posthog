@@ -712,7 +712,6 @@ class StripeListCursorMissingError(Exception):
     non-retryable."""
 
     def __init__(self, cursor: str):
-        self.cursor = cursor
         super().__init__(f"Stripe rejected list cursor {cursor} as a missing object and no earlier cursor is known")
 
 
