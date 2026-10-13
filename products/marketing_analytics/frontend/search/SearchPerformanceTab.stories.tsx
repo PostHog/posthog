@@ -965,3 +965,19 @@ export const LongLandingPagesNarrow: Story = {
     ...LongLandingPages,
     decorators: PostHogConversionsNarrow.decorators,
 }
+
+export const WrappedLandingPages: Story = {
+    ...LongLandingPages,
+    play: async (context) => {
+        await LongLandingPages.play?.(context)
+        const canvas = within(context.canvasElement)
+        await userEvent.click(canvas.getByRole('button', { name: 'Table options' }))
+        await userEvent.click(within(document.body).getByRole('switch', { name: 'Wrap text' }))
+        await userEvent.keyboard('{Escape}')
+    },
+}
+
+export const WrappedLandingPagesNarrow: Story = {
+    ...WrappedLandingPages,
+    decorators: PostHogConversionsNarrow.decorators,
+}

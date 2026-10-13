@@ -104,6 +104,7 @@ Search Console requires a synced `search_analytics_by_query` or `search_analytic
 Each search table has a reload control and query duration.
 Pagination stays within the table without scrolling the scene, and changing between keywords and landing pages starts on page 1.
 Long landing URLs truncate within the first column; hover over the URL to read it in full.
+Enable Wrap text in Table options to show complete URLs and keywords across multiple lines, including in the detail view.
 The first column stays visible while scrolling horizontally through metrics and conversion goals.
 Tables with more than ten results reserve consistent space for values and comparisons and keep room for ten rows on shorter pages.
 Tables with ten results or fewer keep their compact layout without reserved space.

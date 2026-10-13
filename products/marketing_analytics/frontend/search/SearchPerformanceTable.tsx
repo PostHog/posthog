@@ -33,12 +33,14 @@ import { SearchPositionCell } from './SearchPositionCell'
 export function SearchPerformanceTable({
     query,
     metrics,
+    wrapText = false,
     emptyState = 'No results match this date range. Try a wider date range.',
     onSelect,
     queryKey = SEARCH_PERFORMANCE_QUERY_KEY,
 }: {
     query: MarketingAnalyticsSearchQuery
     metrics: SearchMetrics
+    wrapText?: boolean
     emptyState?: React.ReactNode
     onSelect?: (row: MarketingAnalyticsSearchRow) => void
     queryKey?: string
@@ -146,6 +148,7 @@ export function SearchPerformanceTable({
                 allowContentScroll
                 className={clsx('SearchPerformanceTable [&_th]:whitespace-normal', {
                     'SearchPerformanceTable--paginated': rows.length > 10,
+                    'SearchPerformanceTable--wrap-text': wrapText,
                 })}
                 dataSource={responseLoading ? [] : rows}
                 loading={responseLoading}
@@ -169,11 +172,14 @@ export function SearchPerformanceTable({
                                         size="xsmall"
                                         noPadding
                                         fullWidth
-                                        truncate
+                                        truncate={!wrapText}
                                         onClick={() => onSelect(row)}
                                     >
                                         <span
-                                            className="block truncate text-link"
+                                            className={clsx(
+                                                'block text-link',
+                                                wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                            )}
                                             title={row.page ?? row.keyword ?? ''}
                                         >
                                             {row.page ?? row.keyword}
@@ -181,7 +187,10 @@ export function SearchPerformanceTable({
                                     </LemonButton>
                                 ) : (
                                     <span
-                                        className="block truncate"
+                                        className={clsx(
+                                            'block',
+                                            wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                        )}
                                         title={row.page ?? row.keyword ?? 'Keyword unavailable'}
                                     >
                                         {row.page ?? row.keyword ?? 'Keyword unavailable'}
