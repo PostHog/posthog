@@ -47,6 +47,7 @@ from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -6244,7 +6245,7 @@ class TestGitHubBranches:
             config={"installation_id": "12345", "refreshed_at": 0, "expires_in": 999999},
             sensitive_config={"access_token": "test-token"},
         )
-        self.github = GitHubIntegration(self.integration)
+        self.github = GitHubIntegration(self.integration, source="test", priority=Priority.CRITICAL)
 
     @patch("posthog.egress.transport.transport.requests.request")
     def test_list_branches_returns_first_page(self, mock_request):
@@ -7954,7 +7955,9 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         integration_id = str(integration.pk)
         with self.captureOnCommitCallbacks(execute=True):
             with self.assertRaises(ReauthorizationRequired):
-                UserGitHubIntegration(integration).get_usable_user_access_token()
+                UserGitHubIntegration(
+                    integration, source="test", priority=Priority.CRITICAL
+                ).get_usable_user_access_token()
         log = ActivityLog.objects.get(item_id=integration_id, activity="github_diagnostic")
         assert log.team_id is None
         assert log.organization_id == self.organization.id
