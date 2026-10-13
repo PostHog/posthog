@@ -13,7 +13,7 @@ from django.test import SimpleTestCase, override_settings
 
 import httpx
 import anthropic
-from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
+from anthropic.types import Message, TextBlock, Usage
 from parameterized import parameterized
 
 from posthog.llm.system_one import (
@@ -145,18 +145,18 @@ class _FakeMessages:
         return self.response
 
 
-def _verdict_message(*blocks: TextBlock | ToolUseBlock) -> Message:
+def _verdict_message(*blocks: TextBlock) -> Message:
     return Message.model_construct(
         id="m", type="message", role="assistant", model="claude-sonnet-5-5", content=list(blocks),
-        stop_reason="tool_use", stop_sequence=None, usage=Usage(input_tokens=1, output_tokens=1),
+        stop_reason="end_turn", stop_sequence=None, usage=Usage(input_tokens=1, output_tokens=1),
     )  # fmt: skip
 
 
 _API_ERROR = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
 
 
-def _verdict_use(tool_input: dict[str, object]) -> ToolUseBlock:
-    return ToolUseBlock(type="tool_use", id="u", name="record_verdict", input=tool_input)
+def _verdict_use(verdict_json: dict[str, object]) -> TextBlock:
+    return TextBlock(type="text", text=json.dumps(verdict_json))
 
 
 def _judge(messages: _FakeMessages) -> Grader:
@@ -168,7 +168,7 @@ class TestJudge(SimpleTestCase):
         [
             ("pass", _verdict_message(_verdict_use({"passed": True, "rationale": "Lists the keys."})), True, 1.0, "Lists the keys."),
             ("fail", _verdict_message(_verdict_use({"passed": False, "rationale": "No keys."})), False, 0.0, "No keys."),
-            ("no_tool_call", _verdict_message(TextBlock(type="text", text="hm")), None, None, "judge did not record a verdict"),
+            ("not_json", _verdict_message(TextBlock(type="text", text="hm")), None, None, "judge returned no verdict (stop_reason end_turn)"),
             ("api_error", _API_ERROR, None, None, "judge call failed: Connection error."),
         ]
     )  # fmt: skip
@@ -177,13 +177,14 @@ class TestJudge(SimpleTestCase):
 
         assert result == verdict("judge", passed, score, rationale)
 
-    def test_judge_sees_the_answer_not_tool_results_and_must_call_the_verdict_tool(self) -> None:
+    def test_judge_sees_the_answer_not_tool_results_and_must_reply_in_the_verdict_schema(self) -> None:
         fake = _FakeMessages(_verdict_message(_verdict_use({"passed": True, "rationale": "ok"})))
 
         asyncio.run(_judge(fake)(SCENARIO, _trial((_exec("call x"),))))
 
         sent = fake.sent
-        assert sent["tool_choice"] == {"type": "tool", "name": "record_verdict"}
+        assert "tool_choice" not in sent
+        assert sent["output_config"]["format"]["schema"]["required"] == ["passed", "rationale"]  # type: ignore[index]
         assert sent["messages"] == [
             {
                 "role": "user",

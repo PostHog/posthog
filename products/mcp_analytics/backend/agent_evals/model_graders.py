@@ -1,9 +1,10 @@
+import json
 import asyncio
 import dataclasses
 from collections.abc import Callable
 
 import anthropic
-from anthropic.types import ToolChoiceToolParam, ToolParam, ToolUseBlock
+from anthropic.types import JSONOutputFormatParam
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
@@ -30,25 +31,25 @@ JEV_PASS_THRESHOLD = 0.5
 JUDGE_INSTRUCTIONS = (
     "You grade whether an AI agent's final answer meets the success criteria for a user's request. "
     "Accept a different reasonable definition of a term when the answer states it explicitly. "
-    "Record your verdict with the record_verdict tool."
+    "Reply with your verdict as JSON."
 )
 JEV_INSTRUCTIONS = (
     "Does the `answer` complete the `request` and meet the `success_criteria`? "
     "A different reasonable definition of a term is acceptable when the answer states it explicitly."
 )
-VERDICT_TOOL: ToolParam = {
-    "name": "record_verdict",
-    "description": "Record whether the answer meets the success criteria.",
-    "input_schema": {
+# Structured output, because current Claude models reject a forced tool_choice.
+VERDICT_FORMAT: JSONOutputFormatParam = {
+    "type": "json_schema",
+    "schema": {
         "type": "object",
         "properties": {
             "passed": {"type": "boolean"},
             "rationale": {"type": "string", "description": "One sentence explaining the verdict."},
         },
         "required": ["passed", "rationale"],
+        "additionalProperties": False,
     },
 }
-FORCE_VERDICT: ToolChoiceToolParam = {"type": "tool", "name": VERDICT_TOOL["name"]}
 
 
 class GraderUnavailable(Exception):
@@ -60,19 +61,22 @@ def make_judge(client: anthropic.AsyncAnthropic, model: str) -> Grader:
         try:
             response = await client.messages.create(
                 model=model,
-                max_tokens=1024,
+                max_tokens=4096,
                 system=JUDGE_INSTRUCTIONS,
-                tools=[VERDICT_TOOL],
-                tool_choice=FORCE_VERDICT,
                 messages=[{"role": "user", "content": _judge_prompt(scenario, trial)}],
+                output_config={"format": VERDICT_FORMAT},
             )
         except anthropic.APIError as error:
             return verdict("judge", None, None, f"judge call failed: {error}")
-        for block in response.content:
-            if isinstance(block, ToolUseBlock) and isinstance(block.input, dict):
-                passed = bool(block.input.get("passed"))
-                return verdict("judge", passed, 1.0 if passed else 0.0, str(block.input.get("rationale", "")))
-        return verdict("judge", None, None, "judge did not record a verdict")
+        text = next((block.text for block in response.content if block.type == "text"), None)
+        try:
+            parsed = json.loads(text) if text else None
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("passed"), bool):
+            return verdict("judge", None, None, f"judge returned no verdict (stop_reason {response.stop_reason})")
+        passed = parsed["passed"]
+        return verdict("judge", passed, 1.0 if passed else 0.0, str(parsed.get("rationale", "")))
 
     return judge
 
