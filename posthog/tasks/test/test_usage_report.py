@@ -5510,7 +5510,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_client.group_identify.assert_not_called()
 
 
-class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, SimpleTestCase):
+class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         materialize("events", "$exception_values")
