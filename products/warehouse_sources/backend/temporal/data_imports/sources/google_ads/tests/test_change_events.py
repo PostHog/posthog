@@ -48,6 +48,8 @@ class TestChangeEventReader:
 
     def test_reaches_a_safe_point_after_an_empty_result(self):
         safe_points: list[bool] = []
-        reader = ChangeEventReader(["change_event.resource_name"], lambda query: [], lambda: safe_points.append(True))
+        reader: ChangeEventReader[int] = ChangeEventReader(
+            ["change_event.resource_name"], lambda query: [], lambda: safe_points.append(True)
+        )
         assert list(reader.read(dt.datetime(2026, 4, 1), dt.datetime(2026, 4, 2))) == []
         assert safe_points == [True]
