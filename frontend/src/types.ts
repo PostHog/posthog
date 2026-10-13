@@ -8300,5 +8300,3 @@ export interface WebAnalyticsFilterPresetType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
 }
-
-// CI selection probe, reverted in a later commit
