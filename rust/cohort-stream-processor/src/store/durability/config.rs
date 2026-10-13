@@ -82,7 +82,7 @@ pub struct DurabilityConfig {
     /// Average read rate one upload may take from the store's disk.
     pub upload_max_bytes_per_sec: u64,
 
-    /// Budget for the final checkpoint's upload on a graceful stop.
+    /// Budget for the final checkpoint on a graceful stop, from the drain to the end of its upload.
     pub final_upload_timeout: Duration,
 }
 

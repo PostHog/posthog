@@ -248,13 +248,15 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
 - **Incremental uploads.**
   An upload sends only the files its predecessor in the chain lacks.
   A restarted process builds on the last upload, recorded locally in `uploaded.json`, only while the store's RocksDB DB id matches it, because a created store reuses SST file names.
+  `uploaded.json` also records the bucket, so a change of `CHECKPOINT_S3_BUCKET` starts a new chain instead of naming objects in the old bucket.
   A restored store also reuses the SST numbers written after its checkpoint, so a restore from object storage makes the restored checkpoint the baseline, and a local restore removes the baseline, which makes the next upload full.
   Once a chain is older than `CHECKPOINT_FULL_UPLOAD_INTERVAL_SECS`, the next upload is full, which bounds the age of the oldest object a restore needs.
 - **Paced uploads.**
   One upload reads at most `CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC` from the store's disk across all its files, so a full upload does not starve the live path.
 - **A final checkpoint.**
-  A graceful stop cancels a periodic upload in flight, takes one more checkpoint once every consumer has made its final commit, and uploads it.
-  The upload is cancelled after `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS`, but an S3 request in flight runs to its end, so the checkpoint component's shutdown window is the hard limit.
+  A graceful stop cancels a periodic upload in flight, takes one more checkpoint once every consumer has made its final commit, and uploads it when the plan is incremental.
+  A full plan stays local, because it cannot finish in the budget, and the next start uploads in full anyway.
+  The upload is cancelled `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS` after the drain, but an S3 request in flight runs to its end, so the checkpoint component's shutdown window is the hard limit.
   An upload stopped before its `metadata.json` is not restorable, so the last finished upload stays the newest restorable one.
 - **No expiry.**
   Objects are not expired.

@@ -80,7 +80,8 @@ async fn async_main(config: Config) -> Result<()> {
         .transpose()?;
 
     // Covers the 45 s follower windows, then the checkpoint component's 60 s. The pod's termination
-    // grace period must exceed it, or Kubernetes cuts the final checkpoint off.
+    // grace period must exceed it plus the chart's 5 s preStop sleep, so above 115 s, or Kubernetes
+    // cuts the final checkpoint off.
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(110))
         .build();
@@ -123,8 +124,9 @@ async fn async_main(config: Config) -> Result<()> {
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(45)),
         )
     });
-    // Phase 1: its final checkpoint starts once every consumer and follower has made its final
-    // commit, so the checkpoint holds every folded event and positions past none of them.
+    // Phase 1: the final checkpoint starts after every consumer and follower has made its final
+    // commit. Its positions are then those final commits, so a restore from it replays no event
+    // folded before the stop.
     let checkpoint_handle = lineage.map(|_| {
         manager.register(
             "checkpoint",

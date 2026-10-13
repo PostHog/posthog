@@ -338,6 +338,8 @@ mod tests {
         let prev_checkpoint_id = CheckpointMetadata::generate_id(prev_attempt_timestamp);
 
         let mut prev_metadata = metadata_at(prev_attempt_timestamp);
+        let chain_started = prev_attempt_timestamp - Duration::hours(5);
+        prev_metadata.full_upload_at = chain_started;
 
         let prev_local_attempt_dir = attempt_dir(temp_dir.path(), &prev_checkpoint_id);
 
@@ -387,7 +389,7 @@ mod tests {
 
         assert_eq!(plan.files_to_upload.len(), 1);
         assert_eq!(
-            plan.info.metadata.full_upload_at, prev_attempt_timestamp,
+            plan.info.metadata.full_upload_at, chain_started,
             "an incremental plan stays in its baseline's chain",
         );
         let got_sst3 = plan

@@ -2,8 +2,9 @@
 //!
 //! [`CheckpointSweeper`] takes a frozen whole-DB RocksDB checkpoint to the local volume on every
 //! tick, beside an offset manifest read from the consumer groups, and uploads it to S3 every Nth
-//! tick and once more on a graceful stop. [`run_checkpoints`] drives it. One `create_checkpoint` at
-//! a time, never two racing: the final checkpoint runs on the periodic loop's task, after the loop.
+//! tick and once more on a graceful stop, unless that upload would be full. [`run_checkpoints`]
+//! drives it. One `create_checkpoint` at a time, never two racing: the final checkpoint runs on the
+//! periodic loop's task, after the loop.
 //!
 //! ## Interior mutability without a lock across `.await`
 //!
@@ -24,6 +25,7 @@
 #![allow(clippy::disallowed_methods)]
 
 use std::collections::BTreeSet;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -32,14 +34,16 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use lifecycle::Handle;
+use serde::{Deserialize, Serialize};
 use tokio::sync::OnceCell;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use super::lineage::CheckpointLineage;
 use super::{
     plan_checkpoint, CheckpointExporter, CheckpointMetadata, CheckpointPlan, DurabilityConfig,
-    MetadataError, OffsetManifest, S3Uploader, METADATA_FILENAME,
+    OffsetManifest, S3Uploader, METADATA_FILENAME,
 };
 use crate::consumers::events::{DrainWait, DrainedOwnership};
 use crate::consumers::EventDispatcher;
@@ -56,10 +60,62 @@ use crate::sweep::{run_sweep_loop, Sweeper};
 /// The loop-name label for the checkpoint sweep cycle metrics.
 pub const CHECKPOINT_LOOP_NAME: &str = "checkpoint";
 
-/// The last successful upload's metadata, in the lineage's local directory. A restarted process
-/// builds its first upload on it when the store's DB id still matches. A restore rewrites it, because
-/// a restored DB reuses the SST numbers written after its checkpoint.
+/// The last successful upload's [`UploadBaseline`], in the lineage's local directory. A restarted
+/// process builds its first upload on it when the store's DB id and the bucket still match. A
+/// restore rewrites it, because a restored DB reuses the SST numbers written after its checkpoint.
 pub(crate) const UPLOADED_FILENAME: &str = "uploaded.json";
+
+/// An upload and the bucket it went to. An incremental upload names objects of the uploads before
+/// it, so it builds only on a baseline in the bucket it uploads to.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UploadBaseline {
+    s3_bucket: String,
+    metadata: CheckpointMetadata,
+}
+
+impl UploadBaseline {
+    /// Writes `path` atomically (tmp file + rename).
+    pub(crate) fn save(
+        path: &Path,
+        s3_bucket: &str,
+        metadata: CheckpointMetadata,
+    ) -> io::Result<()> {
+        let baseline = Self {
+            s3_bucket: s3_bucket.to_owned(),
+            metadata,
+        };
+        let tmp_path = path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, serde_json::to_vec_pretty(&baseline)?)?;
+        std::fs::rename(&tmp_path, path)
+    }
+
+    /// The baseline at `path` when it went to `s3_bucket`. Any other baseline makes the next upload
+    /// full.
+    pub(crate) fn load(path: &Path, s3_bucket: &str) -> Option<CheckpointMetadata> {
+        let baseline: Self = match std::fs::read(path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
+            read => match read
+                .map_err(serde_json::Error::io)
+                .and_then(|bytes| serde_json::from_slice(&bytes))
+            {
+                Ok(baseline) => baseline,
+                Err(e) => {
+                    warn!(error = %e, path = %path.display(), "unreadable upload baseline; the next upload is full");
+                    return None;
+                }
+            },
+        };
+        if baseline.s3_bucket != s3_bucket {
+            info!(
+                baseline_bucket = %baseline.s3_bucket,
+                "the upload baseline went to another bucket; the next upload is full",
+            );
+            return None;
+        }
+        Some(baseline.metadata)
+    }
+}
 
 /// True on every `every_n`-th tick (tick 0, N, 2N, …). `every_n == 0` is treated as 1.
 pub fn should_upload(tick: u64, every_n: u64) -> bool {
@@ -77,15 +133,18 @@ pub fn upload_cadence(checkpoint_interval_ms: u64, s3_upload_interval_ms: u64) -
 #[derive(Debug)]
 pub(crate) enum Trigger {
     Periodic,
-    /// A graceful stop, after every consumer's final commit.
-    Final(DrainedOwnership),
+    /// A graceful stop, after every consumer's final commit. Its upload is cancelled at `deadline`.
+    Final {
+        drained: DrainedOwnership,
+        deadline: Instant,
+    },
 }
 
 impl Trigger {
     fn label(&self) -> &'static str {
         match self {
             Self::Periodic => "periodic",
-            Self::Final(_) => "final",
+            Self::Final { .. } => "final",
         }
     }
 
@@ -94,7 +153,7 @@ impl Trigger {
     fn owned(&self, live: impl FnOnce() -> Vec<i32>) -> BTreeSet<u16> {
         let partitions = match self {
             Self::Periodic => live(),
-            Self::Final(drained) => drained.partitions().iter().copied().collect(),
+            Self::Final { drained, .. } => drained.partitions().iter().copied().collect(),
         };
         partitions
             .into_iter()
@@ -102,11 +161,13 @@ impl Trigger {
             .collect()
     }
 
-    /// A final checkpoint always uploads, so a planned stop leaves nothing to replay past it.
-    fn uploads(&self, tick: u64, every_n: u64) -> bool {
+    /// A final checkpoint uploads off cadence, so a planned stop leaves nothing to replay past it.
+    /// It uploads only an incremental plan: a full one cannot finish within its budget, and the
+    /// next start uploads in full anyway.
+    fn uploads(&self, tick: u64, every_n: u64, kind: &UploadKind<'_>) -> bool {
         match self {
             Self::Periodic => should_upload(tick, every_n),
-            Self::Final(_) => true,
+            Self::Final { .. } => matches!(kind, UploadKind::Incremental(_)),
         }
     }
 }
@@ -125,7 +186,7 @@ enum FullReason {
     OtherDb,
     /// The chain is older than the full-upload interval, which bounds the age of what a restore
     /// downloads.
-    BaselineExpired,
+    ChainExpired,
 }
 
 impl UploadKind<'_> {
@@ -158,7 +219,7 @@ fn upload_kind<'a>(
     }
     let chain_age = now.signed_duration_since(baseline.full_upload_at).to_std();
     if chain_age.is_ok_and(|age| age > full_max_age) {
-        return UploadKind::Full(FullReason::BaselineExpired);
+        return UploadKind::Full(FullReason::ChainExpired);
     }
     UploadKind::Incremental(baseline)
 }
@@ -181,8 +242,8 @@ pub struct CheckpointSweeper {
 }
 
 impl CheckpointSweeper {
-    /// The first baseline is the lineage's `uploaded.json`, which [`upload_kind`] uses only for the
-    /// same DB.
+    /// The first baseline is the lineage's `uploaded.json` when it went to the configured bucket.
+    /// [`upload_kind`] uses it only for the same DB.
     pub fn new(
         store: CohortStore,
         dispatcher: Arc<EventDispatcher>,
@@ -192,17 +253,12 @@ impl CheckpointSweeper {
         upload_every_n: u64,
         stop: CancellationToken,
     ) -> Self {
-        let uploaded = lineage
-            .local_dir(Path::new(&config.local_checkpoint_dir))
-            .join(UPLOADED_FILENAME);
-        let baseline = match CheckpointMetadata::load(&uploaded) {
-            Ok(baseline) => Some(baseline),
-            Err(MetadataError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => {
-                warn!(error = %e, path = %uploaded.display(), "unreadable upload baseline; the next upload is full");
-                None
-            }
-        };
+        let baseline = UploadBaseline::load(
+            &lineage
+                .local_dir(Path::new(&config.local_checkpoint_dir))
+                .join(UPLOADED_FILENAME),
+            &config.s3_bucket,
+        );
         let started = Utc::now().timestamp() as f64;
         metrics::gauge!(CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS).set(started);
         metrics::gauge!(CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS).set(started);
@@ -228,8 +284,14 @@ impl CheckpointSweeper {
     /// The checkpoint a graceful stop takes once every consumer has made its final commit. Skipped
     /// when the worker drain never finished, because the positions are then not settled.
     pub async fn final_checkpoint(&self) {
+        // The budget starts before the WAL flush and the checkpoint, so the upload's cancel lands
+        // inside this component's shutdown window.
+        let deadline = Instant::now() + self.config.final_upload_timeout;
         match self.dispatcher.wait_for_worker_drain(Duration::ZERO).await {
-            DrainWait::Drained(drained) => self.checkpoint_once(Trigger::Final(drained)).await,
+            DrainWait::Drained(drained) => {
+                self.checkpoint_once(Trigger::Final { drained, deadline })
+                    .await;
+            }
             DrainWait::TimedOut => warn!(
                 "final checkpoint skipped: the worker drain did not finish, so positions are unsettled",
             ),
@@ -402,7 +464,7 @@ impl CheckpointSweeper {
         );
 
         // 9. Upload when due, and advance the baseline on success.
-        if trigger.uploads(tick, self.upload_every_n) {
+        if trigger.uploads(tick, self.upload_every_n, &kind) {
             match &kind {
                 UploadKind::Full(reason) => {
                     info!(checkpoint_id, ?reason, "uploading a full checkpoint")
@@ -414,6 +476,12 @@ impl CheckpointSweeper {
                 ),
             }
             self.upload(&plan, kind.label(), &trigger).await;
+        } else if let (Trigger::Final { .. }, UploadKind::Full(reason)) = (&trigger, &kind) {
+            warn!(
+                checkpoint_id,
+                ?reason,
+                "final checkpoint kept local: a full upload cannot finish within its budget",
+            );
         }
 
         // 10. Prune older local checkpoint dirs (keep latest only) to avoid pinning SSTs that the live
@@ -452,7 +520,7 @@ impl CheckpointSweeper {
                     )
                     .await
             }
-            Trigger::Final(_) => {
+            Trigger::Final { deadline, .. } => {
                 let cancel = CancellationToken::new();
                 let upload = exporter.export_checkpoint_with_plan_cancellable(
                     plan,
@@ -462,7 +530,10 @@ impl CheckpointSweeper {
                 tokio::pin!(upload);
                 tokio::select! {
                     result = &mut upload => result,
-                    _ = tokio::time::sleep(self.config.final_upload_timeout) => {
+                    // Cancel, then await, instead of dropping the upload with a timeout. A
+                    // cancelled upload aborts its multipart writes, and S3 keeps the parts of a
+                    // dropped one.
+                    _ = tokio::time::sleep_until(*deadline) => {
                         cancel.cancel();
                         upload.await
                     }
@@ -487,7 +558,11 @@ impl CheckpointSweeper {
             .set(plan.info.metadata.full_upload_at.timestamp() as f64);
 
         let uploaded = plan.info.metadata.clone();
-        if let Err(e) = uploaded.save(&self.local_dir().join(UPLOADED_FILENAME)) {
+        if let Err(e) = UploadBaseline::save(
+            &self.local_dir().join(UPLOADED_FILENAME),
+            &self.config.s3_bucket,
+            uploaded.clone(),
+        ) {
             warn!(error = %e, "saving the upload baseline failed; the next process builds on an older upload of this DB");
         }
         *self
@@ -608,20 +683,32 @@ mod tests {
     }
 
     #[test]
-    fn the_final_trigger_captures_the_drained_ownership_and_uploads_off_cadence() {
-        let final_trigger = Trigger::Final(DrainedOwnership::for_test([3, 7]));
+    fn the_final_trigger_captures_the_drained_ownership_and_uploads_only_an_incremental_plan() {
+        let final_trigger = Trigger::Final {
+            drained: DrainedOwnership::for_test([3, 7]),
+            deadline: Instant::now(),
+        };
+        let baseline = CheckpointMetadata::new(
+            PodOrdinal::STANDALONE,
+            Utc::now(),
+            DbIdentity::for_test("db"),
+        );
+        let incremental = UploadKind::Incremental(&baseline);
+        let full = UploadKind::Full(FullReason::ChainExpired);
         assert_eq!(final_trigger.owned(Vec::new), BTreeSet::from([3, 7]));
-        assert!(final_trigger.uploads(1, 3));
+        assert!(final_trigger.uploads(1, 3, &incremental));
+        assert!(!final_trigger.uploads(0, 3, &full));
 
         assert_eq!(
             Trigger::Periodic.owned(|| vec![1, 2]),
             BTreeSet::from([1, 2])
         );
-        assert!(!Trigger::Periodic.uploads(1, 3));
+        assert!(!Trigger::Periodic.uploads(1, 3, &incremental));
+        assert!(Trigger::Periodic.uploads(0, 3, &full));
     }
 
     #[test]
-    fn an_upload_builds_on_its_baseline_only_for_the_same_db_and_a_young_chain() {
+    fn an_upload_builds_on_its_baseline_only_for_the_same_db_and_bucket_and_a_young_chain() {
         let now = Utc::now();
         let day = Duration::from_secs(86_400);
         let db = DbIdentity::for_test("db-a");
@@ -649,7 +736,7 @@ mod tests {
         );
         assert_eq!(
             upload_kind(Some(&expired), &db, now, day),
-            UploadKind::Full(FullReason::BaselineExpired)
+            UploadKind::Full(FullReason::ChainExpired)
         );
         assert_eq!(
             upload_kind(Some(&at_limit), &db, now, day),
@@ -659,6 +746,12 @@ mod tests {
             upload_kind(Some(&young), &db, now, day),
             UploadKind::Incremental(&young)
         );
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let uploaded = dir.path().join(UPLOADED_FILENAME);
+        UploadBaseline::save(&uploaded, "bucket-a", young.clone()).unwrap();
+        assert_eq!(UploadBaseline::load(&uploaded, "bucket-a"), Some(young));
+        assert_eq!(UploadBaseline::load(&uploaded, "bucket-b"), None);
     }
 
     #[test]

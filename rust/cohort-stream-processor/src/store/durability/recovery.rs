@@ -26,7 +26,7 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::error::KafkaError;
 use tracing::{error, info, warn};
 
-use super::checkpoint::UPLOADED_FILENAME;
+use super::checkpoint::{UploadBaseline, UPLOADED_FILENAME};
 use super::import::{CheckpointImporter, ImportError};
 use super::lineage::CheckpointLineage;
 use super::manifest::{ManifestError, OffsetManifest};
@@ -341,6 +341,7 @@ async fn prepare_store(
         live: &live,
         stage,
         uploaded: local_dir.join(UPLOADED_FILENAME),
+        s3_bucket: &durability.s3_bucket,
         lineage,
         events_topic: InputTopic::new(&config.cohort_stream_events_topic),
         window,
@@ -415,6 +416,7 @@ struct Restore<'a, W> {
     stage: PathBuf,
     /// The lineage's `uploaded.json`, which a publish rewrites.
     uploaded: PathBuf,
+    s3_bucket: &'a str,
     lineage: CheckpointLineage,
     events_topic: InputTopic,
     window: &'a W,
@@ -633,7 +635,7 @@ impl<W: ReplayWindow> Restore<'_, W> {
         match source {
             RestoredFrom::S3 { candidate } => {
                 std::fs::create_dir_all(parent_dir(&self.uploaded))?;
-                candidate.save(&self.uploaded).map_err(io::Error::other)
+                UploadBaseline::save(&self.uploaded, self.s3_bucket, candidate.clone())
             }
             RestoredFrom::Local { .. } => match std::fs::remove_file(&self.uploaded) {
                 Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
@@ -942,6 +944,7 @@ mod tests {
                 live: Path::new(&self.config.store_path),
                 stage: staging_path(Path::new(&self.config.store_path)),
                 uploaded: self.lineage_dir().join(UPLOADED_FILENAME),
+                s3_bucket: &self.config.checkpoint_s3_bucket,
                 lineage: CheckpointLineage::new(PodOrdinal::STANDALONE),
                 events_topic: InputTopic::new(EVENTS),
                 window,
@@ -1045,9 +1048,12 @@ mod tests {
         assert_eq!(pending.source().checkpoint_id(), checkpoint_id);
         assert!(search.failed.is_empty(), "{:?}", search.failed);
         assert_eq!(
-            CheckpointMetadata::load(&boot.lineage_dir().join(UPLOADED_FILENAME))
-                .unwrap()
-                .id,
+            UploadBaseline::load(
+                &boot.lineage_dir().join(UPLOADED_FILENAME),
+                &boot.config.checkpoint_s3_bucket,
+            )
+            .unwrap()
+            .id,
             checkpoint_id,
             "the restored upload becomes the next upload's baseline",
         );
@@ -1094,13 +1100,19 @@ mod tests {
     #[tokio::test]
     async fn a_local_checkpoint_stays_pending_and_each_boot_checks_its_window_again() {
         let boot = Boot::new();
-        boot.local_checkpoint();
+        let baseline = boot.local_checkpoint();
+        let uploaded = boot.lineage_dir().join(UPLOADED_FILENAME);
+        UploadBaseline::save(&uploaded, &boot.config.checkpoint_s3_bucket, baseline).unwrap();
 
         let Ok(BootStore::Restored(published)) = boot.prepare(&window()).await else {
             panic!("a fresh local checkpoint restores");
         };
         assert_eq!(published.source().label(), "local");
         assert!(boot.live().join(MARKER_FILENAME).is_file());
+        assert!(
+            !uploaded.exists(),
+            "a local restore leaves no upload baseline, so the next upload is full",
+        );
 
         let Ok(BootStore::Restored(resumed)) = boot.prepare(&window()).await else {
             panic!("a store with a marker resumes its restore instead of reopening");

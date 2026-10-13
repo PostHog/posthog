@@ -5,10 +5,8 @@ use futures::StreamExt;
 use object_store::buffered::BufWriter;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
-use std::future::Future;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -25,46 +23,35 @@ use crate::observability::metrics::CHECKPOINT_FILES_UPLOADED_TOTAL;
 
 const UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024; // 8MB
 
-/// Holds one upload's files, together, to an average byte rate. The upload reads the disk the live
-/// path and the boot rebuild read, so an unpaced full upload competes with them for its whole run.
+/// Holds one upload's files, together, to a byte rate. The upload reads the disk the live path and
+/// the boot rebuild read, so an unpaced full upload competes with them for its whole run.
 struct UploadPace {
     bytes_per_sec: u64,
-    started: Instant,
-    sent: AtomicU64,
+    /// When the bytes admitted so far are paid for. Time spent below the rate is not banked, so a
+    /// slow stretch never turns into a burst at full disk speed.
+    next: Mutex<Instant>,
 }
 
 impl UploadPace {
     fn new(bytes_per_sec: u64) -> Self {
         Self {
             bytes_per_sec: bytes_per_sec.max(1),
-            started: Instant::now(),
-            sent: AtomicU64::new(0),
+            next: Mutex::new(Instant::now()),
         }
     }
 
-    /// Counts `bytes`, then waits until the average rate since the start is within the budget.
+    /// Counts `bytes`, then waits until the rate allows them.
     async fn admit(&self, bytes: u64) {
-        let sent = self.sent.fetch_add(bytes, Ordering::Relaxed) + bytes;
-        let due = Duration::from_secs_f64(sent as f64 / self.bytes_per_sec as f64);
-        tokio::time::sleep_until(self.started + due).await;
-    }
-}
-
-/// `true` when `cancel_token` fires before `wait` completes.
-async fn cancelled_during(
-    wait: impl Future<Output = ()>,
-    cancel_token: Option<&CancellationToken>,
-) -> bool {
-    match cancel_token {
-        Some(token) => tokio::select! {
-            biased;
-            _ = token.cancelled() => true,
-            _ = wait => false,
-        },
-        None => {
-            wait.await;
-            false
-        }
+        let due = {
+            let mut next = self
+                .next
+                .lock()
+                .expect("the pace lock is never held across a panic");
+            *next = (*next).max(Instant::now())
+                + Duration::from_secs_f64(bytes as f64 / self.bytes_per_sec as f64);
+            *next
+        };
+        tokio::time::sleep_until(due).await;
     }
 }
 
@@ -133,19 +120,17 @@ impl S3Uploader {
         &self,
         local_path: &Path,
         s3_key: &str,
-        cancel_token: Option<&CancellationToken>,
+        cancel_token: &CancellationToken,
         pace: &UploadPace,
     ) -> Result<()> {
-        if let Some(token) = cancel_token {
-            if token.is_cancelled() {
-                metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "cancelled")
-                    .increment(1);
-                warn!("Upload cancelled before starting: {s3_key}");
-                return Err(UploadCancelledError {
-                    reason: format!("before starting: {s3_key}"),
-                }
-                .into());
+        if cancel_token.is_cancelled() {
+            metrics::counter!(CHECKPOINT_FILES_UPLOADED_TOTAL, "status" => "cancelled")
+                .increment(1);
+            warn!("Upload cancelled before starting: {s3_key}");
+            return Err(UploadCancelledError {
+                reason: format!("before starting: {s3_key}"),
             }
+            .into());
         }
 
         let path = ObjectPath::from(s3_key);
@@ -166,7 +151,8 @@ impl S3Uploader {
         let mut buf = vec![0u8; UPLOAD_CHUNK_SIZE];
 
         loop {
-            let chunk_result = read_chunk_cancellable(&mut file, &mut buf, cancel_token).await;
+            let chunk_result =
+                read_chunk_cancellable(&mut file, &mut buf, Some(cancel_token)).await;
 
             match chunk_result {
                 ChunkResult::Data(n) => {
@@ -177,7 +163,11 @@ impl S3Uploader {
                         return Err(anyhow::Error::new(e))
                             .with_context(|| format!("Failed to write chunk to S3: {s3_key}"));
                     }
-                    if cancelled_during(pace.admit(n as u64), cancel_token).await {
+                    if cancel_token
+                        .run_until_cancelled(pace.admit(n as u64))
+                        .await
+                        .is_none()
+                    {
                         return Err(cancel_mid_stream(upload, s3_key).await);
                     }
                 }
@@ -270,7 +260,7 @@ impl CheckpointUploader for S3Uploader {
                 let token = upload_token.clone();
                 let pace = &pace;
                 async move {
-                    self.upload_file_cancellable(&src, &dest, Some(&token), pace)
+                    self.upload_file_cancellable(&src, &dest, &token, pace)
                         .await?;
                     Ok::<String, anyhow::Error>(dest)
                 }
