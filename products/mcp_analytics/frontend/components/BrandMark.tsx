@@ -28,26 +28,28 @@ function isIconMark(name: BrandMarkName): name is IconMarkName {
     return name in ICON_MARKS
 }
 
-// The title stays on the wrapper because some lists show marks without a text label.
+// Pass a label only when the mark stands alone. Next to a visible name, an unlabelled mark stays hidden
+// from screen readers so they do not read the name twice. The title stays on the wrapper so the
+// tooltip works for both kinds of mark.
 export function BrandMark({
     name,
     label,
     className = 'size-4',
 }: {
     name: BrandMarkName
-    label: string
+    label?: string
     className?: string
 }): JSX.Element {
+    const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
     let mark: JSX.Element
     if (isIconMark(name)) {
         const { Icon, className: iconClassName, outline } = ICON_MARKS[name]
-        mark = <Icon className={cn('shrink-0', iconClassName, className)} role="img" aria-label={label} {...outline} />
+        mark = <Icon className={cn('shrink-0', iconClassName, className)} {...a11y} {...outline} />
     } else {
         const shape = BRAND_MARKS[name]
         mark = (
             <svg
-                role="img"
-                aria-label={label}
+                {...a11y}
                 viewBox="0 0 24 24"
                 fill="currentColor"
                 fillRule={'evenOdd' in shape ? 'evenodd' : undefined}

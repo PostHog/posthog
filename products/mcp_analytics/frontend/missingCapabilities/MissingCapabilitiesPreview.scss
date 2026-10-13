@@ -99,11 +99,6 @@
         border-radius: 4px;
     }
 
-    &__logo svg {
-        width: 100%;
-        height: 100%;
-    }
-
     // Nothing to show for a report that never named its client, so the plate stays empty.
     &__logo--unknown {
         background: none;

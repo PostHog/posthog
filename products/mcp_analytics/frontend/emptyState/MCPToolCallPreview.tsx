@@ -81,7 +81,7 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                             htmlFor={`mcp-preview-${filter.id}`}
                             className={`MCPPreview__chip MCPPreview__chip--${filter.id}`}
                         >
-                            {filter.mark ? <BrandMark name={filter.mark} label={filter.label} /> : null}
+                            {filter.mark ? <BrandMark name={filter.mark} className="size-3" /> : null}
                             {filter.label}
                         </label>
                     ))}
@@ -102,7 +102,7 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                             data-h={call.harness}
                         >
                             <span className="MCPPreview__logo">
-                                <BrandMark name={call.mark} label={call.mark} />
+                                <BrandMark name={call.mark} className="size-3.5" />
                             </span>
                             <span className="MCPPreview__tool">{call.tool}</span>
                             <span className="MCPPreview__time">{call.time}</span>
@@ -140,7 +140,7 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                         <BrandMark name="PostHog" label="PostHog Desktop" />
                     </Link>
                     {CLIENT_MARKS.map((mark) => (
-                        <BrandMark key={mark} name={mark} label={mark} />
+                        <BrandMark key={mark} name={mark} />
                     ))}
                     <span className="MCPSpark__more">+12 clients</span>
                 </div>

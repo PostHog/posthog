@@ -68,7 +68,7 @@ export function ModelBreakdownTable({
                                 const lab = seriesLab(row.model)
                                 return (
                                     <span className="flex items-center gap-1.5">
-                                        <BrandMark name={labMark(lab)} label={lab} />
+                                        <BrandMark name={labMark(lab)} />
                                         <span className="break-all" translate="no">
                                             {row.model}
                                         </span>

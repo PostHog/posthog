@@ -72,7 +72,7 @@ export function MissingCapabilitiesPreview(): JSX.Element {
                             {report.mark ? (
                                 <span className="MissingCapsPreview__client">
                                     <span className="MissingCapsPreview__logo">
-                                        <BrandMark name={report.mark} label={report.client} />
+                                        <BrandMark name={report.mark} className="size-2.5" />
                                     </span>
                                     {report.client}
                                 </span>

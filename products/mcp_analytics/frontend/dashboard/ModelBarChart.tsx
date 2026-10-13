@@ -77,7 +77,7 @@ export function ModelBarChart({
                 label: row.model,
                 value: row.total_calls,
                 color: colorOf ? colorOf(row.model) : ownColors.get(row.model),
-                icon: <BrandMark name={labMark(lab)} label={lab} />,
+                icon: <BrandMark name={labMark(lab)} />,
                 meta: row,
             }
         })

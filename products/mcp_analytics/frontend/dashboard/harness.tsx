@@ -8,7 +8,7 @@ export function HarnessLogo({
     category: string
     className?: string
 }): JSX.Element {
-    return <BrandMark name={harnessMark(category)} label={category} className={className} />
+    return <BrandMark name={harnessMark(category)} className={className} />
 }
 
 export function HarnessPill({ category, title }: { category: string; title?: string }): JSX.Element {

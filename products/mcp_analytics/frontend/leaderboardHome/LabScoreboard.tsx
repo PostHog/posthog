@@ -86,7 +86,7 @@ export function LabScoreboard({
                             <Card size="sm" className="h-full" data-attr="mcp-leaderboard-lab-tile">
                                 <CardContent className="flex flex-col gap-1">
                                     <span className="flex items-center gap-1.5 text-sm font-semibold text-secondary">
-                                        <BrandMark name={labMark(lab)} label={lab} className="size-4 text-primary" />
+                                        <BrandMark name={labMark(lab)} className="size-4 text-primary" />
                                         {lab}
                                     </span>
                                     <span className="text-3xl font-semibold tabular-nums text-primary">

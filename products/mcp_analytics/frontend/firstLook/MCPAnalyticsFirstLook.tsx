@@ -30,7 +30,7 @@ function Chip({ chip }: { chip: FirstLookChip }): JSX.Element {
         >
             <span className="flex items-center text-xs leading-none">
                 {chip.harness ? (
-                    <BrandMark name={harnessMark(chip.harness)} label={chip.harness} className="size-3.5" />
+                    <BrandMark name={harnessMark(chip.harness)} className="size-3.5" />
                 ) : (
                     CHIP_ICON[chip.key]
                 )}
