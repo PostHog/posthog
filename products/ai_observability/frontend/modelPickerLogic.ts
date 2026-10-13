@@ -451,6 +451,14 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                     .map((group) => ({ ...group, models: group.models.filter((model) => !model.supportsDecisions) }))
                     .filter((group) => group.models.length > 0 || group.disabledReason || group.allowsCustomModel),
         ],
+        // The playground runs only listed models, so it does not offer typed deployment names.
+        playgroundByokProviderModelGroups: [
+            (s) => [s.providerModelGroups],
+            (groups: ProviderModelGroup[]): ProviderModelGroup[] =>
+                groups
+                    .filter((group) => group.models.length > 0 || group.disabledReason)
+                    .map((group) => (group.allowsCustomModel ? { ...group, allowsCustomModel: false } : group)),
+        ],
         evaluationModelNotice: [
             (s) => [
                 s.providerKeys,

@@ -503,6 +503,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                         cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
                     else:
                         LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
+                        logger.info(
+                            "llma_proxy_byok_empty_model_list",
+                            provider=provider_key.provider,
+                            team_id=provider_key.team_id,
+                            provider_key_id=str(provider_key.id),
+                        )
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()

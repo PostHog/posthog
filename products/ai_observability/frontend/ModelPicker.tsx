@@ -46,13 +46,12 @@ export function findSelectedProvider(
     if (exactMatch) {
         return exactMatch.provider
     }
-    // Fall back to matching by model id alone (e.g., playground mode where providerKeyId is null)
-    const modelMatch = groups.find((g) => g.models.some((m) => m.id === model))
-    if (modelMatch) {
-        return modelMatch.provider
-    }
     const customModelGroup = groups.find((g) => g.providerKeyId === providerKeyId && g.allowsCustomModel)
-    return model && customModelGroup ? customModelGroup.provider : null
+    if (model && customModelGroup) {
+        return customModelGroup.provider
+    }
+    // Fall back to matching by model id alone (e.g., playground mode where providerKeyId is null)
+    return groups.find((g) => g.models.some((m) => m.id === model))?.provider ?? null
 }
 
 export function filterGroups(groups: ProviderModelGroup[], search: string): ProviderModelGroup[] {
