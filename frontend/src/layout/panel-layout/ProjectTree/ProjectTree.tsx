@@ -581,7 +581,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                         <TreeNodeDisplayIcon
                             item={item}
                             expandedItemIds={expandedFolders}
-                            defaultFolderIcon={isHomeFolder(item, currentHomeFolder) ? <IconHome /> : undefined}
+                            defaultFolderIcon={
+                                props.groupAnalyticsNavigation && item.id.startsWith('legacy-navigation/') ? (
+                                    item.icon
+                                ) : isHomeFolder(item, currentHomeFolder) ? (
+                                    <IconHome />
+                                ) : undefined
+                            }
                         />
                     </>
                 )

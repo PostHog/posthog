@@ -1,4 +1,4 @@
-import { IconGraph, IconFolderOpen } from '@posthog/icons'
+import { IconGraph, IconLineGraph, IconFolderOpen, IconDocument } from '@posthog/icons'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { urls } from 'scenes/urls'
@@ -37,7 +37,7 @@ export function groupLegacyAnalyticsNavigation(
         id: 'legacy-navigation/analytics',
         name: 'Analytics',
         displayName: 'Analytics',
-        icon: <IconGraph />,
+        icon: <IconLineGraph />,
         children: analytics.sort(
             (a, b) => ANALYTICS_PRODUCTS.indexOf(a.record?.path) - ANALYTICS_PRODUCTS.indexOf(b.record?.path)
         ),
@@ -63,7 +63,7 @@ export function groupLegacyAnalyticsNavigation(
                 id: 'legacy-navigation/reports',
                 name: 'Reports',
                 displayName: 'Reports',
-                icon: <IconFolderOpen />,
+                icon: <IconDocument />,
                 record: { path: 'Reports', type: 'folder', href: urls.reports(), sceneKey: 'Reports' },
                 children: [
                     {
