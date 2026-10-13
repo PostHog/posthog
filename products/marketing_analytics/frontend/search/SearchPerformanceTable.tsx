@@ -122,8 +122,12 @@ export function SearchPerformanceTable({
                         }
                     >
                         {goals.length === 0
-                            ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions by landing page.'
-                            : `PostHog conversions use ${conversionsResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution, matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.`}
+                            ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions.'
+                            : `PostHog conversions use ${conversionsResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution. ${
+                                  query.breakdown === 'page'
+                                      ? 'Conversions are matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.'
+                                      : 'Paid keywords are matched to the session’s utm_term and search source. Set utm_term to the keyword in your ad links. Organic query conversions are only available by landing page.'
+                              }`}
                         {conversionsResponse.posthogConversionsWarning && (
                             <p className="mb-0 mt-1">{conversionsResponse.posthogConversionsWarning}</p>
                         )}

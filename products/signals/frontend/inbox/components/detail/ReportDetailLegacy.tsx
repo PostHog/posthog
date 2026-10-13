@@ -254,6 +254,8 @@ interface InboxDetailFrameProps {
     diffBranchTag?: ReactNode
     /** +/- line-count stat shown in the "Files changed" tab label, right of the branch. */
     diffStat?: ReactNode
+    /** Content closing the sidebar, after Activity (e.g. the PR checks). */
+    asideFooter?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -274,6 +276,7 @@ function InboxDetailFrameLegacy({
     diffSection,
     diffBranchTag,
     diffStat,
+    asideFooter,
     children,
 }: InboxDetailFrameProps): JSX.Element {
     const { searchParams } = useValues(router)
@@ -383,7 +386,7 @@ function InboxDetailFrameLegacy({
                 </div>
 
                 <div className="flex flex-col min-w-0 gap-5">
-                    {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
+                    {/* The pull request picker (when present) first, then reviewers, evidence, runs, and activity. */}
                     {children}
                     <SuggestedReviewersSection report={report} />
                     {hasEvidence && (
@@ -418,6 +421,7 @@ function InboxDetailFrameLegacy({
                     )}
                     <ReportTasksSection report={report} />
                     <ReportActivitySection report={report} />
+                    {asideFooter}
                 </div>
             </div>
         </BindLogic>
@@ -636,8 +640,9 @@ export function ReportDetailLegacy({ report, tab }: { report: SignalReport; tab:
                     <PullRequestDiffStatSkeleton />
                 ) : undefined
             }
-            // The PR conversation sits under the Summary as primary content; CI checks stay in the
-            // sidebar. Both drop themselves when there's nothing to show.
+            // The PR conversation sits under the Summary as primary content; CI checks close the
+            // sidebar, under Activity. Both drop themselves when there's nothing to show.
+            asideFooter={hasPr ? <PrChecksSection report={report} /> : undefined}
             summaryFooter={
                 hasPr || report.tracker_issue_url || report.tracker_issue_error ? (
                     <>
@@ -658,7 +663,6 @@ export function ReportDetailLegacy({ report, tab }: { report: SignalReport; tab:
                     data-attr="inbox-report-select-pull-request"
                 />
             )}
-            {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrameLegacy>
     )
 }
