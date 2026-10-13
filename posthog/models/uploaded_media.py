@@ -160,7 +160,10 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
         ]
 
     def get_absolute_url(self) -> str:
-        return absolute_uri(f"/uploaded_media/{self.id}")
+        path = f"/uploaded_media/{self.id}"
+        if settings.UPLOADED_MEDIA_PUBLIC_URL:
+            return f"{settings.UPLOADED_MEDIA_PUBLIC_URL}{path}"
+        return absolute_uri(path)
 
     @staticmethod
     def build_media_location(team_id: int, media_id) -> str:

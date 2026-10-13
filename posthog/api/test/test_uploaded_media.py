@@ -404,6 +404,15 @@ class TestMediaLibraryAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         assert UploadedMedia.objects.count() == 0
 
+    def test_media_urls_use_the_cdn_origin_when_one_is_configured(self) -> None:
+        media = self._create_media(purpose="email")
+
+        with self.settings(UPLOADED_MEDIA_PUBLIC_URL="https://media.example.com"):
+            response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.json()["results"][0]["url"] == f"https://media.example.com/uploaded_media/{media.id}"
+
     def test_list_returns_only_matching_purpose_for_own_team_newest_first(self) -> None:
         first = self._create_media(purpose="canvas", file_name="first.png")
         second = self._create_media(purpose="canvas", file_name="second.png")
