@@ -33,7 +33,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -555,6 +559,7 @@ def _count_events(
         ExposedCHQueryError,
         ResolutionError,
         ClickHouseQueryTimeOut,
+        ClickHouseEstimatedQueryExecutionTimeTooLong,
         ClickHouseQueryMemoryLimitExceeded,
     ) as error:
         # This query alone reads the project's filter and person properties, so it can fail when the others pass.
