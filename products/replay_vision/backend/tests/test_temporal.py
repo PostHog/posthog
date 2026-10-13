@@ -502,7 +502,7 @@ class TestCreateObservationActivity:
     def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.quota_state"
+            "products.replay_vision.backend.temporal.activities.create_observation.quota_state_for_cap"
         ) as mock_snapshot:
             mock_snapshot.return_value = QuotaSnapshot(
                 credit_limit=5,
@@ -568,7 +568,7 @@ class TestCreateObservationActivity:
         # consent is checked first.
         with (
             patch(
-                "products.replay_vision.backend.temporal.activities.create_observation.quota_state",
+                "products.replay_vision.backend.temporal.activities.create_observation.quota_state_for_cap",
                 return_value=QuotaSnapshot(
                     credit_limit=5,
                     credits_used=5,
@@ -884,8 +884,7 @@ class TestCreateObservationActivity:
         release.assert_called_once()
 
     def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
-        # The admission lock is per scanner row: two different capped scanners on one team must both
-        # admit their own observation, with no cross-scanner budget bleed or lock coupling.
+        # Two capped scanners on one team must both admit their own observation, with no cross-scanner budget bleed.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner_a = _make_scanner(credit_limit=credits)
         scanner_b = ReplayScanner.objects.create(
@@ -926,6 +925,42 @@ class TestCreateObservationActivity:
         assert not any(thread.is_alive() for thread in threads)
 
         assert created == {"sibling-a": True, "sibling-b": True}
+
+    @parameterized.expand([("uncapped", None), ("capped", 1_000)])
+    def test_concurrent_admissions_across_scanners_cannot_exceed_org_credit_limit(
+        self, _name: str, scanner_limit: int | None
+    ) -> None:
+        # Without the org-level admission, both pass the unlocked quota read and bill past the limit.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
+        scanner_a = _make_scanner(credit_limit=scanner_limit)
+        scanner_b = _make_scanner(team=scanner_a.team, name="org-sibling", credit_limit=scanner_limit)
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(scanner: ReplayScanner, session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = self._admit(scanner, session_id).was_created
+            except ApplicationError as e:
+                if e.type != SCANNER_ADMISSION_BUSY_ERROR_TYPE:
+                    raise
+                created[session_id] = False
+            finally:
+                connections.close_all()
+
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", credits):
+            threads = [
+                threading.Thread(target=admit, args=(scanner_a, "org-race-a")),
+                threading.Thread(target=admit, args=(scanner_b, "org-race-b")),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert sorted(created.values()) == [False, True]
+        assert ReplayObservation.objects.filter(team=scanner_a.team, status=ObservationStatus.PENDING).count() == 1
 
     def test_retry_near_the_cap_reclaims_its_own_pending_row(self) -> None:
         # A Temporal retry whose first attempt committed the insert but lost the result must get its

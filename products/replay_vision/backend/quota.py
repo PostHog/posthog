@@ -472,12 +472,42 @@ def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = No
     )
 
 
-def quota_state(organization_id: UUID) -> QuotaState:
-    # Single `now` so the usage window and any caller comparisons are computed from one instant.
-    now = datetime.now(UTC)
+@frozen
+class OrgCreditCap:
+    """The org's credit limit and the billing period it applies to, read without any spend aggregates."""
+
+    period: BillingPeriod
+    credit_limit: int | None
+
+
+def _org_credit_limit(organization: Organization | None, organization_id: UUID) -> int | None:
+    synced, credit_limit = _billing_synced_limit(organization)
+    if not synced:
+        credit_limit = MONTHLY_CREDIT_QUOTA
+    # The tighter of billing's limit and the override, so a config mistake can only reduce credits;
+    # this is how an internal org on an unlimited plan still gets a spend ceiling.
+    override = ORG_CREDIT_LIMIT_OVERRIDES.get(str(organization_id))
+    if override is not None:
+        credit_limit = override if credit_limit is None else min(credit_limit, override)
+    return credit_limit
+
+
+def org_credit_cap(organization_id: UUID) -> OrgCreditCap:
+    """One org read; billing is the source of truth once synced, else the env cap and calendar months."""
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
-    # Billing is the source of truth once synced, falling back to the env cap and calendar months otherwise.
-    period = _current_period_bounds(organization, now)
+    return OrgCreditCap(
+        period=_current_period_bounds(organization, datetime.now(UTC)),
+        credit_limit=_org_credit_limit(organization, organization_id),
+    )
+
+
+def quota_state(organization_id: UUID) -> QuotaState:
+    return quota_state_for_cap(organization_id, org_credit_cap(organization_id))
+
+
+def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
+    """The org's spend against a cap the caller already resolved, so the two cannot straddle a period boundary."""
+    period = cap.period
     # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
     consumed = ReplayObservationUsage.objects.filter(
         organization_id=organization_id,
@@ -496,16 +526,8 @@ def quota_state(organization_id: UUID) -> QuotaState:
         ).values_list("scanner_snapshot__model", flat=True)
     )
     reserved = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
-    synced, credit_limit = _billing_synced_limit(organization)
-    if not synced:
-        credit_limit = MONTHLY_CREDIT_QUOTA
-    # The tighter of billing's limit and the override, so a config mistake can only reduce credits;
-    # this is how an internal org on an unlimited plan still gets a spend ceiling.
-    override = ORG_CREDIT_LIMIT_OVERRIDES.get(str(organization_id))
-    if override is not None:
-        credit_limit = override if credit_limit is None else min(credit_limit, override)
     return QuotaState(
-        credit_limit=credit_limit,
+        credit_limit=cap.credit_limit,
         credits_used=consumed + reserved,
         period_start=period.start,
         period_end=period.end,
