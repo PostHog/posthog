@@ -1090,7 +1090,7 @@
         }
     },
     "autoresearch-create": {
-        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. Scores are written to that person property only when write_person_property is true (default false); prediction events, validation and segments work without it. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Create a pipeline",
@@ -1176,6 +1176,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "autoresearch"
+    },
+    "autoresearch-partial-update": {
+        "description": "Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn person profile writes on or off. When it is on, each live scoring run writes the champion's score to output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list). Changing write_person_property needs the person:write scope. Prediction events, online validation and segments work with it off. target_event, target_definition, horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Update a pipeline",
+        "title": "Update a pipeline",
+        "required_scopes": ["autoresearch:write", "person:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "autoresearch"
     },
