@@ -379,6 +379,14 @@ describe('runInteractionLogic', () => {
         logic.actions.enableTaskDraftPersistence('user-1', 997)
         expect(logic.values.composerForm.draft).toBe('saved draft\n\nFix the title')
 
+        logic.actions.persistTaskDraft()
+        logic.unmount()
+        logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
+        logic.mount()
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(comments.values.commentContexts.map((context) => context.label)).toEqual(['chart.png', 'report.md'])
+        expect(logic.values.composerForm.draft).toBe('saved draft\n\nFix the title')
+
         await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
 
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(

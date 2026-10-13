@@ -8,7 +8,7 @@ import { CommentContextChip } from '../CommentContextChip'
 export function CommentContextChips({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element | null {
     const { commentContexts, pendingCommentText } = useValues(taskCommentContextsLogic({ taskId: logicProps.taskId }))
     const { removeCommentContext } = useActions(taskCommentContextsLogic({ taskId: logicProps.taskId }))
-    const { applyPendingCommentText } = useActions(runInteractionLogic(logicProps))
+    const { applyPendingCommentText, persistTaskDraft } = useActions(runInteractionLogic(logicProps))
 
     useEffect(() => {
         if (pendingCommentText.length > 0) {
@@ -25,7 +25,10 @@ export function CommentContextChips({ logicProps }: { logicProps: RunInteraction
                 <CommentContextChip
                     key={context.id}
                     context={context}
-                    onRemove={() => removeCommentContext(context.id)}
+                    onRemove={() => {
+                        removeCommentContext(context.id)
+                        persistTaskDraft()
+                    }}
                 />
             ))}
         </div>

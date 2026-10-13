@@ -82,7 +82,13 @@ export const taskCommentContextsLogic = kea<taskCommentContextsLogicType>([
             [] as PendingCommentContext[],
             {
                 addCommentToChat: (state, { context }) => (context ? [...state, context] : state),
-                restoreCommentContexts: (state, { contexts }) => [...contexts, ...state],
+                restoreCommentContexts: (state, { contexts }) => [
+                    ...contexts.filter(
+                        (restored) =>
+                            !state.some((held) => held.label === restored.label && held.body === restored.body)
+                    ),
+                    ...state,
+                ],
                 removeCommentContext: (state, { id }) => state.filter((context) => context.id !== id),
                 clearCommentContexts: () => [],
             },
