@@ -7,6 +7,7 @@ import {
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
@@ -137,9 +138,9 @@ describe('ComposerModelEffortPickers', () => {
         })
     })
 
-    it('lists every model with no harness choice for a runtime that runs any model', async () => {
+    it('lists every model with no harness choice for a Pi task', async () => {
         renderPickers({
-            singleHarness: true,
+            taskRuntime: TaskRuntimeEnumApi.Pi,
             models: [
                 ...CATALOGUE,
                 {

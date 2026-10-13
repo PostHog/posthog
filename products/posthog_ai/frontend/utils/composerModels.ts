@@ -7,6 +7,7 @@ import {
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 import {
@@ -68,14 +69,24 @@ export function getRuntimeAdapterForModel(
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
 // runtime the gateway stops serving disappears from the picker on its own.
-export function listRuntimeAdapters(catalogue: ModelChoiceApi[]): RuntimeAdapterEnumApi[] {
+export function listRuntimeAdapters(
+    catalogue: ModelChoiceApi[],
+    taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
+): RuntimeAdapterEnumApi[] {
+    if (taskRuntime === TaskRuntimeEnumApi.Pi) {
+        return []
+    }
     return [...new Set(catalogue.map((option) => option.runtime_adapter))]
 }
 
 export function modelsForRuntimeAdapter(
     catalogue: ModelChoiceApi[],
-    runtimeAdapter: RuntimeAdapterEnumApi
+    runtimeAdapter: RuntimeAdapterEnumApi,
+    taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
 ): ModelChoiceApi[] {
+    if (taskRuntime === TaskRuntimeEnumApi.Pi) {
+        return catalogue
+    }
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
@@ -85,16 +96,6 @@ export function modelsForRuntimeAdapter(
 export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
     const selected = catalogueEntry(catalogue, selectedModel)
     return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
-}
-
-export function piPickerModels(
-    catalogue: ModelChoiceApi[],
-    selectedModel: string | null | undefined
-): ModelChoiceApi[] {
-    return pickerModels(catalogue, selectedModel).map((option) => ({
-        ...option,
-        supported_efforts: option.supported_efforts.filter((effort) => effort !== ReasoningEffortEnumApi.Ultracode),
-    }))
 }
 
 // The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,

@@ -20,7 +20,6 @@ import {
     getRuntimeAdapterForModel,
     PI_DEFAULT_MODEL,
     pickerModels,
-    piPickerModels,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -80,10 +79,7 @@ export function TaskRunComposer({
     const { submitComposer, dismissCommandResult } = useActions(runSlashCommandsLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
     const isPiTask = isPiTaskRuntime(logicProps.taskRuntime)
-    const offeredModels = useMemo(
-        () => (isPiTask ? piPickerModels : pickerModels)(catalogue, selectedModel),
-        [catalogue, selectedModel, isPiTask]
-    )
+    const offeredModels = useMemo(() => pickerModels(catalogue, selectedModel), [catalogue, selectedModel])
     const { user } = useValues(userLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
@@ -153,7 +149,7 @@ export function TaskRunComposer({
         selectedEffort,
         onModelChange: setModel,
         onEffortChange: setEffort,
-        singleHarness: isPiTask,
+        taskRuntime: logicProps.taskRuntime,
         // While the run is live its harness is fixed to whatever the sandbox booted; once
         // terminal the next send starts a fresh run, which may pick any harness.
         lockedRuntimeAdapter: isTerminal ? null : logicProps.currentRuntimeAdapter,
