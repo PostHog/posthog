@@ -1926,7 +1926,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         through the same pipeline as a direct verb invoke.
         """
         canvas = self._canvas()
-        user = self._state_actor(request)
+        user = None if self._is_sandbox_authenticated(request) else self._state_actor(request)
         if user is None:
             return Response(
                 {"detail": "Canvas operations are invoked by viewers; sandbox tokens cannot use them."},
@@ -1999,7 +1999,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         The skill name is stable per canvas, so republishing after a change creates a new version.
         """
         canvas = self._canvas()
-        user = self._state_actor(request)
+        user = None if self._is_sandbox_authenticated(request) else self._state_actor(request)
         if user is None:
             return Response(
                 {"detail": "Skills are published by viewers; sandbox tokens cannot publish them."},
