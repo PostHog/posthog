@@ -100,8 +100,10 @@ def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: di
             row.removed_at = scanned_at
             to_update.append(row)
 
-    WizardDetectedTool.objects.bulk_create(to_create)
-    WizardDetectedTool.objects.bulk_update(
+    # Scoped explicitly, because the ambient team context is not always the scanned team.
+    tools_of_team = WizardDetectedTool.objects.for_team(scan.team_id)
+    tools_of_team.bulk_create(to_create)
+    tools_of_team.bulk_update(
         to_update,
         [
             "signals",
