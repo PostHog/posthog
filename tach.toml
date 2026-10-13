@@ -1482,7 +1482,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.annotations"
-depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking"]
 layer = "modules"
 
 [[modules]]

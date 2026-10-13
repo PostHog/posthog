@@ -143,12 +143,14 @@ You do not have GitHub access in this session.
 - Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
+  // Keep the task id and other per-task values out of this prompt. Sibling tasks, such as the
+  // parallel sessions of one ReviewHog review, then send the same prefix, and the provider serves
+  // it from its prompt cache. A per-task value breaks the cache for every token after it.
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
     inboxReportUrl?: string | null,
   ): string {
-    const taskId = this.options.taskId;
     const shouldAutoCreatePr = this.options.shouldAutoPublish;
     const isSlack = this.options.isSlack;
     // Every instruction in this section runs through `gh`, so a sandbox holding no
@@ -244,9 +246,7 @@ hard reset is the safe one here — your work is held in the stash.
 ## Attribution
 Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to your
 commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
-we want:
-Generated-By: PostHog Desktop
-Task-Id: ${taskId}`;
+we want: \`Generated-By: PostHog Desktop\` and a \`Task-Id\` trailer with this task's id.`;
 
     // A stack is several PRs, so this would contradict the review-first modes.
     const stackInstructions = shouldAutoCreatePr

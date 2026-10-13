@@ -88,6 +88,7 @@ import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { QueryScanSummary } from '../../queries/schema/schema-general'
+import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
@@ -246,6 +247,7 @@ export interface insightLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         },
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -294,6 +296,7 @@ export interface insightLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -422,6 +425,7 @@ export interface insightLogicActions {
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         },
         payload?: {
             metadataUpdate: Partial<
@@ -469,6 +473,7 @@ export interface insightLogicActions {
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         }
         payload?: {
             metadataUpdate: Partial<

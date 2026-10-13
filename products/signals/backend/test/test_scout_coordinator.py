@@ -49,6 +49,7 @@ from products.signals.backend.scout_harness.team_limits import (
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
     BackgroundBackoff,
     BackgroundBand,
+    BackgroundBudget,
     BackgroundEnrollment,
     Enrollment,
     _default_team_config,
@@ -722,10 +723,57 @@ _GENERAL = "signals-scout-general"
             {"background": {"enabled": True, "team_ids": [3], "backoff": {"enabled": True, "factor": 1}}},
             BackgroundEnrollment(True, _GENERAL, frozenset({3}), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK),
         ),
+        (
+            {"background": {"enabled": True, "team_ids": [3], "budget": {"max_runs_per_day": 0}}},
+            BackgroundEnrollment(
+                True,
+                _GENERAL,
+                frozenset({3}),
+                None,
+                DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+                budget=BackgroundBudget(max_runs_per_day=0),
+            ),
+        ),
+        (
+            {
+                "background": {
+                    "enabled": True,
+                    "team_ids": [3],
+                    "budget": {"max_runs_per_day": 2000, "max_runs_per_tick": "100"},
+                }
+            },
+            BackgroundEnrollment(
+                True,
+                _GENERAL,
+                frozenset({3}),
+                None,
+                DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+                budget=BackgroundBudget(max_runs_per_day=2000),
+            ),
+        ),
+        (
+            # A malformed budget means no lane budget and never costs the block its `team_ids`.
+            {"background": {"enabled": True, "team_ids": [3], "budget": {"max_runs_per_day": -1}}},
+            BackgroundEnrollment(True, _GENERAL, frozenset({3}), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK),
+        ),
     ],
 )
 def test_parse_background(payload, expected):
     assert _parse_background(payload) == expected
+
+
+@pytest.mark.parametrize(
+    "budget,runs_last_24h,expected",
+    [
+        (BackgroundBudget(max_runs_per_day=2000), 0, 42),  # the day spreads over 48 ticks
+        (BackgroundBudget(max_runs_per_day=2000, max_runs_per_tick=100), 0, 100),
+        (BackgroundBudget(max_runs_per_day=2000, max_runs_per_tick=100), 1950, 50),
+        (BackgroundBudget(max_runs_per_day=2000, max_runs_per_tick=100), 2100, 0),
+        (BackgroundBudget(max_runs_per_day=0, max_runs_per_tick=100), 0, 0),
+    ],
+)
+def test_background_budget_tick_allowance(budget, runs_last_24h, expected):
+    assert budget.tick_allowance(runs_last_24h) == expected
 
 
 def _background(
@@ -735,8 +783,9 @@ def _background(
     max_new: int = 5,
     bands: dict[int, BackgroundBand] | None = None,
     backoff: BackgroundBackoff | None = None,
+    budget: BackgroundBudget | None = None,
 ) -> BackgroundEnrollment:
-    return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new, bands or {}, backoff)
+    return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new, bands or {}, backoff, budget)
 
 
 _WEEK_MINUTES = 7 * 24 * 60
@@ -891,7 +940,7 @@ class TestBackgroundEnrollment:
             self._record_run(team, config, at + timedelta(minutes=1))
         return dispatched
 
-    def _record_run(self, team: Team, config: SignalScoutConfig, at: datetime) -> None:
+    def _record_run(self, team: Team, config: SignalScoutConfig, at: datetime, metadata: dict | None = None) -> None:
         with time_machine.travel(at, tick=False):
             task = Task.objects.create(
                 team=team,
@@ -905,7 +954,68 @@ class TestBackgroundEnrollment:
                 scout_config=config,
                 skill_name=_GENERAL,
                 skill_version=1,
+                metadata=metadata or {},
             )
+
+    @parameterized.expand(
+        [
+            ("absent", None, [True, True, True]),
+            ("partly_spent", BackgroundBudget(max_runs_per_day=4, max_runs_per_tick=10), [True, True, False]),
+            ("exhausted", BackgroundBudget(max_runs_per_day=2, max_runs_per_tick=10), [False, False, False]),
+        ]
+    )
+    def test_lane_budget_defers_in_priority_order(self, _name, budget, expected):
+        at = datetime(2026, 3, 2, tzinfo=UTC)
+        with time_machine.travel(at, tick=False):
+            never_run_team, engaged_team, backed_off_team, person_team = (self._team() for _ in range(4))
+            never_run = self._weekly_background_config(never_run_team)
+            # Less overdue than the backed-off config, but level 0 dispatches first.
+            self._weekly_background_config(engaged_team, last_run_at=at - timedelta(days=8))
+            backed_off = self._weekly_background_config(
+                backed_off_team, last_run_at=at - timedelta(days=60), background_backoff_level=2
+            )
+            with team_scope(person_team.id, canonical=True):
+                _create_skill(person_team, "signals-scout-errors")
+                _create_config(person_team, "signals-scout-errors")
+        for hours_ago, metadata in (
+            (1, {"managed_by": "background"}),
+            (2, {"managed_by": "background"}),
+            (3, {}),
+            (25, {"managed_by": "background"}),
+        ):
+            self._record_run(backed_off_team, backed_off, at - timedelta(hours=hours_ago), metadata)
+        self._record_run(never_run_team, never_run, at - timedelta(hours=1), {})
+        background = _background(
+            {never_run_team.id, engaged_team.id, backed_off_team.id}, backoff=_BACKOFF, budget=budget
+        )
+
+        with (
+            time_machine.travel(at, tick=False),
+            patch(
+                "products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs",
+                return_value={"signals-scout-errors"},
+            ),
+            patch("products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.capture") as capture,
+        ):
+            planned = _collect_planned_runs(
+                Enrollment(wildcard=False, explicit={person_team.id}, skip=set()), background=background
+            )
+
+        assert [
+            PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned
+            for team in (never_run_team, engaged_team, backed_off_team)
+        ] == expected
+        assert PlannedRun(team_id=person_team.id, skill_name="signals-scout-errors") in planned
+        properties = capture.call_args.kwargs["properties"]
+        assert {
+            key: properties[key] for key in ("due", "dispatched", "deferred", "runs_last_24h", "never_run_due")
+        } == {
+            "due": 3,
+            "dispatched": sum(expected),
+            "deferred": 3 - sum(expected),
+            "runs_last_24h": None if budget is None else 2,
+            "never_run_due": 1,
+        }
 
     @parameterized.expand(
         [
