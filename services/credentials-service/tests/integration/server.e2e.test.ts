@@ -130,7 +130,14 @@ describe('credentials server end to end', () => {
             await writeFile(join(dir, `${KEY}_FALLBACKS`), 'staged-value-2')
             await server.reload()
             expect(await (await resolve(port, token)).json()).toMatchObject({
-                secrets: { [KEY]: { state: 'rotating', value: 'current-value-1', previous: 'staged-value-2' } },
+                secrets: {
+                    [KEY]: {
+                        state: 'rotating',
+                        value: 'current-value-1',
+                        incoming: 'staged-value-2',
+                        previous: 'staged-value-2',
+                    },
+                },
             })
 
             // Completing a rotation is deleting the sibling, and that has to end the
@@ -139,6 +146,7 @@ describe('credentials server end to end', () => {
             await server.reload()
             const settled = (await (await resolve(port, token)).json()) as { secrets: Record<string, unknown> }
             expect(settled.secrets[KEY]).toMatchObject({ state: 'steady', value: 'current-value-1' })
+            expect(settled.secrets[KEY]).not.toHaveProperty('incoming')
             expect(settled.secrets[KEY]).not.toHaveProperty('previous')
 
             await writeFile(join(dir, 'CREDENTIALS_RECOVERY_KEYS'), BURNED_KEY)

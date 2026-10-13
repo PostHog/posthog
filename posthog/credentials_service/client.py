@@ -294,10 +294,9 @@ class CredentialsServiceClient:
             resolved[key] = SecretValue(
                 state=payload.get("state", "steady"),
                 value=payload.get("value"),
-                # `previous` is the wire name for the staged value. It is wrong, and renaming a
-                # field both sides read needs a release where each accepts either — so the
-                # correction stops at this boundary rather than propagating the wrong idea.
-                incoming=payload.get("previous"),
+                # Older service pods send the staged value only as `previous`, a deprecated alias
+                # of `incoming`. Django and the service deploy separately, so accept either name.
+                incoming=payload.get("incoming", payload.get("previous")),
             )
             CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="ok").inc()
 

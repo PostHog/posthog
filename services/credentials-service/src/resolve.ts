@@ -18,11 +18,12 @@ const UNKNOWN_KEY = 'unknown'
 export interface WireSecret {
     state: string
     value?: string
+    /** The staged value that a rotation has accepted but not yet made live. */
+    incoming?: string
     /**
-     * The staged value, still named `previous` on the wire. The name is wrong — it is the
-     * incoming value, not the outgoing one — but renaming a field both sides read needs a
-     * release where each accepts either, so the internal model is accurate and this boundary
-     * lags deliberately.
+     * @deprecated Same value as `incoming`. The old name was wrong, because the value is the
+     * incoming one, not the outgoing one. Older clients still read it, so the service sends both
+     * for one release. A follow-up change removes this field.
      */
     previous?: string
     version_id: string
@@ -57,6 +58,7 @@ export function resolveKeys(identity: CallerIdentity, mounted: MountedSecrets): 
             wire.value = secret.value
         }
         if (secret.incoming !== undefined) {
+            wire.incoming = secret.incoming
             wire.previous = secret.incoming
             previousVersionServedTotal.labels({ key }).inc()
         }
