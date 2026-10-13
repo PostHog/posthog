@@ -58,7 +58,9 @@ Select the newest remaining run.
 Only `failure` and `timed_out` are failing conclusions for this alert.
 If the newest remaining run has another conclusion, find the first preceding run with either failing conclusion and take the recovered fast path below.
 Expand the page from 10 to 40 only when the first page does not contain that preceding failure or the evidence gate needs an older green/red boundary.
-When 40 runs do not hold that boundary, for example because most were cancelled, ask for each side directly: add `&status=success&per_page=1` for the newest green run and `&status=failure&per_page=5` for the newest failures.
+When 40 runs do not hold that boundary, for example because most were cancelled, fetch each side directly.
+The query `branch=master&event=<push-or-schedule>&status=success&per_page=1` returns the newest green run.
+The query `branch=master&event=<push-or-schedule>&created=%3E<its createdAt>&per_page=100` lists the runs after it, and the oldest one with a failing conclusion is the first failing run.
 If no run remains, report the missing evidence instead of choosing a different lane.
 
 ## Read the failure through the PostHog MCP server
@@ -82,18 +84,22 @@ A failed-job log is several megabytes, and a printed log pushes the error out of
 
 ```bash
 gh run view <run-id> --repo PostHog/posthog --log-failed > /tmp/failed.log
-grep -nE 'FAIL|panicked at|Error|error:|assert|Traceback|exit code|##\[error\]' /tmp/failed.log | tail -n 80
+grep -nE 'FAILED|TRY [0-9]+ FAIL|● |panicked at|Traceback|##\[error\]' /tmp/failed.log | tail -n 80
 grep -n -A 30 '<failing test name>' /tmp/failed.log | head -n 120
 ```
 
-The first search names the failing tests, and the second search reads the assertion of one test.
+The first search finds the failure markers of pytest, Jest, Storybook, and Rust, which name the failing tests.
+The second search reads the assertion of one test.
 Save `gh run view <run-id> --repo PostHog/posthog --log --job <job-id>` the same way when `--log-failed` does not hold the error.
+
+Do not use the `trunk` MCP server or the `depot` CLI that the parent names.
+Both need a login, and an unattended run has none.
 
 When the failure names a test, read the Trunk records of that test and of the other tests in its file from the warehouse.
 Search with the part of the name that those tests share, and use the newest row for each name:
 
 ```text
-call execute-sql {"query": "SELECT name, quarantined, failure_rate_last_24h, failure_rate_last_7d, pull_requests_impacted_last_7d, status, synced_through FROM trunkio.failingtests WHERE name ILIKE '%<shared part of the test names>%' ORDER BY synced_through DESC LIMIT 10"}
+call execute-sql {"query": "SELECT name, quarantined, failure_rate_last_24h, failure_rate_last_7d, pull_requests_impacted_last_7d, status, synced_through FROM trunkio.failingtests WHERE name ILIKE '%<shared part of the test names>%' ORDER BY synced_through DESC LIMIT 40"}
 ```
 
 `status` holds Trunk's classification (`broken`, `flaky`, or `healthy`) and the time it changed.
@@ -104,19 +110,34 @@ Use it with the failure rates as corroboration for the flaky-test and real-regre
 A run list does not show when a test started to fail, because a test that passes on retry leaves its run green.
 Find the onset from the tests, then find the change from the onset.
 
-1. Take the earliest `status` time with the value `flaky` or `broken` among those Trunk records. That time is the onset.
-2. List the newest commits that touch the code under test, up to the onset:
+1. Take the earliest `status` time with the value `flaky` or `broken` among those Trunk records.
+   Trunk sets that time when it reclassifies a test, so the failures started at or before it.
+2. List the newest commits that touch the code under test, up to that time:
 
    ```bash
    gh api "repos/PostHog/posthog/commits?sha=master&path=<directory of the failing code>&until=<onset>&per_page=5" \
      --jq '.[] | {sha, date: .commit.committer.date, message: (.commit.message | split("\n")[0])}'
    ```
 
-3. Read the diff of the newest commit with `gh api repos/PostHog/posthog/commits/<sha>`, and check that it changes what the error names.
+3. Read what each commit changed, newest first, and read a patch only for a file that the error names:
 
-A commit that passes the check in step 3 is the candidate regression, and it satisfies the attribution part of the real-regression gate.
-If the newest commit does not pass, check the next one.
-When the tests have no Trunk record, use the newest green run and the first failing run after it as the boundary, and compare the two SHAs.
+   ```bash
+   gh api repos/PostHog/posthog/commits/<sha> --jq '[.files[] | {filename, status}]'
+   gh api repos/PostHog/posthog/commits/<sha> --jq '.files[] | select(.filename == "<path>") | .patch'
+   ```
+
+Name a commit as the candidate regression only when its diff changes the file or the symbol that the error names.
+A candidate satisfies the attribution part of the real-regression gate.
+
+When no commit in that directory qualifies, or the tests have no Trunk record, the cause can be outside the directory: a dependency, an image version, or a CI change.
+Compare the newest green run with the first failing run after it, and read every commit in the range:
+
+```bash
+gh api "repos/PostHog/posthog/compare/<green sha>...<first failing sha>" \
+  --jq '.commits[] | {sha, message: (.commit.message | split("\n")[0])}'
+```
+
+When neither search finds a candidate, report the failing tests with no attribution.
 
 Choose any further lookup from the verdict evidence you still need:
 
@@ -136,9 +157,11 @@ Do not inspect commit history for an infrastructure verdict.
 
 Stop as soon as the verdict gate and the next action are supported.
 Until then, continue: a path that fails is a reason to take the next path, not a verdict.
-The paths are the MCP failure logs, the saved `gh` log, the Trunk records, and the search for the change that broke it.
+For a test failure, the paths are the MCP failure logs, the saved `gh` log, the Trunk records, and the search for the change that broke it.
+Do not repeat a path that failed.
 A missing CLI or credential is not an evidence gap when another path reads the same evidence.
-Say that you could not determine the cause only after you tried each path, and name what each path returned.
+Say that you could not determine the cause of a test failure only after those paths, and name what each one returned.
+The stale-page rule and the infrastructure rules end a run earlier, and they still apply.
 Do not ask for clarification during this run.
 
 ## Recovered fast path
@@ -166,10 +189,11 @@ A name with a `(scheduled)` suffix is not a separate workflow.
 It is the cron-triggered master run of the workflow before the suffix, which the alerter tracks apart from that workflow's master-push runs because the two run different jobs.
 `Backend CI (scheduled)` means the hourly full test matrices, which run on Depot CI, so GitHub has no `schedule` runs for it and the `gh api` lookup above does not apply.
 Its run ID is a Depot run ID, ten characters such as `b1c2d3f4g5`, and its URL is on depot.dev.
-The task sandbox has no `depot` CLI and no Depot credentials, and this lane needs neither.
+This lane needs neither the `depot` CLI nor Depot credentials.
 
-Depot posts the gate verdict of each hourly run as a check on the master commit that it tested.
-List the newest verdicts with one query:
+The alerter reads this lane from Depot when it opens the incident, so take the alerted run as the newest failing run.
+Depot also posts the gate verdict of an hourly run as a check on the master commit that it tested.
+List those checks to see whether a newer run passed:
 
 ```bash
 gh api graphql -f query='
@@ -194,11 +218,12 @@ gh api graphql -f query='
       }
     }
   }
-}' --jq '[.data.repository.ref.target.history.nodes[] | {headSha: .oid} + (.checkSuites.nodes[].checkRuns.nodes[])]'
+}' --jq '[.data.repository.ref.target.history.nodes[] | {headSha: .oid} + (.checkSuites.nodes[].checkRuns.nodes[])] | sort_by(.startedAt) | reverse'
 ```
 
 The entries are newest first, and `status` and `conclusion` are in upper case.
-Apply the same six-hour freshness bound to the `startedAt` of the first entry.
+Report the lane as recovered only when an entry has the conclusion `SUCCESS` and started after the alerted run was created.
+A run that ends with no gate verdict posts no check, so a list with no newer entry means that the lane is still failing.
 
 Read a failed Depot run with the same MCP command as a GitHub run.
 The command takes the run ID as a number, and a Depot run ID is that number in base 30:
@@ -213,12 +238,16 @@ call engineering-analytics-run-failure-logs {"run_id": <number>, "ci_engine": "d
 
 The failed gate job prints a `Failing backend & product tests` table with one row for each test: its shard and its error message.
 
+A run with several workflows is stored under its workflow ID.
+If the answer has no jobs, convert the workflow ID from the alert's depot.dev URL the same way and call again.
+This lane has no `gh` log, so if the MCP server has no logs for the run, report that gap and link the run's URL.
+
 ## Verdict gates
 
 Choose the first verdict whose evidence gate is satisfied:
 
 - **Recovered before diagnosis:** the newest settled run is not `failure` or `timed_out` and a preceding failing run is visible.
-- **Flaky test:** the same test failed and passed on the same SHA, or the flakiness tool confirms matching history.
+- **Flaky test:** the same test failed and passed on the same SHA, or the flakiness tool confirms matching history, and the search for the change that broke it found no candidate.
 - **Real regression:** a deterministic lint, migration, codegen, or test failure is tied directly to committed state, or a first-bad boundary and relevant change support attribution.
 - **Infrastructure:** the evidence names a platform, runner, network, or external-service failure before application tests ran, or corroborating history shows the same infrastructure signature outside the code change.
 
