@@ -85,7 +85,7 @@ const plain = (text: string): string => text;
 const bold = (text: string): string => `\u001b[1m${text}\u001b[22m`;
 const dim = (text: string): string => `\u001b[2m${text}\u001b[22m`;
 const underline = (text: string): string => `\u001b[4m${text}\u001b[24m`;
-const MARGIN = 2;
+export const TODAY_MARGIN = 2;
 
 // Word-wraps runs of styled text to a width, noting where each clickable run lands.
 function wrap(
@@ -120,7 +120,7 @@ function wrap(
       const gap = piece.text.slice(word.length);
       line += joined ? piece.style(piece.text) : piece.style(word) + gap;
       if (!piece.action) return;
-      const start = MARGIN + piece.column;
+      const start = TODAY_MARGIN + piece.column;
       const end = start + visibleWidth(word);
       const last = hits.at(-1);
       if (
@@ -132,7 +132,7 @@ function wrap(
         last.end = end;
       else hits.push({ row: top + index, start, end, action: piece.action });
     });
-    return " ".repeat(MARGIN) + line.trimEnd();
+    return " ".repeat(TODAY_MARGIN) + line.trimEnd();
   });
   return { lines, hits };
 }
@@ -164,7 +164,7 @@ export function todayLines(
   width: number,
   hour: number,
 ): { lines: string[]; hits: TodayHit[] } {
-  const inner = Math.max(10, width - MARGIN * 2);
+  const inner = Math.max(10, width - TODAY_MARGIN * 2);
   const lines: string[] = [""];
   const hits: TodayHit[] = [];
   const add = (runs: Run[]): void => {

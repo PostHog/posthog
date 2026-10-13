@@ -177,24 +177,27 @@ describe("App", () => {
         },
       }),
     } as unknown as TodayClient;
+    // A frame as tall as Root gives it, so the briefing has room for the lines under it.
     const { instance, output } = renderInTerminal(
-      <App
-        session={{
-          work: {
-            listRecent: () => new Promise(() => {}),
-          } as unknown as WorkList,
-          runs: {
-            prefetch: async () => {},
-            watchPrompts: () => () => {},
-          } as unknown as CloudRuns,
-          chats: {} as PiChats,
-          control: () => ({}) as PiControl,
-          startLocal: () => Promise.reject(new Error("no local")),
-          today,
-        }}
-        login={async () => {}}
-        logout={() => {}}
-      />,
+      <Box height={30} flexDirection="column">
+        <App
+          session={{
+            work: {
+              listRecent: () => new Promise(() => {}),
+            } as unknown as WorkList,
+            runs: {
+              prefetch: async () => {},
+              watchPrompts: () => () => {},
+            } as unknown as CloudRuns,
+            chats: {} as PiChats,
+            control: () => ({}) as PiControl,
+            startLocal: () => Promise.reject(new Error("no local")),
+            today,
+          }}
+          login={async () => {}}
+          logout={() => {}}
+        />
+      </Box>,
     );
     try {
       await vi.waitFor(() => {
@@ -202,6 +205,11 @@ describe("App", () => {
         expect(screen).toContain("☼ Today");
         expect(screen).toContain(", Harley.");
       });
+      // Its composer starts a chat like an empty pane's, so the same lines say where that chat would run.
+      const screen = stripTerminalSequences(output());
+      expect(screen.indexOf("PostHog billing")).toBeGreaterThan(
+        screen.indexOf(", Harley."),
+      );
     } finally {
       instance.unmount();
     }
