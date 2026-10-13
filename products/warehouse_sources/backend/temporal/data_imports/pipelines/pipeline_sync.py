@@ -378,7 +378,7 @@ async def validate_schema_and_update_table(
             last registered (together with the projection inputs), the ClickHouse introspection and
             the column write are skipped; the pointer flip and the row count still happen.
         live_row_count: The row count of the published files, read from the Delta log. When given,
-            it replaces the count of those files that a table needs when `row_count` is not its size.
+            it is the table size. `row_count` is the fallback, and can be only the last attempt's rows.
         live_size_mib: The size of the published files, read from the Delta log. When given, it is
             recorded as the table's size and the change is added to the job's `storage_delta_mib`.
             When None, the recorded size stays as it is.
@@ -414,7 +414,9 @@ async def validate_schema_and_update_table(
                 "format": table_format,
                 "url_pattern": new_url_pattern,
                 "team_id": team_id,
-                "row_count": row_count,
+                # A run that resumes reports only the rows of its last attempt, so the Delta log count
+                # is the table size whenever the log gives one.
+                "row_count": live_row_count if live_row_count is not None else row_count,
                 "queryable_folder": queryable_folder,
             }
 
@@ -452,7 +454,7 @@ async def validate_schema_and_update_table(
                     # from the just-published files rather than zero a table we are republishing.
                     _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})", live_row_count)
                 else:
-                    table.row_count = row_count
+                    table.row_count = table_params["row_count"]
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
                 # on a fresh connection rather than let this escape as error-tracking noise.

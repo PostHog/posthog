@@ -499,6 +499,43 @@ class TestValidateSchemaAndUpdateTable:
         assert table.row_count == 150
 
     @pytest.mark.parametrize(
+        "table_exists,sync_type",
+        [
+            pytest.param(False, ExternalDataSchema.SyncType.FULL_REFRESH, id="first_sync_full_refresh"),
+            pytest.param(False, ExternalDataSchema.SyncType.INCREMENTAL, id="first_sync_incremental"),
+            pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, id="later_full_refresh"),
+        ],
+    )
+    def test_a_run_over_several_attempts_stores_the_table_size_not_the_last_attempts_rows(
+        self, team, table_exists, sync_type
+    ):
+        # A resumed run reports only the rows its last attempt read. The first two attempts of this
+        # run loaded 1,000 rows and the last one 200.
+        schema, job = self._schema_and_job(team)
+        schema.sync_type = sync_type
+        schema.save()
+        if table_exists:
+            self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", side_effect=AssertionError("must not count the files")),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=200,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+                live_row_count=1_200,
+            )
+
+        schema.refresh_from_db()
+        assert schema.table is not None
+        assert schema.table.row_count == 1_200
+
+    @pytest.mark.parametrize(
         "previous_size_mib,live_size_mib,expected_size_mib,expected_delta_mib",
         [
             pytest.param("no_table", 12.5, 12.5, 12.5, id="new_table"),
