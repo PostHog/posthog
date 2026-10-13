@@ -168,7 +168,7 @@ jobs:
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
+                  push-image: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   # PR-only publish role: any branch, but can ONLY push to posthog-cloud-prs (not posthog-cloud).
                   aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
@@ -177,6 +177,7 @@ jobs:
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
             - name: Container image digest
+              if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
               env:
                   IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
                   IMAGE_REGISTRY: ${{ steps.build.outputs.registry }}
