@@ -65,6 +65,7 @@ from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
+    GITHUB_UNVERIFIED_EMAIL_ERROR,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
     is_sso_reauth_begin,
     sso_failure_redirect_url,
@@ -1474,7 +1475,8 @@ def social_email_verified_by_provider(
 
     if not is_verified:
         logger.warning("social_login_unverified_provider_email", backend=backend.name)
-        raise AuthFailed(backend, UNVERIFIED_SOCIAL_EMAIL_ERROR)
+        error = GITHUB_UNVERIFIED_EMAIL_ERROR if isinstance(backend, GithubOAuth2) else UNVERIFIED_SOCIAL_EMAIL_ERROR
+        raise AuthFailed(backend, error)
 
 
 def social_reauth(
