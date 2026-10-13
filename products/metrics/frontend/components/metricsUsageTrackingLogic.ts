@@ -148,11 +148,11 @@ export interface metricsUsageTrackingLogicActions {
     exemplarDotClicked: (hasSpanId: boolean) => {
         hasSpanId: boolean
     }
-    seriesRowExpanded: () => {
-        value: true
-    }
     sampleRowExpanded: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi
+    }
+    seriesRowExpanded: () => {
+        value: true
     }
     tracePivotClicked: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi

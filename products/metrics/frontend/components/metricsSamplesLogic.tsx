@@ -56,11 +56,11 @@ export interface metricsSamplesLogicValues {
     currentTeamId: number | null // teamLogic
     timezone: string // teamLogic
     activeTab: MetricsPanelTab
-    seriesRows: MetricsSeriesRow[]
     errorSpikes: _MetricErrorSpikeApi[]
     errorSpikesLoading: boolean
     samples: _MetricEventSampleApi[]
     samplesLoading: boolean
+    seriesRows: MetricsSeriesRow[]
     showErrorSpikes: boolean
     traceExemplars: MetricsTraceExemplar[]
 }
