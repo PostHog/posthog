@@ -120,6 +120,9 @@ export const SCORE_RUN_POLL_INTERVAL_MS = 5000
 /** How often the Agent research tab reloads training runs while one is pending or running. */
 export const TRAINING_RUN_POLL_INTERVAL_MS = 10000
 
+/** How often the runs reload while a person property cleanup is pending or running. A cleanup takes over an hour. */
+export const PROPERTY_CLEANUP_POLL_INTERVAL_MS = 30000
+
 function isTrainingRunLive(run: AutoresearchTrainingRunApi): boolean {
     return run.status === 'pending' || run.status === 'running'
 }
@@ -1462,11 +1465,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 runs.find((run) => run.run_type === 'property_cleanup') ?? null,
         ],
         personPropertyDisabledReason: [
-            (s) => [s.pipeline],
-            (pipeline: AutoresearchPipelineApi | null): string | undefined =>
-                pipeline && !pipeline.write_person_property
-                    ? 'Turn on "Write scores to person profiles" to target people by score'
-                    : undefined,
+            (s) => [s.pipeline, s.savingWritePersonProperty],
+            (pipeline: AutoresearchPipelineApi | null, savingWritePersonProperty: boolean): string | undefined =>
+                savingWritePersonProperty
+                    ? 'Wait for the person profile setting to save'
+                    : pipeline && !pipeline.write_person_property
+                      ? 'Turn on "Write scores to person profiles" to target people by score'
+                      : undefined,
         ],
         activeTab: [
             (s) => [s.selectedTab, s.defaultTab],
@@ -1583,6 +1588,16 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             // A run started before a reload, or by the daily schedule, is still followed to the end.
             if (values.activeScoreRun) {
                 actions.startScorePolling()
+            }
+            // Follow the cleanup to the end, so the setting shows when it finished or failed.
+            const cleanup = values.latestPropertyCleanupRun
+            if (!cleanup || !isScoreRunInProgress(cleanup)) {
+                cache.disposables.dispose('cleanupPoll')
+            } else if (!cache.disposables.registry.has('cleanupPoll')) {
+                cache.disposables.add(() => {
+                    const timer = window.setInterval(() => actions.loadRuns(), PROPERTY_CLEANUP_POLL_INTERVAL_MS)
+                    return () => clearInterval(timer)
+                }, 'cleanupPoll')
             }
         },
         startScorePolling: () => {
@@ -1737,8 +1752,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             }
             const teamId = String(values.currentTeamId)
             try {
-                await autoresearchPartialUpdate(teamId, props.id, { write_person_property: enabled })
-                actions.loadPipelineSuccess(await autoresearchRetrieve(teamId, props.id))
+                actions.loadPipelineSuccess(
+                    await autoresearchPartialUpdate(teamId, props.id, { write_person_property: enabled })
+                )
                 posthog.capture('autoresearch model person property toggled', {
                     pipeline_id: props.id,
                     enabled,

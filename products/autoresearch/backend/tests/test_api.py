@@ -876,6 +876,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             ("while_writing", True, {}, status.HTTP_400_BAD_REQUEST),
             ("while_off", False, {}, status.HTTP_200_OK),
             ("while_turning_writes_off", True, {"write_person_property": False}, status.HTTP_200_OK),
+            ("blank_while_writing", True, {"output_person_property": ""}, status.HTTP_400_BAD_REQUEST),
+            (
+                "blank_while_turning_writes_on",
+                False,
+                {"output_person_property": "", "write_person_property": True},
+                status.HTTP_400_BAD_REQUEST,
+            ),
         ]
     )
     def test_renaming_the_person_property_needs_writes_off(self, _name: str, writing: bool, extra: dict, expected: int):

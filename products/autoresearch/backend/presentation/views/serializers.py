@@ -1002,6 +1002,19 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not output_person_property:
             output_person_property = self._derive_output_person_property(replace(data, **updates) if updates else data)
             updates["output_person_property"] = output_person_property
+        if is_update and (
+            self._supplied(data, "output_person_property") or self._supplied(data, "write_person_property")
+        ):
+            stored = api.get_pipeline_definition(team.pk, self._pipeline_id)
+            writes = self._value(data, "write_person_property", stored.write_person_property)
+            if writes and not self._value(data, "output_person_property", stored.output_person_property):
+                raise serializers.ValidationError(
+                    {
+                        "output_person_property": (
+                            "Set a person property name before you turn on writing scores to person profiles."
+                        )
+                    }
+                )
         if output_person_property and api.output_person_property_taken(
             team.pk, output_person_property, exclude_pipeline_id=self._pipeline_id
         ):

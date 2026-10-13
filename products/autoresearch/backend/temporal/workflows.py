@@ -18,12 +18,13 @@ from typing import Optional, TypeVar, cast
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     import asyncio as _asyncio
 
     from django.db import transaction
+    from django.db.models import QuerySet
     from django.utils import timezone as django_timezone
 
     from posthog.models.team.team import Team
@@ -416,9 +417,8 @@ class PropertyCleanupWorkflowInput:
     run_id: Optional[str] = None
     # Who turned the setting off, archived, or deleted, so HogQL applies their access.
     user_id: Optional[int] = None
-    # The first pass leaves the run open, and the reconcile pass adds its count to the first one.
+    # The first pass leaves the run open, so the run completes only after the reconcile pass.
     final_pass: bool = True
-    cleared_before: int = 0
 
 
 @frozen
@@ -435,8 +435,8 @@ _CLEANUP_ATTEMPT_TIMEOUT = timedelta(hours=2)
 # A scoring batch capture accepted just before the opt-out can still be ingesting when the first pass
 # runs, and its $set lands after it. A second pass after this delay removes those.
 _RECONCILE_DELAY = timedelta(hours=1)
-# Two passes of up to three attempts each, plus the delay between them.
-PROPERTY_CLEANUP_WORKFLOW_TIMEOUT = timedelta(hours=14)
+# Two passes of up to three attempts each, plus the delay between them and the retry backoff.
+PROPERTY_CLEANUP_WORKFLOW_TIMEOUT = timedelta(hours=16)
 
 
 @activity.defn(name="autoresearch-property-cleanup.remove_person_property")
@@ -444,30 +444,24 @@ def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> Proper
     """Send $unset for the pipeline's output property to the persons it wrote it to.
 
     The run row is updated through the queryset, because deleting the pipeline also deletes its runs.
+    The count continues from the row, so a retry or the reconcile pass adds to what earlier attempts
+    cleared. A failed attempt leaves the run open, and the workflow fails it once retries run out.
     """
     with HeartbeaterSync(), team_scope(inp.team_id):
         _update_cleanup_run(inp.run_id, status=AutoresearchRun.Status.RUNNING, error="", completed_at=None)
+        cleared_before = _cleanup_run_count(inp.run_id)
         team = Team.objects.get(pk=inp.team_id)
         user = User.objects.filter(pk=inp.user_id, is_active=True).first() if inp.user_id else None
-        try:
-            outcome = remove_output_person_property(
-                team=team,
-                pipeline_id=inp.pipeline_id,
-                output_property=inp.output_property,
-                written_since=inp.written_since,
-                user=user,
-                query_context=BATCH_QUERY,
-                on_page=lambda cleared: _update_cleanup_run(inp.run_id, rows_scored=inp.cleared_before + cleared),
-            )
-        except Exception as exc:
-            _update_cleanup_run(
-                inp.run_id,
-                status=AutoresearchRun.Status.FAILED,
-                error=str(exc)[:2000],
-                completed_at=django_timezone.now(),
-            )
-            raise
-        cleared = inp.cleared_before + outcome.persons_cleared
+        outcome = remove_output_person_property(
+            team=team,
+            pipeline_id=inp.pipeline_id,
+            output_property=inp.output_property,
+            written_since=inp.written_since,
+            user=user,
+            query_context=BATCH_QUERY,
+            on_page=lambda cleared: _update_cleanup_run(inp.run_id, rows_scored=cleared_before + cleared),
+        )
+        cleared = cleared_before + outcome.persons_cleared
         done = inp.final_pass or outcome.stopped is not None
         status = AutoresearchRun.Status.COMPLETED if done else AutoresearchRun.Status.RUNNING
         _update_cleanup_run(
@@ -480,14 +474,38 @@ def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> Proper
     return PropertyCleanupWorkflowResult(persons_cleared=cleared, status=status, stopped=outcome.stopped)
 
 
+@frozen
+class FailCleanupRunInput:
+    run_id: str
+    error: str
+
+
+@activity.defn(name="autoresearch-property-cleanup.fail_run")
+def activity_fail_cleanup_run(inp: FailCleanupRunInput) -> None:
+    """Fail the run after the cleanup ran out of retries, timed out, or lost its worker."""
+    _update_cleanup_run(
+        inp.run_id, status=AutoresearchRun.Status.FAILED, error=inp.error[:2000], completed_at=django_timezone.now()
+    )
+
+
+def _cleanup_runs(run_id: str) -> QuerySet[AutoresearchRun]:
+    return AutoresearchRun.objects.filter(pk=run_id, run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP)
+
+
 def _update_cleanup_run(run_id: str | None, **fields: object) -> None:
     if run_id is not None:
-        AutoresearchRun.objects.filter(pk=run_id, run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP).update(**fields)
+        _cleanup_runs(run_id).update(**fields)
 
 
-def property_cleanup_workflow_id(pipeline_id: str) -> str:
-    """One cleanup per pipeline at a time. A second request while one runs is served by the running one."""
-    return f"autoresearch-property-cleanup-{pipeline_id}"
+def _cleanup_run_count(run_id: str | None) -> int:
+    if run_id is None:
+        return 0
+    return _cleanup_runs(run_id).values_list("rows_scored", flat=True).first() or 0
+
+
+def property_cleanup_workflow_id(pipeline_id: str, request_id: str) -> str:
+    """One workflow per cleanup request, so a request never waits on, or is lost to, an earlier one that is stopping."""
+    return f"autoresearch-property-cleanup-{pipeline_id}-{request_id}"
 
 
 @workflow.defn(name="autoresearch-property-cleanup")
@@ -502,11 +520,21 @@ class AutoresearchPropertyCleanupWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
-        first = await self._remove(replace(inp, final_pass=False))
-        if first.stopped is not None:
-            return first
-        await workflow.sleep(_RECONCILE_DELAY)
-        return await self._remove(replace(inp, final_pass=True, cleared_before=first.persons_cleared))
+        try:
+            first = await self._remove(replace(inp, final_pass=False))
+            if first.stopped is not None:
+                return first
+            await workflow.sleep(_RECONCILE_DELAY)
+            return await self._remove(replace(inp, final_pass=True))
+        except ActivityError as exc:
+            if inp.run_id is not None:
+                await workflow.execute_activity(
+                    activity_fail_cleanup_run,
+                    FailCleanupRunInput(run_id=inp.run_id, error=str(exc.cause or exc)),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=5),
+                )
+            raise
 
     async def _remove(self, inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
         return await workflow.execute_activity(

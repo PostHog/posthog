@@ -817,9 +817,6 @@ def _start_property_cleanup(
     user_id: int | None,
 ) -> None:
     # The Temporal client and the workflow module load only when a cleanup starts.
-    from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
-    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415
-
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
 
     from ..temporal.workflows import (  # noqa: PLC0415
@@ -842,16 +839,11 @@ def _start_property_cleanup(
                     run_id=str(run.pk) if run else None,
                     user_id=user_id,
                 ),
-                id=property_cleanup_workflow_id(pipeline_id),
+                id=property_cleanup_workflow_id(pipeline_id, str(run.pk) if run else str(uuid4())),
                 task_queue=settings.AUTORESEARCH_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 execution_timeout=PROPERTY_CLEANUP_WORKFLOW_TIMEOUT,
             )
         )
-    except WorkflowAlreadyStartedError:
-        # The running cleanup reads the setting before each page, so it removes the property for this request too.
-        if run is not None:
-            AutoresearchRun.objects.for_team(team_id).filter(pk=run.pk).delete()
     except Exception as exc:
         logger.exception("autoresearch_property_cleanup_start_failed", pipeline_id=pipeline_id)
         if run is not None:

@@ -15,8 +15,14 @@ _PROPERTY = "predicted_p_pageview_7d"
 
 
 class TestRemoveOutputPersonProperty(TeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand([("removes_from_every_holder", False), ("stops_when_turned_back_on", True)])
-    def test_unsets_the_property_on_persons_that_hold_it(self, _name: str, reenable_after_first_page: bool):
+    @parameterized.expand(
+        [
+            ("removes_from_every_holder", None),
+            ("stops_when_turned_back_on", _PROPERTY),
+            ("continues_when_turned_back_on_for_another_name", "renamed_score"),
+        ]
+    )
+    def test_unsets_the_property_on_persons_that_hold_it(self, _name: str, reenable_with: str | None):
         pipeline = AutoresearchPipeline.objects.create(
             team=self.team,
             created_by=self.user,
@@ -35,15 +41,32 @@ class TestRemoveOutputPersonProperty(TeamScopedTestMixin, ClickhouseTestMixin, A
                     "$autoresearch_pipeline_id": str(pipeline.pk),
                     "$autoresearch_model_role": "champion",
                     "$autoresearch_person_id": str(holder.uuid),
+                    "$set": {_PROPERTY: 0.4},
                 },
             )
         # Holds the same property from another source, and this pipeline never scored them.
         _create_person(team_id=self.team.pk, distinct_ids=["bystander"], properties={_PROPERTY: 0.9})
+        # Scored while writing was off, so the property they hold is their own.
+        scored_while_off = _create_person(
+            team_id=self.team.pk, distinct_ids=["scored-while-off"], properties={_PROPERTY: 0.7}
+        )
+        _create_event(
+            team=self.team,
+            event=PREDICTION_EVENT_NAME,
+            distinct_id="scored-while-off",
+            properties={
+                "$autoresearch_pipeline_id": str(pipeline.pk),
+                "$autoresearch_model_role": "champion",
+                "$autoresearch_person_id": str(scored_while_off.uuid),
+            },
+        )
         flush_persons_and_events()
 
         def accept(**kwargs: object) -> CaptureInternalResult:
-            if reenable_after_first_page:
-                AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(write_person_property=True)
+            if reenable_with is not None:
+                AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(
+                    write_person_property=True, output_person_property=reenable_with
+                )
             return CaptureInternalResult(status_code=200)
 
         capture = MagicMock(side_effect=accept)
@@ -64,7 +87,7 @@ class TestRemoveOutputPersonProperty(TeamScopedTestMixin, ClickhouseTestMixin, A
         assert all(event["properties"]["$unset"] == [_PROPERTY] for event in events)
         assert all(call.kwargs["process_person_profile"] for call in capture.call_args_list)
         unset_for = {event["distinct_id"] for event in events}
-        if reenable_after_first_page:
+        if reenable_with == _PROPERTY:
             assert len(unset_for) == 1 and unset_for < {"holder-1", "holder-2"}
             assert outcome.stopped == STOP_REENABLED
         else:

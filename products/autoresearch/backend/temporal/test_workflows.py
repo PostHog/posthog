@@ -1,6 +1,8 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -9,8 +11,11 @@ from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import ActivityEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import User
 
@@ -25,11 +30,14 @@ from products.autoresearch.backend.query import BATCH_QUERY
 from products.autoresearch.backend.temporal.workflows import (
     _VALIDATION_ATTEMPT_TIMEOUT,
     RESCUE_ITERATION_BUDGET,
+    AutoresearchPropertyCleanupWorkflow,
+    FailCleanupRunInput,
     InferenceWorkflowResult,
     KickoffTrainingInput,
     KickoffTrainingResult,
     LoadActivePipelinesInput,
     PropertyCleanupWorkflowInput,
+    PropertyCleanupWorkflowResult,
     RunInferenceInput,
     RunInferenceResult,
     RunValidationInput,
@@ -255,7 +263,8 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("first_pass_leaves_the_run_open", False, 0, AutoresearchRun.Status.RUNNING, 5),
+            ("first_pass_leaves_the_run_open", False, None, AutoresearchRun.Status.RUNNING, 5),
+            ("retry_adds_to_the_failed_attempt", False, 2, AutoresearchRun.Status.RUNNING, 7),
             ("reconcile_pass_adds_to_the_first", True, 3, AutoresearchRun.Status.COMPLETED, 8),
         ]
     )
@@ -264,7 +273,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         self,
         _name: str,
         final_pass: bool,
-        cleared_before: int,
+        cleared_before: int | None,
         expected_status: str,
         expected_cleared: int,
         mock_remove: MagicMock,
@@ -274,6 +283,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             pipeline=pipeline,
             run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP,
             status=AutoresearchRun.Status.PENDING,
+            rows_scored=cleared_before,
         )
         mock_remove.return_value = CleanupOutcome(persons_cleared=5)
         result = ActivityEnvironment().run(
@@ -284,7 +294,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
                 output_property="predicted_p_pageview",
                 run_id=str(run.pk),
                 final_pass=final_pass,
-                cleared_before=cleared_before,
             ),
         )
         run.refresh_from_db()
@@ -520,3 +529,53 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         pipeline.refresh_from_db()
         assert pipeline.iteration_budget_remaining == 20
+
+
+@pytest.mark.parametrize(
+    "first_pass,expected_passes,expected_failed_run",
+    [
+        ("finishes", [False, True], None),
+        ("stops", [False], None),
+        ("fails", [False], "run-1"),
+    ],
+)
+async def test_property_cleanup_workflow_reconciles_and_fails_the_run(
+    first_pass: str, expected_passes: list[bool], expected_failed_run: str | None
+) -> None:
+    passes: list[bool] = []
+    failed_runs: list[str] = []
+
+    @activity.defn(name="autoresearch-property-cleanup.remove_person_property")
+    async def remove(inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+        passes.append(inp.final_pass)
+        if first_pass == "fails":
+            raise ApplicationError("capture is down", non_retryable=True)
+        stopped = "reenabled" if first_pass == "stops" else None
+        return PropertyCleanupWorkflowResult(persons_cleared=1, status="completed", stopped=stopped)
+
+    @activity.defn(name="autoresearch-property-cleanup.fail_run")
+    async def fail_run(inp: FailCleanupRunInput) -> None:
+        failed_runs.append(inp.run_id)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="cleanup-test",
+            workflows=[AutoresearchPropertyCleanupWorkflow],
+            activities=[remove, fail_run],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                AutoresearchPropertyCleanupWorkflow.run,
+                PropertyCleanupWorkflowInput(pipeline_id="p", team_id=1, output_property="score", run_id="run-1"),
+                id=str(uuid.uuid4()),
+                task_queue="cleanup-test",
+            )
+            if first_pass == "fails":
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            else:
+                await handle.result()
+
+    assert passes == expected_passes
+    assert failed_runs == ([expected_failed_run] if expected_failed_run else [])

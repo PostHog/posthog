@@ -4,7 +4,7 @@ Remove a pipeline's output person property from the persons it wrote it to.
 Live scoring writes the champion's score to ``output_person_property`` only while the
 pipeline's ``write_person_property`` is on. When someone turns it off, or archives or deletes a
 pipeline that had it on, ``remove_output_person_property()`` sends ``$unset`` for the property
-to each person who still has it and received a live champion prediction from the pipeline.
+to each person who still has it and got it from a live champion prediction of the pipeline.
 Persons who got the same property from somewhere else keep it.
 ``AutoresearchPropertyCleanupWorkflow`` in ``../temporal/workflows.py`` runs it.
 
@@ -59,11 +59,11 @@ def cleanup_stop_reason(*, team_id: int, pipeline_id: str, output_property: str)
     """
     Why the property must stay on persons now, or None.
 
-    The pipeline writes it again when someone turned the setting back on. Another live pipeline
-    can claim the name after an archive, and its scores must not be removed.
+    The pipeline writes it again when someone turned the setting back on for the same name.
+    Another live pipeline can claim the name after an archive, and its scores must not be removed.
     """
     pipelines = AutoresearchPipeline.objects.for_team(team_id).exclude(status=AutoresearchPipeline.Status.ARCHIVED)
-    if pipelines.filter(pk=pipeline_id, write_person_property=True).exists():
+    if pipelines.filter(pk=pipeline_id, write_person_property=True, output_person_property=output_property).exists():
         return STOP_REENABLED
     if (
         pipelines.exclude(pk=pipeline_id)
@@ -100,6 +100,7 @@ def remove_output_person_property(
         scored = _scored_person_ids(
             team=team,
             pipeline_id=pipeline_id,
+            output_property=output_property,
             written_since=written_since,
             after=after,
             user=user,
@@ -139,17 +140,21 @@ def _scored_person_ids(
     *,
     team: Team,
     pipeline_id: str,
+    output_property: str,
     written_since: str | None,
     after: str | None,
     user: User | None,
     query_context: QueryContext,
 ) -> list[str]:
-    """The current person ids the pipeline's live champion predictions went to, in id order.
+    """The current person ids the pipeline's live champion predictions set the property on, in id order.
 
-    ``person_id`` resolves merges, so a person who absorbed a scored person is included.
+    Only events that carry ``$set`` of the property count, because a prediction made while writing
+    was off left the person's own value alone. ``person_id`` resolves merges, so a person who
+    absorbed a scored person is included.
     """
     values: dict[str, Any] = {
         "pipeline_id": pipeline_id,
+        "property": output_property,
         "event": PREDICTION_EVENT_NAME,
         "champion": AutoresearchModel.Role.CHAMPION.value,
     }
@@ -170,6 +175,7 @@ def _scored_person_ids(
                 WHERE event = {{event}}
                     AND properties.$autoresearch_pipeline_id = {{pipeline_id}}
                     AND properties.$autoresearch_model_role = {{champion}}
+                    AND properties.$set[{{property}}] IS NOT NULL
                     {since_clause} {after_clause}
                 ORDER BY person_id
                 LIMIT {SCORED_PAGE_SIZE}

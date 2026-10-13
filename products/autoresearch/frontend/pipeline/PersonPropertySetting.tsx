@@ -49,15 +49,24 @@ export function PersonPropertySetting({ source }: { source: PersonPropertyToggle
             />
             <p className="text-xs text-secondary mb-0">
                 {enabled ? (
-                    <>
-                        Each scoring run sets <code>{outputProperty}</code> on the people it scores. People who were not
-                        scored yet get it over the next few scoring runs.
-                    </>
+                    <span>
+                        <span>Each scoring run sets </span>
+                        <code>{outputProperty}</code>
+                        <span>
+                            {' '}
+                            on the people it scores. People who were not scored yet get it over the next few scoring
+                            runs.
+                        </span>
+                    </span>
                 ) : (
-                    <>
-                        Turn this on to target people by score in feature flags, cohorts, workflows and insights. Scores
-                        go to the <code>{outputProperty}</code> person property.
-                    </>
+                    <span>
+                        <span>
+                            Turn this on to target people by score in feature flags, cohorts, workflows and insights.
+                            Scores go to the{' '}
+                        </span>
+                        <code>{outputProperty}</code>
+                        <span> person property.</span>
+                    </span>
                 )}
             </p>
             {latestPropertyCleanupRun && !enabled && (
@@ -69,7 +78,7 @@ export function PersonPropertySetting({ source }: { source: PersonPropertyToggle
 
 function cleanupStatus(run: AutoresearchRunApi): string {
     if (run.status === 'pending' || run.status === 'running') {
-        return 'Removing the property from people who have it.'
+        return 'Removing the property from people who have it. This takes at least an hour, because a second pass removes scores that arrived late.'
     }
     if (run.status === 'failed') {
         return "Couldn't remove the property from everyone this model scored. Turn the setting on and off again to retry."
