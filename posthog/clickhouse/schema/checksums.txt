@@ -1,0 +1,10 @@
+# sha256 of every archive bin/clickhouse-schema downloads. The infrastructure repository checks
+# the provider against the same lines. Update them with the versions they pin.
+c4eea55d524073fc90244a035fb2c31a3f108bcedf16e7f449f0831e772d3287  tofu_1.13.0_darwin_amd64.zip
+6e03dc4d12df57c0f7da38cb963f28e8d0418eb6f0762a2fc5eb3988da6b396d  tofu_1.13.0_darwin_arm64.zip
+ad494034a03aaa66d93fc1c2c164d01bedf21b44cfb8b616182cb69424a67672  tofu_1.13.0_linux_amd64.zip
+34dfd5c6d7de0372789d92dc0db52a9c710edac7cc2abef404a76a1fae6f2ef8  tofu_1.13.0_linux_arm64.zip
+2f225621a7dd4162674dc5975c9f954e69e7c0826d04682a4391a58885e82ee4  terraform-provider-clickhousedbops_0.5.4_darwin_amd64.zip
+add629ce859a5774eed92669f371b264d059b5720ce6410a04d93a5996dac21e  terraform-provider-clickhousedbops_0.5.4_darwin_arm64.zip
+630564ce8810e01ebee365e23e88e879dc8aa89cacb70fbc87d995719662a0bf  terraform-provider-clickhousedbops_0.5.4_linux_amd64.zip
+b6e78e5ff2de6efcf125a7de4b584329cbed8b4aad45df8f30d4ba6e324fa5dd  terraform-provider-clickhousedbops_0.5.4_linux_arm64.zip

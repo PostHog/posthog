@@ -46,3 +46,7 @@ ClickHouse is at the core of PostHog's scalable analytics capabilities. The Clic
 2. Tables that store events are _sharded_ + _distributed_ in PostHog Cloud. This improves performance in multi-tenant architecture, but means that updating these is not straightforward like with most tables, and may require manual write access to the cluster.
 
 To make sure that your new ClickHouse migration is A-OK – both above points having been addressed – make sure you loop in someone with extensive experience operating ClickHouse for review. Ask for feedback in the `#team-clickhouse` Slack channel.
+
+### Declarative schema rollout
+
+The OpenTofu catalogue in `posthog/clickhouse/schema/` is being introduced alongside Python migrations. During the foundation stage, normal migration, local setup and test commands still use Python. Apply the new catalogue only to an isolated database or an explicitly adopted infrastructure canary. Ownership cutover and removal of the legacy tooling happen in separate pull requests.

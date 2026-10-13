@@ -1,0 +1,46 @@
+name: ClickHouse schema dispatch
+
+# The infrastructure repository sources the modules in posthog/clickhouse/schema from
+# master and maps them onto the production clusters. This workflow tells it that those
+# modules changed. Nothing in this repository applies the schema to production.
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'posthog/clickhouse/schema/**'
+
+# Keyed per commit, so that a later push never replaces a dispatch that is still pending.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+    dispatch:
+        name: Notify posthog-cloud-infra
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        steps:
+            - name: Mint cloud-infra token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_HCL_COMPOSE_GATE_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_HCL_COMPOSE_GATE_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: posthog-cloud-infra
+
+            - name: Send clickhouse-schema-changed
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  repository: PostHog/posthog-cloud-infra
+                  event-type: clickhouse-schema-changed
+                  client-payload: |
+                      {
+                        "sha": "${{ github.sha }}"
+                      }

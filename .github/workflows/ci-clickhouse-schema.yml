@@ -1,0 +1,100 @@
+name: ClickHouse schema
+
+# Applies the OpenTofu schema in posthog/clickhouse/schema to a fresh single ClickHouse
+# server, then plans again. A second plan that is not empty means the schema does not
+# converge, so every later apply would keep changing the same objects.
+
+on:
+    pull_request:
+        paths:
+            - 'posthog/clickhouse/schema/**'
+            - 'bin/clickhouse-schema'
+            - 'docker/clickhouse/**'
+            # docker-compose.base.yml pins the ClickHouse image this job applies the schema to
+            - 'docker-compose.base.yml'
+            - 'docker-compose.dev.yml'
+            - '.github/workflows/ci-clickhouse-schema.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+    # bin/clickhouse-schema reads the same CLICKHOUSE_* variables as the app
+    CLICKHOUSE_HOST: clickhouse
+    CLICKHOUSE_DATABASE: posthog
+
+jobs:
+    apply:
+        name: Apply schema to a fresh ClickHouse
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # The compose files, the scripts that start the stack, and the directories
+                  # the clickhouse service mounts.
+                  sparse-checkout: |
+                      posthog/clickhouse/schema
+                      posthog/idl
+                      posthog/user_scripts
+                      docker/clickhouse
+                      docker-compose.base.yml
+                      docker-compose.dev.yml
+                      docker-compose.profiles.yml
+                      bin/clickhouse-schema
+                      bin/ci-wait-for-docker
+                      bin/wait-for-docker
+                  sparse-checkout-cone-mode: false
+
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Start ClickHouse
+              run: |
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  bin/ci-wait-for-docker launch --background --down clickhouse zookeeper kafka
+
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Check formatting
+              # The wrapper runs OpenTofu inside posthog/clickhouse/schema/local, so `..` is the schema directory.
+              run: bin/clickhouse-schema fmt -check -recursive ..
+
+            - name: Validate
+              run: bin/clickhouse-schema validate
+
+            - name: Wait for ClickHouse
+              run: bin/ci-wait-for-docker wait --only clickhouse zookeeper kafka
+
+            - name: Create the database
+              run: docker compose exec -T clickhouse clickhouse client --query "CREATE DATABASE IF NOT EXISTS $CLICKHOUSE_DATABASE"
+
+            - name: Check table-family layouts and physical attributes
+              run: bin/clickhouse-schema test-family
+
+            - name: Apply
+              run: bin/clickhouse-schema apply
+
+            - name: Plan again and fail on any change
+              run: |
+                  # -detailed-exitcode makes OpenTofu exit with 0 for an empty plan, 1 for an error, and 2 for a plan with changes.
+                  code=0
+                  bin/clickhouse-schema plan -detailed-exitcode || code=$?
+                  if [ "$code" -eq 2 ]; then
+                      echo "::error::The plan after apply is not empty. The schema does not converge."
+                  fi
+                  exit "$code"

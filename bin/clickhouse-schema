@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# Applies the ClickHouse schema declared in posthog/clickhouse/schema to one ClickHouse server.
+#
+#   bin/clickhouse-schema apply              # create or update every object
+#   bin/clickhouse-schema plan               # show what apply would change
+#   bin/clickhouse-schema install            # only download OpenTofu and the provider
+#   bin/clickhouse-schema test-family        # check the shared library against local ClickHouse
+#   bin/clickhouse-schema <tofu args>        # anything else goes to OpenTofu as is
+#
+# The connection comes from the same CLICKHOUSE_* variables the app reads.
+# CLICKHOUSE_SCHEMA_KAFKA=false leaves out the Kafka tables and their materialized views.
+# CLICKHOUSE_SCHEMA_TEST=true builds a test database (see `test` in local/variables.tf).
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCHEMA_DIR="$REPO_ROOT/posthog/clickhouse/schema"
+ROOT_DIR="$SCHEMA_DIR/local"
+
+TOFU_VERSION="1.13.0"
+PROVIDER_REPO="PostHog/terraform-provider-clickhousedbops"
+PROVIDER_VERSION="$(tr -d '[:space:]' <"$SCHEMA_DIR/provider-version.txt")"
+
+CACHE_DIR="${CLICKHOUSE_SCHEMA_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/posthog-clickhouse-schema}"
+TOFU="$CACHE_DIR/tofu-$TOFU_VERSION/tofu"
+
+case "$(uname -s)" in
+    Linux) os=linux ;;
+    Darwin) os=darwin ;;
+    *) echo "clickhouse-schema: unsupported OS $(uname -s)" >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+    x86_64 | amd64) arch=amd64 ;;
+    arm64 | aarch64) arch=arm64 ;;
+    *) echo "clickhouse-schema: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+
+sha256() {
+    if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+}
+
+# Downloads a zip and unpacks it only when its sha256 is the one checksums.txt pins for its name.
+fetch_zip() { # url, destination directory
+    local tmp name expected actual
+    name="${1##*/}"
+    expected="$(awk -v name="$name" '$2 == name { print $1 }' "$SCHEMA_DIR/checksums.txt")"
+    [ -n "$expected" ] || { echo "clickhouse-schema: checksums.txt has no sha256 for $name" >&2; exit 1; }
+    tmp="$(mktemp -d)"
+    curl -fsSL --retry 3 -o "$tmp/$name" "$1" || { echo "clickhouse-schema: cannot download $1" >&2; exit 1; }
+    actual="$(sha256 "$tmp/$name")"
+    if [ "$actual" != "$expected" ]; then
+        echo "clickhouse-schema: $name has sha256 $actual, checksums.txt pins $expected" >&2
+        rm -rf "$tmp"
+        exit 1
+    fi
+    mkdir -p "$2"
+    unzip -q -o "$tmp/$name" -d "$2"
+    rm -rf "$tmp"
+}
+
+install_tofu() {
+    if [ ! -x "$TOFU" ]; then
+        fetch_zip "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_${os}_${arch}.zip" "$(dirname "$TOFU")"
+    fi
+}
+
+# OpenTofu finds the provider in a filesystem mirror, because it is not in a public registry.
+install_provider() {
+    local dir="$CACHE_DIR/providers/registry.opentofu.org/posthog/clickhousedbops/$PROVIDER_VERSION/${os}_${arch}"
+    local binary="$dir/terraform-provider-clickhousedbops_v$PROVIDER_VERSION"
+    if [ -n "${CLICKHOUSE_SCHEMA_PROVIDER_SRC:-}" ]; then
+        mkdir -p "$dir"
+        (cd "$CLICKHOUSE_SCHEMA_PROVIDER_SRC" && go build -o "$binary" .)
+    elif [ ! -x "$binary" ]; then
+        fetch_zip "https://github.com/${PROVIDER_REPO}/releases/download/v${PROVIDER_VERSION}/terraform-provider-clickhousedbops_${PROVIDER_VERSION}_${os}_${arch}.zip" "$dir"
+    fi
+}
+
+mkdir -p "$CACHE_DIR"
+# Parallel callers (pytest-xdist workers) share the cache and the root module's lock file.
+LOCK_DIR="$CACHE_DIR/lock.d"
+waited=0
+until mkdir "$LOCK_DIR" 2>/dev/null; do
+    holder="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    # A holder killed by SIGKILL or the OOM killer never runs its EXIT trap.
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+        rm -rf "$LOCK_DIR"
+        continue
+    fi
+    if [ "$waited" -ge 3000 ]; then
+        echo "clickhouse-schema: waited 10 minutes for $LOCK_DIR (pid ${holder:-unknown}); delete it if no other run is active" >&2
+        exit 1
+    fi
+    sleep 0.2
+    waited=$((waited + 1))
+done
+echo $$ >"$LOCK_DIR/pid"
+trap 'rm -rf "$LOCK_DIR"' EXIT
+install_tofu
+install_provider
+
+if [ "${1:-}" = "install" ]; then
+    exit 0
+fi
+
+if ! grep -q "version = \"$PROVIDER_VERSION\"" "$ROOT_DIR/main.tf"; then
+    echo "clickhouse-schema: the provider version in local/main.tf does not match provider-version.txt ($PROVIDER_VERSION)" >&2
+    exit 1
+fi
+
+host="${CLICKHOUSE_HOST:-localhost}"
+database="${CLICKHOUSE_DATABASE:-default}"
+if [ "${CLICKHOUSE_SECURE:-false}" = "true" ] || [ "${CLICKHOUSE_SECURE:-}" = "1" ]; then
+    protocol=nativesecure
+    port="${CLICKHOUSE_NATIVE_PORT:-9440}"
+else
+    protocol=native
+    port="${CLICKHOUSE_NATIVE_PORT:-9000}"
+fi
+
+# One state per target, so that the dev database and each test database do not share one.
+STATE_DIR="${CLICKHOUSE_SCHEMA_STATE_DIR:-$CACHE_DIR/state/${host}_${port}_${database}}"
+mkdir -p "$STATE_DIR"
+
+export TF_CLI_CONFIG_FILE="$STATE_DIR/tofurc"
+cat >"$TF_CLI_CONFIG_FILE" <<EOF
+provider_installation {
+  # The schema uses this provider only, so OpenTofu installs no other.
+  filesystem_mirror {
+    path    = "$CACHE_DIR/providers"
+    include = ["posthog/clickhousedbops"]
+  }
+}
+EOF
+
+export TF_VAR_host="$host"
+export TF_VAR_port="$port"
+export TF_VAR_protocol="$protocol"
+export TF_VAR_username="${CLICKHOUSE_USER:-default}"
+export TF_VAR_password="${CLICKHOUSE_PASSWORD:-}"
+export TF_VAR_database="$database"
+export TF_VAR_kafka="${CLICKHOUSE_SCHEMA_KAFKA:-true}"
+export TF_VAR_kafka_topic_prefix="${KAFKA_PREFIX:-}"
+export TF_VAR_test="${CLICKHOUSE_SCHEMA_TEST:-false}"
+export TF_VAR_dictionary_user="${CLICKHOUSE_DICT_READER_USER:-${CLICKHOUSE_USER:-default}}"
+export TF_VAR_dictionary_password="${CLICKHOUSE_DICT_READER_PASSWORD:-${CLICKHOUSE_PASSWORD:-}}"
+export TF_IN_AUTOMATION=1
+export TF_INPUT=0
+export TF_DATA_DIR="$STATE_DIR/.terraform"
+
+# A provider built from source has a new checksum on every build, which the lock file of the last run rejects.
+if [ -n "${CLICKHOUSE_SCHEMA_PROVIDER_SRC:-}" ]; then
+    rm -f "$ROOT_DIR/.terraform.lock.hcl"
+fi
+# -upgrade replaces a lock file left by an earlier provider version, which the pinned version rejects.
+"$TOFU" -chdir="$ROOT_DIR" init -input=false -no-color -reconfigure -upgrade \
+    -backend-config="path=$STATE_DIR/terraform.tfstate" >"$STATE_DIR/init.log" 2>&1 || {
+    cat "$STATE_DIR/init.log" >&2
+    exit 1
+}
+rm -rf "$LOCK_DIR"
+trap - EXIT
+
+case "${1:-apply}" in
+    test-family) export TOFU="$TOFU"; exec python3 "$SCHEMA_DIR/lib/table_family/tests/check.py" ;;
+    apply) exec "$TOFU" -chdir="$ROOT_DIR" apply -auto-approve -parallelism=16 "${@:2}" ;;
+    plan) exec "$TOFU" -chdir="$ROOT_DIR" plan -parallelism=16 "${@:2}" ;;
+    *) exec "$TOFU" -chdir="$ROOT_DIR" "$@" ;;
+esac
