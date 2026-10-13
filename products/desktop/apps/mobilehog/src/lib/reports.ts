@@ -242,7 +242,9 @@ export function useReportReadStates(
       queryKey: reportKeys.read(id),
       queryFn: () => getClient().getReportReadState(id),
       enabled,
-      staleTime: 15_000,
+      // Unread needs a fetch after mount, so every new screen (and the drawer
+      // when it opens) asks the server again even if the cache is recent.
+      staleTime: 0,
       refetchInterval: enabled ? 30_000 : false,
     })),
     combine: pickReadStates,
