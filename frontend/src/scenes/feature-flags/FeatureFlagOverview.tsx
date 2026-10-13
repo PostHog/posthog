@@ -160,15 +160,17 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                 userAccessLevel={featureFlag.user_access_level}
                             >
                                 <LemonSwitch
-                                    checked={featureFlag.active}
+                                    checked={featureFlag.active && !featureFlag.archived}
                                     onChange={toggleFeatureFlagActive}
                                     loading={featureFlagActiveUpdateLoading}
                                     disabledReason={
                                         !featureFlag.can_edit
                                             ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                            : featureFlagConfigFormat(featureFlag.filters) === 'unsupported'
-                                              ? UNSUPPORTED_CONFIG_DISABLED_REASON
-                                              : null
+                                            : featureFlag.archived
+                                              ? 'Unarchive this flag before enabling it.'
+                                              : featureFlagConfigFormat(featureFlag.filters) === 'unsupported'
+                                                ? UNSUPPORTED_CONFIG_DISABLED_REASON
+                                                : null
                                     }
                                     label="Enable feature flag"
                                     bordered

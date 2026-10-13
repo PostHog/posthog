@@ -155,6 +155,7 @@ export function checkFeatureFlagConfirmation(
             openFeatureFlagDisableDialog({
                 source: 'feature-flag-detail',
                 filters: updatedFlag.filters,
+                archived: updatedFlag.archived,
                 onDisable: onConfirm,
                 onDisableAndArchive,
             })
