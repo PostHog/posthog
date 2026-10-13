@@ -340,6 +340,7 @@ class BatchConsumerAdapter(Protocol):
         *,
         batches: list[PendingBatch],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None: ...
 
     async def release_all_owned(
@@ -903,7 +904,9 @@ class BatchConsumer:
                 batch_count=len(undispatched),
             )
             try:
-                await self._adapter.unlock(conn, batches=undispatched, owner_token=self._owner_token)
+                # Best effort: a lease row locked elsewhere expires after its TTL, so waiting on it
+                # only risks the poll connection's statement timeout.
+                await self._adapter.unlock(conn, batches=undispatched, owner_token=self._owner_token, skip_locked=True)
             except Exception as e:
                 self._report_queue_failure(self._event("release_undispatched_failed"), e)
 
