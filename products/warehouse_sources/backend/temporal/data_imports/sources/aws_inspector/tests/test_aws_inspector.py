@@ -20,11 +20,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspec
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.source import AwsInspectorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsinspector import (
     AwsInspectorSourceConfig,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.aws_inspector"
+
+
+def driver(config: AwsInspectorSourceConfig) -> SourceDriver:
+    return SourceDriver(AwsInspectorSource(), config)
 
 
 def response(payload: object, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
@@ -119,19 +128,25 @@ def test_signed_requests_and_pagination(
 @pytest.mark.parametrize("incremental", [True, False])
 @pytest.mark.parametrize("endpoint", ["findings", "coverage", "coverage_statistics"])
 def test_incremental_filter_survives_pagination_and_full_refresh_omits_it(
-    config: AwsInspectorSourceConfig, http: MagicMock, manager: MagicMock, incremental: bool, endpoint: str
+    config: AwsInspectorSourceConfig, incremental: bool, endpoint: str
 ) -> None:
-    http.post.side_effect = [response({"nextToken": "page-2"}), response({})]
-    resource = aws_inspector_source(config, endpoint, manager, incremental, "2025-01-01T00:00:00Z")
-    list(cast(Iterable[Any], resource.items()))
-    for call in http.post.call_args_list:
-        payload = json.loads(call.kwargs["data"])
+    result = driver(config).run(
+        endpoint,
+        [ScriptedResponse(json={"nextToken": "page-2"}), ScriptedResponse(json={})],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value="2025-01-01T00:00:00Z",
+    )
+    assert result.raised is None
+    assert len(result.requests) == 2
+    for request in result.requests:
+        payload = request.json()
         if incremental and endpoint == "findings":
             assert payload["filterCriteria"] == {"updatedAt": [{"startInclusive": 1735689600.0}]}
         else:
             assert "filterCriteria" not in payload
         assert "sortCriteria" not in payload
-    assert resource.sort_mode == "desc"
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
 
 
 @pytest.mark.parametrize("completed", [False, True])
@@ -163,29 +178,35 @@ def test_resume_retains_original_filter_and_stages_before_yield(
 
 
 @pytest.mark.parametrize("value", [1735689600, 1735689600.0, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00"])
-def test_timestamps_and_nested_details(
-    config: AwsInspectorSourceConfig, http: MagicMock, manager: MagicMock, value: str | int | float
-) -> None:
+def test_timestamps_and_nested_details(config: AwsInspectorSourceConfig, value: str | int | float) -> None:
     details = {"vulnerabilityId": "CVE-2025-0001", "vulnerablePackages": [{"name": "example"}]}
-    http.post.return_value = response(
-        {
-            "findings": [
-                {
-                    "findingArn": "example",
-                    "firstObservedAt": value,
-                    "updatedAt": value,
-                    "packageVulnerabilityDetails": details,
+    result = driver(config).run(
+        "findings",
+        [
+            ScriptedResponse(
+                json={
+                    "findings": [
+                        {
+                            "findingArn": "example",
+                            "firstObservedAt": value,
+                            "updatedAt": value,
+                            "packageVulnerabilityDetails": details,
+                        }
+                    ]
                 }
-            ]
-        }
+            )
+        ],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=value,
     )
-    resource = aws_inspector_source(config, "findings", manager, True, value)
-    row = next(iter(cast(Iterable[Any], resource.items())))[0]
+    assert result.raised is None
+    row = result.rows[0]
     assert row["updated_at"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
     assert row["first_observed_at"] == row["updated_at"]
     assert row["package_vulnerability_details"] == details
-    assert resource.primary_keys == ["finding_arn"]
-    assert resource.partition_keys == ["first_observed_at"]
+    assert result.response is not None
+    assert result.response.primary_keys == ["finding_arn"]
+    assert result.response.partition_keys == ["first_observed_at"]
 
 
 @pytest.mark.parametrize("token", ["same", 42])
@@ -245,10 +266,11 @@ def test_credential_errors(
 @pytest.mark.parametrize(
     "status,code", [(429, "ThrottlingException"), (500, "InternalServerException"), (503, "HTTP 503")]
 )
-def test_transient_errors_propagate(config: AwsInspectorSourceConfig, http: MagicMock, status: int, code: str) -> None:
-    http.post.return_value = response({"__type": code}, status)
-    with pytest.raises(AwsInspectorError, match=code):
-        validate_credentials(config)
+def test_transient_errors_propagate(config: AwsInspectorSourceConfig, status: int, code: str) -> None:
+    script = [ScriptedResponse(json={"__type": code}, status=status) for _ in range(4)]
+    with scripted_network(script):
+        with pytest.raises(AwsInspectorError, match=code):
+            validate_credentials(config)
     assert not any(
         pattern in f"AWS Inspector request failed: {code}"
         for pattern in AwsInspectorSource().get_non_retryable_errors()
@@ -259,51 +281,56 @@ def test_transient_errors_propagate(config: AwsInspectorSourceConfig, http: Magi
     "schema,expected", [(None, {"maxResults": 1}), ("coverage_statistics", {"groupBy": "RESOURCE_TYPE"})]
 )
 def test_credential_probe_is_one_small_request(
-    config: AwsInspectorSourceConfig, http: MagicMock, schema: str | None, expected: dict[str, Any]
+    config: AwsInspectorSourceConfig, schema: str | None, expected: dict[str, Any]
 ) -> None:
-    assert validate_credentials(config, schema) == (True, None)
-    http.post.assert_called_once()
-    assert json.loads(http.post.call_args.kwargs["data"]) == expected
+    with scripted_network([ScriptedResponse(json={})]) as network:
+        assert validate_credentials(config, schema) == (True, None)
+    assert len(network.requests_log) == 1
+    assert network.requests_log[0].json() == expected
 
 
 @pytest.mark.parametrize("region", ["https://example.com", "us-east-1.example.com", "us-east-1/", "", "US-EAST-1"])
-def test_invalid_region_never_sends_credentials(config: AwsInspectorSourceConfig, http: MagicMock, region: str) -> None:
+def test_invalid_region_never_sends_credentials(config: AwsInspectorSourceConfig, region: str) -> None:
     config.region = region
-    valid, reason = validate_credentials(config)
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(config)
     assert not valid
     assert reason and "region code" in reason
-    http.post.assert_not_called()
+    assert network.requests_log == []
 
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
-def test_missing_credentials(config: AwsInspectorSourceConfig, http: MagicMock, field: str) -> None:
+def test_missing_credentials(config: AwsInspectorSourceConfig, field: str) -> None:
     setattr(config, field, "")
-    assert validate_credentials(config) == (False, "Enter both an AWS access key ID and a secret access key.")
-    http.post.assert_not_called()
+    with scripted_network([]) as network:
+        assert validate_credentials(config) == (False, "Enter both an AWS access key ID and a secret access key.")
+    assert network.requests_log == []
 
 
-def test_unknown_schema_and_version(config: AwsInspectorSourceConfig, http: MagicMock, manager: MagicMock) -> None:
-    assert validate_credentials(config, "unknown") == (False, "Unknown AWS Inspector table: unknown")
-    assert validate_credentials(config, api_version="1999-01-01") == (
-        False,
-        "Unsupported AWS Inspector API version: 1999-01-01",
-    )
-    with pytest.raises(ValueError, match="Unknown AWS Inspector table"):
-        aws_inspector_source(config, "unknown", manager, False, None)
-    http.post.assert_not_called()
+def test_unknown_schema_and_version(config: AwsInspectorSourceConfig) -> None:
+    with scripted_network([]) as network:
+        assert validate_credentials(config, "unknown") == (False, "Unknown AWS Inspector table: unknown")
+        assert validate_credentials(config, api_version="1999-01-01") == (
+            False,
+            "Unsupported AWS Inspector API version: 1999-01-01",
+        )
+    assert network.requests_log == []
+    result = driver(config).run("unknown", [])
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown AWS Inspector table" in str(result.raised)
+    assert result.requests == []
 
 
 @pytest.mark.parametrize("region,suffix", [("cn-north-1", "amazonaws.com.cn"), ("us-gov-west-1", "amazonaws.com")])
-def test_regional_signing_without_session_token(
-    config: AwsInspectorSourceConfig, http: MagicMock, region: str, suffix: str
-) -> None:
+def test_regional_signing_without_session_token(config: AwsInspectorSourceConfig, region: str, suffix: str) -> None:
     config.region = region
     config.aws_session_token = None
-    assert validate_credentials(config) == (True, None)
-    assert http.post.call_args.args == (f"https://inspector2.{region}.{suffix}/findings/list",)
-    headers = http.post.call_args.kwargs["headers"]
-    assert "X-Amz-Security-Token" not in headers
-    assert f"/{region}/inspector2/aws4_request" in headers["Authorization"]
+    with scripted_network([ScriptedResponse(json={})]) as network:
+        assert validate_credentials(config) == (True, None)
+    assert [request.url for request in network.requests_log] == [f"https://inspector2.{region}.{suffix}/findings/list"]
+    headers = network.requests_log[0].headers
+    assert "x-amz-security-token" not in headers
+    assert f"/{region}/inspector2/aws4_request" in headers["authorization"]
 
 
 @pytest.mark.parametrize(
@@ -321,32 +348,40 @@ def test_error_shapes(payload: object, headers: dict[str, str], status: int, cod
 
 
 def test_transport_retries_read_only_posts_and_redacts_credentials(config: AwsInspectorSourceConfig) -> None:
-    with patch(f"{MODULE}.make_tracked_session") as factory:
-        AwsInspectorClient(config)
-    retry = factory.call_args.kwargs["retry"]
+    with scripted_network([]) as network:
+        client = AwsInspectorClient(config)
+        client.close()
+    assert len(network.session_options) == 1
+    retry = network.session_options[0]["retry"]
     assert retry.is_retry("POST", 429, has_retry_after=True)
     assert retry.is_retry("POST", 500)
     assert not retry.is_retry("POST", 403)
     assert not retry.is_retry("POST", 400)
-    assert factory.call_args.kwargs["redact_values"] == ("AKIAEXAMPLE", "example-secret", "example-session")
+    assert network.session_options[0]["redact_values"] == ("AKIAEXAMPLE", "example-secret", "example-session")
 
 
 def test_coverage_keys_keep_scan_types_distinct(
-    config: AwsInspectorSourceConfig, http: MagicMock, manager: MagicMock
+    config: AwsInspectorSourceConfig,
 ) -> None:
     resource_fields = {"accountId": "111111111111", "resourceId": "i-example", "resourceType": "AWS_EC2_INSTANCE"}
-    http.post.return_value = response(
-        {
-            "coveredResources": [
-                {**resource_fields, "scanType": "PACKAGE", "lastScannedAt": 1735689600},
-                {**resource_fields, "scanType": "NETWORK", "lastScannedAt": None},
-            ]
-        }
+    result = driver(config).run(
+        "coverage",
+        [
+            ScriptedResponse(
+                json={
+                    "coveredResources": [
+                        {**resource_fields, "scanType": "PACKAGE", "lastScannedAt": 1735689600},
+                        {**resource_fields, "scanType": "NETWORK", "lastScannedAt": None},
+                    ]
+                }
+            )
+        ],
     )
-    resource = aws_inspector_source(config, "coverage", manager, False, None)
-    rows = next(iter(cast(Iterable[Any], resource.items())))
-    assert resource.primary_keys is not None
-    assert len({tuple(row[key] for key in resource.primary_keys) for row in rows}) == 2
+    assert result.raised is None
+    rows = result.rows
+    assert result.response is not None
+    assert result.response.primary_keys is not None
+    assert len({tuple(row[key] for key in result.response.primary_keys) for row in rows}) == 2
     assert rows[0]["last_scanned_at"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
     assert rows[1]["last_scanned_at"] is None
 

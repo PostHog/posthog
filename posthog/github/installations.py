@@ -47,14 +47,14 @@ def installation_integrations(external_id: str) -> tuple[InstallationIntegration
 def installation_team_ids(payload: dict) -> list[int]:
     """Teams whose GitHub Integration matches the delivery's installation, in deterministic order.
 
-    Empty when the payload carries no installation id or no Integration matches it — the
-    lookups that take this fall back to their unscoped behaviour in that case.
+    Empty when the payload carries no installation id or no Integration matches it.
     """
     external_id = installation_id(payload)
     if external_id is None:
         return []
 
-    # One installation can map to multiple teams; the ordering makes attribution deterministic.
+    # One installation can link to several teams. The order only keeps results stable, so never treat
+    # the first team as the owner. See posthog/ingress/github/README.md#picking-the-project.
     return [integration.team_id for integration in installation_integrations(external_id)]
 
 

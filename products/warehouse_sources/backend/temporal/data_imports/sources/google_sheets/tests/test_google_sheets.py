@@ -15,11 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     _REQUEST_TIMEOUT_SECONDS,
     GOOGLE_SHEETS_API_VERSION_V4,
-    DiscoveredWorksheet,
     _assert_unique_normalized_column_names,
     _get_worksheet,
     _retry_on_transient_api_error,
-    get_schema_incremental_fields,
+    discover_worksheet_schemas,
     get_schemas,
     google_sheets_client,
     google_sheets_source,
@@ -516,28 +515,37 @@ def test_assert_unique_normalized_column_names_raises_on_normalized_collision(he
     assert any(key in str(exc_info.value) for key in non_retryable_errors)
 
 
-def test_get_schema_incremental_fields_skips_unparseable_range():
+def _sheets_client_listing(*worksheets: mock.MagicMock) -> mock.MagicMock:
+    client = mock.MagicMock()
+    client.open_by_url.return_value.worksheets.return_value = list(worksheets)
+    return client
+
+
+def _worksheet_handle(title: str, worksheet_id: int) -> mock.MagicMock:
+    handle = mock.MagicMock()
+    handle.title = title
+    handle.id = worksheet_id
+    return handle
+
+
+def test_discover_worksheet_schemas_skips_unparseable_range():
     """Google rejects the unbounded "1:2" row range with a 400 'Unable to parse range' for some
     worksheets (e.g. empty sheets). That deterministic error must not break schema discovery — the
     worksheet should just report no incremental fields so the rest of the spreadsheet still syncs."""
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
-    mock_worksheet = mock.MagicMock()
-    mock_worksheet.get_all_values.side_effect = _api_error(
+    handle = _worksheet_handle("csm_followups", 123)
+    handle.get_all_values.side_effect = _api_error(
         400, "Unable to parse range: 'csm_followups'!1:2", "INVALID_ARGUMENT"
     )
 
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
-            return_value=[("csm_followups", 123)],
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
-            return_value=mock_worksheet,
-        ),
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client",
+        return_value=_sheets_client_listing(handle),
     ):
-        assert get_schema_incremental_fields(config, "csm_followups") == []
+        [schema] = discover_worksheet_schemas(config)
+
+    assert schema.incremental_fields == []
 
 
 def test_google_sheets_source_skips_unparseable_header_range():
@@ -602,30 +610,29 @@ def test_google_sheets_source_skips_unparseable_invalid_range_on_data_read():
     assert tables[0].num_rows == 0
 
 
-def test_get_schema_incremental_fields_reraises_other_api_errors():
+def test_discover_worksheet_schemas_reraises_other_api_errors_after_a_short_retry_budget():
     """Only the deterministic 'Unable to parse range' 400 is swallowed. Transient 5xx errors are
-    retried with backoff and, once retries are exhausted, must still propagate so Temporal can retry
-    the activity rather than schema discovery silently reporting no incremental fields."""
+    retried and must still propagate rather than schema discovery silently reporting no incremental
+    fields. Discovery runs inside a web request, so it uses a short retry budget, not the sync one."""
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
-    mock_worksheet = mock.MagicMock()
-    mock_worksheet.get_all_values.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
+    handle = _worksheet_handle("sheet1", 123)
+    handle.get_all_values.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
 
     with (
-        mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
-            return_value=[("sheet1", 123)],
-        ),
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
+        ) as mock_time,
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
-            return_value=mock_worksheet,
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client",
+            return_value=_sheets_client_listing(handle),
         ),
         pytest.raises(gspread.exceptions.APIError),
     ):
-        get_schema_incremental_fields(config, "sheet1")
+        discover_worksheet_schemas(config)
 
-    assert mock_worksheet.get_all_values.call_count == 10
+    assert handle.get_all_values.call_count == 3
+    assert sum(call.args[0] for call in mock_time.sleep.call_args_list) < 10
 
 
 def test_google_sheets_client_sets_request_timeout():
@@ -827,20 +834,26 @@ def test_google_sheets_source_resolves_the_stored_worksheet_id_before_the_name(
     assert mock_get_worksheet.call_args.args[1] == expected_worksheet_id
 
 
-def test_discovered_schemas_carry_the_worksheet_title_and_id():
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_worksheets",
-            return_value=[DiscoveredWorksheet(name="budget_2025", title="Budget 2025", worksheet_id=7)],
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schema_incremental_fields",
-            return_value=[],
-        ),
-    ):
-        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
-        [schema] = GoogleSheetsSource().get_schemas(config, team_id=1)
+def test_discovered_schemas_list_worksheets_once_and_carry_title_and_id():
+    budget = _worksheet_handle("Budget 2025", 7)
+    budget.get_all_values.return_value = [["id"], [1]]
+    notes = _worksheet_handle("Notes", 8)
+    notes.get_all_values.return_value = [["text"], ["hello"]]
+    client = _sheets_client_listing(budget, notes)
 
-    assert schema.name == "budget_2025"
-    assert schema.label == "Budget 2025"
-    assert schema.schema_metadata == {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client",
+        return_value=client,
+    ) as mock_client_factory:
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        schemas = GoogleSheetsSource().get_schemas(config, team_id=1)
+
+    assert mock_client_factory.call_count == 1
+    assert client.open_by_url.call_count == 1
+    assert client.open_by_url.return_value.worksheets.call_count == 1
+    assert budget.get_all_values.call_count == 1
+    assert notes.get_all_values.call_count == 1
+    assert [(s.name, s.label, s.schema_metadata, s.supports_incremental) for s in schemas] == [
+        ("budget_2025", "Budget 2025", {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}, True),
+        ("notes", "Notes", {SCHEMA_RESOURCE_ID_METADATA_KEY: "8"}, False),
+    ]

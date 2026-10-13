@@ -7,13 +7,14 @@ import { Button, InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput,
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { keyIntent } from './commandKKeys'
+import { queryAsText } from './commandKQuery'
 import { commandKSearchLogic } from './commandKSearchLogic'
 import { rowDomId } from './CommandKSearchRow'
 
 export const COMMAND_K_LISTBOX_ID = 'command-k-listbox'
 
 export function CommandKSearchInput(): JSX.Element {
-    const { text, cursor, chips, selectedChipIndex, highlightedRow, highlightIsFilterRow, tabAsksAi, isPaletteEmpty } =
+    const { text, cursor, chips, chipSelection, highlightedRow, highlightIsFilterRow, tabAsksAi, isPaletteEmpty } =
         useValues(commandKSearchLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { inputChanged, setCursor, applyKeyIntent, selectChip, clearQuery, askAi, closeCommand } =
@@ -42,13 +43,15 @@ export function CommandKSearchInput(): JSX.Element {
         const intent = keyIntent(event.key, event, {
             atStart: input.selectionStart === 0 && input.selectionEnd === 0,
             chipCount: chips.length,
-            selectedChipIndex,
+            chipSelection,
             tabHasAction: tabAsksAi || highlightIsFilterRow,
         })
         if (!intent) {
             return
         }
-        event.preventDefault()
+        if (!('keepDefault' in intent)) {
+            event.preventDefault()
+        }
         if (intent.type === 'clear-or-close') {
             // Stop the dialog from closing, so the first press only clears the query.
             event.stopPropagation()
@@ -56,18 +59,25 @@ export function CommandKSearchInput(): JSX.Element {
         applyKeyIntent(intent)
     }
 
+    // With everything selected, the clipboard gets the chips as text, so pasting it back rebuilds them.
+    const copyWholeQuery = (event: React.ClipboardEvent<HTMLInputElement>): void => {
+        event.preventDefault()
+        event.clipboardData.setData('text/plain', queryAsText(text, chips))
+    }
+
     return (
         <div className="flex items-center gap-1 p-2">
             {/* A fixed height, so committing a chip never resizes the field. Chips that overflow scroll sideways. */}
             <InputGroup className="flex-1">
-                {/* The scroll container clips, so it gets room on the right for the selected chip's outline and gives it back with a negative margin. */}
+                {/* The scroll container clips, so it gets room on the right for the selected chip's outline and gives it back with a negative margin.
+                    ms-0 cancels quill's pull-in for button addons, and gap-1.5 matches the input's start padding, so committing a chip doesn't shift the text. */}
                 <InputGroupAddon
                     align="inline-start"
-                    className="-mr-1 min-w-0 shrink overflow-x-auto pr-1 [scrollbar-width:none]"
+                    className="-mr-1 ms-0 min-w-0 shrink gap-1.5 overflow-x-auto pr-1 [scrollbar-width:none]"
                 >
                     <IconSearch className="size-4 shrink-0" />
                     {chips.map((chip, index) => (
-                        // Committed filters read as typed text: muted key, brand-tinted value.
+                        // Committed filters read as typed text: plain key, brand-tinted value.
                         <button
                             key={chip.key}
                             type="button"
@@ -75,13 +85,15 @@ export function CommandKSearchInput(): JSX.Element {
                             data-attr="command-k-chip"
                             aria-label={`${chip.negated ? 'Not ' : ''}${chip.key}: ${chip.label}. Backspace removes it.`}
                             className={cn(
-                                'flex max-w-60 shrink-0 items-center rounded-xs text-sm leading-none text-foreground',
-                                selectedChipIndex === index && 'ring-2 ring-ring'
+                                'flex max-w-60 shrink-0 items-center rounded-xs leading-none text-foreground',
+                                chipSelection === index && 'ring-2 ring-ring',
+                                // The system color the input paints its own selected text with.
+                                chipSelection === 'all' && 'bg-[Highlight]'
                             )}
                             onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
                             onClick={() => selectChip(index)}
                         >
-                            <span className="shrink-0 font-normal text-muted-foreground">
+                            <span className="shrink-0 font-normal">
                                 {chip.negated ? '-' : ''}
                                 {chip.key}:
                             </span>
@@ -118,7 +130,26 @@ export function CommandKSearchInput(): JSX.Element {
                             pasted
                         )
                     }}
+                    onCopy={(event: React.ClipboardEvent<HTMLInputElement>) => {
+                        if (chipSelection === 'all') {
+                            copyWholeQuery(event)
+                        }
+                    }}
+                    onCut={(event: React.ClipboardEvent<HTMLInputElement>) => {
+                        if (chipSelection === 'all') {
+                            copyWholeQuery(event)
+                            clearQuery()
+                        }
+                    }}
+                    // An empty input fires no select event on click, so this is the only place that click deselects.
+                    onMouseDown={() => chipSelection === 'all' && selectChip(null)}
                     onSelect={(event: React.SyntheticEvent<HTMLInputElement>) => {
+                        const input = event.currentTarget
+                        const wholeTextSelected =
+                            input.selectionStart === 0 && input.selectionEnd === input.value.length
+                        if (chipSelection === 'all' && !wholeTextSelected) {
+                            selectChip(null)
+                        }
                         const nextCursor = event.currentTarget.selectionStart ?? 0
                         if (nextCursor !== cursor) {
                             setCursor(nextCursor)

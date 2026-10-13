@@ -53,6 +53,8 @@ from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     MAX_SCANNERS_PER_SWEEP,
     MAX_TEAMS_PER_SWEEP,
     PINNED_TEAM_IDS,
+    RATE_LIMIT_GIVE_UP_AFTER,
+    RATE_LIMIT_PAUSE,
     SWEEP_ACTIVITY_HEARTBEAT_TIMEOUT,
     SWEEP_TIME_BUDGET,
     WATCH_RANK_WINDOW,
@@ -149,6 +151,11 @@ class _ScannerOutcome:
     out_of_time: bool = False
     # The organization revoked AI data-processing consent while the scanner waited for its turn.
     consent_revoked: bool = False
+    # The gateway rate-limited the scanner's requests.
+    rate_limited: bool = False
+    # The run had been rate-limited RATE_LIMIT_GIVE_UP_AFTER turns in a row, so the scanner waits for
+    # the next run.
+    backed_off: bool = False
     observations_judged: int = 0
     observations_given_up: int = 0
     cache_errors: int = 0
@@ -250,6 +257,7 @@ async def _sweep_scanner(team_id: int, scanner_id: UUID, mode: str, window_start
                 "chunk_error_types": judgment.chunk_error_types,
                 "watch_reasons": dict(Counter(judgment.reasons.values())),
                 "failed_reason_chunks": judgment.failed_reason_chunks,
+                "rate_limited": judgment.rate_limited,
                 "jev_model": judgment.model,
                 "input_tokens": judgment.input_tokens,
                 "estimated_cost_usd": judgment.estimated_cost_usd,
@@ -257,6 +265,7 @@ async def _sweep_scanner(team_id: int, scanner_id: UUID, mode: str, window_start
         )
     return _ScannerOutcome(
         judged=True,
+        rate_limited=judgment.rate_limited,
         observations_judged=len(judgment.probabilities),
         observations_given_up=len(exhausted),
         cache_errors=cache_errors,
@@ -278,15 +287,33 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
     # teams loop only flag-checks and lists scanners, so it runs ahead and queues them.
     turns = asyncio.Semaphore(JUDGE_CONCURRENCY)
 
+    # Every product's Jev calls share the decision service's capacity. A rate-limited turn pauses new
+    # turns for RATE_LIMIT_PAUSE, so the run gives that capacity back instead of retrying into it. Only
+    # a run that stays rate-limited leaves its remaining scanners for the next run.
+    paused_until = 0.0
+    consecutive_rate_limited = 0
+
     async def take_turn(team_id: int, scanner_id: UUID, mode: str) -> _ScannerOutcome:
+        nonlocal paused_until, consecutive_rate_limited
         async with turns:
+            pause = min(paused_until, deadline) - monotonic()
+            if pause > 0:
+                await asyncio.sleep(pause)
             if monotonic() > deadline:
                 return _ScannerOutcome(out_of_time=True)
+            if consecutive_rate_limited >= RATE_LIMIT_GIVE_UP_AFTER:
+                return _ScannerOutcome(backed_off=True)
             # A turn can wait most of the run after its team was queued, so consent is read again
             # here: a revocation in between must stop the prose before it reaches the model.
             if not await sync_to_async(is_ai_data_processing_approved)(team_id):
                 return _ScannerOutcome(consent_revoked=True)
-            return await _sweep_scanner(team_id, scanner_id, mode, window_start)
+            outcome = await _sweep_scanner(team_id, scanner_id, mode, window_start)
+            if outcome.rate_limited:
+                consecutive_rate_limited += 1
+                paused_until = monotonic() + RATE_LIMIT_PAUSE.total_seconds()
+            elif outcome.judged:
+                consecutive_rate_limited = 0
+            return outcome
 
     teams_enrolled = 0
     teams_without_consent = 0
@@ -333,6 +360,8 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         observations_given_up=sum(outcome.observations_given_up for outcome in outcomes),
         cache_errors=sum(outcome.cache_errors for outcome in outcomes),
         failed_chunks=sum(outcome.failed_chunks for outcome in outcomes),
+        scanners_rate_limited=sum(outcome.rate_limited for outcome in outcomes),
+        scanners_backed_off=sum(outcome.backed_off for outcome in outcomes),
         input_tokens=sum(outcome.input_tokens for outcome in outcomes),
         estimated_cost_usd=sum(outcome.estimated_cost_usd for outcome in outcomes),
         hit_team_cap=len(team_ids) > MAX_TEAMS_PER_SWEEP,
@@ -351,6 +380,8 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         observations_given_up=result.observations_given_up,
         cache_errors=result.cache_errors,
         failed_chunks=result.failed_chunks,
+        scanners_rate_limited=result.scanners_rate_limited,
+        scanners_backed_off=result.scanners_backed_off,
         input_tokens=result.input_tokens,
         hit_team_cap=result.hit_team_cap,
         hit_scanner_cap=result.hit_scanner_cap,

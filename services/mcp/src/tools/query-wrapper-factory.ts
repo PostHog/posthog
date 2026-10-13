@@ -238,6 +238,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 query,
                 results: isTraceQuery ? redactTraceResults(data.results) : data.results,
+                // Table queries (e.g. WebStatsTableQuery) return positional rows, so the
+                // column names are the only way to read each cell.
+                ...(Array.isArray(data.columns) && Array.isArray(data.results) ? { columns: data.columns } : {}),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
             }
             if (isTraceQuery) {

@@ -43,6 +43,9 @@ DEFAULT_SINCE_DAYS = 90
 # half, making its contributors look fully stale instead of decayed.
 DEFAULT_MAX_COMMITS = 20_000
 
+# Protocol v2 (GitHub) reports the server's refusal as a shallow-info error; v0 names it.
+_EMPTY_SHALLOW_WINDOW_RE = re.compile(r"error processing shallow info|no commits selected for shallow requests")
+
 
 class RepositoryCommitActivityError(Exception):
     pass
@@ -94,7 +97,8 @@ def collect_repository_commit_activity(
         )
     )
     try:
-        _clone_history(sandbox, repository, github_token, since_days)
+        if not _clone_history(sandbox, repository, github_token, since_days):
+            return []
         return _read_log(sandbox, repository, since_days, max_commits)
     finally:
         try:
@@ -103,7 +107,37 @@ def collect_repository_commit_activity(
             logger.warning("repo_commit_activity: sandbox destroy failed", sandbox_id=sandbox.id, exc_info=True)
 
 
-def _clone_history(sandbox: SandboxBase, repository: str, github_token: str, since_days: int) -> None:
+def _clone_history(sandbox: SandboxBase, repository: str, github_token: str, since_days: int) -> bool:
+    """Clone the window's history. Return False when the default branch has no commits in the window."""
+    result = sandbox.execute(
+        _clone_command(repository, f"--shallow-since={shlex.quote(f'{since_days} days')}"),
+        timeout_seconds=_CLONE_TIMEOUT_SECONDS,
+    )
+    if result.exit_code == 0:
+        return True
+    # Git argv sees the expanded URL, so fatal messages can still echo the token.
+    stderr = result.stderr.replace(github_token, "<redacted>") if github_token else result.stderr
+    # The server refuses --shallow-since when no commit falls inside the window. Accept an
+    # empty result only after a tip-only clone proves the latest commit predates the window.
+    if _EMPTY_SHALLOW_WINDOW_RE.search(stderr) and _tip_predates_window(sandbox, repository, since_days):
+        logger.info("repo_commit_activity: no commits inside the window", repository=repository, since_days=since_days)
+        return False
+    raise RepositoryCommitActivityError(
+        f"History clone of {repository} failed with exit code {result.exit_code}: {stderr[:300]}"
+    )
+
+
+def _tip_predates_window(sandbox: SandboxBase, repository: str, since_days: int) -> bool:
+    target_path = sandbox_repo_path(repository)
+    command = (
+        f"{_clone_command(repository, '--depth=1')} && "
+        f"git -C {shlex.quote(target_path)} log -1 --since={shlex.quote(f'{since_days} days')} --format=%H"
+    )
+    result = sandbox.execute(command, timeout_seconds=_CLONE_TIMEOUT_SECONDS)
+    return result.exit_code == 0 and not result.stdout.strip()
+
+
+def _clone_command(repository: str, history_option: str) -> str:
     # `repository` passed first_for_team_repository's safe-path check, so it's plain
     # owner/repo and safe inside double quotes. The token placeholder expands from the
     # sandbox environment; the command string itself never contains the credential.
@@ -111,20 +145,13 @@ def _clone_history(sandbox: SandboxBase, repository: str, github_token: str, sin
     repo_url = f'"https://x-access-token:${{GITHUB_TOKEN}}@github.com/{org}/{repo}.git"'
     target_path = sandbox_repo_path(repository)
     org_path = f"{WORKING_DIR}/repos/{org}"
-    command = (
+    return (
         f"rm -rf {shlex.quote(target_path)} && "
         f"mkdir -p {shlex.quote(org_path)} && "
         f"cd {shlex.quote(org_path)} && "
         f"git clone --single-branch --no-checkout --filter=blob:none "
-        f"--shallow-since={shlex.quote(f'{since_days} days')} {repo_url} {shlex.quote(repo)}"
+        f"{history_option} {repo_url} {shlex.quote(repo)}"
     )
-    result = sandbox.execute(command, timeout_seconds=_CLONE_TIMEOUT_SECONDS)
-    if result.exit_code != 0:
-        # Git argv sees the expanded URL, so fatal messages can still echo the token.
-        stderr = result.stderr.replace(github_token, "<redacted>") if github_token else result.stderr
-        raise RepositoryCommitActivityError(
-            f"History clone of {repository} failed with exit code {result.exit_code}: {stderr[:300]}"
-        )
 
 
 def _read_log(

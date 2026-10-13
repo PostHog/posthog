@@ -6,11 +6,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source import AftershipSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aftership import (
     AftershipSourceConfig,
 )
 
-CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source.check_access"
 AFTERSHIP_SOURCE_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source.aftership_source"
 )
@@ -42,28 +45,27 @@ class TestAftershipSource:
             ("unreachable", False, None, None, False, "Could not validate your AfterShip API key"),
         ]
     )
-    @mock.patch(CHECK_ACCESS_PATH)
     def test_validate_credentials(
         self,
         _name: str,
-        probe_valid: bool,
+        _probe_valid: bool,
         status: int | None,
         schema_name: str | None,
         expected_valid: bool,
         expected_message: str | None,
-        mock_check: mock.MagicMock,
     ) -> None:
-        mock_check.return_value = (probe_valid, status)
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        answer = ConnectionResetError("reset") if status is None else ScriptedResponse(status=status)
+        with scripted_network([answer]):
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert is_valid is expected_valid
         assert message == expected_message
 
-    @mock.patch(CHECK_ACCESS_PATH)
-    def test_validate_credentials_rejects_unknown_table_without_probing(self, mock_check: mock.MagicMock) -> None:
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
+    def test_validate_credentials_rejects_unknown_table_without_probing(self) -> None:
+        with scripted_network([]) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
         assert is_valid is False
         assert message == "Unknown AfterShip table 'not_a_table'"
-        mock_check.assert_not_called()
+        assert network.requests_log == []
 
     @parameterized.expand(
         [

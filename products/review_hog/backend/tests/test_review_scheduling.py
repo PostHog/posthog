@@ -94,6 +94,9 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
                     start_signal="request_review",
                     start_signal_args=[request],
                 )
+            # Stamphog reads the waiting heads from this query, because they exist only in the queue.
+            heads = await handle.query("requested_heads")
+            assert (heads["active"], sorted(heads["pending"])) == (["a"], ["c", "c"])
             release.set()
             assert await handle.result() == "report"
 
@@ -141,12 +144,9 @@ async def test_automatic_review_waits_for_resolution_before_starting() -> None:
     assert probes == 2
 
 
-@pytest.mark.parametrize(
-    "resolve_comments,dedupe_against_pr_comments,expect_pending",
-    [(False, False, False), (None, False, True), (False, True, True)],
-)
-def test_a_repeated_request_waits_when_it_changes_what_the_review_does(
-    resolve_comments: bool | None, dedupe_against_pr_comments: bool, expect_pending: bool
+@pytest.mark.parametrize("resolve_comments,expect_pending", [(False, False), (None, True)])
+def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
+    resolve_comments: bool | None, expect_pending: bool
 ) -> None:
     active = ReviewPRWorkflowInputs(
         team_id=1,
@@ -161,7 +161,7 @@ def test_a_repeated_request_waits_when_it_changes_what_the_review_does(
         acting_user_id=1,
         resolve_comments=False,
     )
-    request = replace(active, resolve_comments=resolve_comments, dedupe_against_pr_comments=dedupe_against_pr_comments)
+    request = replace(active, resolve_comments=resolve_comments)
     queue = ReviewRequestQueue(active=active)
 
     queue.add(request)
