@@ -835,23 +835,34 @@ class TestWidgetIdentityVerification(BaseTest):
     @parameterized.expand(
         [
             # setUp signs the hash with the value held in team.secret_api_token; with the
-            # kill switch off (#66179) that column must stop verifying — only a
+            # kill switch off (#66179) that column must stop verifying — only a current
             # SigningSecret row may.
-            ("signing_secret_row_verifies", True, status.HTTP_200_OK),
-            ("legacy_fallback_is_gone", False, status.HTTP_403_FORBIDDEN),
+            ("signing_secret_row_verifies", "matching", "current", status.HTTP_200_OK),
+            ("legacy_fallback_is_gone", "none", "current", status.HTTP_403_FORBIDDEN),
+            # A stale row holds a retired key; accepting it under the switch would
+            # silently un-revoke that key.
+            ("stale_row_stays_excluded", "stale", "retired", status.HTTP_403_FORBIDDEN),
         ]
     )
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_list_tickets_with_legacy_tokens_switched_off(self, _name, has_signing_secret_row, expected_status):
-        if has_signing_secret_row:
-            SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+    def test_list_tickets_with_legacy_tokens_switched_off(
+        self, _name: str, row: str, sign_with: str, expected_status: int
+    ) -> None:
+        retired_secret = "a_retired_secret_key"
+        if row != "none":
+            SigningSecret.objects.for_team(self.team.id).create(
+                team=self.team, secret=self.secret if row == "matching" else retired_secret
+            )
+        identity_hash = (
+            self.identity_hash if sign_with == "current" else compute_identity_hash(self.distinct_id, retired_secret)
+        )
         self._create_ticket()
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
             {
                 "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
+                "identity_hash": identity_hash,
             },
             **self._get_headers(),
         )

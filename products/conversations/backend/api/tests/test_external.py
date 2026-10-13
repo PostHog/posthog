@@ -87,7 +87,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(self.ticket.status, Status.RESOLVED)
 
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_kill_switch_off_migrated_token_flows_through_its_psak_row(self):
+    def test_kill_switch_off_migrated_token_flows_through_its_psak_row(self) -> None:
         # Flip semantics (#66179): the deferral above goes inert, so the same legacy string
         # authenticates as a PSAK — reads keep working, the legacy-only PATCH stops.
         token = self.team.secret_api_token
@@ -107,7 +107,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_kill_switch_off_rejects_legacy_token_without_mirror_row(self):
+    def test_kill_switch_off_rejects_legacy_token_without_mirror_row(self) -> None:
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 

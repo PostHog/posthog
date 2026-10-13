@@ -118,8 +118,10 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     migrated. Verification is unaffected: such a row still verifies via `legacy_backup`.
     """
     legacy_secrets: list[_IdentitySecret] = []
-    # Kill switch (#66179): with legacy tokens off, the signing secret row is the sole
-    # authority — no fallbacks, and the staleness guard below goes vacuously quiet.
+    # Kill switch (#66179): with legacy tokens off they stop being verification candidates,
+    # but staleness below is still judged against the live columns — a SigningSecret row
+    # holding a retired key must stay excluded, or revocation stops revoking. That guard
+    # only evaporates when the columns themselves drop.
     if settings.ACCEPT_TEAM_SECRET_TOKENS:
         if team.secret_api_token:
             legacy_secrets.append(_IdentitySecret(source="legacy_token", secret=team.secret_api_token))
@@ -129,7 +131,8 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     secrets: list[_IdentitySecret] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()
     if signing_secret and signing_secret.secret:
-        if not legacy_secrets or signing_secret.secret == team.secret_api_token:
+        has_legacy_credentials = bool(team.secret_api_token or team.secret_api_token_backup)
+        if not has_legacy_credentials or signing_secret.secret == team.secret_api_token:
             secrets.append(_IdentitySecret(source="signing_secret", secret=signing_secret.secret))
         else:
             SIGNING_SECRET_STALE_COUNTER.inc()

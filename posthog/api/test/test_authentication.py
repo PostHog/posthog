@@ -2502,7 +2502,7 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         )
 
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_authenticate_returns_none_when_legacy_tokens_switched_off(self):
+    def test_authenticate_returns_none_when_legacy_tokens_switched_off(self) -> None:
         wsgi_request = self.factory.get(
             "/",
             headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
