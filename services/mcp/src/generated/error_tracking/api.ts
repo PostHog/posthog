@@ -8634,6 +8634,12 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.ob
         .min(1)
         .nullish()
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
+    ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the project ingests exception events. When false, capture drops every $exception event for this project before it is stored, and the events cannot be recovered.'
+        ),
 })
 
 export const ErrorTrackingSeverityRulesListParams = () => zod.object({

@@ -174,6 +174,7 @@ export type SettingId =
     | 'error-tracking-auto-assignment'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-general'
     | 'error-tracking-ingestion-controls'
     | 'error-tracking-integrations'
     | 'error-tracking-rate-limits'

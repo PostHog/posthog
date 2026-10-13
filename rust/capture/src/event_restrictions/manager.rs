@@ -672,6 +672,45 @@ mod tests {
         assert!(restrictions.contains(RestrictionType::SkipPersonProcessing));
     }
 
+    #[tokio::test]
+    async fn test_manager_filtered_entry_does_not_narrow_unfiltered_entry_same_token() {
+        let repo = MockRestrictionsRepository::new();
+
+        // Django writes the error tracking kill switch as an unfiltered entry next to any
+        // staff-managed entry for the same token and restriction type.
+        repo.set_entries(
+            RestrictionType::DropEvent,
+            Some(vec![
+                make_entry_with_filters(
+                    "token1",
+                    vec!["analytics", "errortracking"],
+                    vec!["user1"],
+                    vec![],
+                ),
+                make_entry("token1", vec!["errortracking"]),
+            ]),
+        )
+        .await;
+
+        let manager = RestrictionManager::from_repository(
+            &repo,
+            &[Pipeline::Analytics, Pipeline::ErrorTracking],
+        )
+        .await
+        .unwrap();
+
+        let other_user = EventContext {
+            distinct_id: Some("user2"),
+            ..Default::default()
+        };
+        assert!(manager
+            .get_restrictions("token1", &other_user, Pipeline::ErrorTracking)
+            .contains(RestrictionType::DropEvent));
+        assert!(manager
+            .get_restrictions("token1", &other_user, Pipeline::Analytics)
+            .is_empty());
+    }
+
     // ========================================================================
     // EventRestrictionService tests
     // ========================================================================

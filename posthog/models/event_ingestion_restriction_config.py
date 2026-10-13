@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -152,17 +153,9 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
     # which config was created most recently (highest index wins for redirect_to_topic).
     configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type).order_by("id"))
 
-    if not configs:
-        # No configs exist, delete the Redis key
-        redis_client.delete(redis_key)
-        return
-
     # Build the new data array from all configs in the database (v2 format)
-    data = []
-    for index, config in enumerate(configs):
-        entry = {
-            "version": 2,
-            "index": index,
+    entries: list[dict[str, Any]] = [
+        {
             "token": config.token,
             "pipelines": config.pipelines or [],
             "distinct_ids": config.distinct_ids or [],
@@ -171,9 +164,42 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
             "event_uuids": config.event_uuids or [],
             "args": config.args,
         }
-        data.append(entry)
+        for config in configs
+    ]
+    if restriction_type == RestrictionType.DROP_EVENT_FROM_INGESTION:
+        entries.extend(_error_tracking_ingestion_disabled_entries())
 
+    if not entries:
+        # No configs exist, delete the Redis key
+        redis_client.delete(redis_key)
+        return
+
+    data = [{"version": 2, "index": index, **entry} for index, entry in enumerate(entries)]
     redis_client.set(redis_key, json.dumps(data))
+
+
+def _error_tracking_ingestion_disabled_entries() -> list[dict[str, Any]]:
+    """
+    Drop entries for projects that turned off exception ingestion in their error tracking settings.
+
+    They live next to the staff-managed configs because a token can hold only one config per restriction type,
+    and capture applies every entry for a token.
+    """
+    # Error tracking logic imports this module, so a module-level import of its facade is circular.
+    from products.error_tracking.backend.facade.api import list_ingestion_disabled_api_tokens  # noqa: PLC0415
+
+    return [
+        {
+            "token": token,
+            "pipelines": [IngestionPipeline.ERRORTRACKING.value],
+            "distinct_ids": [],
+            "session_ids": [],
+            "event_names": [],
+            "event_uuids": [],
+            "args": None,
+        }
+        for token in list_ingestion_disabled_api_tokens()
+    ]
 
 
 @receiver(pre_save, sender=EventIngestionRestrictionConfig)

@@ -33,6 +33,7 @@ import type {
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
 import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 import { errorTrackingQuery } from '../../queries'
+import { resolveSettingSlug } from '../../settingsRedirects'
 import {
     ERROR_TRACKING_LISTING_RESOLUTION,
     ERROR_TRACKING_LOGIC_KEY,
@@ -271,8 +272,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
                     actions.setActiveTab(params.activeTab)
                 }
-                if (hashParams.selectedSetting && hashParams.selectedSetting !== values.selectedSettingId) {
-                    actions.selectSetting(hashParams.selectedSetting)
+                const selectedSettingId = resolveSettingSlug(hashParams.selectedSetting) as SettingId | undefined
+                if (selectedSettingId && selectedSettingId !== values.selectedSettingId) {
+                    actions.selectSetting(selectedSettingId)
                 }
                 triggerFilterActions(params, values, actions)
             },
