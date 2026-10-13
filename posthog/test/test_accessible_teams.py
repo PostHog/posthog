@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PersonalAPIKey, Team
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -34,16 +34,22 @@ class TestAccessibleTeams(BaseTest):
             access_level="none",
         )
 
-    def _request(self, *, credential_team_ids: list[int] | None) -> Request:
+    def _request(
+        self,
+        *,
+        credential_team_ids: list[int] | None = None,
+        credential_organization_ids: list[str] | None = None,
+    ) -> Request:
         authenticator: PersonalAPIKeyAuthentication | None = None
-        if credential_team_ids is not None:
+        if credential_team_ids is not None or credential_organization_ids is not None:
             authenticator = PersonalAPIKeyAuthentication()
             authenticator.personal_api_key = PersonalAPIKey.objects.create(
                 user=self.user,
                 label="scoped",
                 secure_value=hash_key_value(generate_random_token_personal()),
                 scopes=["*"],
-                scoped_teams=credential_team_ids,
+                scoped_teams=credential_team_ids or [],
+                scoped_organizations=credential_organization_ids or [],
             )
         return cast(Request, SimpleNamespace(user=self.user, successful_authenticator=authenticator))
 
@@ -77,6 +83,26 @@ class TestAccessibleTeams(BaseTest):
         else:
             with pytest.raises(CredentialScopeDenied):
                 AccessibleTeams.for_request(request, requested_team_ids)
+
+    def test_for_request_denies_team_outside_credential_scoped_organizations(self) -> None:
+        other_organization = Organization.objects.create(name="Other")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_organization, level=OrganizationMembership.Level.MEMBER
+        )
+        other_team = Team.objects.create(organization=other_organization, name="Other Open Team")
+        request = self._request(credential_organization_ids=[str(self.organization.id)])
+        with pytest.raises(CredentialScopeDenied):
+            AccessibleTeams.for_request(request, [other_team.id])
+
+    def test_for_request_allows_team_inside_credential_scoped_organizations(self) -> None:
+        request = self._request(credential_organization_ids=[str(self.organization.id)])
+        teams = AccessibleTeams.for_request(request, [self.open_team.id])
+        self.assertEqual(teams.team_ids, (self.open_team.id,))
+
+    def test_for_request_denies_all_teams_from_org_confined_credential(self) -> None:
+        request = self._request(credential_organization_ids=[str(self.organization.id)])
+        with pytest.raises(CredentialScopeDenied):
+            AccessibleTeams.for_request(request, None)
 
     def test_direct_construction_raises(self) -> None:
         with pytest.raises(TypeError):

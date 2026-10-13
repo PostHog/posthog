@@ -6,7 +6,7 @@ from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
-from posthog.permissions import get_authenticator_scoped_team_ids
+from posthog.permissions import get_authenticator_scoped_organization_ids, get_authenticator_scoped_team_ids
 from posthog.user_permissions import UserPermissions
 
 _CONSTRUCTION_TOKEN = object()
@@ -52,21 +52,32 @@ class AccessibleTeams:
 
     @classmethod
     def for_request(cls, request: Request, team_ids: Sequence[int] | None) -> Self:
-        """Like `for_user`, but also confined to the teams that the request's credential reaches.
+        """Like `for_user`, but also confined to the orgs and teams that the request's credential reaches.
 
-        `None` asks for no team restriction. Only a credential without a team restriction can
-        grant that, because a key confined to some teams must not hand out a wider one.
+        `None` asks for no team restriction. Only a credential without an organization or team
+        restriction can grant that, because a key confined to some orgs or teams must not hand
+        out a wider one.
         """
         user = cast(User, request.user)
-        credential_team_ids = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        authenticator = getattr(request, "successful_authenticator", None)
+        credential_team_ids = get_authenticator_scoped_team_ids(authenticator)
+        credential_organization_ids = get_authenticator_scoped_organization_ids(authenticator)
 
         if team_ids is None:
-            if credential_team_ids is not None:
-                raise CredentialScopeDenied("A credential confined to some teams cannot grant all of them.")
+            if credential_team_ids is not None or credential_organization_ids is not None:
+                raise CredentialScopeDenied("A credential confined to some orgs or teams cannot grant all of them.")
             return cls.all_for(user)
 
         if credential_team_ids is not None and not set(team_ids) <= set(credential_team_ids):
             raise CredentialScopeDenied("The credential does not reach one or more teams.")
+
+        if credential_organization_ids is not None:
+            allowed_organization_ids = {str(org_id) for org_id in credential_organization_ids}
+            requested_organization_ids = {
+                str(org_id) for org_id in Team.objects.filter(pk__in=team_ids).values_list("organization_id", flat=True)
+            }
+            if not requested_organization_ids or not requested_organization_ids <= allowed_organization_ids:
+                raise CredentialScopeDenied("The credential does not reach one or more organizations.")
 
         return cls.for_user(user, team_ids)
 
