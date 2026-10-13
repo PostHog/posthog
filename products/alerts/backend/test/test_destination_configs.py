@@ -237,8 +237,10 @@ class TestWebhookDestination:
                 (("Authorization", "Bearer not-a-real-token"),),
             ),
             ({"Authorization": "Bearer {inputs.token}"}, None),
+            ({"Authorization": " Bearer not-a-real-token "}, (("Authorization", "Bearer not-a-real-token"),)),
+            ({"": "orphaned value", "Host": "internal.example.com", "X-Note": "caf\u00e9 \u201cquoted\u201d"}, None),
         ],
-        ids=["stock", "added_auth_header", "templated_value"],
+        ids=["stock", "added_auth_header", "templated_value", "padded_value", "unsendable"],
     )
     def test_only_headers_a_user_added_as_plain_text_are_read(
         self, headers: dict[str, str], read: tuple[tuple[str, str], ...] | None

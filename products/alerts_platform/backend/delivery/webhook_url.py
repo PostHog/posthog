@@ -40,16 +40,16 @@ class WebhookUrlTransport(ABC):
         if not url:
             raise DeliveryError(f"This {self.display_name} destination has no webhook URL.")
         self.check_url(url)
-        # The transport's own headers come last, so a stored header cannot change the body version.
-        headers = {**dict(target.get("webhook_headers", ())), **self.headers_for()}
-        post_json(self.send_url(url), self.body_for(message), display_name=self.display_name, headers=headers)
+        post_json(
+            self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for(target)
+        )
         return None
 
     def check_url(self, url: str) -> None:
         """Refuses a URL this provider never issues. The SSRF check runs on every send regardless."""
         return None
 
-    def headers_for(self) -> dict[str, str]:
+    def headers_for(self, target: AlertDestinationData) -> dict[str, str]:
         return self.headers
 
     def send_url(self, url: str) -> str:

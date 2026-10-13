@@ -17,7 +17,7 @@ from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
 from products.alerts_platform.backend.delivery.wire import rfc3339
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, AnnouncedTransition
 
 PROVIDER: Final = "webhook"
 
@@ -96,10 +96,10 @@ class WebhookTransport(WebhookUrlTransport):
     def __init__(self, legacy_body: Callable[[AlertMessage], dict[str, Any]] | None = None) -> None:
         self._legacy_body = legacy_body
 
-    def headers_for(self) -> dict[str, str]:
-        if self._legacy_body is not None:
-            return {"X-PostHog-Webhook-Version": LEGACY_WEBHOOK_VERSION}
-        return self.headers
+    def headers_for(self, target: AlertDestinationData) -> dict[str, str]:
+        version = LEGACY_WEBHOOK_VERSION if self._legacy_body is not None else WEBHOOK_VERSION
+        # The version header comes last, so a stored header cannot change which body a receiver expects.
+        return {**dict(target.get("webhook_headers", ())), "X-PostHog-Webhook-Version": version}
 
     def check_url(self, url: str) -> None:
         # Plain HTTP would expose the URL, which is the credential, and the alert body to anyone on

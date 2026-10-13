@@ -5,8 +5,11 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, ClassVar, Final
+from typing import Any, ClassVar, Final, cast
 from urllib.parse import urlsplit
+
+from requests.exceptions import InvalidHeader
+from requests.utils import check_header_validity
 
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
@@ -116,28 +119,36 @@ def pagerduty_links(spec: EventKindSpec) -> list[dict[str, str]]:
     return [{"href": action.url, "text": action.label} for action in spec_actions(spec)]
 
 
-# The headers every stock webhook destination is built with. The native transport sets its own.
-_STOCK_WEBHOOK_HEADER_NAMES: Final = frozenset(name.lower() for name in WEBHOOK_HEADERS)
+# Headers the native transport sets itself: the stock ones every webhook destination is built
+# with, and the ones that frame the request or name the host the connection was pinned to.
+_TRANSPORT_HEADER_NAMES: Final = frozenset(
+    [*(name.lower() for name in WEBHOOK_HEADERS), "host", "content-length", "transfer-encoding", "connection"]
+)
 
 
 def _added_webhook_headers(headers: Any) -> tuple[tuple[str, str], ...]:
     """The headers a user added to a webhook destination, such as an auth token.
 
     A value with a `{` is a Hog template, which only the HogFunction path can render. Sending it
-    unrendered would send the template text as the credential, so it is left out.
+    unrendered would send the template text as the credential, so it is left out. So is a header
+    the native client cannot send, which would otherwise fail every delivery to the destination.
     """
     if not isinstance(headers, dict):
         return ()
-    return tuple(
-        sorted(
-            (name, value)
-            for name, value in headers.items()
-            if isinstance(name, str)
-            and isinstance(value, str)
-            and name.lower() not in _STOCK_WEBHOOK_HEADER_NAMES
-            and "{" not in value
-        )
-    )
+    added: list[tuple[str, str]] = []
+    for raw_name, raw_value in headers.items():
+        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+            continue
+        name, value = raw_name.strip(), raw_value.strip()
+        if name.lower() in _TRANSPORT_HEADER_NAMES or "{" in value:
+            continue
+        try:
+            check_header_validity((name, value))
+            value.encode("latin-1")
+        except (InvalidHeader, UnicodeEncodeError):
+            continue
+        added.append((name, value))
+    return tuple(sorted(added))
 
 
 def _input_value(inputs: dict[str, Any], key: str) -> Any:
@@ -260,12 +271,10 @@ class WebhookDestination(_WebhookUrlDestination):
         return data
 
     def redact(self, data: AlertDestinationData) -> AlertDestinationData:
-        redacted = super().redact(data)
-        if "webhook_headers" not in redacted:
-            return redacted
-        redacted = redacted.copy()
-        del redacted["webhook_headers"]
-        return redacted
+        return cast(
+            AlertDestinationData,
+            {key: value for key, value in super().redact(data).items() if key != "webhook_headers"},
+        )
 
     def build_name(self, data: AlertDestinationData) -> str:
         return f"Webhook {url_hostname(data['webhook_url'])}"
