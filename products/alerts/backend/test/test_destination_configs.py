@@ -238,7 +238,15 @@ class TestWebhookDestination:
             ),
             ({"Authorization": "Bearer {inputs.token}"}, None),
             ({"Authorization": " Bearer not-a-real-token "}, (("Authorization", "Bearer not-a-real-token"),)),
-            ({"": "orphaned value", "Host": "internal.example.com", "X-Note": "caf\u00e9 \u201cquoted\u201d"}, None),
+            (
+                {
+                    "": "orphaned value",
+                    "Host": "internal.example.com",
+                    "X-Note": "caf\u00e9 \u201cquoted\u201d",
+                    "X-Caf\u00e9": "ok",
+                },
+                None,
+            ),
         ],
         ids=["stock", "added_auth_header", "templated_value", "padded_value", "unsendable"],
     )

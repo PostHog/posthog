@@ -126,6 +126,7 @@ _TRANSPORT_HEADER_NAMES: Final = frozenset(
 )
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- (name, value) header pairs, the shape dict() and requests take.
 def _added_webhook_headers(headers: Any) -> tuple[tuple[str, str], ...]:
     """The headers a user added to a webhook destination, such as an auth token.
 
@@ -144,6 +145,9 @@ def _added_webhook_headers(headers: Any) -> tuple[tuple[str, str], ...]:
             continue
         try:
             check_header_validity((name, value))
+            # http.client encodes a name as ASCII and a value as latin-1, and raises past the
+            # sender's error handling on anything else.
+            name.encode("ascii")
             value.encode("latin-1")
         except (InvalidHeader, UnicodeEncodeError):
             continue
