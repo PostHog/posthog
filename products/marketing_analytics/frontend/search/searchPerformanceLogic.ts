@@ -221,7 +221,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 s.displayMetrics,
             ],
             (
-                sources,
+                sources: MarketingAnalyticsSearchSource[],
                 dateFilter,
                 search,
                 compareFilter,
@@ -233,7 +233,10 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 sources,
                 breakdown,
                 compareFilter,
-                includePostHogConversions: breakdown === 'page' && metrics === 'conversions' && includeConversionGoals,
+                includePostHogConversions:
+                    metrics === 'conversions' &&
+                    includeConversionGoals &&
+                    (breakdown === 'page' || sources.some((source) => source.sourceType !== 'GoogleSearchConsole')),
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 search,
             }),
