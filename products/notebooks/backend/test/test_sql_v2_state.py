@@ -480,3 +480,31 @@ class TestNotebookCellState(APIBaseTest):
         assert by_node["p"]["depends_on"] == ["s"]
         assert by_node["s"]["last_run"]["run_id"]
         assert data["markdown"][by_node["s"]["start"] : by_node["s"]["end"]].startswith('<SQLV2 nodeId="s"')
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_state_endpoint_narrow_reads_omit_the_markdown(self, _mock_enabled) -> None:
+        long_code = "select " + ", ".join(f"col_{index}" for index in range(100))
+        notebook = self._notebook(
+            "# Heading\n\n"
+            f'<SQLV2 nodeId="s" code="{long_code}" returnVariable="df" />\n\n'
+            '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />'
+        )
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/state/"
+
+        compact = self.client.get(url, {"detail": "compact"}).json()
+        assert compact["markdown"] is None
+        assert [cell["cell_type"] for cell in compact["cells"]] == ["markdown", "sql", "python"]
+        by_node = {cell["node_id"]: cell for cell in compact["cells"]}
+        assert by_node["s"]["code"].endswith("… [truncated]")
+        assert len(by_node["s"]["code"]) < len(long_code)
+        assert by_node["p"]["depends_on"] == ["s"]
+
+        selected = self.client.get(url, {"cell_ids": "s"}).json()
+        assert selected["markdown"] is None
+        assert selected["content"] is None
+        assert [(cell["node_id"], cell["code"]) for cell in selected["cells"]] == [("s", long_code)]
+        assert selected["cells"][0]["dependents"] == ["p"]
+
+        unknown = self.client.get(url, {"cell_ids": "s,missing"})
+        assert unknown.status_code == status.HTTP_400_BAD_REQUEST
+        assert "missing" in unknown.json()["detail"]

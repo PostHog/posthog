@@ -1307,7 +1307,7 @@ export interface NotebookCellStateApi {
     cell_type: string
     /** Name other cells reference this cell's result by; blank means display-only. */
     dataframe_name: string
-    /** The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown. */
+    /** The cell's source, truncated with a marker past 8KB, or past a short preview on a compact read. For a markdown cell this is the block's markdown. */
     code: string
     /** Offset where the cell's source starts in the notebook's markdown, in UTF-16 code units, the same unit the collaboration diffs use. */
     start: number
@@ -1337,7 +1337,7 @@ export interface NotebookSQLV2StateResponseApi {
      */
     version: number | null
     /**
-     * The full markdown source — prose and cell tags. Null for legacy rich-text notebooks, which carry their document in `content` instead.
+     * The full markdown source — prose and cell tags. Null for legacy rich-text notebooks, which carry their document in `content` instead, and for a compact or selected-cell read.
      * @nullable
      */
     markdown: string | null
@@ -1347,7 +1347,7 @@ export interface NotebookSQLV2StateResponseApi {
     kernel: NotebookKernelStateApi
     /** The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run. */
     variables: NotebookVariableApi[]
-    /** Every cell in document order, with its dependency edges and derived run state. */
+    /** Every cell in document order, with its dependency edges and derived run state. Only the requested cells when `cell_ids` is set. */
     cells: NotebookCellStateApi[]
 }
 
@@ -1682,6 +1682,30 @@ export type NotebooksListParams = {
      */
     user?: string
 }
+
+export type NotebooksSqlV2StateRetrieveParams = {
+    /**
+     * Comma-separated node_ids. When set, the response returns the markdown as null and only these cells, each with its complete source. An unknown node_id fails the request.
+     * @minLength 1
+     */
+    cell_ids?: string
+    /**
+     * 'full' (default) returns the notebook's markdown and every cell's complete source. 'compact' returns the markdown as null and cuts each cell's source to a short preview, for a cheap read of the notebook's structure and cell status.
+     *
+     * * `full` - full
+     * * `compact` - compact
+     * @minLength 1
+     */
+    detail?: NotebooksSqlV2StateRetrieveDetail
+}
+
+export type NotebooksSqlV2StateRetrieveDetail =
+    (typeof NotebooksSqlV2StateRetrieveDetail)[keyof typeof NotebooksSqlV2StateRetrieveDetail]
+
+export const NotebooksSqlV2StateRetrieveDetail = {
+    Full: 'full',
+    Compact: 'compact',
+} as const
 
 export type NotebooksWidgetSnapshotFrameParams = {
     /**

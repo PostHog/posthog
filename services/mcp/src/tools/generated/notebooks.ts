@@ -140,13 +140,16 @@ const notebooksDestroy = (): ToolBase<ReturnType<typeof NotebooksDestroySchema>,
 
 const NotebooksGetSchema = () => {
     const NotebooksSqlV2StateRetrieveParams = orvalSchemas.NotebooksSqlV2StateRetrieveParams()
+    const NotebooksSqlV2StateRetrieveQueryParams = orvalSchemas.NotebooksSqlV2StateRetrieveQueryParams()
     return z.preprocess(
         normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
-        NotebooksSqlV2StateRetrieveParams.omit({ project_id: true }).extend({
-            short_id: NotebooksSqlV2StateRetrieveParams.shape['short_id'].describe(
-                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
-            ),
-        })
+        NotebooksSqlV2StateRetrieveParams.omit({ project_id: true })
+            .extend(NotebooksSqlV2StateRetrieveQueryParams.shape)
+            .extend({
+                short_id: NotebooksSqlV2StateRetrieveParams.shape['short_id'].describe(
+                    "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+                ),
+            })
     )
 }
 
@@ -161,6 +164,10 @@ const notebooksGet = (): ToolBase<
         const result = await context.api.request<Schemas.NotebookSQLV2StateResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/state/`,
+            query: {
+                cell_ids: params.cell_ids,
+                detail: params.detail,
+            },
         })
         return withInformationalResponse(
             await withPostHogUrl(context, result, `/notebooks/${result.notebook_id}`),

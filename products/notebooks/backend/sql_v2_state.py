@@ -53,6 +53,8 @@ MAX_NOTEBOOK_CELLS = 50
 __all__ = ["NotebookCellLimitExceeded"]
 _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
+# Enough of a cell's source to recognize it: a heading, a sentence, or the start of a query.
+_COMPACT_CODE_PREVIEW_CHARS = 200
 
 
 # Built in stages: `build_dependency_edges` fills the graph edges, `annotate_run_state` the run
@@ -349,3 +351,20 @@ def _merge_prose_cells(cells: list[NotebookCellState], content: Any) -> list[Not
         cell.end = block.end
         ordered.append(cell)
     return ordered
+
+
+def select_cells(cells: list[NotebookCellState], node_ids: list[str]) -> list[NotebookCellState]:
+    """Return the cells with these node_ids, in document order. Raise ValueError on an unknown node_id."""
+    known_ids = {cell.node_id for cell in cells}
+    unknown_ids = [node_id for node_id in node_ids if node_id not in known_ids]
+    if unknown_ids:
+        raise ValueError(f"Unknown cell ids: {', '.join(unknown_ids)}.")
+    wanted_ids = set(node_ids)
+    return [cell for cell in cells if cell.node_id in wanted_ids]
+
+
+def compact_cells(cells: list[NotebookCellState]) -> None:
+    """Cut each cell's source to a short preview in place."""
+    for cell in cells:
+        if len(cell.code) > _COMPACT_CODE_PREVIEW_CHARS:
+            cell.code = cell.code[:_COMPACT_CODE_PREVIEW_CHARS] + "… [truncated]"

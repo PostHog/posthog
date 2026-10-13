@@ -291,7 +291,7 @@ export const NotebooksSqlV2RunsInterruptCreateParams = () => zod.object({
 })
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. `detail=compact` and `cell_ids` return a smaller view. Flag-gated (revamped-py-notebooks).
  */
 export const NotebooksSqlV2StateRetrieveParams = () => zod.object({
     project_id: zod
@@ -300,6 +300,24 @@ export const NotebooksSqlV2StateRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
+})
+
+export const notebooksSqlV2StateRetrieveQueryDetailDefault = `full`
+
+export const NotebooksSqlV2StateRetrieveQueryParams = () => zod.object({
+    cell_ids: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated node_ids. When set, the response returns the markdown as null and only these cells, each with its complete source. An unknown node_id fails the request.'
+        ),
+    detail: zod
+        .enum(['full', 'compact'])
+        .default(notebooksSqlV2StateRetrieveQueryDetailDefault)
+        .describe(
+            "'full' (default) returns the notebook's markdown and every cell's complete source. 'compact' returns the markdown as null and cuts each cell's source to a short preview, for a cheap read of the notebook's structure and cell status.\n\n\* `full` - full\n\* `compact` - compact"
+        ),
 })
 
 /**
