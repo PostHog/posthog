@@ -7,13 +7,13 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
-import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
+import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour } from '~/types'
 
 /**
  * The single, blessed way to talk to the PostHog API from the toolbar.
  *
  * Every authenticated data request should go through `toolbarApi` — preferably one of its
- * resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.surveys.update(id, …)`), which
+ * resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.productTours.delete(id, …)`), which
  * own the route strings (see the `toolbarApi` export below for the full contract). It wraps
  * `toolbarFetch` (which owns the OAuth bearer + token refresh) and folds the eight different
  * ad-hoc failure-handling styles the toolbar had grown into one consistent contract:
@@ -236,7 +236,7 @@ const ENVIRONMENT = '/api/environments/@current'
 /**
  * `toolbarApi` is the single entry point for talking to the PostHog API from the toolbar.
  *
- * Prefer the resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.surveys.update(id, …)`):
+ * Prefer the resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.productTours.delete(id, …)`):
  * they own the route strings so every `/api/projects/@current/…` path lives in exactly one place
  * and call sites read as intent rather than URLs. Each method takes the resource-specific arguments
  * (id, payload, query) plus a `ToolbarApiOptions` and returns the same `ToolbarApiResult<T>`, so
@@ -297,23 +297,6 @@ export const toolbarApi = {
             apiPost<T>(`${PROJECT}/field_notes/`, payload, options),
         delete: (id: number | string, options: ToolbarApiOptions): Promise<ToolbarApiResult<null>> =>
             apiDelete(`${PROJECT}/field_notes/${id}/`, options),
-    },
-
-    surveys: {
-        list: (
-            params: { limit: number; offset: number; search?: string },
-            options: ToolbarApiOptions
-        ): Promise<ToolbarApiResult<{ results?: Survey[]; next?: string | null }>> =>
-            apiGet(`${PROJECT}/surveys/${encodeParams({ archived: false, ...params }, '?')}`, options),
-        create: (
-            payload: Record<string, any>,
-            options: ToolbarApiOptions
-        ): Promise<ToolbarApiResult<{ id?: string }>> => apiPost(`${PROJECT}/surveys/`, payload, options),
-        update: (
-            id: number | string,
-            payload: Record<string, any>,
-            options: ToolbarApiOptions
-        ): Promise<ToolbarApiResult<{ id?: string }>> => apiPatch(`${PROJECT}/surveys/${id}/`, payload, options),
     },
 
     featureFlags: {

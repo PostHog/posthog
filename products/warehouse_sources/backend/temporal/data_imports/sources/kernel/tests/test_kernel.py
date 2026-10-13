@@ -1,7 +1,7 @@
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 import time_machine
@@ -9,6 +9,16 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
     AUDIT_LOG_MAX_WINDOW,
     PAGE_SIZE,
@@ -16,31 +26,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.ker
     KernelUnexpectedResponseError,
     _extract_items,
     _next_page,
-    get_audit_log_rows,
-    get_rows,
     kernel_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS, KERNEL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source import KernelSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel"
+
+def _driver() -> SourceDriver:
+    return SourceDriver(KernelSource(), KernelSourceConfig(api_key="sk_test"))
+
+
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.rows for row in table.to_pylist()]
 
 
 def _response(
     items: Any, *, status_code: int = 200, has_more: bool | None = None, next_offset: int | None = None
-) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = items
-    resp.status_code = status_code
-    resp.ok = 200 <= status_code < 400
-    resp.text = "error"
+) -> ScriptedResponse:
     headers: dict[str, str] = {}
     if has_more is not None:
         headers["X-Has-More"] = "true" if has_more else "false"
     if next_offset is not None:
         headers["X-Next-Offset"] = str(next_offset)
-    resp.headers = headers
-    return resp
+    return ScriptedResponse(status=status_code, json=items, headers=headers)
 
 
 class TestExtractItems:
@@ -85,110 +94,80 @@ class TestNextPage:
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_sends_bearer_auth(self, mock_session: Any) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
+    def test_sends_bearer_auth(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("sk_test") == (True, 200)
 
-        validate_credentials("sk_test")
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer sk_test"
+        assert network.requests_log[0].headers["authorization"] == "Bearer sk_test"
         # Kernel responses carry secrets the generic sampler can't scrub, so capture must be off.
-        assert mock_session.call_args.kwargs["capture"] is False
+        assert network.session_options[0]["capture"] is False
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_transport_failure_returns_none_status(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("sk_test") == (False, None)
+    def test_transport_failure_returns_none_status(self) -> None:
+        with scripted_network([ConnectionResetError("boom")]):
+            assert validate_credentials("sk_test") == (False, None)
 
 
 class TestGetRows:
-    def _collect(self, endpoint: str) -> list[dict]:
-        rows: list[dict] = []
-        for table in get_rows("sk_test", endpoint, mock.MagicMock()):
-            rows.extend(table.to_pylist())
-        return rows
+    def test_offset_pagination_follows_next_offset_header(self) -> None:
+        result = _driver().run(
+            "deployments",
+            [
+                _response([{"id": "a1"}], has_more=True, next_offset=100),
+                _response([{"id": "a2"}], has_more=False),
+            ],
+        )
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_offset_pagination_follows_next_offset_header(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "a1"}], has_more=True, next_offset=100),
-            _response([{"id": "a2"}], has_more=False),
-        ]
+        assert result.raised is None
+        assert _rows(result) == [{"id": "a1"}, {"id": "a2"}]
+        assert result.params("offset") == ["0", "100"]
 
-        rows = self._collect("deployments")
+    def test_empty_first_page_yields_nothing(self) -> None:
+        result = _driver().run("profiles", [_response([], has_more=False)])
+        assert result.raised is None
+        assert _rows(result) == []
 
-        assert rows == [{"id": "a1"}, {"id": "a2"}]
-        urls = [call.kwargs.get("url") or call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert "offset=0" in urls[0]
-        assert "offset=100" in urls[1]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_first_page_yields_nothing(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = _response([], has_more=False)
-        assert self._collect("profiles") == []
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_page_with_more_pages_keeps_paging(self, mock_session: Any) -> None:
+    def test_empty_page_with_more_pages_keeps_paging(self) -> None:
         # An empty page that still reports X-Has-More must not end the sync early.
-        mock_session.return_value.get.side_effect = [
-            _response([], has_more=True, next_offset=100),
-            _response([{"id": "a1"}], has_more=False),
-        ]
-        assert self._collect("apps") == [{"id": "a1"}]
+        result = _driver().run(
+            "apps",
+            [
+                _response([], has_more=True, next_offset=100),
+                _response([{"id": "a1"}], has_more=False),
+            ],
+        )
+        assert result.raised is None
+        assert _rows(result) == [{"id": "a1"}]
+        assert result.params("offset") == ["0", "100"]
 
     @pytest.mark.parametrize(
         "error_code, expect_error",
         [("projects_disabled", False), ("not_found", True)],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_projects_404_is_empty_only_when_projects_are_disabled(
-        self, mock_session: Any, error_code: str, expect_error: bool
-    ) -> None:
-        response = _response({"code": error_code, "message": "nope"}, status_code=404)
-        response.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=response)
-        mock_session.return_value.get.return_value = response
+    def test_projects_404_is_empty_only_when_projects_are_disabled(self, error_code: str, expect_error: bool) -> None:
+        result = _driver().run("projects", [_response({"code": error_code, "message": "nope"}, status_code=404)])
 
         if expect_error:
-            with pytest.raises(requests.HTTPError):
-                self._collect("projects")
+            assert isinstance(result.raised, requests.HTTPError)
         else:
-            assert self._collect("projects") == []
+            assert result.raised is None
+            assert _rows(result) == []
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_unexpected_response_shape_raises(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = _response({"unexpected": [{"id": "a1"}]}, has_more=False)
+    def test_unexpected_response_shape_raises(self) -> None:
+        result = _driver().run("apps", [_response({"unexpected": [{"id": "a1"}]}, has_more=False)])
 
-        with pytest.raises(KernelUnexpectedResponseError):
-            self._collect("apps")
+        assert isinstance(result.raised, KernelUnexpectedResponseError)
 
-    @mock.patch("time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_retries_exhausted_raises(self, mock_session: Any, _sleep: Any) -> None:
-        mock_session.return_value.get.return_value = _response(None, status_code=503)
+    def test_retries_exhausted_raises(self) -> None:
+        result = _driver().run("apps", always(_response(None, status_code=503)))
 
-        with pytest.raises(KernelRetryableError):
-            self._collect("apps")
-
-        assert mock_session.return_value.get.call_count == 5
+        assert isinstance(result.raised, KernelRetryableError)
+        assert set(result.paths) == {"/apps"}
+        assert len(result.requests) >= 5
 
 
 class TestBrowserTelemetryEvents:
-    def _collect(self, responses: dict[str, list[mock.MagicMock]]) -> tuple[list[dict], list[str]]:
-        requested: list[str] = []
-
-        def _get(url: str, **_kwargs: Any) -> mock.MagicMock:
-            requested.append(url)
-            return responses[urlparse(url).path].pop(0)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = _get
-            rows: list[dict] = []
-            for table in get_rows("sk_test", "browser_telemetry_events", mock.MagicMock()):
-                rows.extend(table.to_pylist())
-        return rows, requested
+    def _collect(self, responses: dict[str, list[ScriptedResponse]]) -> DriveResult:
+        return _driver().run("browser_telemetry_events", route(responses))
 
     def test_fans_out_over_browsers_within_retention(self) -> None:
         now = datetime.now(UTC)
@@ -214,7 +193,7 @@ class TestBrowserTelemetryEvents:
             "ts": 1700000000000001,
             "data": {"png": "aGk="},
         }
-        rows, requested = self._collect(
+        result = self._collect(
             {
                 "/browsers": [_response(browsers, has_more=False)],
                 "/browsers/active/telemetry/events": [
@@ -225,7 +204,8 @@ class TestBrowserTelemetryEvents:
             }
         )
 
-        assert [{**row, "data": json.loads(row["data"])} for row in rows] == [
+        assert result.raised is None
+        assert [{**row, "data": json.loads(row["data"])} for row in _rows(result)] == [
             {
                 "browser_session_id": "active",
                 "seq": 1,
@@ -243,15 +223,15 @@ class TestBrowserTelemetryEvents:
                 "data": {},
             },
         ]
-        assert parse_qs(urlparse(requested[0]).query)["status"] == ["all"]
-        assert not any("/browsers/expired/" in url for url in requested)
+        assert result.requests[0].param("status") == "all"
+        assert not any("/browsers/expired/" in path for path in result.paths)
 
-        first_page, second_page = (parse_qs(urlparse(url).query) for url in requested[1:3])
+        first_page, second_page = result.requests[1:3]
         # Without `since` Kernel only returns the last 5 minutes of events.
-        since = datetime.fromisoformat(first_page["since"][0])
+        since = datetime.fromisoformat(first_page.param("since") or "")
         assert now - timedelta(days=31) < since < now - timedelta(days=29)
-        assert "offset" not in first_page
-        assert second_page["offset"] == ["987"]
+        assert first_page.param("offset") is None
+        assert second_page.param("offset") == "987"
 
     @pytest.mark.parametrize(
         "has_more, next_offset",
@@ -263,7 +243,7 @@ class TestBrowserTelemetryEvents:
     )
     def test_stops_when_cursor_cannot_advance(self, has_more: bool, next_offset: int | None) -> None:
         event = {"category": "page", "type": "page_load", "ts": 1}
-        rows, requested = self._collect(
+        result = self._collect(
             {
                 "/browsers": [_response([{"session_id": "b1"}], has_more=False)],
                 "/browsers/b1/telemetry/events": [
@@ -272,12 +252,13 @@ class TestBrowserTelemetryEvents:
             }
         )
 
-        assert [row["seq"] for row in rows] == [1]
-        assert len(requested) == 2
+        assert result.raised is None
+        assert [row["seq"] for row in _rows(result)] == [1]
+        assert len(result.requests) == 2
 
     def test_skips_browser_purged_after_listing(self) -> None:
         event = {"category": "console", "type": "console_log", "ts": 1, "data": {"text": "hello"}}
-        rows, _ = self._collect(
+        result = self._collect(
             {
                 "/browsers": [_response([{"session_id": "gone"}, {"session_id": "b2"}], has_more=False)],
                 "/browsers/gone/telemetry/events": [_response({"code": "not_found"}, status_code=404)],
@@ -285,7 +266,8 @@ class TestBrowserTelemetryEvents:
             }
         )
 
-        assert [(row["browser_session_id"], row["seq"]) for row in rows] == [("b2", 7)]
+        assert result.raised is None
+        assert [(row["browser_session_id"], row["seq"]) for row in _rows(result)] == [("b2", 7)]
 
 
 class TestKernelSourceResponse:
@@ -326,38 +308,29 @@ def _audit_record(at: datetime, path: str = "/browsers") -> dict[str, Any]:
     }
 
 
-def _fake_audit_log_api(records: list[dict[str, Any]], requested_windows: list[timedelta]) -> Any:
-    def get(url: str, headers: dict[str, str], timeout: int) -> mock.MagicMock:
-        query = parse_qs(urlparse(url).query)
-        start = datetime.fromisoformat(query["start"][0])
-        end = datetime.fromisoformat(query["end"][0])
-        requested_windows.append(end - start)
+def _fake_audit_log_api(records: list[dict[str, Any]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        start = datetime.fromisoformat(request.param("start") or "")
+        end = datetime.fromisoformat(request.param("end") or "")
         in_window = sorted(
             (r for r in records if start <= datetime.fromisoformat(r["timestamp"]) < end),
             key=lambda r: r["timestamp"],
             reverse=True,
         )
-        offset = int(query.get("page_token", ["0"])[0])
+        offset = int(request.param("page_token") or "0")
         page = [dict(r) for r in in_window[offset : offset + PAGE_SIZE]]
         has_more = offset + PAGE_SIZE < len(in_window)
-        response = _response(page, has_more=has_more)
+        headers = {"X-Has-More": "true" if has_more else "false"}
         if has_more:
-            response.headers["X-Next-Page-Token"] = str(offset + PAGE_SIZE)
-        return response
+            headers["X-Next-Page-Token"] = str(offset + PAGE_SIZE)
+        return ScriptedResponse(json=page, headers=headers)
 
-    return get
+    return respond
 
 
 class TestAuditLogRows:
-    def _collect(self, last_value: Any = None) -> list[dict]:
-        rows: list[dict] = []
-        for table in get_audit_log_rows("sk_test", mock.MagicMock(), db_incremental_field_last_value=last_value):
-            rows.extend(table.to_pylist())
-        return rows
-
     @time_machine.travel(_NOW, tick=False)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_returns_every_record_once_oldest_first(self, mock_session: Any) -> None:
+    def test_returns_every_record_once_oldest_first(self) -> None:
         busy_hour = _NOW - timedelta(days=3)
         records = [
             _audit_record(_NOW - timedelta(days=300)),
@@ -367,22 +340,33 @@ class TestAuditLogRows:
             _audit_record(_NOW - timedelta(hours=2), path="/apps"),
             _audit_record(_NOW - timedelta(hours=2), path="/apps"),
         ]
-        requested_windows: list[timedelta] = []
-        mock_session.return_value.get.side_effect = _fake_audit_log_api(records, requested_windows)
+        result = _driver().run("audit_logs", _fake_audit_log_api(records))
+        rows = _rows(result)
 
-        rows = self._collect()
-
+        assert result.raised is None
         assert len(rows) == len(records)
         timestamps = [datetime.fromisoformat(r["timestamp"]) for r in rows]
         assert timestamps == sorted(timestamps)
         assert len({r["id"] for r in rows}) == len(records)
-        assert max(requested_windows) <= AUDIT_LOG_MAX_WINDOW
+        assert (
+            max(
+                datetime.fromisoformat(request.param("end") or "")
+                - datetime.fromisoformat(request.param("start") or "")
+                for request in result.requests
+            )
+            <= AUDIT_LOG_MAX_WINDOW
+        )
 
         # A later incremental sync re-reads records at the watermark; they must keep their ids
         # so merge dedupes them.
-        mock_session.return_value.get.side_effect = _fake_audit_log_api(records, [])
-        rerun = self._collect(last_value=_NOW - timedelta(hours=2))
-        assert {r["id"] for r in rerun} == {r["id"] for r in rows[-2:]}
+        rerun = _driver().run(
+            "audit_logs",
+            _fake_audit_log_api(records),
+            incremental_field="timestamp",
+            db_incremental_field_last_value=_NOW - timedelta(hours=2),
+        )
+        assert rerun.raised is None
+        assert {r["id"] for r in _rows(rerun)} == {r["id"] for r in rows[-2:]}
 
     @pytest.mark.parametrize(
         "last_value, expected_start",
@@ -395,15 +379,14 @@ class TestAuditLogRows:
         ],
     )
     @time_machine.travel(_NOW, tick=False)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_search_starts_at_watermark_or_retention_edge(
-        self, mock_session: Any, last_value: Any, expected_start: datetime
-    ) -> None:
-        mock_session.return_value.get.return_value = _response([], has_more=False)
+    def test_search_starts_at_watermark_or_retention_edge(self, last_value: Any, expected_start: datetime) -> None:
+        result = _driver().run(
+            "audit_logs",
+            always(_response([], has_more=False)),
+            incremental_field="timestamp" if last_value is not None else None,
+            db_incremental_field_last_value=last_value,
+        )
 
-        self._collect(last_value=last_value)
-
-        first_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[0].args[0]).query)
-        assert datetime.fromisoformat(first_query["start"][0]) == expected_start
-        last_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[-1].args[0]).query)
-        assert datetime.fromisoformat(last_query["end"][0]) == _NOW
+        assert result.raised is None
+        assert datetime.fromisoformat(result.requests[0].param("start") or "") == expected_start
+        assert datetime.fromisoformat(result.requests[-1].param("end") or "") == _NOW

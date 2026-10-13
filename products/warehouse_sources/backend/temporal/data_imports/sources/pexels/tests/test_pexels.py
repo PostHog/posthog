@@ -1,79 +1,28 @@
-import json
 from typing import Any
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.pexels import pexels
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pexels import PexelsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.pexels import (
     PexelsResumeConfig,
     _build_url,
-    pexels_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the pexels module.
-PEXELS_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.pexels.pexels.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source import PexelsSource
 
 
-def _response(
-    items: list[dict[str, Any]] | None, *, data_key: str = "photos", next_page: str | None = None
-) -> Response:
-    body: dict[str, Any] = {data_key: items if items is not None else []}
-    if next_page:
-        body["next_page"] = next_page
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    resp.url = "https://api.pexels.com/v1/curated"
-    return resp
+def _driver(api_key: str = "k", search_query: str | None = None) -> SourceDriver:
+    return SourceDriver(PexelsSource(), PexelsSourceConfig(api_key=api_key, search_query=search_query))
 
 
-def _status_response(status_code: int) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps({"error": "boom"}).encode()
-    resp.url = "https://api.pexels.com/v1/curated"
-    return resp
-
-
-def _make_manager(resume_state: PexelsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = "https://api.pexels.com/v1/curated"
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _page(items: list[dict[str, Any]], data_key: str = "photos") -> ScriptedResponse:
+    return ScriptedResponse(json={data_key: items})
 
 
 class TestBuildUrl:
@@ -96,131 +45,72 @@ class TestAuth:
     def test_request_sends_raw_key_as_authorization_without_bearer(self) -> None:
         # The framework api_key auth must put the raw key on Authorization (no "Bearer " prefix);
         # exercise a real prepare_request so the auth is actually applied.
-        real_session = requests.Session()
-        captured: dict[str, str | None] = {}
+        result = _driver(api_key="raw-key").run("curated_photos", [_page([])])
 
-        def fake_send(prepared: Any, **_kwargs: Any) -> Response:
-            captured["auth"] = prepared.headers.get("Authorization")
-            return _response([])
-
-        real_session.send = fake_send  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=real_session):
-            _rows(
-                pexels_source(
-                    api_key="raw-key",
-                    endpoint="curated_photos",
-                    team_id=1,
-                    job_id="j",
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-        assert captured["auth"] == "raw-key"
-        assert "Bearer" not in (captured["auth"] or "")
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == "raw-key"
+        assert "Bearer" not in result.requests[0].headers["authorization"]
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_search_endpoint_sends_query_param(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}]), _response([])])
+    def test_search_endpoint_sends_query_param(self) -> None:
+        result = _driver(search_query="red car").run("search_photos", [_page([{"id": 1}]), _page([])])
 
-        _rows(
-            pexels_source(
-                api_key="k",
-                endpoint="search_photos",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                search_query="red car",
-            )
-        )
-
-        assert params[0]["query"] == "red car"
+        assert result.raised is None
+        assert result.requests[0].param("query") == "red car"
 
     @parameterized.expand([("none", None), ("empty", "")])
     def test_search_endpoint_without_query_raises(self, _name: str, query: str | None) -> None:
         # A missing query on a search endpoint must fail loudly, not send a literal `?query=None`.
-        with pytest.raises(ValueError, match="requires a search query"):
-            pexels_source(
-                api_key="k",
-                endpoint="search_photos",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                search_query=query,
-            )
+        result = _driver(search_query=query).run("search_photos", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "requires a search query" in str(result.raised)
+        assert result.requests == []
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
+    def test_resumes_from_saved_page(self) -> None:
         # A resumed job must start at the saved page, not page 1.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 2}]), _response([])])
-
-        manager = _make_manager(PexelsResumeConfig(page=2))
-        rows = _rows(
-            pexels_source(
-                api_key="k", endpoint="curated_photos", team_id=1, job_id="j", resumable_source_manager=manager
-            )
+        result = _driver().run(
+            "curated_photos", [_page([{"id": 2}]), _page([])], resume_state=PexelsResumeConfig(page=2)
         )
 
-        assert rows == [{"id": 2}]
-        assert params[0]["page"] == 2
+        assert result.raised is None
+        assert result.rows == [{"id": 2}]
+        assert result.params("page")[0] == "2"
 
 
 class TestRetryClassification:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unauthorized_raises_and_is_not_retried(self, MockSession) -> None:
+    def test_unauthorized_raises_and_is_not_retried(self) -> None:
         # A 401 is a credential problem — it must surface immediately, not retry.
-        session = MockSession.return_value
-        _wire(session, [_status_response(401)])
+        result = _driver().run("curated_photos", [ScriptedResponse(status=401, json={"error": "boom"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(
-                pexels_source(
-                    api_key="k",
-                    endpoint="curated_photos",
-                    team_id=1,
-                    job_id="j",
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestApiKeyRedaction:
     # Pexels sends the key as a raw Authorization value the sampler can't scrub by name, so the
     # source must register it for redaction (via the framework auth's secret_values) or the plaintext
     # key leaks into captured samples.
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_registers_api_key_for_redaction(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
+    def test_source_registers_api_key_for_redaction(self) -> None:
+        result = _driver(api_key="secret-key").run("curated_photos", [_page([])])
 
-        _rows(
-            pexels_source(
-                api_key="secret-key",
-                endpoint="curated_photos",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-        assert MockSession.call_args.kwargs["redact_values"] == ("secret-key",)
+        assert result.raised is None
+        assert result.session_options[0]["redact_values"] == ("secret-key",)
 
     def test_validate_credentials_registers_api_key_for_redaction(self) -> None:
-        factory = mock.MagicMock()
-        factory.return_value.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(PEXELS_SESSION_PATCH, factory):
-            validate_credentials("secret-key")
-        assert factory.call_args.kwargs["redact_values"] == ("secret-key",)
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("secret-key") is True
+
+        assert network.session_options[0]["redact_values"] == ("secret-key",)
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status_code)
-        with mock.patch.object(pexels, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("k") is expected
+
+        assert network.requests_log[0].path == "/v1/curated"
