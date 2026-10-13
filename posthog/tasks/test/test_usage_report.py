@@ -2326,7 +2326,7 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
         )
 
 
-class TestTrimOversizeUsageReportPayload(TestCase):
+class TestTrimOversizeUsageReportPayload(SimpleTestCase):
     @parameterized.expand(
         [
             ("under_limit", 2, False),
@@ -5510,7 +5510,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_client.group_identify.assert_not_called()
 
 
-class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         materialize("events", "$exception_values")
