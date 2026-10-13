@@ -38,6 +38,7 @@ def user_resolution_failure_reply(
     slack_email: str | None,
     linking_available: bool = False,
     home_tab_url: str | None = None,
+    invite_followup: str | None = None,
 ) -> str | None:
     """Map a ``UserAndIntegrationsResolution.failure_reason`` to the user-facing
     text, mentioning ``slack_email`` when known so the user sees which address
@@ -54,6 +55,10 @@ def user_resolution_failure_reply(
 
     ``home_tab_url`` deep-links to the app's Home tab, which carries the same link
     button. The reader is already in Slack, so the hint names the tab first.
+
+    ``invite_followup`` replaces the "ask an admin to invite you" clause when the app has
+    already asked someone, or when signing in is enough. It starts in lowercase, because
+    it may follow "If you don't have an account,".
     """
     if failure_reason == "user_not_found":
         if home_tab_url:
@@ -70,9 +75,10 @@ def user_resolution_failure_reply(
             prefix = (
                 f"Sorry, I couldn't find {slack_email} in any PostHog organization connected to this Slack workspace."
             )
+            invite_hint = invite_followup or f"ask an admin to invite {slack_email}. Then mention me again."
             if linking_available:
-                return f"{prefix} {link_hint} If you don't have an account, ask an admin to invite {slack_email}. Then mention me again."
-            return f"{prefix} Ask an admin to invite you, then mention me again."
+                return f"{prefix} {link_hint} If you don't have an account, {invite_hint}"
+            return f"{prefix} {invite_hint[0].upper()}{invite_hint[1:]}"
         prefix = (
             "Sorry, I couldn't find your email address in Slack. "
             "Please make sure your email is visible in your Slack profile."
