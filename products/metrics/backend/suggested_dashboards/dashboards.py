@@ -77,10 +77,13 @@ def _fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
     for index, layout in boxes:
         rows[layout.y].append((index, layout))
     placed: dict[int, GridLayout] = {}
-    for row in rows.values():
+    for top, row in rows.items():
         row.sort(key=lambda item: item[1].x)
         total = sum(layout.w for _, layout in row)
-        if total >= GRID_COLUMNS or not total:
+        bottom = top + max(layout.h for _, layout in row)
+        # A tile of another row beside this one, such as a tall tile, keeps its columns.
+        crossed = any(layout.y != top and layout.y < bottom and layout.y + layout.h > top for _, layout in boxes)
+        if total >= GRID_COLUMNS or not total or crossed:
             placed.update(dict(row))
             continue
         widths = [max(MIN_INSIGHT_WIDTH, layout.w * GRID_COLUMNS // total) for _, layout in row]

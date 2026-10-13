@@ -242,9 +242,9 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
         },
         previewDashboardId: {
             setTemplateId: () => null,
-            // A review deletes the preview, so the page stops showing it.
-            approveTemplateSuccess: () => null,
-            rejectTemplateSuccess: () => null,
+            // A review deletes the preview, so the page stops showing it. A failed review keeps it.
+            approveTemplateSuccess: (state, { template }) => (template?.status === 'approved' ? null : state),
+            rejectTemplateSuccess: (state, { template }) => (template?.status === 'rejected' ? null : state),
         },
         previewError: [
             null as string | null,
@@ -300,8 +300,12 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
         approveTemplateSuccess: () => {
             actions.loadTemplates()
         },
-        rejectTemplateSuccess: () => {
+        rejectTemplateSuccess: ({ template }) => {
             actions.loadTemplates()
+            // A rejected dashboard can still be approved, so it gets a new preview.
+            if (template?.status === 'rejected') {
+                actions.openPreview()
+            }
         },
         analyzeProject: async () => {
             try {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import datetime as dt
 from collections.abc import Sequence
 
 from django.db import transaction
@@ -134,16 +135,19 @@ def _save_suggestions(team: Team, suggested: dict[str, str], matches: dict[str, 
     return len(suggested)
 
 
-def _record_analysis(team: Team, names: list[str], revision: str, names_fingerprint: int | None) -> None:
+def _record_analysis(
+    team: Team, names: list[str], revision: str, names_fingerprint: int | None, started_at: dt.datetime
+) -> None:
     values: dict[str, object] = {
         "analyzed_metric_names": names,
         "bank_revision": revision,
         "analyzed_at": timezone.now(),
-        "noted_at": None,
     }
     if names_fingerprint is not None:
         values["names_fingerprint"] = names_fingerprint
     MetricsDashboardDiscovery.objects.for_team(team.id).update_or_create(team_id=team.id, defaults=values)
+    # This analysis read the changes noted before it started. A note written since then stays for the next one.
+    MetricsDashboardDiscovery.objects.for_team(team.id).filter(noted_at__lte=started_at).update(noted_at=None)
 
 
 def analyze_team(team_id: int, *, force: bool = False, names_fingerprint: int | None = None) -> AnalysisResult:
@@ -153,8 +157,9 @@ def analyze_team(team_id: int, *, force: bool = False, names_fingerprint: int | 
     consent or without a gateway, only the templates that most of the team's metrics fit are suggested.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
+    started_at = timezone.now()
     MetricsDashboardDiscovery.objects.for_team(team.id).update_or_create(
-        team_id=team.id, defaults={"attempted_at": timezone.now()}
+        team_id=team.id, defaults={"attempted_at": started_at}
     )
     catalog = MetricCatalog.load(team)
     entries = catalog.entries(limit=CATALOG_LIMIT)
@@ -172,7 +177,7 @@ def analyze_team(team_id: int, *, force: bool = False, names_fingerprint: int | 
             )
         return AnalysisResult(analyzed=False)
     if not names:
-        _record_analysis(team, names, revision, names_fingerprint)
+        _record_analysis(team, names, revision, names_fingerprint, started_at)
         return AnalysisResult(analyzed=True)
 
     templates = list(MetricsDashboardTemplate.objects.filter(status=MetricsDashboardTemplate.Status.APPROVED))
@@ -208,5 +213,5 @@ def analyze_team(team_id: int, *, force: bool = False, names_fingerprint: int | 
     if answer is not None:
         covered = {name for key in suggested for name in matches[key][1].matched_metric_names}
         requests = _proposals(answer, catalog, covered)
-    _record_analysis(team, names, revision, names_fingerprint)
+    _record_analysis(team, names, revision, names_fingerprint, started_at)
     return AnalysisResult(analyzed=True, suggestion_count=count, generation_requests=requests)

@@ -7,7 +7,7 @@ from typing import Any, TypeVar
 
 import structlog
 from anthropic import APIError
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError, build_anthropic_client
 
@@ -59,6 +59,10 @@ def ask_model(
     except APIError as error:
         logger.warning("metrics_suggested_dashboards_model_failed", stage=stage, team_id=team_id, error=str(error))
         raise ModelFailed(f"The model call failed: {error.__class__.__name__}") from error
+    except ValidationError as error:
+        # A truncated or plain-text answer does not parse as the schema.
+        logger.warning("metrics_suggested_dashboards_model_answer_invalid", stage=stage, team_id=team_id)
+        raise ModelFailed("The model answer did not fit the schema.") from error
     if response.stop_reason == "refusal":
         raise ModelFailed("The model declined to answer.")
     answer = response.parsed_output

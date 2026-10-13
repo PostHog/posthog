@@ -18,6 +18,7 @@ from products.metrics.backend.models import (
     MetricsDashboardTemplate,
 )
 from products.metrics.backend.suggested_dashboards.analysis import analyze_team, bank_revision
+from products.metrics.backend.suggested_dashboards.bank import sync_curated_templates
 from products.metrics.backend.suggested_dashboards.discovery import record_opened, teams_to_analyze
 from products.metrics.backend.suggested_dashboards.generation import (
     fail_stale_generations,
@@ -213,6 +214,15 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         template.refresh_from_db()
         assert template.status == template_status
+
+    def test_a_curated_template_comes_back_with_its_file(self) -> None:
+        sync_curated_templates()
+        # An older worker without the file withdrew it during a deploy.
+        MetricsDashboardTemplate.objects.filter(key="redis").update(status="rejected")
+
+        sync_curated_templates()
+
+        assert MetricsDashboardTemplate.objects.get(key="redis").status == "approved"
 
     def test_the_sweep_fails_a_generation_that_stopped(self) -> None:
         preview = Dashboard.objects.create(

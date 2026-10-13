@@ -355,7 +355,17 @@ def check_preview(template_id: str, round_number: int, *, revise: bool) -> bool:
         if converted.panels:
             current.revised = True
             _store_panels(template, record, converted)
-            _save_record(template, record, "panels", "metric_names")
+            # The preview shows the old panels. A review that approved it would bring them back.
+            drop_preview(template)
+            _save_record(
+                template,
+                record,
+                "panels",
+                "metric_names",
+                "preview_team_id",
+                "preview_dashboard_id",
+                "preview_unbuilt_keys",
+            )
             return False
     _save_record(template, record)
     return looks_good

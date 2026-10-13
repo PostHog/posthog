@@ -1,5 +1,7 @@
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -15,8 +17,9 @@ from products.metrics.backend.suggested_dashboards.bank import curated_templates
 from products.metrics.backend.suggested_dashboards.dashboards import build_tiles, panels_from_tiles
 from products.metrics.backend.suggested_dashboards.discovery import _signed
 from products.metrics.backend.suggested_dashboards.generation import _convert
+from products.metrics.backend.suggested_dashboards.llm import ModelFailed, ask_model
 from products.metrics.backend.suggested_dashboards.matching import match_template
-from products.metrics.backend.suggested_dashboards.spec import DraftPanel, TemplatePanel
+from products.metrics.backend.suggested_dashboards.spec import DraftPanel, EvaluationAnswer, TemplatePanel
 
 CATALOG = MetricCatalog(
     [
@@ -40,8 +43,10 @@ def _query(*names: str, kind: str = "MetricsQuery") -> dict[str, Any]:
     }
 
 
-def _panel(key: str, *names: str, x: int = 0, y: int = 0, w: int = 6, kind: str = "MetricsQuery") -> TemplatePanel:
-    return TemplatePanel(key=key, title=key, query=_query(*names, kind=kind), layout=GridLayout(x=x, y=y, w=w, h=4))
+def _panel(
+    key: str, *names: str, x: int = 0, y: int = 0, w: int = 6, h: int = 4, kind: str = "MetricsQuery"
+) -> TemplatePanel:
+    return TemplatePanel(key=key, title=key, query=_query(*names, kind=kind), layout=GridLayout(x=x, y=y, w=w, h=h))
 
 
 class TestSuggestedDashboards(SimpleTestCase):
@@ -99,6 +104,34 @@ class TestSuggestedDashboards(SimpleTestCase):
         ]
         assert insights[0].query["clauses"][0]["metricType"] == "sum"
         assert insights[2].query["metricType"] == "histogram"
+
+    def test_build_tiles_keeps_the_columns_of_a_tile_beside_a_taller_one(self) -> None:
+        built = build_tiles(
+            [
+                _panel("tall", "orders_total", w=6, h=8),
+                _panel("upper", "queue_depth", x=6),
+                _panel("lower", "queue_depth", x=6, y=4),
+                _panel("missing", "missing_total", y=8, w=12),
+            ],
+            CATALOG,
+        )
+
+        insights = [tile for tile in built.tiles if isinstance(tile, NewInsightTile)]
+        assert [(tile.name, tile.layout.x, tile.layout.y, tile.layout.w) for tile in insights] == [
+            ("tall", 0, 0, 6),
+            ("upper", 6, 0, 6),
+            ("lower", 6, 4, 6),
+        ]
+
+    def test_an_answer_that_does_not_parse_is_a_failed_model_call(self) -> None:
+        client = MagicMock()
+        # A truncated answer fails the schema while the SDK parses it.
+        client.messages.parse.side_effect = lambda **kwargs: EvaluationAnswer.model_validate_json('{"suggested": [')
+        with (
+            patch("products.metrics.backend.suggested_dashboards.llm.build_anthropic_client", return_value=client),
+            self.assertRaises(ModelFailed),
+        ):
+            ask_model(team_id=1, stage="evaluate", system="", content=[], answer_type=EvaluationAnswer)
 
     def test_panels_from_tiles_keeps_metrics_tiles_and_drops_team_metric_types(self) -> None:
         metrics_query: dict[str, Any] = {**_query("orders_total"), "dateRange": {"date_from": "-1h"}}

@@ -57,7 +57,11 @@ def sync_curated_templates() -> int:
         }
         for key, template in curated.items():
             row = existing.get(key)
-            if row is not None and row.content_hash == template.content_hash:
+            if (
+                row is not None
+                and row.content_hash == template.content_hash
+                and row.status == MetricsDashboardTemplate.Status.APPROVED
+            ):
                 continue
             definition = template.definition
             values = {
