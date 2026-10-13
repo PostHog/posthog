@@ -88,7 +88,7 @@ export interface AiOnboardingProps extends AiOnboardingLogicProps {
 export function AiOnboarding({ panelId, autoOpen }: AiOnboardingProps): JSX.Element | null {
     const logicProps: AiOnboardingLogicProps = useMemo(() => ({ panelId }), [panelId])
     const { isOpen, stepIndex, hasSeenOnboarding, user } = useValues(aiOnboardingLogic(logicProps))
-    const { openOnboarding, closeOnboarding, finishOnboarding, setStepIndex, replayMedia } = useActions(
+    const { openOnboarding, closeOnboarding, setStepIndex, replayMedia } = useActions(
         aiOnboardingLogic(logicProps)
     )
 
@@ -115,7 +115,6 @@ export function AiOnboarding({ panelId, autoOpen }: AiOnboardingProps): JSX.Elem
                 stepIndex={stepIndex}
                 onStepIndexChange={setStepIndex}
                 onDismiss={closeOnboarding}
-                onFinish={finishOnboarding}
                 onReplayMedia={replayMedia}
                 stepActions={{
                     connect: <ConnectGithubAction />,
