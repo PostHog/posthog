@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
@@ -23,6 +23,11 @@ export function WorkflowDataSuggestions(): JSX.Element | null {
                 <span className="inline-flex items-center gap-1 text-xs text-tertiary">
                     {aiResultLoading ? <Spinner className="size-3" /> : <IconSparkles className="size-3" />}
                     Or start from your data
+                    <Tooltip title="AI writes these suggestions from your project's events. Check each draft before you turn it on.">
+                        <LemonTag type="completion" size="small">
+                            Beta
+                        </LemonTag>
+                    </Tooltip>
                 </span>
                 <div className="h-px flex-1 bg-border-primary" />
             </div>
