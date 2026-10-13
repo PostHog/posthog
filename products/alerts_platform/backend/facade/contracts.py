@@ -339,8 +339,7 @@ class AlertDeliveryRequest:
     incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
     sends_messages: bool = True
     event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
-    # The alert's page on the source's own product, where people open and edit it. Without one a
-    # message links to the platform's page for the configuration.
+    # The alert's page in the source's own product. Without one a message links to the platform's page.
     source_alert_url: str | None = None
 
 

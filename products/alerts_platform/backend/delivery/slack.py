@@ -104,8 +104,7 @@ class SlackTransport:
                 blocks,
                 text,
                 thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
-                # A resolve also shows in the channel, as the HogFunction path posted it. Editing
-                # the opening message notifies nobody, so the reply is what tells people.
+                # A root edit notifies nobody, so a resolve also goes to the channel, as legacy posted it.
                 reply_broadcast=in_reply_to is not None and message.transition.kind == AlertEventKind.RESOLVED,
             )
         except SlackApiError as error:

@@ -135,7 +135,6 @@ class TestSlackTransport(APIBaseTest):
         )
 
         assert post.call_args.kwargs["thread_ts"] == "1699999999.9"
-        # Only a resolve also shows in the channel, as the HogFunction path posted it.
         assert post.call_args.kwargs["reply_broadcast"] is broadcast
         assert handle.root_content is None
 
