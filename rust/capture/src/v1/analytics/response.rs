@@ -180,6 +180,7 @@ mod tests {
             uuid,
             options: Options::default(),
             adjusted_timestamp: Some(Utc::now()),
+            client_capture: test_utils::client_ts("2026-03-19T14:29:58.123Z"),
             result,
             details,
             destination: Destination::AnalyticsMain,
