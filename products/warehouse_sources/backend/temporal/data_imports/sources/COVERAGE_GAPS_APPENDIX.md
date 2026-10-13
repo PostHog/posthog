@@ -356,22 +356,22 @@ Note: AirOps has repositioned around AI search visibility; the entire brand-kit 
 
 ## Airwallex — gaps
 
-Today (13): `Beneficiaries`, `BillingCustomers`, `Customers`, `Deposits`, `FinancialTransactions`, `GlobalAccounts`, `Invoices`, `PaymentAttempts`, `PaymentIntents`, `Refunds`, `Settlements`, `Subscriptions`, `Transfers`
+Today (16): `Beneficiaries`, `BillingCustomers`, `CreditNotes`, `Customers`, `Deposits`, `FinancialTransactions`, `GlobalAccounts`, `Invoices`, `PaymentAttempts`, `PaymentDisputes`, `PaymentIntents`, `Refunds`, `Settlements`, `SubscriptionItems`, `Subscriptions`, `Transfers`
 
 Diffed against: <https://raw.githubusercontent.com/airwallex/airwallex-openapi/main/openapi/client-api/latest/airwallex-openapi-latest.json>
 
-- [ ] `Subscription items (GET /api/v1/billing/subscriptions/{id}/items)` — provides quantities and prices needed to calculate recurring revenue from synced subscriptions (high)
+- [x] `Subscription items (GET /api/v1/billing/subscriptions/{id}/items)` — provides quantities and prices needed to calculate recurring revenue from synced subscriptions (high)
 - [ ] `Invoice line items (GET /api/v1/billing/invoices/{id}/line_items)` — allocates synced invoice revenue to products, quantities, discounts, and taxes (high)
 - [ ] `Products and prices (GET /api/v1/billing/products; GET /api/v1/billing/prices)` — provides the billing catalog and price terms for revenue analysis (high)
-- [ ] `Credit notes (GET /api/v1/billing/credit_notes)` — reconciles invoice credits with net revenue and customer balances (high)
-- [ ] `Payment disputes (GET /api/v1/pa/payment_disputes)` — links chargebacks to synced payment intents and attempts for loss analysis (high)
+- [x] `Credit notes (GET /api/v1/billing/credit_notes)` — reconciles invoice credits with net revenue and customer balances (high)
+- [x] `Payment disputes (GET /api/v1/pa/payment_disputes)` — links chargebacks to synced payment intents and attempts for loss analysis (high)
 - [ ] `Meter summaries (GET /api/v1/billing/meters/{id}/summaries)` — measures billable usage for metered subscriptions (high)
 - [ ] `Conversions (GET /api/v1/fx/conversions)` — measures currency conversion volume, execution rates, and settlement timing (medium)
 - [ ] `Balance history (GET /api/v1/balances/history)` — tracks historical cash balances by currency for treasury reports (medium)
 - [ ] `Card transactions (GET /api/v1/issuing/card_transactions)` — provides merchant and card spend details beyond account ledger entries (medium)
 - [ ] `Bills and expenses (GET /api/v1/spend/bills; GET /api/v1/spend/expenses)` — measures supplier liabilities and business expenses alongside payments (medium)
 
-Note: Diffed all collection GET paths in Airwallex's official OpenAPI spec, including nested billing resources. Invoice and subscription list responses omit their line items. Items require requests for each parent; meter summaries also need meter discovery and time ranges. Sensitive card details, tokens, webhooks, and account configuration were excluded.
+Note: Diffed all collection GET paths in Airwallex's official OpenAPI spec, including nested billing resources. Invoice and subscription list responses omit their line items. Items require requests for each parent; meter summaries also need meter discovery and time ranges. Sensitive card details, tokens, webhooks, and account configuration were excluded. Meter summaries stay out: the endpoint computes a usage aggregate on request for one billing customer and a caller-chosen time range, so it has no stored rows to sync.
 
 ## Aiven — gaps
 
