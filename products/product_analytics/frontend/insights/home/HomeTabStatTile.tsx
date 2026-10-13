@@ -10,13 +10,9 @@ import { formatItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import type { TrendsQueryResponse } from '~/queries/schema/schema-general'
 import type { TrendResult } from '~/types'
 
-import {
-    homeTabDataCollectionId,
-    homeTabStatKey,
-} from 'products/product_analytics/frontend/insights/home/homeTabQueryKeys'
-
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { getHomeTabStatValue, type HomeTabStatQuery } from './homeTabDefaultTiles'
+import { homeTabDataCollectionId, homeTabStatKey } from './homeTabQueryKeys'
 
 interface HomeTabStatTileProps {
     stat: HomeTabStatQuery

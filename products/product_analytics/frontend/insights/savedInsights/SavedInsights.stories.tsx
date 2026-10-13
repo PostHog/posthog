@@ -5,11 +5,11 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import funnelTopToBottom from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
+import trendsBarBreakdown from '~/mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+import trendsPieBreakdown from '~/mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
 import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'
 
-import funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
-import trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
-import trendsPieBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
 import insightsJson from './__mocks__/insights.json'
 
 const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
