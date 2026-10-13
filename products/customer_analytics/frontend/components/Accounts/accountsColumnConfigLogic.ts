@@ -20,6 +20,7 @@ import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { loadAllPages } from 'products/customer_analytics/frontend/utils'
 
 import { ACCOUNT_FIELD_TAXONOMIC_OPTIONS, propertyTypeForDisplayType } from './accountsPropertyFilters'
 
@@ -82,6 +83,8 @@ export function diffColumnConfiguration(
 export const ACCOUNTS_COLUMN_CONFIG_KEY = 'customer_analytics_accounts_columns'
 
 export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'system.accounts'
+
+const DEFINITIONS_PAGE_SIZE = 300
 
 export type AccountColumnGroupKey = 'account_properties' | 'custom_properties' | 'relationships' | `accounts.${string}`
 
@@ -649,19 +652,25 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         customPropertyDefinitions: [
             [] as CustomPropertyDefinitionApi[],
             {
-                loadCustomPropertyDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> => {
-                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
-                    return response.results
-                },
+                loadCustomPropertyDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> =>
+                    loadAllPages((offset) =>
+                        customPropertyDefinitionsList(String(values.currentProjectId), {
+                            limit: DEFINITIONS_PAGE_SIZE,
+                            offset,
+                        })
+                    ),
             },
         ],
         relationshipDefinitions: [
             [] as AccountRelationshipDefinitionApi[],
             {
-                loadRelationshipDefinitions: async (): Promise<AccountRelationshipDefinitionApi[]> => {
-                    const response = await accountRelationshipDefinitionsList(String(values.currentProjectId))
-                    return response.results
-                },
+                loadRelationshipDefinitions: async (): Promise<AccountRelationshipDefinitionApi[]> =>
+                    loadAllPages((offset) =>
+                        accountRelationshipDefinitionsList(String(values.currentProjectId), {
+                            limit: DEFINITIONS_PAGE_SIZE,
+                            offset,
+                        })
+                    ),
             },
         ],
     })),
