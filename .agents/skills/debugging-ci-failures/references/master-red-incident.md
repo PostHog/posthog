@@ -41,8 +41,8 @@ The calls below are complete. Run `info <name>` first only for a tool whose call
 - Failed jobs of a run, with the error region of each thinned to at most 300 lines:
   `call engineering-analytics-run-failure-logs {"run_id": <run-id>, "ci_engine": "github_actions"}`
 - Tests that failed and passed on the same commit: `engineering-analytics-flaky-tests`.
-- Trunk's record of a test, from the warehouse. `status` holds the classification (`broken`, `flaky`, or `healthy`) and the time Trunk set it, and a `healthy` row has no usable time. A test has one row for each sync, so read the newest row for each name:
-  `call execute-sql {"query": "SELECT name, quarantined, failure_rate_last_24h, failure_rate_last_7d, pull_requests_impacted_last_7d, status, synced_through FROM trunkio.failingtests WHERE name ILIKE '%<part of the test name>%' ORDER BY synced_through DESC LIMIT 40"}`
+- Trunk's record of a test, from the warehouse. `status` holds the classification (`broken`, `flaky`, or `healthy`) and the time Trunk set it, and a `healthy` row has no usable time. A test has one row for each sync, and different tests can share a name, so read the newest row for each `classname` and `file_path`:
+  `call execute-sql {"query": "SELECT name, classname, file_path, quarantined, failure_rate_last_24h, failure_rate_last_7d, pull_requests_impacted_last_7d, status, synced_through FROM trunkio.failingtests WHERE name ILIKE '%<part of the test name>%' ORDER BY synced_through DESC LIMIT 40"}`
 - The queries in `products/engineering_analytics/skills/investigating-ci-failures/references/investigation-queries.md` also run through `call execute-sql`. They include the boundary query, which finds where a test started to fail, and the job failure rate, which is the parent's base rate.
 
 The server collects logs on a schedule, so a run that just ended can answer `logs_available: false`.
@@ -112,7 +112,8 @@ For a failing test, read its Trunk record and the newest commits to the code und
 Each is one call, and together they separate a regression from a flake.
 
 Name a commit or a PR as the cause only when it merged before the failures started and its diff changes what the error names.
-Take the start of the failures from Trunk's `status` time, and not from the first red run.
+Trunk's `status` time is the latest that the failures can have started, and the first red run is later still.
+A commit that merged before that time is only a candidate, because the failures can be older than the commit.
 Each run log takes several seconds to download, so do not scan a series of runs for the first one with the error: check at most one run before a candidate commit and one after it.
 What the error names is usually the code under test, such as a module or a logic, and rarely the test's own file.
 A wrong attribution sends a person to the wrong PR while master is broken.
