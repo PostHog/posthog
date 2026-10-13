@@ -1,6 +1,7 @@
+from collections.abc import Sequence
 from typing import Union
 
-from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
+from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode
 
 from posthog.hogql import ast
 
@@ -23,7 +24,7 @@ class FunnelStepBuilder:
 
     def __init__(
         self,
-        series: list[Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]],
+        series: Sequence[Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode]],
         team: Team,
     ):
         self.series = series
@@ -85,7 +86,11 @@ class FunnelStepBuilder:
 
         return columns
 
-    def _build_step_filter(self, step_source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
+    def _build_step_filter(
+        self, step_source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode]
+    ) -> ast.Expr:
+        if isinstance(step_source, ExperimentWarehouseNativeNode):
+            raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
         if isinstance(step_source, ExperimentDataWarehouseNode):
             raise ValueError(
                 f"Cannot build boolean filter for {type(step_source).__name__}. "

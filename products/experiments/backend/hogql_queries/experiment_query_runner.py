@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    ExperimentWarehouseNativeNode,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -29,6 +30,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
@@ -82,7 +84,10 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
-from products.experiments.backend.metric_resolution import metric_reads_data_warehouse
+from products.experiments.backend.metric_resolution import (
+    metric_reads_data_warehouse,
+    metric_uses_warehouse_native_source,
+)
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -363,7 +368,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return "retention_window"
 
     def _metric_source_ineligibility_reason(
-        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode
     ) -> Optional[str]:
         """The per-source rules for a mean-shaped build: a mean metric's source or either ratio side."""
         if not isinstance(source, (EventsNode, ActionsNode)):
@@ -614,7 +619,16 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return sorted_results, response.columns or []
 
     @experiment_error_handler
+    def _refuse_warehouse_sources(self) -> None:
+        exposure_config = (self.experiment.exposure_criteria or {}).get("exposure_config") or {}
+        if (
+            metric_uses_warehouse_native_source(self.metric)
+            or exposure_config.get("kind") == "ExperimentWarehouseNativeExposureConfig"
+        ):
+            raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
+
     def _calculate(self) -> ExperimentQueryResponse:
+        self._refuse_warehouse_sources()
         variant_results = self._prepare_variant_results()
 
         if self._has_breakdown(variant_results):

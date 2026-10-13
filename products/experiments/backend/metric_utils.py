@@ -16,6 +16,8 @@ def _get_source_name(source: dict) -> str:
         return source.get("table_name") or "Table"
     if kind == "ExperimentExposureNode":
         return "Exposure"
+    if kind == "ExperimentWarehouseNativeNode":
+        return source.get("custom_name") or "Warehouse-native query"
     # EventsNode or ActionsNode
     return source.get("name") or source.get("event") or "Event"
 
