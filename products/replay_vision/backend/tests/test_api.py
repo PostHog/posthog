@@ -1087,15 +1087,24 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         self.assertEqual(resp.status_code, expected_status, resp.json())
         self.assertEqual(ReplayScanner.objects.filter(team=self.team, name="capped").exists(), expected_status == 201)
 
-    def test_scout_cannot_clear_a_credit_limit(self) -> None:
-        scanner = self._create_scanner(name="capped", credit_limit=500)
+    @parameterized.expand(
+        [
+            ("credit_limit", {"credit_limit": 500}, {"credit_limit": None}, 400),
+            ("free_only_without_own_limit", {"free_only": True}, {"free_only": False}, 400),
+            ("free_only_with_own_limit", {"free_only": True, "credit_limit": 500}, {"free_only": False}, 200),
+        ]
+    )
+    def test_scout_cannot_remove_a_spend_ceiling(
+        self, _name: str, ceiling: dict[str, Any], patch_body: dict[str, Any], expected_status: int
+    ) -> None:
+        scanner = self._create_scanner(name="capped", **ceiling)
         self._authenticate_as_scout()
 
-        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"credit_limit": None}, format="json")
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data=patch_body, format="json")
 
-        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.status_code, expected_status, resp.json())
         scanner.refresh_from_db()
-        self.assertEqual(scanner.credit_limit, 500)
+        self.assertEqual(scanner.has_spend_ceiling, True)
 
     def test_scout_delete_is_refused_and_the_scanner_survives(self) -> None:
         scanner = self._create_scanner(name="keep-me")

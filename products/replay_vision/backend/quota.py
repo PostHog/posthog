@@ -398,8 +398,13 @@ def compute_scanner_budgets(
         for scanner_id in free_only_ids:
             own = result[scanner_id]
             free = replace(free_budget, credits_per_observation=own.credits_per_observation)
-            # A free-only scanner can carry its own cap too; whichever leaves less room binds.
-            result[scanner_id] = min(own, free, key=lambda b: b.remaining if b.remaining is not None else math.inf)
+            # A free-only scanner can carry its own cap too; whichever leaves less room binds. A ceiling
+            # that posted spend already fills wins first, so the sweep's settled-only check still sees it.
+            result[scanner_id] = min(
+                own,
+                free,
+                key=lambda b: (not b.blocked_by_settled_spend, b.remaining if b.remaining is not None else math.inf),
+            )
     return result
 
 

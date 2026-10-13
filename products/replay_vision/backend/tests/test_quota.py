@@ -504,16 +504,33 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
 
     @parameterized.expand(
         [
-            ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True),
-            ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True),
-            ("tighter_own_cap_binds", 5, 1_000_000, 5, True),
-            ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True),
-            ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True),
+            ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False),
+            ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False),
+            ("tighter_own_cap_binds", 5, 1_000_000, 5, True, False),
+            ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True, False),
+            ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True, False),
+            # In-flight work fills the own cap, but only the free credits are full of posted spend.
+            (
+                "settled_free_credits_bind_over_in_flight_own_cap",
+                "one_observation",
+                1_000_000,
+                FREE_TIER_MONTHLY_CREDITS,
+                True,
+                True,
+            ),
         ]
     )
     def test_free_only_scanner_draws_on_the_orgs_free_credits(
-        self, _name: str, own_cap: int | None, org_limit: int | None, expected_limit: int, expected_blocked: bool
+        self,
+        _name: str,
+        own_cap: int | str | None,
+        org_limit: int | None,
+        expected_limit: int,
+        expected_blocked: bool,
+        in_flight: bool,
     ) -> None:
+        cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
+        own_cap = cost if own_cap == "one_observation" else own_cap
         # Another scanner's spend leaves less than one observation of free credits.
         seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 10)
         free = ReplayScanner.objects.create(
@@ -525,9 +542,22 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             credit_limit=own_cap,
             free_only=True,
         )
+        if in_flight:
+            ReplayObservation.objects.create(
+                scanner=free,
+                team=self.team,
+                session_id="free-in-flight",
+                status=ObservationStatus.RUNNING,
+                scanner_snapshot=_snapshot_for(free),
+                triggered_by=ObservationTrigger.ON_DEMAND,
+            )
         with patch.object(quota, "MONTHLY_CREDIT_QUOTA", org_limit):
             budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
-        assert (budget.credit_limit, budget.blocked) == (expected_limit, expected_blocked)
+        assert (budget.credit_limit, budget.blocked, budget.blocked_by_settled_spend) == (
+            expected_limit,
+            expected_blocked,
+            True,
+        )
 
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):

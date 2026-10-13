@@ -240,7 +240,7 @@ def _admit_within_org_limit(
     locked = ReplayVisionOrgAdmissionBudget.objects.select_for_update().filter(organization_id=organization_id)
     if locked.first() is not None:
         # A waiter that queued behind another refresh finds the cache warm again, so skip the aggregates.
-        if _try_cached_org_admission(organization_id, cost, cap):
+        if _try_cached_org_admission(organization_id, cost, cap, ceiling):
             return None
     else:
         # A racing creator waits on the unique key and then takes the row lock below.
