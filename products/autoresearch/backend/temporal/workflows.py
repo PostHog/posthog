@@ -1,7 +1,7 @@
 """
-Temporal workflows for autoresearch inference and online validation.
+Temporal workflows for autoresearch inference, online validation, and person property cleanup.
 
-Both workflows are regular Temporal workflows (not TaskRun/agent sandboxes) because
+These workflows are regular Temporal workflows (not TaskRun/agent sandboxes) because
 scoring and validation are deterministic pipelines. Training runs through Task/TaskRun.
 
 Activities are synchronous — Temporal runs them in a thread pool, which is correct
@@ -26,6 +26,7 @@ with workflow.unsafe.imports_passed_through():
     from django.db import transaction
     from django.utils import timezone as django_timezone
 
+    from posthog.models.team.team import Team
     from posthog.models.user import User
 
     from products.actions.backend.models.action import Action
@@ -38,6 +39,7 @@ with workflow.unsafe.imports_passed_through():
         fail_stale_inference_runs,
         find_unscorable_champion,
     )
+    from products.autoresearch.backend.inference.person_property import remove_output_person_property
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
     from products.autoresearch.backend.models import (
@@ -396,6 +398,107 @@ class AutoresearchValidationWorkflow(PostHogWorkflow):
             total_rows=result.total_rows,
             status=result.status,
             error=result.error,
+        )
+
+
+# ── Person property cleanup ───────────────────────────────────────────────────
+
+
+@frozen
+class PropertyCleanupWorkflowInput:
+    pipeline_id: str
+    team_id: int
+    # Carried in the input, because a deleted pipeline has no row to read it from.
+    output_property: str
+    # The AutoresearchRun row the cleanup fills. None for a deleted pipeline.
+    run_id: Optional[str] = None
+    # Who turned the setting off, archived, or deleted, so HogQL applies their access.
+    user_id: Optional[int] = None
+
+
+@frozen
+class PropertyCleanupWorkflowResult:
+    persons_cleared: int
+    status: str
+    stopped: Optional[str] = None
+
+
+# A page reads at most CLEANUP_PAGE_SIZE persons and sends one capture batch, so one attempt covers
+# a large population. The cleanup restarts from the first person that still holds the property.
+_CLEANUP_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(minutes=1))
+_CLEANUP_ATTEMPT_TIMEOUT = timedelta(hours=2)
+PROPERTY_CLEANUP_WORKFLOW_TIMEOUT = timedelta(hours=7)
+
+
+@activity.defn(name="autoresearch-property-cleanup.remove_person_property")
+def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+    """Send $unset for the pipeline's output property to every person who has it.
+
+    The run row is updated through the queryset, because deleting the pipeline also deletes its runs.
+    """
+    with HeartbeaterSync(), team_scope(inp.team_id):
+        _update_cleanup_run(inp.run_id, status=AutoresearchRun.Status.RUNNING, error="", completed_at=None)
+        team = Team.objects.get(pk=inp.team_id)
+        user = User.objects.filter(pk=inp.user_id, is_active=True).first() if inp.user_id else None
+        try:
+            outcome = remove_output_person_property(
+                team=team,
+                pipeline_id=inp.pipeline_id,
+                output_property=inp.output_property,
+                user=user,
+                query_context=BATCH_QUERY,
+                on_page=lambda cleared: _update_cleanup_run(inp.run_id, rows_scored=cleared),
+            )
+        except Exception as exc:
+            _update_cleanup_run(
+                inp.run_id,
+                status=AutoresearchRun.Status.FAILED,
+                error=str(exc)[:2000],
+                completed_at=django_timezone.now(),
+            )
+            raise
+        metrics = {"output_person_property": inp.output_property, "stopped": outcome.stopped}
+        _update_cleanup_run(
+            inp.run_id,
+            status=AutoresearchRun.Status.COMPLETED,
+            rows_scored=outcome.persons_cleared,
+            metrics=metrics,
+            completed_at=django_timezone.now(),
+        )
+    return PropertyCleanupWorkflowResult(
+        persons_cleared=outcome.persons_cleared,
+        status=AutoresearchRun.Status.COMPLETED,
+        stopped=outcome.stopped,
+    )
+
+
+def _update_cleanup_run(run_id: str | None, **fields: object) -> None:
+    if run_id is not None:
+        AutoresearchRun.objects.filter(pk=run_id, run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP).update(**fields)
+
+
+def property_cleanup_workflow_id(pipeline_id: str) -> str:
+    """One cleanup per pipeline at a time. A second request while one runs is served by the running one."""
+    return f"autoresearch-property-cleanup-{pipeline_id}"
+
+
+@workflow.defn(name="autoresearch-property-cleanup")
+class AutoresearchPropertyCleanupWorkflow(PostHogWorkflow):
+    """
+    Removes a pipeline's output person property from persons, after someone turns off
+    write_person_property, or archives or deletes a pipeline that had it on.
+    """
+
+    inputs_cls = PropertyCleanupWorkflowInput
+
+    @workflow.run
+    async def run(self, inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+        return await workflow.execute_activity(
+            activity_remove_person_property,
+            inp,
+            start_to_close_timeout=_CLEANUP_ATTEMPT_TIMEOUT,
+            heartbeat_timeout=_HEARTBEAT_TIMEOUT,
+            retry_policy=_CLEANUP_RETRY,
         )
 
 

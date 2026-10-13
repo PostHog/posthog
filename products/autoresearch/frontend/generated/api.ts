@@ -737,7 +737,7 @@ export const getAutoresearchArchiveCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. Refused while a training run is in progress.
+ * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. When write_person_property is on, a cleanup run removes output_person_property from every person. Refused while a training run is in progress.
  * @summary Archive a pipeline
  */
 export const autoresearchArchiveCreate = async (

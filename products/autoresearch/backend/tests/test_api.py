@@ -117,6 +117,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         # Auto-derived output property carries the horizon so same-target/different-horizon
         # pipelines don't $set the same person property.
         assert data["output_person_property"] == "predicted_p_signup_14d"
+        # A new model scores without writing to person profiles until someone opts in.
+        assert data["write_person_property"] is False
         assert AutoresearchPipeline.objects.filter(team=self.team, name="My Pipeline").exists()
 
     def test_create_pipeline_with_action_target(self):
@@ -581,6 +583,48 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.json()["status"] == "archived"
         pipeline.refresh_from_db()
         assert pipeline.status == AutoresearchPipeline.Status.ARCHIVED
+
+    @parameterized.expand(
+        [
+            ("turned_off", True, "patch", True, True),
+            ("already_off", False, "patch", False, False),
+            ("archived_while_on", True, "archive", True, True),
+            ("archived_while_off", False, "archive", False, False),
+            ("paused_while_on", True, "pause", False, False),
+            ("deleted_while_on", True, "delete", True, False),
+        ]
+    )
+    def test_property_cleanup_starts_only_when_a_writing_pipeline_stops(
+        self, _name: str, writing: bool, change: str, starts_cleanup: bool, records_run: bool
+    ):
+        pipeline = self._make_pipeline(
+            status=AutoresearchPipeline.Status.RUNNING,
+            output_person_property="predicted_p_pageview_7d",
+            write_person_property=writing,
+        )
+        url = f"{self.base_url}/{pipeline.id}/"
+        with (
+            patch(f"{_FACADE}._start_property_cleanup") as start_cleanup,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if change == "patch":
+                resp = self.client.patch(url, {"write_person_property": False}, format="json")
+            elif change == "delete":
+                resp = self.client.delete(url)
+            else:
+                resp = self.client.post(f"{url}{change}/")
+        assert resp.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), resp.content
+
+        assert start_cleanup.called == starts_cleanup
+        cleanup_runs = AutoresearchRun.objects.for_team(self.team.pk).filter(
+            run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP
+        )
+        assert cleanup_runs.count() == (1 if records_run else 0)
+        if starts_cleanup:
+            kwargs = start_cleanup.call_args.kwargs
+            assert kwargs["output_property"] == "predicted_p_pageview_7d"
+            assert kwargs["user_id"] == self.user.pk
+            assert (kwargs["run"] is not None) == records_run
 
     def test_train_archived_pipeline_returns_404(self):
         pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)

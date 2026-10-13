@@ -32,6 +32,7 @@ import {
 import {
     autoresearchModelsList,
     autoresearchOnlinePerformanceRetrieve,
+    autoresearchPartialUpdate,
     autoresearchPauseCreate,
     autoresearchResumeCreate,
     autoresearchRetrieve,
@@ -109,6 +110,9 @@ export function pipelineTabFromUrl(value: unknown): AutoresearchPipelineTab | nu
     }
     return LEGACY_PIPELINE_TABS[value] ?? null
 }
+
+/** Where a person changed whether scores are written to person profiles. */
+export type PersonPropertyToggleSource = 'actions_panel' | 'setup_tab'
 
 /** How often the Score now button checks a running scoring run. */
 export const SCORE_RUN_POLL_INTERVAL_MS = 5000
@@ -298,6 +302,7 @@ export interface autoresearchPipelineLogicValues {
     firstCheck: dayjs.Dayjs | null
     hasLiveTrainingRun: boolean
     latestChampionPerformance: OnlinePerformanceRowApi | null
+    latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
     modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
@@ -325,7 +330,9 @@ export interface autoresearchPipelineLogicValues {
     runsError: boolean
     runsLoaded: boolean
     runsLoading: boolean
+    personPropertyDisabledReason: string | undefined
     savingCohortSegment: PredictionSegmentKey | null
+    savingWritePersonProperty: boolean
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
     scoringCoverage: ScoringCoverage | null
@@ -625,6 +632,16 @@ export interface autoresearchPipelineLogicActions {
     saveSegmentCohortFinished: () => {
         value: true
     }
+    setWritePersonProperty: (
+        enabled: boolean,
+        source: PersonPropertyToggleSource
+    ) => {
+        enabled: boolean
+        source: PersonPropertyToggleSource
+    }
+    setWritePersonPropertyFinished: () => {
+        value: true
+    }
     scoreNow: () => any
     scoreNowFailure: (
         error: string,
@@ -792,6 +809,8 @@ export interface autoresearchPipelineLogicMeta {
         ) => ExperimentLogGroup[]
         agentNotes: (trainingRuns: AutoresearchTrainingRunApi[]) => AgentNotes | null
         defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
+        personPropertyDisabledReason: (pipeline: AutoresearchPipelineApi | null) => string | undefined
+        latestPropertyCleanupRun: (runs: AutoresearchRunApi[]) => AutoresearchRunApi | null
         activeTab: (
             selectedTab: AutoresearchPipelineTab | null,
             defaultTab: AutoresearchPipelineTab
@@ -844,6 +863,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         experimentDetailsOpened: (point: SearchPoint) => ({ point }),
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
+        setWritePersonProperty: (enabled: boolean, source: PersonPropertyToggleSource) => ({ enabled, source }),
+        setWritePersonPropertyFinished: true,
         setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
     }),
     reducers({
@@ -920,6 +941,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             {
                 saveSegmentCohort: (_, { segment }) => segment,
                 saveSegmentCohortFinished: () => null,
+            },
+        ],
+        savingWritePersonProperty: [
+            false,
+            {
+                setWritePersonProperty: () => true,
+                setWritePersonPropertyFinished: () => false,
             },
         ],
         segmentThresholds: [
@@ -1428,6 +1456,18 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (pipeline: AutoresearchPipelineApi | null): AutoresearchPipelineTab =>
                 pipeline?.last_scored_at ? 'predictions' : 'agent_research',
         ],
+        latestPropertyCleanupRun: [
+            (s) => [s.runs],
+            (runs: AutoresearchRunApi[]): AutoresearchRunApi | null =>
+                runs.find((run) => run.run_type === 'property_cleanup') ?? null,
+        ],
+        personPropertyDisabledReason: [
+            (s) => [s.pipeline],
+            (pipeline: AutoresearchPipelineApi | null): string | undefined =>
+                pipeline && !pipeline.write_person_property
+                    ? 'Turn on "Write scores to person profiles" to target people by score'
+                    : undefined,
+        ],
         activeTab: [
             (s) => [s.selectedTab, s.defaultTab],
             (
@@ -1689,6 +1729,43 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         setAccuracyCutoff: ({ cutoff }) => {
             posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff })
+        },
+        setWritePersonProperty: async ({ enabled, source }) => {
+            if (!values.currentTeamId) {
+                actions.setWritePersonPropertyFinished()
+                return
+            }
+            const teamId = String(values.currentTeamId)
+            try {
+                await autoresearchPartialUpdate(teamId, props.id, { write_person_property: enabled })
+                actions.loadPipelineSuccess(await autoresearchRetrieve(teamId, props.id))
+                posthog.capture('autoresearch model person property toggled', {
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                if (enabled) {
+                    lemonToast.success(
+                        'Scores are now written to person profiles. People get the property over the next few scoring runs.'
+                    )
+                } else {
+                    // The cleanup records a run, so reload the runs to show it.
+                    actions.loadRuns()
+                    lemonToast.success(
+                        'Scores are no longer written to person profiles. The property is being removed.'
+                    )
+                }
+            } catch {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'person_property',
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                lemonToast.error("Couldn't change the setting. Try again.")
+            } finally {
+                actions.setWritePersonPropertyFinished()
+            }
         },
         saveSegmentCohort: async ({ segment }) => {
             const { pipeline, currentProjectId, segmentThresholds } = values

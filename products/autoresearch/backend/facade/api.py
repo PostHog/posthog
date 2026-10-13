@@ -22,6 +22,8 @@ from django.db import transaction
 from django.db.models import Count, F, Prefetch, Q
 from django.utils import timezone as django_timezone
 
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -105,6 +107,8 @@ from .contracts import (
     TrainingTrendPoint,
     ValidationWarning,
 )
+
+logger = structlog.get_logger(__name__)
 
 AUTORESEARCH_FLAG = "autoresearch"
 
@@ -374,6 +378,7 @@ def _pipeline_to_contract(
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
+        write_person_property=row.write_person_property,
         status=row.status,
         created_by=row.created_by,
         created_at=row.created_at,
@@ -636,11 +641,15 @@ def _changes_model_definition(row: AutoresearchPipeline, fields: dict[str, Any])
     return False
 
 
-def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any]) -> Pipeline:
+def update_pipeline(
+    team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any], user_id: int | None = None
+) -> Pipeline:
     """Update a pipeline. Refuses a change to what it predicts while a run is live or once a model exists.
 
     The row lock serializes this with ``start_training``, so a run cannot start between the
     live-run check and the write, and a concurrent delete waits instead of racing the save.
+
+    Turning ``write_person_property`` off starts a cleanup that removes the output property from persons.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -666,18 +675,23 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
                     "What the pipeline predicts cannot change after a model has been trained. "
                     "Create a new pipeline to predict a different target."
                 )
+        stops_writing = row.write_person_property and fields.get("write_person_property") is False
+        cleanup_property = row.output_person_property
         for key, value in fields.items():
             setattr(row, key, value)
         # Only the request's fields, so the write never touches a column the request did not set.
         row.save(update_fields=[*fields, "updated_at"])
+        if stops_writing:
+            _queue_property_cleanup(row, output_property=cleanup_property, user_id=user_id)
     return _pipeline_with_champion(row)
 
 
-def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
+def delete_pipeline(team_id: int, pipeline_id: str | UUID, *, user_id: int | None = None) -> None:
     """Delete a pipeline and its rows. Refused while a training run is live.
 
     The TaskRun is linked only by id, so a cascade would leave its paid sandbox running with
-    nothing to report to.
+    nothing to report to. A pipeline that wrote its output property starts a cleanup, which
+    records no run because the runs go with the pipeline.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -694,6 +708,8 @@ def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
             raise PipelineNotFound("Pipeline not found.")
         if _has_live_training_run(team_id, row):
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before deleting.")
+        if row.write_person_property:
+            _queue_property_cleanup(row, output_property=row.output_person_property, user_id=user_id, record_run=False)
         row.delete()
 
 
@@ -705,11 +721,12 @@ _STATUS_TRANSITION_SOURCES: dict[str, frozenset[str]] = {
 }
 
 
-def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -> Pipeline:
+def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str, user_id: int | None = None) -> Pipeline:
     """Archive, pause, or resume a pipeline.
 
     The row lock serializes this with a concurrent lifecycle change and with ``start_training``,
     so a stale read cannot revive an archived pipeline, and archival cannot race a new run.
+    Archiving a pipeline that writes its output property starts a cleanup.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -732,7 +749,81 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before archiving.")
         row.status = status
         row.save(update_fields=["status", "updated_at"])
+        if status == AutoresearchPipeline.Status.ARCHIVED and row.write_person_property:
+            _queue_property_cleanup(row, output_property=row.output_person_property, user_id=user_id)
     return _pipeline_with_champion(row)
+
+
+def _queue_property_cleanup(
+    row: AutoresearchPipeline, *, output_property: str, user_id: int | None, record_run: bool = True
+) -> None:
+    """Start the cleanup workflow once the caller's transaction commits, so it reads the committed setting."""
+    if not output_property:
+        return
+    run = (
+        AutoresearchRun.objects.create(
+            pipeline=row,
+            run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP,
+            status=AutoresearchRun.Status.PENDING,
+            started_at=django_timezone.now(),
+            metrics={"output_person_property": output_property},
+        )
+        if record_run
+        else None
+    )
+    transaction.on_commit(
+        lambda: _start_property_cleanup(
+            team_id=row.team_id, pipeline_id=str(row.pk), output_property=output_property, run=run, user_id=user_id
+        )
+    )
+
+
+def _start_property_cleanup(
+    *, team_id: int, pipeline_id: str, output_property: str, run: AutoresearchRun | None, user_id: int | None
+) -> None:
+    # The Temporal client and the workflow module load only when a cleanup starts.
+    from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
+    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+
+    from ..temporal.workflows import (  # noqa: PLC0415
+        PROPERTY_CLEANUP_WORKFLOW_TIMEOUT,
+        AutoresearchPropertyCleanupWorkflow,
+        PropertyCleanupWorkflowInput,
+        property_cleanup_workflow_id,
+    )
+
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                AutoresearchPropertyCleanupWorkflow.run,
+                PropertyCleanupWorkflowInput(
+                    pipeline_id=pipeline_id,
+                    team_id=team_id,
+                    output_property=output_property,
+                    run_id=str(run.pk) if run else None,
+                    user_id=user_id,
+                ),
+                id=property_cleanup_workflow_id(pipeline_id),
+                task_queue=settings.AUTORESEARCH_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=PROPERTY_CLEANUP_WORKFLOW_TIMEOUT,
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        # The running cleanup reads the setting before each page, so it removes the property for this request too.
+        if run is not None:
+            AutoresearchRun.objects.for_team(team_id).filter(pk=run.pk).delete()
+    except Exception as exc:
+        logger.exception("autoresearch_property_cleanup_start_failed", pipeline_id=pipeline_id)
+        if run is not None:
+            AutoresearchRun.objects.for_team(team_id).filter(pk=run.pk).update(
+                status=AutoresearchRun.Status.FAILED,
+                error=f"Could not start the property cleanup: {exc}"[:2000],
+                completed_at=django_timezone.now(),
+            )
 
 
 def _has_live_training_run(team_id: int, pipeline: AutoresearchPipeline) -> bool:
@@ -772,6 +863,7 @@ def get_pipeline_definition(team_id: int, pipeline_id: str | UUID) -> PipelineWr
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
+        write_person_property=row.write_person_property,
     )
 
 

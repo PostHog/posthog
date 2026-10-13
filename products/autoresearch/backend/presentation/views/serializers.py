@@ -659,6 +659,13 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         max_length=255,
         help_text="Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.",
     )
+    write_person_property = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether live scoring writes the champion's score to output_person_property on each scored person. "
+            "Feature flags, cohorts, workflows and insights that target people by score need it on."
+        ),
+    )
     status = serializers.ChoiceField(
         choices=PIPELINE_STATUS_CHOICES,
         read_only=True,
@@ -766,6 +773,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
             "status",
             "created_by",
             "created_at",
@@ -870,6 +878,15 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "non-archived pipelines."
         ),
     )
+    write_person_property = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. "
+            "Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. "
+            "Prediction events, validation and segments work without it. Turning it off, or archiving or deleting "
+            "the pipeline while it is on, removes the property from every person who has it."
+        ),
+    )
 
     class Meta:
         dataclass = PipelineWrite
@@ -887,6 +904,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
         ]
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps

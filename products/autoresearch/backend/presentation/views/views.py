@@ -310,6 +310,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 self.team_id,
                 self.kwargs["pk"],
                 fields=_pipeline_write_fields(_validated_with_sentinels(serializer)),
+                user_id=request.user.pk,
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
@@ -330,7 +331,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            api.delete_pipeline(self.team_id, self.kwargs["pk"])
+            api.delete_pipeline(self.team_id, self.kwargs["pk"], user_id=self.request.user.pk)
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         except AutoresearchConflict as exc:
@@ -639,6 +640,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         summary="Archive a pipeline",
         description=(
             "Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. "
+            "When write_person_property is on, a cleanup run removes output_person_property from every person. "
             "Refused while a training run is in progress."
         ),
     )
@@ -686,7 +688,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
     def _set_status(self, status: str) -> Response:
         try:
-            pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
+            pipeline = api.set_pipeline_status(
+                self.team_id, self.kwargs["pk"], status=status, user_id=self.request.user.pk
+            )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         except AutoresearchConflict as exc:

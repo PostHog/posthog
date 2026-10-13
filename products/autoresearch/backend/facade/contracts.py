@@ -133,6 +133,7 @@ class Pipeline:
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str
+    write_person_property: bool
     status: str
     created_by: Any
     created_at: datetime
@@ -322,6 +323,7 @@ class PipelineWrite:
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""
+    write_person_property: bool = False
 
 
 # ── Validation and template contracts ──────────────────────────────────────
