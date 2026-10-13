@@ -8,6 +8,7 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.temporal.health_checks.findings import (
     detect_experiment_findings,
+    live_gate_team_ids,
     render_finding_alert,
     render_finding_signal,
 )
@@ -25,8 +26,6 @@ class ExperimentFlagStateCheck(HealthCheck):
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
     # Payloads carry experiment names.
     access_controlled_resource = "experiment"
-    dry_run = True
-    rollout_percentage = 0.01
     remediation = Remediation(
         human="""
             Open the experiment and its linked feature flag. If the experiment is running, resume the flag,
@@ -48,6 +47,10 @@ class ExperimentFlagStateCheck(HealthCheck):
     @classmethod
     def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
         return render_finding_signal(issue)
+
+    @classmethod
+    def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
+        return live_gate_team_ids(team_ids)
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         return detect_experiment_findings(team_ids, flag_state)
