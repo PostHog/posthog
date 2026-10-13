@@ -126,6 +126,7 @@ async fn main() {
         authorizer,
         config.max_request_body_size_bytes,
         config.firehose_max_request_body_size_bytes,
+        config.max_backfill_days,
     )
     .await
     {

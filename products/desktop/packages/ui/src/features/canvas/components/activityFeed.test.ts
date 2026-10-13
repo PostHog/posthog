@@ -109,7 +109,7 @@ describe("activityFeed", () => {
 
       const canvasActivity: TaskActivityItem = {
         ...activity("canvas", "task-2"),
-        commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+        commentTarget: { scope: "canvas", itemId: "canvas-1" },
       };
 
       const content = deriveActivityFeedContent({

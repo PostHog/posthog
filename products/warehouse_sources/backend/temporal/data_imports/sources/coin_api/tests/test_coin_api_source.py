@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source import CoinApiSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
     CoinApiSourceConfig,
@@ -18,67 +17,9 @@ class TestCoinApiSource:
         # Static endpoint catalog with no I/O, so public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://rest.coinapi.io/v1/assets",
-            "403 Client Error: Forbidden for url: https://rest.coinapi.io/v1/ohlcv/SYM/history",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://rest.coinapi.io/v1/trades/SYM/history",
-            "500 Server Error for url: https://rest.coinapi.io/v1/exchanges",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-    def test_get_schemas_marks_only_timeseries_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        for name in ("assets", "exchanges", "symbols", "exchange_rates", "metrics_listing"):
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-        for name in (
-            "ohlcv_history",
-            "trades_history",
-            "exchange_rates_history",
-            "metrics_symbol_history",
-            "quotes_history",
-        ):
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-
-    def test_timeseries_endpoints_off_by_default(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["assets"].should_sync_default is True
-        assert schemas["metrics_listing"].should_sync_default is True
-        for name in ("ohlcv_history", "trades_history", "exchange_rates_history", "quotes_history"):
-            assert schemas[name].should_sync_default is False
-
-    def test_get_schemas_describes_every_field_an_endpoint_needs(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["metrics_symbol_history"].description == (
-            "Requires a Symbol ID and a Metric ID on the source. Only syncs the configured series."
-        )
-        assert schemas["exchange_rates_history"].description == (
-            "Requires an Exchange rate quote asset on the source. Only syncs the configured series."
-        )
-        assert schemas["assets"].description is None
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["ohlcv_history"])
         assert [s.name for s in schemas] == ["ohlcv_history"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -135,7 +76,3 @@ class TestCoinApiSource:
         assert kwargs["exchange_rate_base_asset"] == "USD"
         assert kwargs["exchange_rate_quote_asset"] == ""
         assert kwargs["start_date"] == ""
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)

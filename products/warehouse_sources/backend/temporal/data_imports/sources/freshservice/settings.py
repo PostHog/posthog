@@ -16,7 +16,7 @@ PER_PAGE = 100
 # entries has to visit every ticket, not just the recent ones.
 _ALL_TICKETS_SINCE = "1970-01-01T00:00:00Z"
 
-# A ticket or application can be deleted between the parent listing and the child fetch; treat
+# A ticket, problem, change, release or application can be deleted between the parent listing and the child fetch; treat
 # that 404 as an empty child rather than failing the whole sweep.
 _IGNORE_MISSING_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
@@ -38,6 +38,23 @@ _TICKET_FANOUT = DependentEndpointConfig(
     parent_params={"updated_since": _ALL_TICKETS_SINCE, "order_by": "updated_at", "order_type": "asc"},
     child_response_actions=_IGNORE_MISSING_PARENT,
 )
+
+
+def _parent_fanout(parent_name: str, parent_id_field: str) -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name=parent_name,
+        resolve_param=parent_id_field,
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": parent_id_field},
+        child_response_actions=_IGNORE_MISSING_PARENT,
+    )
+
+
+# The account-wide approvals listing rejects a request that carries only `parent`, so the table
+# is swept one (parent module, status) slice at a time.
+APPROVAL_PARENTS = ("ticket", "change")
+APPROVAL_STATUSES = ("requested", "approved", "rejected", "cancelled")
 
 
 # Mutable by choice: instances flow into `build_dependent_resource`'s
@@ -115,6 +132,19 @@ FRESHSERVICE_ENDPOINTS: dict[str, FreshserviceEndpointConfig] = {
         path="/api/v2/releases",
         data_key="releases",
         partition_key="created_at",
+    ),
+    "sla_policies": FreshserviceEndpointConfig(
+        name="sla_policies",
+        path="/api/v2/sla_policies",
+        data_key="sla_policies",
+    ),
+    "approvals": FreshserviceEndpointConfig(
+        name="approvals",
+        path="/api/v2/approvals",
+        data_key="approvals",
+        partition_key="created_at",
+        # Ticket and change approvals come from separate modules, so `parent` stays in the key.
+        primary_keys=["parent", "id"],
     ),
     "requesters": FreshserviceEndpointConfig(
         name="requesters",
@@ -235,6 +265,48 @@ FRESHSERVICE_ENDPOINTS: dict[str, FreshserviceEndpointConfig] = {
         partition_key="created_at",
         primary_keys=["ticket_id", "id"],
         fanout=_TICKET_FANOUT,
+    ),
+    # Conversation rows already carry `ticket_id`; the injected parent id writes the same value.
+    "ticket_conversations": FreshserviceEndpointConfig(
+        name="ticket_conversations",
+        path="/api/v2/tickets/{ticket_id}/conversations",
+        data_key="conversations",
+        partition_key="created_at",
+        primary_keys=["ticket_id", "id"],
+        fanout=_TICKET_FANOUT,
+    ),
+    # Task ids are numbered per parent record, so the parent id stays in each task table's key.
+    "ticket_tasks": FreshserviceEndpointConfig(
+        name="ticket_tasks",
+        path="/api/v2/tickets/{ticket_id}/tasks",
+        data_key="tasks",
+        partition_key="created_at",
+        primary_keys=["ticket_id", "id"],
+        fanout=_TICKET_FANOUT,
+    ),
+    "problem_tasks": FreshserviceEndpointConfig(
+        name="problem_tasks",
+        path="/api/v2/problems/{problem_id}/tasks",
+        data_key="tasks",
+        partition_key="created_at",
+        primary_keys=["problem_id", "id"],
+        fanout=_parent_fanout("problems", "problem_id"),
+    ),
+    "change_tasks": FreshserviceEndpointConfig(
+        name="change_tasks",
+        path="/api/v2/changes/{change_id}/tasks",
+        data_key="tasks",
+        partition_key="created_at",
+        primary_keys=["change_id", "id"],
+        fanout=_parent_fanout("changes", "change_id"),
+    ),
+    "release_tasks": FreshserviceEndpointConfig(
+        name="release_tasks",
+        path="/api/v2/releases/{release_id}/tasks",
+        data_key="tasks",
+        partition_key="created_at",
+        primary_keys=["release_id", "id"],
+        fanout=_parent_fanout("releases", "release_id"),
     ),
 }
 

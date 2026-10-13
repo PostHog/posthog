@@ -22,6 +22,7 @@ from django.utils.safestring import mark_safe
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inline_registry import extra_inlines_for
+from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
@@ -267,6 +268,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationInviteInline,
         OrganizationDomainInline,
         ProxyRecordInline,
+        OrganizationEventsRetentionConfigInline,
     ]
     readonly_fields = [
         "id",

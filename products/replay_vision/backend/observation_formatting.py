@@ -103,7 +103,7 @@ def describe_output(output: dict[str, Any]) -> str | None:
     if scanner_type == ScannerType.CLASSIFIER:
         tags = [*_tag_list(output.get("tags")), *_tag_list(output.get("tags_freeform"))]
         return f"tags={', '.join(tags)}" if tags else None
-    if scanner_type == ScannerType.SUMMARIZER:
+    if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
         title = output.get("title")
         return str(title) if isinstance(title, str) and title.strip() else None
     return None

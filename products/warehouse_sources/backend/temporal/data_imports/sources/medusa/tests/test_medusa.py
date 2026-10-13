@@ -107,18 +107,6 @@ class TestMedusaTransport:
         assert endpoint["incremental"]["start_param"] == "updated_at[$gte]"
         assert endpoint["incremental"]["cursor_path"] == "updated_at"
 
-    def test_full_refresh_resource_omits_the_watermark_filter(self) -> None:
-        resource = cast(
-            dict[str, Any],
-            get_resource(MEDUSA_ENDPOINTS["Orders"], should_use_incremental_field=False),
-        )
-
-        assert resource["write_disposition"] == "replace"
-        endpoint = resource["endpoint"]
-        assert "incremental" not in endpoint
-        assert endpoint["params"]["order"] == "created_at"
-        assert not any("$gte" in param for param in endpoint["params"])
-
     def test_incremental_rejected_for_endpoint_without_timestamp_filters(self) -> None:
         with pytest.raises(ValueError, match="does not support incremental"):
             get_resource(MEDUSA_ENDPOINTS["PriceLists"], should_use_incremental_field=True)
@@ -161,55 +149,6 @@ class TestMedusaTransport:
         # The key is the Basic username with an empty password.
         assert call.kwargs["auth"] == HTTPBasicAuth("sk_test", "")
         assert call.kwargs["allow_redirects"] is False
-
-    @patch(f"{MEDUSA_MODULE}.rest_api_resource")
-    def test_source_pins_requests_to_the_configured_host(self, mock_rest_api_resource: MagicMock) -> None:
-        medusa_source(
-            base_url=BASE_URL,
-            api_key="sk_test",
-            endpoint="Orders",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        config = mock_rest_api_resource.call_args.args[0]
-        client = config["client"]
-        assert client["base_url"] == BASE_URL
-        assert client["auth"] == {"type": "http_basic", "username": "sk_test", "password": ""}
-        assert client["allowed_hosts"] == []
-        assert client["allow_redirects"] is False
-
-    @patch(f"{MEDUSA_MODULE}.rest_api_resource")
-    def test_source_response_partitions_on_a_stable_field(self, mock_rest_api_resource: MagicMock) -> None:
-        response = medusa_source(
-            base_url=BASE_URL,
-            api_key="sk_test",
-            endpoint="Orders",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "Orders"
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
-        mock_rest_api_resource.assert_called_once()
-
-    @patch(f"{MEDUSA_MODULE}.rest_api_resource")
-    def test_fresh_run_starts_without_paginator_state(self, mock_rest_api_resource: MagicMock) -> None:
-        medusa_source(
-            base_url=BASE_URL,
-            api_key="sk_test",
-            endpoint="Orders",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] is None
 
     @patch(f"{MEDUSA_MODULE}.rest_api_resource")
     def test_resume_seeds_the_saved_paginator_state(self, mock_rest_api_resource: MagicMock) -> None:

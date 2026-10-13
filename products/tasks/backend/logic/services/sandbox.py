@@ -206,6 +206,8 @@ class SandboxResources:
 
 
 class SandboxConfig(BaseModel):
+    base_image_reference: str | None = None
+    require_snapshot: bool = False
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
@@ -359,6 +361,7 @@ def build_agent_runtime_env_prefix(
     interaction_origin: str | None = None,
     agent_runtime: str | None = None,
     sandbox_id: str | None = None,
+    sandbox_runtime: str | None = None,
     runtime_adapter: str | None = None,
     provider: str | None = None,
     model: str | None = None,
@@ -380,6 +383,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
         "POSTHOG_AGENT_RUNTIME": agent_runtime,
         "POSTHOG_SANDBOX_ID": sandbox_id,
+        "POSTHOG_SANDBOX_RUNTIME": sandbox_runtime,
         "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
@@ -678,6 +682,7 @@ class SandboxBase(ABC):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 

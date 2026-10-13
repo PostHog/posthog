@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -34,6 +34,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
         .enum(['broadcasts', 'loops'])
         .optional()
@@ -1036,6 +1037,57 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
 })
 
 /**
+ * One published version's series. Every hog flow metric is mirrored under
+ * `hog_flow_version` with the version appended to the id, which is what makes "before and
+ * after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+ * the run instead, so it is not the sum of the versions.
+ */
+export const HogFlowsMetricsVersionRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const hogFlowsMetricsVersionRetrieveQueryAfterDefault = `-7d`
+
+export const hogFlowsMetricsVersionRetrieveQueryBreakdownByDefault = `kind`
+export const hogFlowsMetricsVersionRetrieveQueryIntervalDefault = `day`
+
+export const HogFlowsMetricsVersionRetrieveQueryParams = () => zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFlowsMetricsVersionRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'."
+        ),
+    before: zod.string().min(1).optional().describe("End of the time range. Same format as 'after'. Defaults to now."),
+    breakdown_by: zod
+        .enum(['name', 'kind'])
+        .default(hogFlowsMetricsVersionRetrieveQueryBreakdownByDefault)
+        .describe(
+            "Group the series by metric 'name' or 'kind'. Defaults to 'kind'.\n\n\* `name` - name\n\* `kind` - kind"
+        ),
+    instance_id: zod.string().min(1).optional().describe('Filter metrics to a specific execution instance.'),
+    interval: zod
+        .enum(['hour', 'day', 'week'])
+        .default(hogFlowsMetricsVersionRetrieveQueryIntervalDefault)
+        .describe(
+            "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week"
+        ),
+    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
+    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    version: zod
+        .number()
+        .describe(
+            "Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it."
+        ),
+})
+
+/**
  * Agent-authored changes to this workflow, awaiting a human's decision.
  *
  * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
@@ -1094,9 +1146,9 @@ export const HogFlowsProposalsCreateBody = () => zod.object({
         .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
     base_version: zod
         .number()
-        .optional()
+        .min(1)
         .describe(
-            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
         ),
     step_id: zod
         .string()

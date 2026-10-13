@@ -1,10 +1,49 @@
+from typing import TYPE_CHECKING
+
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceAccessMethod
+from products.warehouse_sources.backend.facade.types import (
+    DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceType,
+)
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+# Gates BigQuery direct query while it is tested internally. It exists for warehouse-native
+# experiment metrics; teams outside the rollout must not be able to connect or query it.
+BIGQUERY_DIRECT_QUERY_FLAG = "bigquery-direct-query"
+
+
+def bigquery_direct_query_enabled(team: "Team") -> bool:
+    # Function-local: keeps the analytics client off the django.setup() path.
+    from posthog.ph_client import feature_enabled_or_false  # noqa: PLC0415
+
+    return feature_enabled_or_false(
+        BIGQUERY_DIRECT_QUERY_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
 
 
 def direct_capable_source_types() -> frozenset[str]:
     """Source types that map to a direct-SQL engine (the static capability surface)."""
     return frozenset(DIRECT_ENGINE_BY_SOURCE_TYPE.keys())
+
+
+def direct_capable_source_types_for_team(team: "Team") -> frozenset[str]:
+    """Source types this team can add as a direct connection: the static surface minus the
+    engines still behind a rollout flag. The presentation layer asks this instead of naming
+    a source type, so the flag check lives in one place."""
+    source_types = set(DIRECT_ENGINE_BY_SOURCE_TYPE.keys())
+    if not bigquery_direct_query_enabled(team):
+        source_types.discard(ExternalDataSourceType.BIGQUERY)
+    return frozenset(source_types)
 
 
 def is_direct_capable(source: ExternalDataSource) -> bool:

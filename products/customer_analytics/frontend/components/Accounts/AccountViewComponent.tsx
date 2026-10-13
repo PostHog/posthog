@@ -2,8 +2,8 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AccountPropertiesWidget } from '../../scenes/CustomerAnalyticsAccountScene/AccountPropertiesWidget'
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
-import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
@@ -12,6 +12,7 @@ import { AccountNotesExpansion } from './AccountNotesExpansion'
 import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
+import { AccountSessionReplays } from './AccountSessionReplays'
 import type { AccountViewComponentKind } from './accountViewComponents'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
@@ -19,6 +20,7 @@ interface AccountViewComponentProps {
     kind: AccountViewComponentKind
     accountId: string
     externalId: string
+    projectId?: number
     instanceId?: string
     initialConfig?: AccountViewTileConfig
     onConfigChange?: (config: AccountViewTileConfig) => void
@@ -29,6 +31,7 @@ export function AccountViewComponent({
     kind,
     accountId,
     externalId,
+    projectId,
     instanceId,
     initialConfig,
     onConfigChange,
@@ -36,6 +39,10 @@ export function AccountViewComponent({
 }: AccountViewComponentProps): JSX.Element {
     const tileProps = { instanceId, initialConfig, onConfigChange }
     switch (kind) {
+        case 'properties':
+            return <AccountPropertiesWidget accountId={accountId} projectId={projectId} {...tileProps} />
+        case 'session_replays':
+            return <AccountSessionReplays accountId={accountId} externalId={externalId} {...tileProps} />
         case 'notes':
             return <AccountNotesExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'tasks':
@@ -64,7 +71,5 @@ export function AccountViewComponent({
             return <AccountConversationsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'meetings':
             return <AccountMeetingsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
-        case 'event_stream':
-            return <AccountEventStreamToggle accountId={accountId} externalId={externalId} />
     }
 }

@@ -26,5 +26,5 @@ UI grammar for every scene in this product. `frontend/src/AGENTS.md` and the rep
 
 ## Components and copy
 
-- Lemon for all UI chrome; `@posthog/quill-charts` only for data viz (charts, the `MetricCard` pill). Never raw `@posthog/quill` primitives here.
+- Lemon for all UI chrome; `@posthog/quill-charts` only for data viz (charts, the `MetricCard` pill). Never raw `@posthog/quill` primitives on the current UI. UI behind the `today-rail-nav` feature flag uses quill and follows [`frontend/src/design.md`](../../../frontend/src/design.md).
 - No boilerplate subheader paragraphs under section titles. Method caveats go in column and card tooltips; the scene subtitle is one plain line.

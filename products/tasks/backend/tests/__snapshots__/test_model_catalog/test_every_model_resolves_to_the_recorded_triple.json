@@ -3,11 +3,11 @@
     "claude": [
       {
         "effort": "medium",
-        "model": "claude-sonnet-5"
+        "model": "claude-sonnet-5-5"
       },
       {
         "effort": "high",
-        "model": "claude-sonnet-5"
+        "model": "claude-sonnet-5-5"
       },
       {
         "effort": "medium",
@@ -73,6 +73,17 @@
       "runtime_adapter": "codex"
     },
     {
+      "prefix": "gpt-6.1-sol",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
       "prefix": "gpt-6-luna",
       "reasoning_efforts": [
         "low",
@@ -123,7 +134,7 @@
   ],
   "runtime_adapters": {
     "claude": {
-      "default_model": "claude-sonnet-5",
+      "default_model": "claude-sonnet-5-5",
       "fallback_reasoning_efforts": [],
       "models": {
         "@cf/zai-org/glm-5.2": {
@@ -269,6 +280,20 @@
           "supports_1m_context": true,
           "supports_fast_mode": false
         },
+        "claude-sonnet-5-5": {
+          "cost_multiplier": "1×",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": false
+        },
         "deepseek-ai/deepseek-v4-flash-0731": {
           "cost_multiplier": "≈0.05×",
           "offered": true,
@@ -307,7 +332,7 @@
       "provider": "anthropic"
     },
     "codex": {
-      "default_model": "gpt-5",
+      "default_model": "gpt-6.1-sol",
       "fallback_reasoning_efforts": [
         "low",
         "medium",
@@ -404,6 +429,19 @@
         },
         "gpt-6-sol": {
           "cost_multiplier": "1×",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "gpt-6.1-sol": {
+          "cost_multiplier": "1× base",
           "offered": true,
           "reasoning_efforts": [
             "low",

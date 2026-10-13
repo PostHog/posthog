@@ -11,6 +11,11 @@ class FreshsalesSelectorFanout:
     parent_object_key: str
     # Child path per parent, formatted with the parent's id.
     child_path: str
+    # Page through the parent and each child. Selectors return everything in one response; listing
+    # APIs such as /lists don't.
+    paginated: bool = False
+    # Column that carries the parent id on each child row, for children whose rows don't include it.
+    parent_id_column: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -144,6 +149,45 @@ FRESHSALES_ENDPOINTS: dict[str, FreshsalesEndpointConfig] = {
         resource="selector/lifecycle_stages",
         object_key="lifecycle_stages",
         is_selector=True,
+    ),
+    "lead_sources": FreshsalesEndpointConfig(
+        name="lead_sources",
+        resource="selector/lead_sources",
+        object_key="lead_sources",
+        is_selector=True,
+    ),
+    "sales_activity_types": FreshsalesEndpointConfig(
+        name="sales_activity_types",
+        resource="selector/sales_activity_types",
+        object_key="sales_activity_types",
+        is_selector=True,
+    ),
+    "sales_activity_outcomes": FreshsalesEndpointConfig(
+        name="sales_activity_outcomes",
+        resource="selector/sales_activity_outcomes",
+        object_key="sales_activity_outcomes",
+        is_selector=True,
+    ),
+    "lists": FreshsalesEndpointConfig(
+        name="lists",
+        resource="lists",
+        object_key="lists",
+    ),
+    "list_contacts": FreshsalesEndpointConfig(
+        name="list_contacts",
+        # Probed by check_credentials; rows come from the fan-out below.
+        resource="lists",
+        object_key="contacts",
+        # A contact can belong to several lists.
+        primary_key=["list_id", "id"],
+        partition_key="created_at",
+        selector_fanout=FreshsalesSelectorFanout(
+            parent_resource="lists",
+            parent_object_key="lists",
+            child_path="contacts/lists/{parent_id}",
+            paginated=True,
+            parent_id_column="list_id",
+        ),
     ),
 }
 

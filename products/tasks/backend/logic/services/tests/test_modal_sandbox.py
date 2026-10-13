@@ -28,7 +28,10 @@ from requests.exceptions import (
     Timeout,
 )
 
+from posthog.utils import get_instance_region
+
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
+from products.tasks.backend.dev_stack_image_models import DevStackImageTarget
 from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxControlPlaneError,
@@ -54,6 +57,11 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
+from products.tasks.backend.logic.services.memory_watchdog import (
+    MEMORY_WATCHDOG_MISSING_MARKER,
+    MEMORY_WATCHDOG_PATH,
+    build_memory_watchdog_start_command,
+)
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     MAX_PROVISION_LOG_EXCERPT_LINES,
     summarize_modal_output,
@@ -791,6 +799,56 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_RTK=1" in command
 
     @pytest.mark.parametrize(
+        "vm_runtime, sandbox_runtime, expected_env",
+        [
+            (True, None, "POSTHOG_SANDBOX_RUNTIME=vm"),
+            (False, None, "POSTHOG_SANDBOX_RUNTIME=gvisor"),
+            (False, "vm", "POSTHOG_SANDBOX_RUNTIME=vm"),
+        ],
+        ids=["vm_config", "gvisor_config", "explicit_runtime_wins_over_config"],
+    )
+    def test_start_agent_server_sandbox_runtime_env(
+        self, mock_sandbox: Any, vm_runtime: bool, sandbox_runtime: str | None, expected_env: str
+    ):
+        mock_sandbox.config = SandboxConfig(name="test-sandbox", vm_runtime=vm_runtime)
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository=None, task_id="task-123", run_id="run-456", sandbox_runtime=sandbox_runtime
+        )
+
+        assert expected_env in _agent_server_launch_command(mock_sandbox.execute)
+
+    @pytest.mark.parametrize(
+        "enabled, preflight_extra, expect_install, expect_start",
+        [
+            (True, "", False, True),
+            (True, MEMORY_WATCHDOG_MISSING_MARKER, True, True),
+            (False, MEMORY_WATCHDOG_MISSING_MARKER, False, False),
+        ],
+    )
+    def test_start_agent_server_memory_watchdog(
+        self, mock_sandbox: Any, enabled: bool, preflight_extra: str, expect_install: bool, expect_start: bool
+    ):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(
+                stdout=f"{_preflight_stdout()}\n{preflight_extra}", stderr="", exit_code=0, error=None
+            ),
+        )
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+
+        with override_settings(TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED=enabled):
+            mock_sandbox.start_agent_server(repository=None, task_id="task-123", run_id="run-456")
+
+        written_paths = [call.args[0] for call in mock_sandbox.write_file.call_args_list]
+        assert (MEMORY_WATCHDOG_PATH in written_paths) is expect_install
+        assert (
+            build_memory_watchdog_start_command() in _agent_server_launch_command(mock_sandbox.execute)
+        ) is expect_start
+
+    @pytest.mark.parametrize(
         "fast_mode, expected_env",
         [
             (False, "POSTHOG_CODE_FAST_MODE=false"),
@@ -1467,27 +1525,27 @@ class TestStartupFailureDiagnostics:
         "probe_stdout, expected, unexpected",
         [
             (
-                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp.eu.posthog.com http_code=000 curl_exit=7",
                 "egress blocked",
                 "timed out",
             ),
             (
-                "api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000\nFAILED",
+                "api.anthropic.com http_code=200\nmcp.eu.posthog.com http_code=000\nFAILED",
                 "egress blocked",
                 "timed out",
             ),
             (
-                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=28",
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp.eu.posthog.com http_code=000 curl_exit=28",
                 "timed out",
                 "egress blocked",
             ),
             (
-                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp.eu.posthog.com http_code=000 curl_exit=7",
                 "egress blocked",
                 "timed out",
             ),
             (
-                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com  curl_exit=127",
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp.eu.posthog.com  curl_exit=127",
                 "did not run",
                 "no egress block detected",
             ),
@@ -1500,7 +1558,7 @@ class TestStartupFailureDiagnostics:
             "curl_never_ran",
         ],
     )
-    @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
+    @override_settings(MCP_SERVER_URL="https://mcp.eu.posthog.com/mcp", SANDBOX_MCP_URL=None)
     def test_reports_blocked_egress_host(self, probe_stdout: str, expected: str, unexpected: str):
         sandbox = self._sandbox()
 
@@ -1520,7 +1578,7 @@ class TestStartupFailureDiagnostics:
         assert diagnostics["sandbox_terminated"] == "false"
         assert expected in diagnostics["failure_reason"]
         assert unexpected not in diagnostics["failure_reason"]
-        assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
+        assert "mcp.eu.posthog.com" in diagnostics["failure_reason"]
 
     def test_transfer_error_after_a_response_is_not_an_egress_failure(self):
         assert _egress_failure_reason("api.anthropic.com http_code=200 curl_exit=56") is None
@@ -1708,6 +1766,7 @@ class TestModalSandboxCreateAllowlist:
         mock_create.return_value.wait_until_ready.assert_called_once_with(timeout=READINESS_PROBE_TIMEOUT_SECONDS)
 
 
+@pytest.mark.django_db
 class TestModalSandboxCreateImageFallback:
     """A failed create with an overlaid image must downgrade one step at a time (bare
     snapshot / bare custom image) instead of jumping to the clean base image — jumping
@@ -1763,6 +1822,42 @@ class TestModalSandboxCreateImageFallback:
         assert images_tried == [overlaid_custom, bare_custom]
         assert sandbox.config.image_fallback is not None
         assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
+
+    @pytest.mark.parametrize("image_id", ["im-verified", ""])
+    def test_protected_dev_stack_never_reads_the_mutable_name(self, image_id: str) -> None:
+
+        DevStackImageTarget.objects.create(
+            region=get_instance_region() or "DEV",
+            name="posthog-dev-stack",
+            active_image_id=image_id,
+        )
+        config = SandboxConfig(name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-dev-stack")
+        custom = MagicMock(name="active")
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image") as base,
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, *args, **kwargs: image,
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name") as from_name,
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id", return_value=custom
+            ) as from_id,
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create") as create,
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            sandbox = ModalSandbox.create(config)
+        from_name.assert_not_called()
+        if image_id:
+            from_id.assert_called_once_with(image_id)
+            assert create.call_args.kwargs["image"] is custom
+            assert sandbox.config.is_dev_stack_image
+        else:
+            assert create.call_args.kwargs["image"] is base.return_value
+            assert not sandbox.config.is_dev_stack_image
+            assert sandbox.config.image_fallback
 
     def test_falling_back_to_the_base_image_drops_the_dev_stack_cpu_floor(self) -> None:
         config = SandboxConfig(
@@ -1823,6 +1918,40 @@ class TestModalSandboxCreateImageFallback:
         # The run still restored from the snapshot — the downgrade only cost the overlay.
         assert sandbox.config.snapshot_restored is True
         assert sandbox.config.image_fallback is not None
+
+    @pytest.mark.parametrize("failure", ["lookup", "create", "readiness"])
+    def test_required_snapshot_failure_never_falls_back_to_base(self, failure: str) -> None:
+        config = SandboxConfig(name="verification", snapshot_external_id="im-candidate", require_snapshot=True)
+        snapshot = MagicMock(name="candidate")
+        sandbox = MagicMock(object_id="sb-candidate")
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image"),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, *args, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=snapshot,
+                side_effect=RuntimeError("lookup unavailable") if failure == "lookup" else None,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create",
+                return_value=sandbox,
+                side_effect=RuntimeError("create unavailable") if failure == "create" else None,
+            ) as create,
+            patch.object(ModalSandbox, "_wait_until_ready", return_value=False),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            with pytest.raises(SandboxProvisionError):
+                ModalSandbox.create(config)
+        assert create.call_count == (0 if failure == "lookup" else 1)
+        if create.called:
+            assert create.call_args.kwargs["image"] is snapshot
+        if failure == "readiness":
+            sandbox.terminate.assert_called_once()
 
     def test_unrelated_invalid_error_preserves_vm_network_policy_on_fallback(self):
         config = SandboxConfig(
@@ -2430,38 +2559,38 @@ class TestResourceCreateKwargs:
     @pytest.mark.parametrize(
         "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (32768, 32768)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (65536, 65536)),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
                 (6.0, 8.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6, "cpu_cores": 4},
                 (4.0, 4.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0), (16384, 16384)),
             ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
             (
                 {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
                 (4.0, 8.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
                 (4.0, 8.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             (
-                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 48},
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 80},
                 (4.0, 8.0),
-                (49152, 49152),
+                (81920, 81920),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "burstable_resources": False},
                 8.0,
-                32768,
+                65536,
             ),
         ],
     )
@@ -2590,22 +2719,21 @@ class TestModalSandboxCreateSnapshot:
 
 class TestSessionInitProbeHosts:
     @pytest.mark.parametrize(
-        ("site_url", "mcp_url", "expected_host", "unused_host"),
+        ("mcp_server_url", "mcp_url", "expected_host", "unused_host"),
         [
-            ("https://us.posthog.com", None, "mcp.posthog.com", "mcp-eu.posthog.com"),
-            ("https://eu.posthog.com", None, "mcp-eu.posthog.com", "mcp.posthog.com"),
+            ("https://mcp.eu.posthog.com/mcp", None, "mcp.eu.posthog.com", "custom-mcp.example.com"),
             (
-                "https://us.posthog.com",
+                "https://mcp.eu.posthog.com/mcp",
                 "https://custom-mcp.example.com/mcp",
                 "custom-mcp.example.com",
-                "mcp.posthog.com",
+                "mcp.eu.posthog.com",
             ),
         ],
     )
     def test_includes_only_resolved_mcp_host(
-        self, site_url: str, mcp_url: str | None, expected_host: str, unused_host: str
+        self, mcp_server_url: str, mcp_url: str | None, expected_host: str, unused_host: str
     ):
-        with override_settings(SITE_URL=site_url, SANDBOX_MCP_URL=mcp_url):
+        with override_settings(MCP_SERVER_URL=mcp_server_url, SANDBOX_MCP_URL=mcp_url):
             hosts = _session_init_probe_hosts()
 
         assert expected_host in hosts

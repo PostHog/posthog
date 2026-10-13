@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -12,6 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend import flag_evaluations_mode
 from products.feature_flags.backend.api.staff_team_config import (
     MAX_IDS_PER_MODE_WRITE,
@@ -19,12 +21,12 @@ from products.feature_flags.backend.api.staff_team_config import (
     StaffFlagEvaluationsModeMutationSerializer,
     StaffTeamConfigMutationSerializer,
 )
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
-    FlagEvaluationsMode,
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
@@ -414,6 +416,12 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         above_organization = Organization.objects.create(name="Above")
         above_team = Team.objects.create(organization=above_organization, name="Above team")
         self._store_mode(above_organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        Experiment.objects.create(
+            team=sibling,
+            name="Started before the cutoff",
+            feature_flag=FeatureFlag.objects.create(team=sibling, key="experiment-flag", created_by=self.user),
+            start_date=datetime(2026, 8, 1, tzinfo=UTC),
+        )
 
         response = self.client.post(
             SET_FLAG_EVALUATIONS_MODE_URL,
@@ -438,6 +446,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "organization_id": str(self.organization.id),
                         "organization_name": self.organization.name,
                         "team_count": 3,
+                        "running_experiments_on_feature_flag_called": 1,
                         "current_mode": FlagEvaluationsMode.EVENTS,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                         "changed": expected_changed[0],
@@ -447,6 +456,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "organization_id": str(above_organization.id),
                         "organization_name": above_organization.name,
                         "team_count": 1,
+                        "running_experiments_on_feature_flag_called": 0,
                         "current_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                         "changed": expected_changed[1],

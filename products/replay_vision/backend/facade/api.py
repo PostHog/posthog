@@ -64,7 +64,11 @@ def fetch_page_session_observations(
     )
     if prefer_summarizer:
         queryset = queryset.order_by(
-            Case(When(scanner__scanner_type=ScannerType.SUMMARIZER, then=0), default=1), "-created_at"
+            Case(
+                When(scanner__scanner_type__in=(ScannerType.SUMMARIZER, ScannerType.EXPERIMENT), then=0),
+                default=1,
+            ),
+            "-created_at",
         )
     else:
         queryset = queryset.order_by("-created_at")

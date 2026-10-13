@@ -17,7 +17,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
@@ -31,6 +30,7 @@ from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

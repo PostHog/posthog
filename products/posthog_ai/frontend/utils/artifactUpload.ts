@@ -54,7 +54,10 @@ function prepareRequestFor(file: File): PrepareRequest {
     }
 }
 
-async function uploadToPresignedPost(prepared: PreparedArtifact, file: File): Promise<void> {
+async function uploadToPresignedPost(
+    prepared: Pick<PreparedArtifact, 'name' | 'presigned_post'>,
+    file: File
+): Promise<void> {
     const formData = new FormData()
     // S3 requires the presigned fields verbatim and ahead of the file part.
     for (const [key, value] of Object.entries(prepared.presigned_post.fields)) {
@@ -123,4 +126,43 @@ export async function uploadRunAttachments(
         },
         files
     )
+}
+
+/**
+ * Save text as a new version of a run file, the same upload PostHog Desktop makes for an edit.
+ * The artifacts tab groups uploads by file name, so the same name adds a version. Returns the new artifact id.
+ */
+export async function uploadRunOutputVersion(
+    projectId: string,
+    taskId: string,
+    runId: string,
+    { name, content, contentType }: { name: string; content: string; contentType: string }
+): Promise<string> {
+    const file = new File([content], name, { type: contentType })
+    const {
+        artifacts: [prepared],
+    } = await tasksRunsArtifactsPrepareUploadCreate(projectId, taskId, runId, {
+        artifacts: [{ name, type: TaskRunArtifactTypeEnumApi.Output, size: file.size, content_type: contentType }],
+    })
+    if (!prepared) {
+        throw new Error(`Couldn't prepare ${name} for upload`)
+    }
+    await uploadToPresignedPost(prepared, file)
+    const {
+        artifacts: [finalized],
+    } = await tasksRunsArtifactsFinalizeUploadCreate(projectId, taskId, runId, {
+        artifacts: [
+            {
+                id: prepared.id,
+                name: prepared.name,
+                type: TaskRunArtifactTypeEnumApi.Output,
+                storage_path: prepared.storage_path,
+                content_type: contentType,
+            },
+        ],
+    })
+    if (!finalized?.id) {
+        throw new Error(`Couldn't save ${name}`)
+    }
+    return finalized.id
 }

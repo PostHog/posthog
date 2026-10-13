@@ -10,6 +10,63 @@ from products.experiments.backend.experiment_saved_metric_service import Experim
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
+_THRESHOLD_MEAN: dict[str, object] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "$pageview", "math": "sum", "math_property": "amount"},
+}
+
+_SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
+    (
+        "funnel_without_steps",
+        {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},
+        "funnel metrics require at least one step",
+    ),
+    ("zero_threshold", {**_THRESHOLD_MEAN, "threshold": 0}, "threshold must be a positive number"),
+    (
+        "threshold_with_winsorization",
+        {**_THRESHOLD_MEAN, "threshold": 10, "upper_bound_percentile": 0.99},
+        "a threshold cannot be combined with outlier handling",
+    ),
+    (
+        "warehouse_funnel_step_without_join_key",
+        {
+            "kind": "ExperimentMetric",
+            "metric_type": "funnel",
+            "series": [
+                {
+                    "kind": "ExperimentDataWarehouseNode",
+                    "table_name": "orders",
+                    "timestamp_field": "created_at",
+                    "data_warehouse_join_key": "",
+                    "events_join_key": "distinct_id",
+                }
+            ],
+        },
+        "Step 1: data_warehouse_join_key is required",
+    ),
+    (
+        "action_that_does_not_exist",
+        {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": 999999}},
+        "Action(s) with ID 999999 not found or deleted",
+    ),
+]
+
+_STORED_ACTION_SOURCE: dict[str, object] = {
+    "kind": "ActionsNode",
+    "id": 999999,
+    "name": "Stored name",
+    "math": "sum",
+    "math_property": "amount",
+}
+
+_STORED_ACTION_MEAN: dict[str, object] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "uuid": "stored-uuid",
+    "source": _STORED_ACTION_SOURCE,
+}
+
 
 class TestExperimentSavedMetricService(APIBaseTest):
     def _service(self) -> ExperimentSavedMetricService:
@@ -44,7 +101,12 @@ class TestExperimentSavedMetricService(APIBaseTest):
             (
                 "invalid_kind",
                 {"kind": "not-ExperimentMetric"},
-                "Metric query kind must be 'ExperimentMetric'",
+                "Invalid metric: metric kind must be 'ExperimentMetric'",
+            ),
+            (
+                "unhashable_kind",
+                {"kind": ["ExperimentMetric"], "metric_type": "mean"},
+                "Invalid metric: metric kind must be 'ExperimentMetric'",
             ),
             (
                 "missing_metric_type",
@@ -89,6 +151,58 @@ class TestExperimentSavedMetricService(APIBaseTest):
 
         assert expected_error in str(ctx.exception)
 
+    @parameterized.expand(
+        [
+            (f"{case_name}_{path}", path, metric, fragment)
+            for case_name, metric, fragment in _SHARED_RULE_CASES
+            for path in ("create", "update")
+        ]
+    )
+    def test_saved_write_paths_apply_the_inline_metric_rules(
+        self, _: str, path: str, metric: dict[str, object], fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            if path == "create":
+                self._service().create_saved_metric(name="Saved metric", query=metric)
+            else:
+                saved_metric = self._service().create_saved_metric(
+                    name="Saved metric", query=self._valid_experiment_metric()
+                )
+                self._service().update_saved_metric(saved_metric, {"query": metric})
+
+        assert fragment in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("resent_as_stored", "Stored name"),
+            ("resent_with_the_action_name_refreshed_on_read", "Current name"),
+        ]
+    )
+    def test_update_saved_metric_accepts_unchanged_query_that_predates_a_rule(
+        self, _: str, resent_action_name: str
+    ) -> None:
+        stored_query = {**_STORED_ACTION_MEAN, "threshold": 0}
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, created_by=self.user, name="Original name", query=stored_query
+        )
+        resent_query = {**stored_query, "source": {**_STORED_ACTION_SOURCE, "name": resent_action_name}}
+
+        updated = self._service().update_saved_metric(saved_metric, {"name": "Renamed", "query": resent_query})
+
+        assert updated.name == "Renamed"
+        assert updated.query == resent_query
+
+    def test_update_saved_metric_accepts_a_stored_action_that_was_deleted(self) -> None:
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, created_by=self.user, name="Saved metric", query=_STORED_ACTION_MEAN
+        )
+
+        updated = self._service().update_saved_metric(
+            saved_metric, {"query": {**_STORED_ACTION_MEAN, "goal": "decrease"}}
+        )
+
+        assert updated.query["goal"] == "decrease"
+
     def test_update_saved_metric_updates_fields(self) -> None:
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,
@@ -124,13 +238,15 @@ class TestExperimentSavedMetricService(APIBaseTest):
         assert updated == saved_metric
         save_mock.assert_not_called()
 
-    def test_update_saved_metric_validates_query_before_mutation(self) -> None:
+    @parameterized.expand([("stored_query_is_valid", False), ("stored_query_is_empty_too", True)])
+    def test_update_saved_metric_validates_query_before_mutation(self, _: str, stored_query_is_empty: bool) -> None:
+        stored_query = {} if stored_query_is_empty else self._valid_experiment_metric()
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,
             created_by=self.user,
             name="Original name",
             description="Original description",
-            query=self._valid_experiment_metric(),
+            query=stored_query,
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -145,7 +261,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
         assert "Query is required to create a saved metric" in str(ctx.exception)
         saved_metric.refresh_from_db()
         assert saved_metric.name == "Original name"
-        assert saved_metric.query == self._valid_experiment_metric()
+        assert saved_metric.query == stored_query
 
     def test_update_saved_metric_query_preserves_existing_uuid(self) -> None:
         saved_metric = self._service().create_saved_metric(

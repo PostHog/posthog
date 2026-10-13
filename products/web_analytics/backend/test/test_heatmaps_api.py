@@ -14,7 +14,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -27,6 +27,7 @@ from posthog.models import Organization, Team
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 
+from products.web_analytics.backend.api.heatmaps_api import HeatmapsRequestSerializer
 from products.web_analytics.backend.models.heatmap_capture_config_version import HeatmapCaptureConfigVersion
 
 INSERT_SINGLE_HEATMAP_EVENT = """
@@ -62,6 +63,39 @@ SELECT
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
+
+    def test_exact_timestamp_interval_is_half_open_for_overlay_and_area_events(self) -> None:
+        for timestamp in ("2024-03-10T05:00:00", "2024-03-11T03:59:59", "2024-03-11T04:00:00"):
+            self._create_heatmap_event("interval-session", "click", date_from=timestamp, x=20, y=20)
+        params: dict[str, str | int | None] = {
+            "timestamp_from": "2024-03-10T05:00:00Z",
+            "timestamp_to": "2024-03-11T04:00:00Z",
+            "date_from": "2024-03-12",
+            "type": "click",
+        }
+        self._assert_heatmap_single_result_count(params, 2)
+        result = self._get_heatmap(params).data["results"][0]
+        points = quote(dumps([{"x": result["pointer_relative_x"], "y": result["pointer_y"], "target_fixed": True}]))
+        drill = self.client.get(
+            f"/api/heatmap/events/?timestamp_from=2024-03-10T05:00:00Z&timestamp_to=2024-03-11T04:00:00Z&type=click&points={points}"
+        )
+        assert drill.status_code == 200
+        assert drill.data["total_count"] == 2
+
+    def test_exact_interval_also_bounds_event_session_filters(self) -> None:
+        self._create_heatmap_event("inside", "click", date_from="2024-05-01T12:00:00", x=20, y=20)
+        self._create_heatmap_event("outside", "click", date_from="2024-05-01T12:00:00", x=20, y=20)
+        self.create_event(session_id="inside", timestamp="2024-05-01T04:00:00", event_name="purchase", properties={})
+        self.create_event(session_id="outside", timestamp="2024-05-02T04:00:00", event_name="purchase", properties={})
+        with self._event_filter_flag(True):
+            self._assert_heatmap_single_result_count(
+                {
+                    "timestamp_from": "2024-05-01T04:00:00Z",
+                    "timestamp_to": "2024-05-02T04:00:00Z",
+                    "events": self._events_param([{"id": "purchase"}]),
+                },
+                1,
+            )
 
     def _assert_heatmap_no_result_count(
         self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
@@ -952,3 +986,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "events": quote(events, safe="")},
             expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
+
+
+class TestHeatmapsRequestIntervals(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({"timestamp_from": "2024-05-01T00:00:00Z"},),
+            ({"timestamp_to": "2024-05-02T00:00:00Z"},),
+            ({"timestamp_from": "2024-05-02T00:00:00Z", "timestamp_to": "2024-05-01T00:00:00Z"},),
+        ]
+    )
+    def test_invalid_intervals_are_rejected(self, params: dict[str, str]) -> None:
+        serializer = HeatmapsRequestSerializer(data=params, context={"team": Team(timezone="UTC")})
+        assert not serializer.is_valid()

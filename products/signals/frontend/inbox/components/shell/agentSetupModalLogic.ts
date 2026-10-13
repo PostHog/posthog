@@ -75,8 +75,8 @@ export const agentSetupModalLogic = kea<agentSetupModalLogicType>([
                 actions.openSetupModal('github')
             }
         },
-        [urls.inbox(':tab')]: (_, searchParams) => {
-            if (searchParams.setup === 'github' && values.openModal !== 'github') {
+        [urls.inbox(':tab')]: ({ tab }, searchParams) => {
+            if (tab !== 'scout-trials' && searchParams.setup === 'github' && values.openModal !== 'github') {
                 actions.openSetupModal('github')
             }
         },

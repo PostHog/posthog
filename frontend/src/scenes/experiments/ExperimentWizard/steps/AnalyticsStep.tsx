@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { ExposureCriteriaPanel } from '../../ExperimentForm/ExposureCriteriaPanel'
 import { MetricsPanel } from '../../ExperimentForm/MetricsPanel'
@@ -20,7 +21,18 @@ export function AnalyticsStep(): JSX.Element {
                 </div>
 
                 <div className="mt-10">
-                    <h3 className="text-lg font-semibold mb-1">How to measure impact?</h3>
+                    <h3 className="text-lg font-semibold mb-1 flex items-center gap-1">
+                        How to measure impact?
+                        <Tooltip title="Add metrics to measure your experiment's impact. You can add them before or after launching.">
+                            <LemonButton
+                                size="xsmall"
+                                noPadding
+                                icon={<IconInfo className="text-base text-secondary" />}
+                                aria-label="About measuring impact"
+                                data-attr="experiment-analytics-metrics-help"
+                            />
+                        </Tooltip>
+                    </h3>
                     <MetricsPanel
                         experiment={experiment}
                         sharedMetrics={sharedMetrics}
@@ -74,10 +86,6 @@ export function AnalyticsStep(): JSX.Element {
             </div>
 
             <ReplayVisionScannerOption />
-
-            <LemonBanner type="info">
-                You can always refine your analytics configuration and metrics after saving.
-            </LemonBanner>
         </div>
     )
 }

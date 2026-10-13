@@ -7,13 +7,13 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from ..db import READER_DB, WRITER_DB
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS
+from ..facade.contracts import AGENT_QUARANTINE_MAX_DAYS, FLAKINESS_EXPIRY_SOON_DAYS
 from ..facade.enums import ActorType
-from ..models import QuarantinedIdentifier, Run
+from ..models import QuarantinedIdentifier, Repo, Run
 from . import errors, github_api, repos
 from .run_queries import SnapshotKey
 
@@ -43,6 +43,22 @@ def list_quarantined_identifiers(
         now = timezone.now()
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
     return list(qs.order_by("-created_at"))
+
+
+def active_quarantined_identifiers(
+    repo_id: UUID, team_id: int, run_type: str, using: str
+) -> QuerySet[QuarantinedIdentifier, str]:
+    """Identifiers under an active quarantine, as a subquery that filters snapshot rows in SQL.
+
+    `using` must name the database of the outer query, because Django refuses a subquery
+    across database aliases.
+    """
+    return (
+        QuarantinedIdentifier.objects.using(using)
+        .filter(repo_id=repo_id, team_id=team_id, run_type=run_type)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .values_list("identifier", flat=True)
+    )
 
 
 def expiry_soon_cutoff(now: datetime, within_days: int = FLAKINESS_EXPIRY_SOON_DAYS) -> datetime:
@@ -102,9 +118,14 @@ def quarantine_identifier(
     expires_at: datetime | None = None,
     source_run_id: UUID | None = None,
     source: ActorType = ActorType.HUMAN,
+    notify_owners: bool = False,
 ) -> QuarantinedIdentifier:
     repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
+    if source == ActorType.AGENT:
+        latest = now + timedelta(days=AGENT_QUARANTINE_MAX_DAYS)
+        if expires_at is None or expires_at > latest:
+            expires_at = latest
     # Resolve the source run inside the team scope so a malicious caller can't
     # attach a quarantine to an unrelated run. Silently drop on mismatch — the
     # quarantine itself still wins; we just lose the "what was wrong" pointer.
@@ -128,7 +149,7 @@ def quarantine_identifier(
             run_type=run_type,
             team_id=team_id,
         ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
-        return QuarantinedIdentifier.objects.using(WRITER_DB).create(
+        entry = QuarantinedIdentifier.objects.using(WRITER_DB).create(
             repo_id=repo_id,
             identifier=identifier,
             run_type=run_type,
@@ -139,6 +160,33 @@ def quarantine_identifier(
             source_run=source_run,
             source=source,
         )
+    if notify_owners:
+        from ..tasks.tasks import (  # noqa: PLC0415 — avoids the logic/tasks circular import
+            QUARANTINE_NOTICE_EXPIRY_SECONDS,
+            notify_quarantine_owners,
+        )
+
+        entry_id = str(entry.id)
+        transaction.on_commit(
+            lambda: notify_quarantine_owners.apply_async(
+                args=(team_id, entry_id), expires=QUARANTINE_NOTICE_EXPIRY_SECONDS
+            ),
+            using=WRITER_DB,
+            robust=True,
+        )
+    return entry
+
+
+def _lift_commit(repo: Repo) -> str:
+    # A lift without a commit would apply to every branch, including branches that forked before
+    # the fix and still render the old picture. Refuse it, so the quarantine stays.
+    lifted_at_sha = github_api.default_branch_head_sha(repo)
+    if lifted_at_sha is None:
+        raise errors.LiftCommitUnknownError(
+            "GitHub cannot name the default branch head, so the lift cannot be scoped to a commit. "
+            "The quarantine stays. Try again in a minute."
+        )
+    return lifted_at_sha
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
@@ -146,14 +194,21 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
     # Take the cutoff before the GitHub request, and lift only rows that existed at the cutoff. A
     # quarantine that somebody creates while the request is in flight must survive this lift.
     now = timezone.now()
-    lifted_at_sha = github_api.default_branch_head_sha(repo)
-    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
-        repo_id=repo_id,
-        identifier=identifier,
-        run_type=run_type,
-        team_id=team_id,
-        created_at__lte=now,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now, lifted_at_sha=lifted_at_sha)
+    active = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(
+            repo_id=repo_id,
+            identifier=identifier,
+            run_type=run_type,
+            team_id=team_id,
+            created_at__lte=now,
+        )
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    )
+    # A repeated lift stays a no-op, even while GitHub cannot name the head.
+    if not active.exists():
+        return
+    active.update(expires_at=now, lifted_at_sha=_lift_commit(repo))
 
 
 def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
@@ -166,7 +221,7 @@ def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
 
     # The cutoff is `now`, taken before the GitHub request, for the same reason as in
     # `unquarantine_identifier`.
-    lifted_at_sha = github_api.default_branch_head_sha(entry.repo)
+    lifted_at_sha = _lift_commit(entry.repo)
     # Expire all active entries for the same identifier/run_type, not just this one
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=entry.repo_id,

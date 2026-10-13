@@ -42,7 +42,7 @@ class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in RelationshipStatus],
-        default=RelationshipStatus.PROPOSED,
+        default=RelationshipStatus.PROPOSED.value,
         help_text="proposed, accepted (promoted to a real join), or rejected (never re-proposed).",
     )
     reviewed_by = models.ForeignKey(

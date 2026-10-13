@@ -7,7 +7,7 @@ import hashlib
 import secrets
 from dataclasses import field, replace
 from datetime import timedelta
-from typing import NoReturn
+from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.conf import settings
@@ -27,7 +27,7 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
 from posthog.scopes import get_oauth_scopes_supported
 
-from . import common, model, refresh_tracking
+from . import apple_ads, common, model, refresh_tracking
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +88,19 @@ INSTAGRAM_OAUTH_SCOPE = (
 )
 
 
+# Apple Ads: where the authorization code is exchanged. Apple's service provider OAuth guide names
+# a different path for the refresh grant, `/auth/token`, which is the Sign in with Apple endpoint
+# rather than a sibling of the `/auth/oauth2/v2/authorize` endpoint this flow starts at.
+# `_post_token_refresh` tries this one first and falls back to that one, so whichever Apple honors
+# keeps working.
+APPLE_ADS_TOKEN_URL = "https://appleid.apple.com/auth/oauth2/token"
+APPLE_ADS_REFRESH_TOKEN_FALLBACK_URL = "https://appleid.apple.com/auth/token"
+# Lists every ad account the granting user can reach, and the organization each sits under. Apple
+# documents it as the call to make once per access token, and it is the only identity Apple exposes
+# for a service provider grant.
+APPLE_ADS_ACL_URL = "https://api.ads.apple.com/v1/acls"
+
+
 @frozen
 class OauthConfig:
     authorize_url: str
@@ -117,6 +130,61 @@ class OauthConfig:
 # instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
 # note by SlackIntegrationScope in frontend/src/types.ts.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+
+
+def _apple_ads_acl_accounts(access_token: str) -> list[dict[str, Any]]:
+    """Ad accounts an Apple Ads access token can read, flattened one row per account.
+
+    Apple nests each account under `adAccount` and lists the granting user's roles beside it:
+    ``{"result": {"acls": [{"adAccount": {"id", "name", "orgId", ...}, "roles": [...]}]}}``.
+    Returns an empty list rather than raising when Apple rejects the call, so the caller decides
+    what a grant with no readable account means.
+    """
+    try:
+        res = requests.get(
+            APPLE_ADS_ACL_URL,
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=10,
+            # This call carries the access token; a 30x must not resend it to another origin.
+            allow_redirects=False,
+        )
+    except requests.RequestException as e:
+        logger.warning("apple_ads_acl_request_failed", error=str(e))
+        return []
+
+    if res.status_code != 200:
+        logger.warning("apple_ads_acl_request_rejected", status_code=res.status_code, response=res.text[:500])
+        return []
+
+    try:
+        payload = res.json()
+    except ValueError:
+        return []
+
+    result = payload.get("result") if isinstance(payload, dict) else None
+    entries = result.get("acls") if isinstance(result, dict) else None
+    if not isinstance(entries, list):
+        return []
+
+    accounts: list[dict[str, Any]] = []
+    for entry in entries:
+        account = entry.get("adAccount") if isinstance(entry, dict) else None
+        if isinstance(account, dict) and account.get("id") is not None:
+            accounts.append({**account, "roles": entry.get("roles") or []})
+    return accounts
+
+
+def _apple_ads_account_name(accounts: list[dict[str, Any]]) -> str:
+    """Label for the connected Apple Ads grant, named after the organizations it reaches."""
+    org_names: list[str] = []
+    for account in accounts:
+        name = account.get("orgName") or account.get("parentOrgName")
+        if name and name not in org_names:
+            org_names.append(str(name))
+    if org_names:
+        return ", ".join(org_names)
+    first = accounts[0]
+    return str(first.get("name") or f"Apple Ads account {first['id']}")
 
 
 def _salesforce_instance_host(instance_url: str | None) -> str | None:
@@ -254,6 +322,7 @@ class OauthIntegration:
         "posthog",
         "salesforce",
         "hubspot",
+        "apple-ads",
         "google-ads",
         "google-analytics",
         "google-calendar",
@@ -720,7 +789,7 @@ class OauthIntegration:
                 token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
                 client_id=settings.ATLASSIAN_APP_CLIENT_ID,
                 client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
-                scope="read:jira-work write:jira-work offline_access",
+                scope="read:jira-work write:jira-work read:jira-user offline_access",
                 id_path="cloud_id",
                 name_path="site_name",
             )
@@ -784,6 +853,38 @@ class OauthIntegration:
                 pkce=True,
                 id_path="resend_account_id",
                 name_path="resend_account_name",
+            )
+
+        elif kind == "apple-ads":
+            if not all(
+                (
+                    settings.APPLE_ADS_APP_CLIENT_ID,
+                    settings.APPLE_ADS_APP_TEAM_ID,
+                    settings.APPLE_ADS_APP_KEY_ID,
+                    settings.APPLE_ADS_APP_PRIVATE_KEY,
+                )
+            ):
+                raise NotImplementedError("Apple Ads service provider app not configured")
+
+            # Apple's service provider flow, where a PostHog registration acts on behalf of an
+            # Apple Ads user who grants access. The first-party flow the warehouse source also
+            # supports is a different thing: it uses the customer's own key pair with
+            # `client_credentials` and the `searchadsorg` scope, and never reaches this code.
+            #
+            # The client secret is signed, not stored: Apple issues no static secret, so each
+            # build mints a fresh ES256 assertion. `oauth_config_for_kind` caches the config for
+            # five minutes, well inside the assertion's own lifetime.
+            #
+            # The token response carries no account identifier, so id/name come from Apple's ACL
+            # endpoint below (see the apple-ads branch in integration_from_oauth_response).
+            return OauthConfig(
+                authorize_url="https://appleid.apple.com/auth/oauth2/v2/authorize",
+                token_url=APPLE_ADS_TOKEN_URL,
+                client_id=settings.APPLE_ADS_APP_CLIENT_ID,
+                client_secret=apple_ads.service_provider_client_secret(),
+                scope="searchads",
+                id_path="apple_ads_account_id",
+                name_path="apple_ads_account_name",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -1138,6 +1239,24 @@ class OauthIntegration:
             except Exception:
                 logger.exception("Failed to decode Resend JWT")
 
+        # Apple's token response carries no account identifier. Apple documents the ACL endpoint as
+        # the call to make once per access token, so it names the grant and checks that it can read
+        # something. The granting user may reach several ad accounts across organizations. A hash
+        # of the opaque grant token keeps separate grants from overwriting one another, while the
+        # account is picked per source afterwards.
+        if kind == "apple-ads" and not integration_id:
+            accounts = _apple_ads_acl_accounts(config["access_token"])
+            if not accounts:
+                raise ValidationError(
+                    "This Apple Ads user cannot read any ad account. Ask an account admin to grant "
+                    "access in Apple Ads, then connect again."
+                )
+            org_ids = sorted({str(account["orgId"]) for account in accounts if account.get("orgId") is not None})
+            config["apple_ads_account_name"] = _apple_ads_account_name(accounts)
+            config["apple_ads_org_ids"] = org_ids
+            grant_token = config.get("refresh_token") or config["access_token"]
+            integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
+
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
         if kind == "linkedin-ads" and not integration_id:
@@ -1417,12 +1536,31 @@ class OauthIntegration:
             )
         elif kind == "stripe":
             # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            # Stripe rolls the refresh token on every exchange. If the response is lost after
+            # Stripe committed the roll, the stored token is dead and only a reconnect recovers.
+            # A key derived from the token makes the next attempt replay Stripe's saved response.
             return requests.post(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(client_secret, ""),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                headers={"Idempotency-Key": hashlib.sha256(refresh_token.encode()).hexdigest()},
                 timeout=10,
             )
+        elif kind == "apple-ads":
+            # Apple's guide names `/auth/token` for the refresh grant while the exchange it pairs
+            # with uses `/auth/oauth2/token`. Try the exchange endpoint first, then the documented
+            # one, so a wrong guess in either direction costs one extra request on failure instead
+            # of a dead integration. Drop the fallback once Apple's behavior is confirmed.
+            body = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            }
+            res = requests.post(oauth_config.token_url, data=body, timeout=10, allow_redirects=False)
+            if res.status_code == 200:
+                return res
+            return requests.post(APPLE_ADS_REFRESH_TOKEN_FALLBACK_URL, data=body, timeout=10, allow_redirects=False)
         else:
             token_url = oauth_config.token_url
             # Salesforce sandbox integrations are stored under the production kind (the sandbox

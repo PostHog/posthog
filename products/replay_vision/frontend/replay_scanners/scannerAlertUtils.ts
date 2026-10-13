@@ -4,13 +4,6 @@ import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyO
 
 import type { VisionAlertConfigurationApi } from '../generated/api.schemas'
 
-// pinned: internal event ids — HogFunction destination filters match on them
-export const VISION_ALERT_FIRING_EVENT_ID = '$replay_vision_alert_firing'
-export const VISION_ALERT_RESOLVED_EVENT_ID = '$replay_vision_alert_resolved'
-export const VISION_ALERT_AUTO_DISABLED_EVENT_ID = '$replay_vision_alert_auto_disabled'
-export const VISION_ALERT_ERRORED_EVENT_ID = '$replay_vision_alert_errored'
-export const VISION_ALERT_MATCH_EVENT_ID = '$replay_vision_alert_match'
-
 export const VISION_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 

@@ -21,7 +21,13 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
-from products.engineering_analytics.backend.logic.views import ci_failures, ci_job_history, job_costs, pr_friction
+from products.engineering_analytics.backend.logic.views import (
+    ci_failures,
+    ci_job_history,
+    depot_ci,
+    job_costs,
+    pr_friction,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -177,7 +183,10 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        query = ci_job_history.build_query(jobs_table=jobs_table, runs_table=runs_table)
+        query = ci_job_history.build_query(
+            jobs_table=depot_ci.with_depot_jobs(jobs_table, None, runs_table),
+            runs_table=depot_ci.with_depot_runs(runs_table, None, None, None),
+        )
 
         columns = execute_hogql_query(
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
@@ -245,7 +254,10 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
             WORKFLOW_RUNS_COLUMNS,
             [_run_row(100, head_sha="s", pr_numbers=[1], head_commit={"message": "m"})],
         )
-        query = ci_job_history.build_query(jobs_table=jobs_table, runs_table=runs_table)
+        query = ci_job_history.build_query(
+            jobs_table=depot_ci.with_depot_jobs(jobs_table, None, runs_table),
+            runs_table=depot_ci.with_depot_runs(runs_table, None, None, None),
+        )
         unioned = "\nUNION ALL\n".join([query, query])
         rows = execute_hogql_query(
             query=f"SELECT count() FROM ({unioned})", team=self.team, query_type="engineering_analytics.test"

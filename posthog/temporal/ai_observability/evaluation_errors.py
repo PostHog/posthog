@@ -31,6 +31,14 @@ class EvaluationErrorSpec:
 
 
 USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
+    "endpoint_blocked": EvaluationErrorSpec(
+        error_type="endpoint_blocked",
+        owner="user",
+        safe_message="The judge endpoint is not allowed. Check the connection settings.",
+        status_reason=EvaluationStatusReason.PROVIDER_KEY_INVALID,
+        disables_evaluation=True,
+        provider_key_state=LLMProviderKey.State.ERROR,
+    ),
     "provider_key_required": EvaluationErrorSpec(
         error_type="provider_key_required",
         owner="user",

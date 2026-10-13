@@ -13,7 +13,7 @@ class AccountView(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     visibility = models.CharField(
         max_length=16,
         choices=AccountViewVisibility.choices,
-        default=AccountViewVisibility.PRIVATE,
+        default=AccountViewVisibility.PRIVATE.value,
     )
     content = models.JSONField()
     text_content = models.TextField(default="", db_default="")

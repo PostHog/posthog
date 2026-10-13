@@ -44,71 +44,76 @@ export const HealthScene = (): JSX.Element => {
 
     return (
         <SceneContent>
-            <SceneTitleSection name="Health" description={null} resourceType={{ type: 'health' }} />
+            <SceneTitleSection
+                name="Health"
+                description="See an at-a-glance view of the health of your project."
+                resourceType={{ type: 'health' }}
+                actions={
+                    <>
+                        <LemonButton
+                            icon={<IconBell />}
+                            type="secondary"
+                            size="small"
+                            to={urls.healthAlerts()}
+                            tooltip="Subscribe to alerts when any health check fires"
+                        >
+                            Alerts
+                        </LemonButton>
 
-            <div className="flex items-center justify-between -mt-2 mb-2">
-                <p className="text-sm mb-0">See an at-a-glance view of the health of your project.</p>
-                <div className="flex items-center gap-1">
-                    <LemonButton
-                        icon={<IconBell />}
-                        type="secondary"
-                        size="small"
-                        to={urls.healthAlerts()}
-                        tooltip="Subscribe to alerts when any health check fires"
-                    >
-                        Alerts
-                    </LemonButton>
-
-                    {askAiEnabled && (
+                        {askAiEnabled && (
+                            <LemonMenu
+                                items={HEALTH_OVERVIEW_QUESTIONS.map((question) => ({
+                                    label: question,
+                                    onClick: () =>
+                                        openSidePanel(
+                                            SidePanelTab.Max,
+                                            `!${buildHealthOverviewPrompt(issues, question)}`
+                                        ),
+                                }))}
+                                placement="bottom-end"
+                            >
+                                <LemonButton
+                                    icon={<IconSparkles />}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Ask PostHog AI about your health issues"
+                                >
+                                    Ask PostHog AI
+                                </LemonButton>
+                            </LemonMenu>
+                        )}
+                        <LemonButton
+                            icon={<IconSupport />}
+                            type="secondary"
+                            size="small"
+                            onClick={() => openSupportForm({ kind: 'support' })}
+                        >
+                            Get help from our team
+                        </LemonButton>
+                        <LemonButton
+                            icon={<IconRefresh />}
+                            type="tertiary"
+                            size="small"
+                            tooltip={refreshTooltip}
+                            loading={isRefreshInFlight || healthIssuesLoading}
+                            disabledReason={cooldownLabel}
+                            onClick={() => refreshHealthData()}
+                        />
                         <LemonMenu
-                            items={HEALTH_OVERVIEW_QUESTIONS.map((question) => ({
-                                label: question,
-                                onClick: () =>
-                                    openSidePanel(SidePanelTab.Max, `!${buildHealthOverviewPrompt(issues, question)}`),
-                            }))}
+                            items={[
+                                {
+                                    label: 'Show dismissed',
+                                    icon: showDismissed ? <IconCheck /> : undefined,
+                                    onClick: () => setShowDismissed(!showDismissed),
+                                },
+                            ]}
                             placement="bottom-end"
                         >
-                            <LemonButton
-                                icon={<IconSparkles />}
-                                type="secondary"
-                                size="small"
-                                tooltip="Ask PostHog AI about your health issues"
-                            >
-                                Ask PostHog AI
-                            </LemonButton>
+                            <LemonButton icon={<IconEllipsis />} type="tertiary" size="small" />
                         </LemonMenu>
-                    )}
-                    <LemonButton
-                        icon={<IconSupport />}
-                        type="secondary"
-                        size="small"
-                        onClick={() => openSupportForm({ kind: 'support' })}
-                    >
-                        Get help from our team
-                    </LemonButton>
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        type="tertiary"
-                        size="small"
-                        tooltip={refreshTooltip}
-                        loading={isRefreshInFlight || healthIssuesLoading}
-                        disabledReason={cooldownLabel}
-                        onClick={() => refreshHealthData()}
-                    />
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Show dismissed',
-                                icon: showDismissed ? <IconCheck /> : undefined,
-                                onClick: () => setShowDismissed(!showDismissed),
-                            },
-                        ]}
-                        placement="bottom-end"
-                    >
-                        <LemonButton icon={<IconEllipsis />} type="tertiary" size="small" />
-                    </LemonMenu>
-                </div>
-            </div>
+                    </>
+                }
+            />
 
             <div className="flex flex-col gap-6">
                 <PlatformStatusBanner />

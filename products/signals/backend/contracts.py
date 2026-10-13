@@ -650,7 +650,7 @@ class KustomerConversationSignalExtra(SignalExtraBase):
     status: str | None
     priority: str | None
     tags: list
-    createdAt: str | None
+    created_at: str | None
 
 
 class KustomerConversationSignalInput(SignalInputBase):
@@ -676,7 +676,7 @@ class PlainThreadSignalExtra(SignalExtraBase):
     status: str | None
     priority: str | None
     labels: list
-    createdAt: str | None
+    created_at: str | None
 
 
 class PlainThreadSignalInput(SignalInputBase):
@@ -730,8 +730,8 @@ class SentryIssueSignalExtra(SignalExtraBase):
     level: str | None
     status: str | None
     permalink: str | None
-    shortId: str | None
-    firstSeen: str | None
+    short_id: str | None
+    first_seen: str | None
 
 
 class SentryIssueSignalInput(SignalInputBase):
@@ -785,9 +785,9 @@ class HoneybadgerFaultSignalInput(SignalInputBase):
 
 class RaygunErrorGroupSignalExtra(SignalExtraBase):
     status: str | None
-    applicationUrl: str | None
-    lastOccurredAt: str | None
-    createdAt: str | None
+    application_url: str | None
+    last_occurred_at: str | None
+    created_at: str | None
 
 
 class RaygunErrorGroupSignalInput(SignalInputBase):
@@ -818,7 +818,7 @@ class SonarqubeScannerFindingSignalExtra(SignalExtraBase):
     status: str | None
     component: str | None
     rule: str | None
-    creationDate: str | None
+    creation_date: str | None
 
 
 class SonarqubeScannerFindingSignalInput(SignalInputBase):
@@ -858,7 +858,7 @@ class FeaturebaseFeedbackSignalExtra(SignalExtraBase):
     status: str | None
     tags: list
     upvotes: str | None
-    createdAt: str | None
+    created_at: str | None
 
 
 class FeaturebaseFeedbackSignalInput(SignalInputBase):
@@ -910,8 +910,8 @@ class UservoiceFeedbackSignalInput(SignalInputBase):
 class ProductboardFeedbackSignalExtra(SignalExtraBase):
     state: str | None
     tags: list
-    displayUrl: str | None
-    createdAt: str | None
+    display_url: str | None
+    created_at: str | None
 
 
 class ProductboardFeedbackSignalInput(SignalInputBase):
@@ -924,7 +924,7 @@ class CannyFeedbackSignalExtra(SignalExtraBase):
     status: str | None
     tags: list
     score: str | None
-    voteCount: str | None
+    vote_count: str | None
     url: str | None
     created: str | None
 
@@ -951,10 +951,10 @@ class AsknicelyFeedbackSignalInput(SignalInputBase):
 
 class RetentlyFeedbackSignalExtra(SignalExtraBase):
     score: str | None
-    ratingCategory: str | None
-    feedbackTopics: list
+    rating_category: str | None
+    feedback_topics: list
     resolved: str | None
-    createdDate: str | None
+    created_date: str | None
 
 
 class RetentlyFeedbackSignalInput(SignalInputBase):

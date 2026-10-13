@@ -81,7 +81,11 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.facade import testing as batch_exports_testing
-from products.batch_exports.backend.facade.contracts import BatchExportModel, BatchExportRunStatus, DestinationType
+from products.batch_exports.backend.facade.enums import (
+    BatchExportDestinationType,
+    BatchExportModel,
+    BatchExportRunStatus,
+)
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -2821,7 +2825,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             batch_exports_testing.create_batch_export(
                 team_id,
                 name="A batch export",
-                destination_type=DestinationType.AWS_S3,
+                destination_type=BatchExportDestinationType.AWS_S3,
                 destination_config={"bucket_name": "my_production_s3_bucket"},
             )
 
@@ -2854,13 +2858,13 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         batch_export_id = batch_exports_testing.create_batch_export(
             3,
             name="Test export",
-            destination_type=DestinationType.AWS_S3,
+            destination_type=BatchExportDestinationType.AWS_S3,
             destination_config={"bucket_name": "test_bucket"},
             model=BatchExportModel.EVENTS,
         )
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
             3,
-            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_type=BatchExportDestinationType.FILE_DOWNLOAD,
             destination_config={"format": "Parquet"},
             model=BatchExportModel.EVENTS,
         )
@@ -2881,13 +2885,13 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         hogql_batch_export_id = batch_exports_testing.create_batch_export(
             3,
             name="Test HogQL export",
-            destination_type=DestinationType.AWS_S3,
+            destination_type=BatchExportDestinationType.AWS_S3,
             destination_config={"bucket_name": "test_bucket"},
             model=BatchExportModel.HOGQL,
         )
         hogql_on_demand_id = batch_exports_testing.create_batch_export_on_demand(
             3,
-            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_type=BatchExportDestinationType.FILE_DOWNLOAD,
             destination_config={"format": "Parquet"},
             model=BatchExportModel.HOGQL,
         )
@@ -2926,12 +2930,15 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         batch_export_id = batch_exports_testing.create_batch_export(
             3,
             name="Test export",
-            destination_type=DestinationType.WORKFLOWS,
+            destination_type=BatchExportDestinationType.WORKFLOWS,
             destination_config={},
             model=BatchExportModel.EVENTS,
         )
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
-            3, destination_type=DestinationType.WORKFLOWS, destination_config={}, model=BatchExportModel.EVENTS
+            3,
+            destination_type=BatchExportDestinationType.WORKFLOWS,
+            destination_config={},
+            model=BatchExportModel.EVENTS,
         )
 
         for parent_id, parent_on_demand_id in ((batch_export_id, None), (None, on_demand_id)):

@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -16,12 +16,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
+    PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.settings import (
+    APPROVAL_PARENTS,
+    APPROVAL_STATUSES,
     FRESHSERVICE_ENDPOINTS,
     FreshserviceEndpointConfig,
 )
@@ -38,7 +41,8 @@ class FreshserviceResumeConfig:
     # Top-level endpoints resume from the opaque Link-header `next` URL.
     next_url: Optional[str] = None
     # Fan-out endpoints resume by parent: the child paths already swept, the one in progress,
-    # and that path's paginator state — see `common.rest_source.__init__`.
+    # and that path's paginator state — see `common.rest_source.__init__`. The approvals sweep
+    # reuses these fields for its "<parent>:<status>" slices.
     completed: Optional[list[str]] = None
     current: Optional[str] = None
     child_state: Optional[dict[str, Any]] = None
@@ -205,6 +209,61 @@ def _fanout_source(
     return _make_source_response(config, lambda: dependent_resource)
 
 
+def _approvals_source(
+    config: FreshserviceEndpointConfig,
+    domain: str,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[FreshserviceResumeConfig],
+) -> SourceResponse:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    completed: list[str] = list(resume.completed or []) if resume else []
+    current = resume.current if resume else None
+    current_state = resume.child_state if resume else None
+
+    def items() -> Iterator[Any]:
+        for parent in APPROVAL_PARENTS:
+            for status in APPROVAL_STATUSES:
+                slice_key = f"{parent}:{status}"
+                if slice_key in completed:
+                    continue
+
+                def save_checkpoint(state: Optional[dict[str, Any]], slice_key: str = slice_key) -> None:
+                    if state:
+                        resumable_source_manager.save_state(
+                            FreshserviceResumeConfig(completed=list(completed), current=slice_key, child_state=state)
+                        )
+
+                rest_config: RESTAPIConfig = {
+                    "client": _client_config(domain, api_key),
+                    "resources": [
+                        {
+                            "name": config.name,
+                            "endpoint": {
+                                "path": config.path,
+                                "params": {"parent": parent, "status": status},
+                                "data_selector": config.data_key,
+                                # The approvals docs only describe a `page` param, not Link headers.
+                                "paginator": PageNumberPaginator(base_page=1),
+                            },
+                        }
+                    ],
+                }
+                yield from rest_api_resource(
+                    rest_config,
+                    team_id,
+                    job_id,
+                    None,
+                    resume_hook=save_checkpoint,
+                    initial_paginator_state=current_state if slice_key == current else None,
+                )
+                completed.append(slice_key)
+                resumable_source_manager.save_state(FreshserviceResumeConfig(completed=list(completed)))
+
+    return _make_source_response(config, items)
+
+
 def freshservice_source(
     api_key: str,
     domain: str,
@@ -219,6 +278,9 @@ def freshservice_source(
 
     if config.fanout is not None:
         return _fanout_source(config, domain, api_key, team_id, job_id, resumable_source_manager)
+
+    if endpoint == "approvals":
+        return _approvals_source(config, domain, api_key, team_id, job_id, resumable_source_manager)
 
     return _top_level_source(
         config,

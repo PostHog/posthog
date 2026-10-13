@@ -232,6 +232,9 @@ class HoglandSandbox(AgentServerLaunchMixin):
     def sandbox_url(self) -> str | None:
         return self._sandbox_url
 
+    def _sandbox_runtime(self) -> str | None:
+        return "hogland"
+
     @classmethod
     def create(cls, config: SandboxConfig) -> HoglandSandbox:
         snapshot_alias = TEMPLATE_TO_SNAPSHOT_ALIAS.get(config.template)

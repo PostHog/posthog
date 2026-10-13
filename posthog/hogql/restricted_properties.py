@@ -1,6 +1,9 @@
+from collections.abc import Iterable
+
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
@@ -70,6 +73,13 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
     return None
 
 
+def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
+    """The `$feature_flags` map keys of the restricted `$feature/<key>` properties in `keys`, sorted for stable SQL."""
+    return sorted(
+        key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+    )
+
+
 def restricted_property_keys_for_table_type(
     table_type: ast.Type, context: HogQLContext, *, group_type_index: int | None = None
 ) -> set[str]:
@@ -132,6 +142,9 @@ def restricted_property_keys_for_table_type(
         )
     }
     if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+        # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
+        # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
+        restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
         # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
         restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
     return restricted_keys

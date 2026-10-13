@@ -59,7 +59,6 @@ const starred: FileSystemEntry[] = [
     { id: 'star-5', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
     // Starred before the rename, so the saved path still holds the old name.
     { id: 'star-6', path: 'LLM analytics', type: 'llm_analytics', href: '/ai-observability/dashboard' },
-    { id: 'star-7', path: 'AI gateway', type: 'ai_gateway', href: '/ai-gateway' },
 ]
 
 function SidebarStory({
@@ -199,6 +198,12 @@ export default meta
 type Story = StoryObj<typeof SidebarStory>
 export const Products: Story = {}
 export const ProductsClosed: Story = { args: { allProductsOpen: false } }
+export const ProductsStarredCollapsed: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Starred' }))
+    },
+}
 export const CustomizeSidebar: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -443,4 +448,35 @@ export const FlagOffCollapsed: Story = { args: { collapsed: true }, parameters: 
 export const FlagOffFlatNav: Story = {
     args: { tab: 'files', recentsCollapsed: true },
     parameters: { featureFlags: [FEATURE_FLAGS.FLAT_NAV] },
+}
+
+export const FilesInsightTypes: Story = {
+    args: { tab: 'files', recentsCollapsed: false },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/file_system': [
+                    200,
+                    {
+                        results: ['hog', 'trends', 'funnels', 'retention', 'paths', 'lifecycle', 'stickiness'].map(
+                            (type) => ({
+                                id: `insight-${type}`,
+                                path:
+                                    type === 'hog'
+                                        ? 'SQL insight'
+                                        : `${type.charAt(0).toUpperCase()}${type.slice(1)} insight`,
+                                type: 'insight',
+                                ref: `example-${type}`,
+                                href: `/insights/example-${type}`,
+                                meta: { insight_type: type },
+                            })
+                        ),
+                        count: 7,
+                        next: null,
+                        has_more: false,
+                    },
+                ],
+            },
+        }),
+    ],
 }

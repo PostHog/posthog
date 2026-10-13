@@ -72,3 +72,30 @@ def register_routes(routers):
     routers.projects.register(r"error_tracking/git-provider-file-links", LinksViewSet, "links")
     # ok: api-path-underscore
     routers.projects.register(r"error_tracking/symbol_sets", SymbolSetViewSet, "symbol_sets")
+
+
+urlpatterns = [
+    # ruleid: api-route-path-underscore
+    opt_slash_path("api/signup/resend-invite", signup.SignupResendInviteViewset.as_view()),
+    # ruleid: api-route-path-underscore
+    path("api/oauth/connected-apps", ConnectedAppsView.as_view()),
+    # ruleid: api-route-path-underscore
+    re_path(r"^api/projects/(?P<team_id>[^/.]+)/set-default/?$", SetDefaultView.as_view()),
+    # ok: api-route-path-underscore
+    opt_slash_path("api/signup/resend_invite", signup.SignupResendInviteViewset.as_view()),
+    # A route name may use hyphens.
+    # ok: api-route-path-underscore
+    path("api/streamlit_bridge/query/", BridgeView.as_view(), name="streamlit-bridge-query"),
+    # A hyphen inside a regex character class is not a literal segment.
+    # ok: api-route-path-underscore
+    re_path(r"^api/files/(?P<path>[A-Za-z0-9_./-]+)$", FilesView.as_view()),
+    # A route outside `api/` is not checked.
+    # ok: api-route-path-underscore
+    path("complete/github-link/", github_oauth_callback),
+    # ok: api-route-path-underscore
+    opt_slash_path(".well-known/http-message-signatures-directory", signatures_directory),
+    # ok: api-route-path-underscore
+    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view()),
+    # nosemgrep: api-route-path-underscore
+    path("api/signup/legacy-invite", LegacyInviteView.as_view()),
+]

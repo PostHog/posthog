@@ -5,7 +5,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { ThreadItem } from '../types/streamTypes'
 import { Activity } from './ActivityPrimitives'
-import type { ActivityStatus } from './ActivityPrimitives'
+import type { ActivityStatus } from './activityTypes'
 
 /** Statuses that run for a while and get a spinner with their own label, keyed by wire status. */
 const IN_PROGRESS_STATUS_LABELS: Record<string, string> = {
@@ -88,6 +88,7 @@ export function TaskNotificationItem({ item }: { item: ThreadItem }): JSX.Elemen
         <Activity
             id={item.id}
             title={item.summary || `Task ${item.status}`}
+            wrapTitle
             status={activityStatus}
             icon={icon}
             animate={false}

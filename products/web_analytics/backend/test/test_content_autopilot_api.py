@@ -283,16 +283,22 @@ class TestContentAutopilotAPI(APIBaseTest):
         regenerated_proposal = create_content_autopilot_proposal(self.team, run)
         edited_package = {**edited_proposal.content_package, "title": "Reviewed guide", "markdown": "# Stale draft"}
 
-        edited = self.client.post(
-            self._proposals_url(f"{edited_proposal.id}/edit/"),
-            {"proposed_markdown": "# Reviewed draft", "content_package": edited_package},
-            format="json",
-        )
-        rejected = self.client.post(self._proposals_url(f"{rejected_proposal.id}/reject/"), format="json")
-        regenerated = self.client.post(
-            self._proposals_url(f"{regenerated_proposal.id}/regenerate/"),
-            format="json",
-        )
+        with (
+            patch(
+                "products.web_analytics.backend.content_autopilot.workflow.process_content_autopilot_proposal_task"
+            ) as proposal_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            edited = self.client.post(
+                self._proposals_url(f"{edited_proposal.id}/edit/"),
+                {"proposed_markdown": "# Reviewed draft", "content_package": edited_package},
+                format="json",
+            )
+            rejected = self.client.post(self._proposals_url(f"{rejected_proposal.id}/reject/"), format="json")
+            regenerated = self.client.post(
+                self._proposals_url(f"{regenerated_proposal.id}/regenerate/"),
+                format="json",
+            )
 
         self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.json())
         self.assertFalse(edited.json()["validation_report"]["passed"])
@@ -301,8 +307,15 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertNotIn("markdown", edited.json()["content_package"])
         self.assertEqual(rejected.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.REJECTED)
         self.assertEqual(regenerated.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.GENERATING)
+        self.assertEqual(
+            [dispatched.args for dispatched in proposal_task.delay.call_args_list],
+            [
+                (self.team.id, str(edited_proposal.id), "validate"),
+                (self.team.id, str(regenerated_proposal.id), "regenerate"),
+            ],
+        )
 
-    def test_opportunities_are_listed_per_site_and_dismissed(self) -> None:
+    def test_opportunities_are_listed_per_site_dismissed_and_drafted(self) -> None:
         profile = create_content_autopilot_profile(self.team)
         drafted = create_content_autopilot_opportunity(self.team, profile, cluster_key="drafted")
         dismissed = create_content_autopilot_opportunity(self.team, profile, cluster_key="dismissed")
@@ -311,6 +324,22 @@ class TestContentAutopilotAPI(APIBaseTest):
         listed = self.client.get(self._opportunities_url(), {"profile_id": str(profile.id)})
         dismiss = self.client.post(self._opportunities_url(f"{dismissed.id}/dismiss/"), format="json")
         after = self.client.get(self._opportunities_url(), {"profile_id": str(profile.id)})
+        with (
+            patch(
+                "products.web_analytics.backend.content_autopilot.workflow.generate_content_autopilot_run_task"
+            ) as run_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            draft = self.client.post(
+                self._opportunities_url("draft/"),
+                {"profile_id": str(profile.id), "opportunity_ids": [str(drafted.id)]},
+                format="json",
+            )
+        too_many = self.client.post(
+            self._opportunities_url("draft/"),
+            {"profile_id": str(profile.id), "opportunity_ids": [str(drafted.id)] * 6},
+            format="json",
+        )
 
         self.assertEqual(missing_profile.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual({item["id"] for item in listed.json()["results"]}, {str(drafted.id), str(dismissed.id)})
@@ -320,6 +349,33 @@ class TestContentAutopilotAPI(APIBaseTest):
             {item["id"]: item["status"] for item in after.json()["results"]},
             {str(drafted.id): "new", str(dismissed.id): "dismissed"},
         )
+        self.assertEqual(draft.status_code, status.HTTP_202_ACCEPTED, draft.json())
+        self.assertEqual(draft.json()["run_status"], ContentAutopilotRun.RunStatus.PENDING)
+        run_task.delay.assert_called_once_with(self.team.id, draft.json()["id"])
+        self.assertEqual(too_many.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_run_that_cannot_be_queued_fails_and_frees_its_opportunities(self) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        opportunity = create_content_autopilot_opportunity(self.team, profile, cluster_key="drafted")
+
+        with (
+            patch(
+                "products.web_analytics.backend.content_autopilot.workflow.generate_content_autopilot_run_task"
+            ) as run_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            run_task.delay.side_effect = ConnectionError("broker unavailable")
+            draft = self.client.post(
+                self._opportunities_url("draft/"),
+                {"profile_id": str(profile.id), "opportunity_ids": [str(opportunity.id)]},
+                format="json",
+            )
+
+        run = ContentAutopilotRun.objects.for_team(self.team.id).get(id=draft.json()["id"])
+        opportunity.refresh_from_db()
+        self.assertEqual(run.run_status, ContentAutopilotRun.RunStatus.FAILED)
+        self.assertEqual([entry["error_code"] for entry in run.errors], ["dispatch_failed"])
+        self.assertEqual(opportunity.status, "new")
 
     def test_edit_stores_markdown_whitespace_exactly(self) -> None:
         proposal = self._reviewable_proposal()
@@ -368,12 +424,19 @@ class TestContentAutopilotAPI(APIBaseTest):
         other_run = create_content_autopilot_run(other_team, other_profile)
         other_proposal = create_content_autopilot_proposal(other_team, other_run)
         other_opportunity = create_content_autopilot_opportunity(other_team, other_profile)
+        own_profile = create_content_autopilot_profile(self.team)
 
         proposal_response = self.client.get(self._proposals_url(f"{other_proposal.id}/"))
         runs_response = self.client.get(self._runs_url())
         dismiss_response = self.client.post(self._opportunities_url(f"{other_opportunity.id}/dismiss/"))
+        draft_response = self.client.post(
+            self._opportunities_url("draft/"),
+            {"profile_id": str(own_profile.id), "opportunity_ids": [str(other_opportunity.id)]},
+            format="json",
+        )
 
         self.assertEqual(proposal_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(runs_response.status_code, status.HTTP_200_OK)
         self.assertEqual(runs_response.json()["results"], [])
         self.assertEqual(dismiss_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(draft_response.status_code, status.HTTP_400_BAD_REQUEST)

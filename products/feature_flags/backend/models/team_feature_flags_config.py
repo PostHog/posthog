@@ -5,6 +5,8 @@ from django.db import models
 
 from posthog.models.team.extensions import register_team_extension_signal
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+
 logger = logging.getLogger(__name__)
 
 # Ceiling on a staff-granted max_feature_flags_override. The global default exists to bound the
@@ -22,25 +24,6 @@ MAX_FEATURE_FLAGS_OVERRIDE_CEILING = 20_000
 class PropertyMatchingVersion(models.IntegerChoices):
     LEGACY = 1, "Legacy"
     EXPLICIT = 2, "Explicit"
-
-
-class FlagEvaluationsMode(models.IntegerChoices):
-    """Which table the product reads an organization's $feature_flag_called data from. This field does not
-    control ingestion. The INGESTION_FLAG_EVALUATIONS_TEAMS allowlist in FlagEvaluationsService
-    decides which teams ingestion also writes to flag_evaluations. FLAG_EVALUATIONS_ONLY is
-    reserved for the ingestion change that stops the events writes.
-    """
-
-    # The Usage tab reads the events table. The flag_evaluations HogQL table stays hidden unless
-    # the flag-evaluations-hogql-table flag is on for the organization.
-    EVENTS = 0, "Events"
-    # The Usage tab reads flag_evaluations, and the HogQL table is visible.
-    READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"
-    # As READ_FLAG_EVALUATIONS, and ingestion stops writing $feature_flag_called to events. Ingestion
-    # ignores this mode until the change that implements it deploys. Until then the mode acts as
-    # READ_FLAG_EVALUATIONS. An organization already on this mode stops the events writes when that
-    # change deploys.
-    FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
 
 
 class TeamFeatureFlagsConfig(models.Model):
@@ -92,9 +75,9 @@ class TeamFeatureFlagsConfig(models.Model):
     # the mode. The database default keeps older writers, and raw INSERTs that omit this column, valid
     # during rolling deploys.
     flag_evaluations_mode = models.SmallIntegerField(
-        choices=FlagEvaluationsMode,
-        default=FlagEvaluationsMode.EVENTS,
-        db_default=FlagEvaluationsMode.EVENTS,
+        choices=FlagEvaluationsMode.choices,
+        default=FlagEvaluationsMode.EVENTS.value,
+        db_default=FlagEvaluationsMode.EVENTS.value,
     )
 
     class Meta:

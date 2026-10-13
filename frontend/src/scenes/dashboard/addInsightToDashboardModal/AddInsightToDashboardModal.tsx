@@ -11,7 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
 import { isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'

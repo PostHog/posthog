@@ -35,7 +35,11 @@ from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
 from ee.hogai.chat_agent.taxonomy.format import (
     enrich_props_with_descriptions,
@@ -232,7 +236,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )
@@ -539,8 +544,10 @@ class TaxonomyAgentToolkit:
             )
 
         restricted = await self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
+        qs = PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+            effective_project_id=self._team.project_id,
+            type=PropertyDefinition.Type.EVENT,
+            name__in=[item.property for item in response.results],
         )
         property_definitions = [prop async for prop in qs]
         property_to_type = {
@@ -719,8 +726,10 @@ class TaxonomyAgentToolkit:
             prop_type = PropertyDefinition.Type.PERSON
             group_type_index = None
 
-        property_definitions = PropertyDefinition.objects.filter(
-            team=self._team,
+        property_definitions = PropertyDefinition.objects.alias(
+            effective_project_id=effective_project_id_expr()
+        ).filter(
+            effective_project_id=self._team.project_id,
             name__in=property_names,
             type=prop_type,
             group_type_index=group_type_index,
@@ -798,10 +807,10 @@ class TaxonomyAgentToolkit:
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinitionOrVirtual]:
-        definitions = {
+        definitions: dict[str, PropertyDefinition] = {
             prop.name: prop
-            for prop in PropertyDefinition.objects.filter(
-                team=self._team,
+            for prop in PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                effective_project_id=self._team.project_id,
                 name__in=property_names,
                 type=PropertyDefinition.Type.EVENT,
             )

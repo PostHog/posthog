@@ -12,7 +12,7 @@ import {
     engineeringAnalyticsWorkflowJobs,
     engineeringAnalyticsWorkflowRun,
 } from '../generated/api'
-import type { RunFailureLogsApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import type { CIEngineEnumApi, RunFailureLogsApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { RunCostSummary, summarizeRunCost } from '../lib/runHealth'
 import { withScope } from '../lib/scope'
@@ -23,6 +23,7 @@ export interface WorkflowRunDetailLogicProps {
     repoOwner: string
     repoName: string
     runId: number
+    ciEngine?: CIEngineEnumApi | null
     // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
 }
@@ -121,7 +122,10 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'workflowRunDetailLogic']),
     props({} as WorkflowRunDetailLogicProps),
     // sourceId is part of the identity: the same run id only exists within one source.
-    key((props) => `${props.repoOwner}/${props.repoName}/runs/${props.runId}@${props.sourceId ?? ''}`),
+    key(
+        (props) =>
+            `${props.repoOwner}/${props.repoName}/runs/${props.ciEngine ?? ''}/${props.runId}@${props.sourceId ?? ''}`
+    ),
 
     loaders(({ props, values }) => ({
         run: [
@@ -130,6 +134,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                 loadRun: async (): Promise<WorkflowRunDetailApi | null> =>
                     await engineeringAnalyticsWorkflowRun(projectId(), {
                         run_id: props.runId,
+                        ci_engine: props.ciEngine ?? undefined,
                         source_id: props.sourceId ?? undefined,
                         repo: `${props.repoOwner}/${props.repoName}`,
                     }),
@@ -143,6 +148,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                 loadJobs: async (): Promise<WorkflowJobApi[]> =>
                     await engineeringAnalyticsWorkflowJobs(projectId(), {
                         run_id: props.runId,
+                        ci_engine: props.ciEngine ?? undefined,
                         run_attempt: values.run?.run_attempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
                         repo: `${props.repoOwner}/${props.repoName}`,
@@ -157,6 +163,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     try {
                         return await engineeringAnalyticsRunFailureLogs(projectId(), {
                             run_id: props.runId,
+                            ci_engine: props.ciEngine ?? undefined,
                             source_id: props.sourceId ?? undefined,
                             repo: `${props.repoOwner}/${props.repoName}`,
                         })

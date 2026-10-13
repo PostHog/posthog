@@ -25,6 +25,7 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from '../generated/api.schemas'
+import type { CIEngineEnumApi } from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
 import { type CostSummary, type HealthSummary, computeHealthSummary, workflowHealthSummary } from '../lib/runHealth'
 import { withScope } from '../lib/scope'
@@ -38,6 +39,7 @@ const RUN_LIST_LIMIT = 200
 
 /** RunRowBase fields plus this page's lead-column data (run id, branch, attributed PR). */
 export interface WorkflowRunRow {
+    ciEngine?: CIEngineEnumApi | null
     runId: number | null
     runAttempt: number | null
     conclusion: string | null
@@ -115,7 +117,16 @@ export interface workflowRunsLogicActions {
         jobAggregates: WorkflowJobAggregateApi[]
         payload?: any
     }
-    loadJobs: ({ runId, runAttempt }: { runAttempt: number | null; runId: number }) => {
+    loadJobs: ({
+        ciEngine,
+        runId,
+        runAttempt,
+    }: {
+        ciEngine?: CIEngineEnumApi | null
+        runAttempt: number | null
+        runId: number
+    }) => {
+        ciEngine?: CIEngineEnumApi | null
         runId: number
         runAttempt: number | null
     }
@@ -129,12 +140,14 @@ export interface workflowRunsLogicActions {
     loadJobsSuccess: (
         runJobs: Record<string, WorkflowJobApi[]>,
         payload?: {
+            ciEngine?: CIEngineEnumApi | null
             runId: number
             runAttempt: number | null
         }
     ) => {
         runJobs: Record<string, WorkflowJobApi[]>
         payload?: {
+            ciEngine?: CIEngineEnumApi | null
             runId: number
             runAttempt: number | null
         }
@@ -203,8 +216,10 @@ export interface workflowRunsLogicActions {
         rowKey: string,
         expanded: boolean,
         runId: number | null,
-        runAttempt: number | null
+        runAttempt: number | null,
+        ciEngine?: CIEngineEnumApi | null
     ) => {
+        ciEngine: CIEngineEnumApi | null | undefined
         expanded: boolean
         rowKey: string
         runAttempt: number | null
@@ -258,7 +273,14 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
 
     actions({
         // Row expansion is keyed by a per-row key (re-runs share a run_id); jobs are fetched per run+attempt.
-        setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => ({
+        setRunExpanded: (
+            rowKey: string,
+            expanded: boolean,
+            runId: number | null,
+            runAttempt: number | null,
+            ciEngine?: CIEngineEnumApi | null
+        ) => ({
+            ciEngine,
             rowKey,
             expanded,
             runId,
@@ -349,19 +371,22 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             {
                 // Reads the post-await values.runJobs so near-simultaneous first-expands don't clobber.
                 loadJobs: async ({
+                    ciEngine,
                     runId,
                     runAttempt,
                 }: {
+                    ciEngine?: CIEngineEnumApi | null
                     runId: number
                     runAttempt: number | null
                 }): Promise<Record<string, WorkflowJobApi[]>> => {
                     const jobs = await engineeringAnalyticsWorkflowJobs(projectId(), {
                         run_id: runId,
+                        ci_engine: ciEngine ?? undefined,
                         run_attempt: runAttempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
                         repo: `${props.repoOwner}/${props.repoName}`,
                     })
-                    return { ...values.runJobs, [jobCacheKey(runId, runAttempt)]: jobs }
+                    return { ...values.runJobs, [jobCacheKey(runId, runAttempt, ciEngine)]: jobs }
                 },
             },
         ],
@@ -446,6 +471,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             (runs: WorkflowRunDetailApi[]): WorkflowRunRow[] =>
                 runs.map((run) => ({
                     runId: run.id,
+                    ciEngine: run.ci_engine,
                     runAttempt: run.run_attempt,
                     conclusion: run.conclusion,
                     durationSeconds: run.duration_seconds,
@@ -463,6 +489,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             (runActivity: WorkflowRunActivityApi): ActivityRun[] =>
                 runActivity.points.map((point) => ({
                     runId: point.run_id,
+                    ciEngine: point.ci_engine,
                     conclusion: point.conclusion,
                     startedAt: point.run_started_at,
                     durationSeconds: point.duration_seconds,
@@ -569,9 +596,9 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setRunExpanded: ({ expanded, runId, runAttempt }) => {
-            if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
-                actions.loadJobs({ runId, runAttempt })
+        setRunExpanded: ({ expanded, runId, runAttempt, ciEngine }) => {
+            if (expanded && runId != null && !(jobCacheKey(runId, runAttempt, ciEngine) in values.runJobs)) {
+                actions.loadJobs({ runId, runAttempt, ciEngine })
             }
         },
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {

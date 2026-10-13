@@ -1,10 +1,13 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode } from '~/queries/schema/schema-general'
 
-import { mcpSessionUrl } from '../tool-quality/errorContext'
+import { mcpSessionUrl } from '../sessionUrls'
 import {
     MCP_ACTIVITY_ERROR_COLUMN,
     MCP_ACTIVITY_INTENT_COLUMN,
@@ -31,11 +34,12 @@ function ErrorCell({ value }: { value: unknown }): JSX.Element {
 }
 
 function SessionCell({ value }: { value: unknown }): JSX.Element {
+    const { searchParams } = useValues(router)
     if (!value) {
         return <span className="text-muted">—</span>
     }
     return (
-        <Link to={mcpSessionUrl(String(value))} data-attr="mcp-analytics-activity-session-link">
+        <Link to={mcpSessionUrl(String(value), searchParams)} data-attr="mcp-analytics-activity-session-link">
             View session
         </Link>
     )

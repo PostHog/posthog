@@ -91,6 +91,10 @@ export const scene: SceneExport<WorkflowRunsLogicProps> = {
 
 const refreshing = (loading: boolean, rows: unknown[]): boolean => loading && rows.length > 0
 
+function runRowKey(run: WorkflowRunRow): string {
+    return `${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`
+}
+
 export function WorkflowRunsScene(): JSX.Element {
     const {
         runRows,
@@ -160,7 +164,7 @@ export function WorkflowRunsScene(): JSX.Element {
             render: (_, run) => (
                 <Link
                     to={withScope(
-                        urls.engineeringAnalyticsWorkflowRun(run.repoOwner, run.repoName, run.id),
+                        urls.engineeringAnalyticsWorkflowRun(run.repoOwner, run.repoName, run.id, run.ciEngine),
                         searchParams,
                         sourceId
                     )}
@@ -180,9 +184,10 @@ export function WorkflowRunsScene(): JSX.Element {
         {
             title: 'Branch',
             key: 'branch',
+            className: 'w-full max-w-0',
             render: (_, run) =>
                 run.headBranch ? (
-                    <span className="flex items-center gap-1.5 font-mono text-xs">
+                    <span className="flex min-w-0 items-center gap-1.5 font-mono text-xs">
                         {(run.headBranch === 'master' || run.headBranch === 'main') && (
                             <span
                                 className={cn(
@@ -191,7 +196,9 @@ export function WorkflowRunsScene(): JSX.Element {
                                 )}
                             />
                         )}
-                        {run.headBranch}
+                        <Tooltip title={run.headBranch}>
+                            <span className="truncate">{run.headBranch}</span>
+                        </Tooltip>
                     </span>
                 ) : (
                     <span className="text-xs text-secondary">—</span>
@@ -201,12 +208,13 @@ export function WorkflowRunsScene(): JSX.Element {
             title: 'Commit',
             key: 'commit',
             width: 90,
+            className: 'hidden @min-[48rem]/runs:table-cell',
             render: (_, run) =>
                 run.headSha ? (
                     <Link
                         to={githubCommitUrl(run.repoOwner, run.repoName, run.headSha)}
                         target="_blank"
-                        className="font-mono text-xs text-tertiary"
+                        className="font-mono text-xs whitespace-nowrap text-tertiary"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {run.headSha.slice(0, 7)}
@@ -219,6 +227,7 @@ export function WorkflowRunsScene(): JSX.Element {
             title: 'PR',
             key: 'pr',
             width: 80,
+            className: 'hidden @min-[40rem]/runs:table-cell',
             render: (_, run) =>
                 run.prNumber != null ? (
                     <Link
@@ -240,6 +249,7 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'attempt',
             width: 80,
             align: 'right',
+            className: 'hidden @min-[48rem]/runs:table-cell',
             render: (_, run) =>
                 (run.runAttempt ?? 1) > 1 ? (
                     <LemonTag type="warning">{run.runAttempt}</LemonTag>
@@ -454,14 +464,16 @@ export function WorkflowRunsScene(): JSX.Element {
                     )}
                 </Section>
                 <Section id="runs" title="Runs">
-                    <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                    {/* Container queries drop the secondary columns when the scene is narrow, so Duration and
+                        Started stay in view. */}
+                    <LemonCard hoverEffect={false} className="overflow-hidden p-0 @container/runs">
                         <LemonTable<WorkflowRunRow>
                             dataSource={runRows}
                             columns={runColumns}
                             size="small"
                             embedded
                             loading={runsLoading}
-                            rowKey={(run) => `${run.id}-${run.runAttempt}`}
+                            rowKey={runRowKey}
                             useURLForSorting={false}
                             defaultSorting={{ columnKey: 'started', order: -1 }}
                             pagination={{ pageSize: 25 }}
@@ -469,18 +481,19 @@ export function WorkflowRunsScene(): JSX.Element {
                                 className: 'cursor-pointer',
                                 onClick: () =>
                                     setRunExpanded(
-                                        `${run.id}-${run.runAttempt}`,
-                                        !expandedRunKeys.includes(`${run.id}-${run.runAttempt}`),
+                                        runRowKey(run),
+                                        !expandedRunKeys.includes(runRowKey(run)),
                                         run.runId,
-                                        run.runAttempt
+                                        run.runAttempt,
+                                        run.ciEngine
                                     ),
                             })}
                             expandable={{
                                 noIndent: true,
-                                isRowExpanded: (run) => expandedRunKeys.includes(`${run.id}-${run.runAttempt}`),
+                                isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
                                 expandedRowRender: (run) => (
                                     <GroupedJobsTable
-                                        jobs={runJobs[jobCacheKey(run.id, run.runAttempt)]}
+                                        jobs={runJobs[jobCacheKey(run.id, run.runAttempt, run.ciEngine)]}
                                         loading={runJobsLoading}
                                         embedded
                                     />

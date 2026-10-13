@@ -56,4 +56,28 @@ describe('GitMetadataParser', () => {
             expect(result).toBe(expected)
         })
     })
+
+    describe('getGitHubRepositorySlug', () => {
+        it.each([
+            {
+                description: 'SSH GitHub remote',
+                remote_url: 'git@github.com:PostHog/posthog.git',
+                expected: 'PostHog/posthog',
+            },
+            {
+                description: 'HTTPS GitHub remote',
+                remote_url: 'https://github.com/PostHog/posthog.git',
+                expected: 'PostHog/posthog',
+            },
+            { description: 'GitLab remote', remote_url: 'git@gitlab.com:group/project.git', expected: undefined },
+            {
+                description: 'remote with a credential',
+                remote_url: 'https://x-access-token:ghs_example@github.com/PostHog/posthog.git',
+                expected: undefined,
+            },
+            { description: 'missing remote', remote_url: undefined, expected: undefined },
+        ])('returns the slug for a $description', ({ remote_url, expected }) => {
+            expect(GitMetadataParser.getGitHubRepositorySlug(remote_url)).toBe(expected)
+        })
+    })
 })

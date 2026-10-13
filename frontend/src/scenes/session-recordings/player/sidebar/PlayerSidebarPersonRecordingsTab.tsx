@@ -33,7 +33,12 @@ export function PlayerSidebarPersonRecordingsTab(): JSX.Element {
         return (
             <div className="p-4 deprecated-space-y-2">
                 <p className="text-muted text-sm">Could not load this person's recordings.</p>
-                <LemonButton size="small" type="secondary" onClick={() => loadRecordings({})}>
+                <LemonButton
+                    data-attr="player-sessions-load"
+                    size="small"
+                    type="secondary"
+                    onClick={() => loadRecordings({})}
+                >
                     Try again
                 </LemonButton>
             </div>
@@ -59,6 +64,7 @@ export function PlayerSidebarPersonRecordingsTab(): JSX.Element {
                         <p className="text-danger text-xs text-center">Could not load older recordings.</p>
                     )}
                     <LemonButton
+                        data-attr="player-sessions-load-more"
                         fullWidth
                         center
                         size="small"
@@ -97,6 +103,7 @@ function RecordingRow({ recording, isCurrent }: { recording: SessionRecordingTyp
 
     return (
         <Link
+            data-attr="player-sessions-open-recording"
             to={urls.replaySingle(recording.id)}
             className="flex items-center rounded px-2 py-1 hover:bg-fill-highlight-50"
         >

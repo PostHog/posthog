@@ -1,15 +1,20 @@
 import asyncio
 import threading
+import dataclasses
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from typing import Protocol
+from datetime import timedelta
+from typing import Any, Protocol
 
 import pytest
 from unittest import mock
 
 from django.conf import settings
 
+from temporalio.testing import ActivityEnvironment
+
 from posthog.temporal.common import utils, worker
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify, configure_asyncify_executor, get_asyncify_executor
 
 pytestmark = pytest.mark.asyncio
@@ -87,6 +92,53 @@ async def test_asyncify_keeps_unrelated_calls_off_a_saturated_pool(asyncify_exec
     finally:
         release.set()
         await asyncio.gather(*saturating)
+
+
+async def test_asyncify_delivers_heartbeater_sync_heartbeats_on_the_event_loop() -> None:
+    loop_thread = threading.get_ident()
+    heartbeat_threads: list[int] = []
+    heartbeat_seen = threading.Event()
+
+    def record_heartbeat(*details: Any) -> None:
+        heartbeat_threads.append(threading.get_ident())
+        heartbeat_seen.set()
+
+    @asyncify
+    def heartbeat_from_a_worker_thread() -> bool:
+        with HeartbeaterSync(factor=10):
+            return heartbeat_seen.wait(timeout=BARRIER_TIMEOUT_SECONDS)
+
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, heartbeat_timeout=timedelta(seconds=1))
+    env.on_heartbeat = record_heartbeat
+
+    assert await env.run(heartbeat_from_a_worker_thread)
+    assert set(heartbeat_threads) == {loop_thread}
+
+
+async def test_asyncify_reports_a_heartbeat_the_sdk_rejects_on_the_event_loop() -> None:
+    warned = threading.Event()
+    logger = mock.MagicMock()
+    logger.warning.side_effect = lambda *args, **kwargs: warned.set()
+    tracker = mock.MagicMock()
+
+    def reject_heartbeat(*details: Any) -> None:
+        raise RuntimeError("heartbeat rejected")
+
+    @asyncify
+    def heartbeat_from_a_worker_thread() -> bool:
+        with HeartbeaterSync(factor=10, logger=logger):
+            return warned.wait(timeout=BARRIER_TIMEOUT_SECONDS)
+
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, heartbeat_timeout=timedelta(seconds=1))
+    env.on_heartbeat = reject_heartbeat
+
+    with mock.patch("posthog.temporal.common.heartbeat_sync.get_liveness_tracker", return_value=tracker):
+        assert await env.run(heartbeat_from_a_worker_thread)
+
+    assert logger.warning.call_args.kwargs["error"] == "heartbeat rejected"
+    tracker.record_heartbeat.assert_not_called()
 
 
 async def test_asyncify_falls_back_to_the_default_executor() -> None:

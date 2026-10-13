@@ -8,7 +8,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.web_experiment import WebExperiment
 
 # Kept in sync with DERIVED_RUNNING_TIME_KEYS in
-# frontend/src/scenes/experiments/activity-descriptions/experimentChangeDescription.tsx.
+# products/experiments/frontend/components/activity-descriptions/experimentChangeDescription.tsx.
 DERIVED_RUNNING_TIME_KEYS = ("recommended_running_time", "recommended_sample_size")
 
 

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from temporalio.client import Client
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
@@ -23,6 +25,8 @@ async def create_replay_vision_jev_watch_rank_schedule(client: Client) -> None:
         workflow_id=WORKFLOW_ID,
         inputs=JevWatchRankSweepInputs(),
         interval=SCHEDULE_INTERVAL,
+        offset=timedelta(minutes=2),
+        jitter=timedelta(minutes=10),
         execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
         search_attributes=TypedSearchAttributes(
             search_attributes=[SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=SCHEDULE_TYPE)]

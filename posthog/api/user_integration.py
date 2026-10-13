@@ -44,6 +44,7 @@ from posthog.api.integration import (
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
     github_rate_limited_response,
+    github_repos_page,
     validate_github_repository_name,
 )
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -58,6 +59,7 @@ from posthog.api.user_integration_codex import (
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.integration.github_audit import GitHubAudit
@@ -422,7 +424,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         results: list[dict[str, Any]] = []
         for integration in integrations:
             if integration.kind == "github":
-                UserGitHubIntegration(integration).ensure_account_name()
+                UserGitHubIntegration(
+                    integration, source="user_integrations_api", priority=Priority.NORMAL
+                ).ensure_account_name()
                 results.append(
                     _serialize_github_integration(
                         integration,
@@ -479,9 +483,6 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         """List repositories accessible to a specific GitHub installation (paginated, cached)."""
         query_serializer = GitHubReposQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
-        search = query_serializer.validated_data["search"]
-        limit = query_serializer.validated_data["limit"]
-        offset = query_serializer.validated_data["offset"]
 
         integration = UserIntegration.objects.filter(
             user=self._get_user(), kind="github", integration_id=installation_id
@@ -489,10 +490,12 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
-        github = UserGitHubIntegration(integration)
-        repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
-        total = github.count_cached_repositories(search=search)
-        return Response({"repositories": repositories, "has_more": has_more, "total": total})
+        return Response(
+            github_repos_page(
+                UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.CRITICAL),
+                query_serializer.validated_data,
+            )
+        )
 
     @extend_schema(
         summary="Refresh repositories for a personal GitHub installation",
@@ -508,7 +511,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
-        github = UserGitHubIntegration(integration)
+        github = UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.CRITICAL)
         try:
             repositories = github.sync_repository_cache(
                 min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
@@ -551,7 +554,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
-        github = UserGitHubIntegration(integration)
+        github = UserGitHubIntegration(integration, source="github_branch_picker", priority=Priority.CRITICAL)
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,
@@ -994,7 +997,7 @@ def _serialize_github_integration(
     installation_reference_counts: dict[str, int],
 ) -> dict[str, Any]:
     """Build the response payload for a single GitHub UserIntegration."""
-    github = UserGitHubIntegration(integration)
+    github = UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.NORMAL)
     # Mirrors github_destroy's uninstall_if_last_reference: any other row, team or personal, keeps the
     # App installed on GitHub after this one is deleted. The precomputed map counts every reference
     # for the installation including this row, so more than one means another row still shares it.

@@ -5,6 +5,7 @@ from collections.abc import Iterator
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
@@ -21,6 +22,7 @@ from products.review_hog.backend.reviewer.models.issue_validation import IssueVa
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.temporal.activities import ValidateChunkInput, validate_chunk_activity
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -94,7 +96,7 @@ def _chunk_context(issues: list[Issue], done: dict[str, IssueValidation]) -> Ite
     # The activity receives only issue ids and reloads content from the finding rows — the loader
     # is patched to hand back the live issues the test built.
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_run_issues", return_value=issues),
         patch(f"{_MODULE}.load_run_validations", return_value=done),
         patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
@@ -169,6 +171,33 @@ async def test_final_attempt_skips_the_failed_turn_and_continues_on_a_fresh_sess
     assert [call.args[0] for call in mock_end.await_args_list] == [first_session, fresh_session]
     # The wedged session ends failed; the fresh one finished the chunk cleanly and ends completed.
     assert [call.kwargs["status"] for call in mock_end.await_args_list] == ["failed", "completed"]
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_follow_up_turn_failure_fails_the_chunk_even_on_the_final_attempt() -> None:
+    ok_issue, rejected_issue, last_issue = _issue(1), _issue(2), _issue(3)
+    session = object()
+    failure = AgentTurnFailed("rejected", category="upstream_request_rejected", agent_message="rejected")
+    mock_start = AsyncMock(return_value=(session, _verdict()))
+    mock_end = AsyncMock()
+    with (
+        _chunk_context(issues=[ok_issue, rejected_issue, last_issue], done={}),
+        patch(f"{_MODULE}.persist_verdict", MagicMock(return_value=True)),
+        patch(f"{_MODULE}.start_sandbox_session", mock_start),
+        patch(f"{_MODULE}.continue_sandbox_session", AsyncMock(side_effect=failure)),
+        patch(f"{_MODULE}.end_sandbox_session", mock_end),
+    ):
+        with pytest.raises(ApplicationError) as excinfo:
+            await _env(attempt=VALIDATION_MAX_ATTEMPTS).run(
+                validate_chunk_activity, _input([ok_issue, rejected_issue, last_issue])
+            )
+
+    assert excinfo.value.non_retryable is True
+    assert excinfo.value.__cause__ is failure
+    assert mock_start.call_count == 1
+    mock_end.assert_awaited_once()
+    assert mock_end.await_args is not None
+    assert mock_end.await_args.kwargs["status"] == "failed"
 
 
 @pytest.mark.asyncio

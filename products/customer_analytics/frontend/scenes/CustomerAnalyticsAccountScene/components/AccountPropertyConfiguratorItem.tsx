@@ -48,7 +48,11 @@ export function AccountPropertyConfiguratorItem({
             </button>
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{option.label}</span>
             <span className="shrink-0 text-xs text-secondary">
-                {option.kind === 'custom' ? 'Custom property' : 'Relationship'}
+                {option.kind === 'custom'
+                    ? 'Custom property'
+                    : option.kind === 'account'
+                      ? 'Account property'
+                      : 'Relationship'}
             </span>
             <LemonButton
                 size="xsmall"

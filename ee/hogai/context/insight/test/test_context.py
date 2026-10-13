@@ -141,7 +141,9 @@ class TestInsightContext(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as exc:
             await context.execute_and_format()
 
-        self.assertIn("Error executing query: Query failed", str(exc.exception))
+        self.assertEqual(str(exc.exception), "Error executing query: Query failed")
+        self.assertEqual(exc.exception.error_type, "internal")
+        self.assertEqual(exc.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_returns_exception_when_flag_set(self, mock_execute):

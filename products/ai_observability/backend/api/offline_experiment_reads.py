@@ -35,6 +35,8 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineItemPageSerializer,
     OfflineItemPayloadReadSerializer,
     OfflineItemReadSerializer,
+    OfflineResultCellQuerySerializer,
+    OfflineResultCellsSerializer,
     OfflineResultPageSerializer,
     OfflineResultPayloadReadSerializer,
     OfflineResultQuerySerializer,
@@ -44,7 +46,7 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
 from products.ai_observability.backend.api.query import EmptyQuerySerializer
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
-from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery
+from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineResultCellQuery
 
 OFFLINE_READ_ERRORS = Counter(
     "aio_offline_read_errors_total", "Rejected offline evaluation reads", labelnames=["outcome"]
@@ -75,6 +77,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         "items",
         "item",
         "item_results",
+        "result_cells",
         "item_payload",
         "result_payload",
         "scorer_summaries",
@@ -91,7 +94,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
-        if self.action in ["item_results", "result_payload", "scorer_summaries", "history"]:
+        if self.action in ["item_results", "result_cells", "result_payload", "scorer_summaries", "history"]:
             return ["evaluation:read", "llm_analytics:read"]
         if self.action in self.scope_object_read_actions or self.action == "metadata":
             return ["evaluation:read"]
@@ -124,6 +127,20 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
 
 
 class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
+    @validated_request(
+        query_serializer=OfflineResultCellQuerySerializer,
+        parameters=[EXPERIMENT_ID_PARAMETER],
+        responses={200: OfflineResultCellsSerializer, **READ_ERROR_RESPONSES},
+    )
+    @action(detail=True, methods=["get"])
+    @llma_track_latency("aio_offline_result_cells")
+    @monitor(feature=None, endpoint="aio_offline_result_cells", method="GET")
+    def result_cells(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        query = cast(OfflineResultCellQuery, request.validated_query_data)
+        return self._read_response(
+            lambda: self._read_service().result_cells(self._path_id(), query), OfflineResultCellsSerializer
+        )
+
     @validated_request(
         query_serializer=OfflineExperimentQuerySerializer,
         responses={200: OfflineExperimentPageSerializer, **READ_ERROR_RESPONSES},

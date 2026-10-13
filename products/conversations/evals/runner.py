@@ -133,7 +133,7 @@ def _fts_search(team: Any, query: str, limit: int = 10, **kwargs: Any) -> Any:
     return search_knowledge(team.id, query, limit=limit)
 
 
-def _identity_rerank(team: Any, query: str, results: Any, *, top_k: int) -> Any:
+def _identity_rerank(team: Any, query: str, results: Any, *, top_k: int, **kwargs: Any) -> Any:
     return results[:top_k]
 
 

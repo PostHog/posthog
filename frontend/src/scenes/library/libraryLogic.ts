@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,20 +12,20 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 
 import {
     LibraryObjectType,
-    TOOL_FILE_SYSTEM_TYPES,
     baseObjectType,
-    isToolEntry,
+    isLibraryEntry,
+    isLibraryType,
+    libraryListHref,
     sortLibraryTypes,
 } from './libraryUtils'
 
 export const LIBRARY_PAGE_SIZE = 50
-// "All objects" drops tool entries after each page loads, so it reads ahead until a page has something
-// to show. This caps how far it reads ahead in one go.
+// "All objects" drops tool and view entries after each page loads, so it reads ahead until a page has
+// something to show. This caps how far it reads ahead in one go.
 const MAX_PAGES_PER_LOAD = 5
 
 const PLURAL_LABELS: Record<string, string> = {
     session_recording_playlist: 'Replay playlists',
-    user_interview: 'User research',
 }
 
 export interface LibraryObjects {
@@ -147,7 +147,7 @@ export const libraryLogic = kea<libraryLogicType>([
                 results.push(...next.results)
                 count = next.count
                 const exhausted = next.results.length === 0 || offset + results.length >= count
-                if (exhausted || values.objectType || results.some((entry) => !isToolEntry(entry))) {
+                if (exhausted || values.objectType || results.some(isLibraryEntry)) {
                     break
                 }
             }
@@ -190,7 +190,7 @@ export const libraryLogic = kea<libraryLogicType>([
                     Object.entries(fileSystemTypes)
                         .filter(
                             ([type, entry]) =>
-                                !TOOL_FILE_SYSTEM_TYPES.has(type) &&
+                                isLibraryType(type) &&
                                 (!('flag' in entry) || !!featureFlags[entry.flag as keyof FeatureFlagsSet])
                         )
                         .map(([value, entry]) => ({
@@ -219,10 +219,10 @@ export const libraryLogic = kea<libraryLogicType>([
                 return byType
             },
         ],
-        // "All objects" asks for every type, so drop the ones that live in Tools.
+        // "All objects" asks for every type, so drop the ones that live in Tools and Views.
         visibleObjects: [
             (s) => [s.objects],
-            (objects: LibraryObjects): FileSystemEntry[] => objects.results.filter((entry) => !isToolEntry(entry)),
+            (objects: LibraryObjects): FileSystemEntry[] => objects.results.filter(isLibraryEntry),
         ],
         hasMore: [(s) => [s.objects], (objects: LibraryObjects): boolean => objects.results.length < objects.count],
     }),
@@ -234,6 +234,15 @@ export const libraryLogic = kea<libraryLogicType>([
         const openType = (objectType: string): void => {
             // The Library scene renders nothing without the flag, so it must not load anything either.
             if (!values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                return
+            }
+            if (objectType && !isLibraryType(objectType)) {
+                router.actions.replace(urls.views())
+                return
+            }
+            const listHref = objectType ? libraryListHref(objectType) : null
+            if (listHref) {
+                router.actions.replace(listHref)
                 return
             }
             if (objectType !== values.objectType || !cache.loaded) {

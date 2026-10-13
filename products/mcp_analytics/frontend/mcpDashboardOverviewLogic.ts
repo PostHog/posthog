@@ -29,6 +29,7 @@ import { AnyPropertyFilter, IntervalType } from '~/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import { mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -129,7 +130,7 @@ LIMIT 50
 // converts, shifting every bucket away from the wall-clock keys it joins and compares against.
 // Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
 // backend runners (dashboard_series.py, tool_quality_tables.py, tool_tables.py).
-const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
+export const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
 
 export interface BucketRow {
     bucket: string
@@ -612,6 +613,9 @@ export interface mcpDashboardOverviewLogicActions {
     markFilterInteraction: () => {
         value: true
     }
+    openToolReport: (tool: string) => {
+        tool: string
+    }
     reloadAll: () => {
         value: true
     }
@@ -686,6 +690,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         reloadAll: true,
         markFilterInteraction: true,
+        openToolReport: (tool: string) => ({ tool }),
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
@@ -1002,6 +1007,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     listeners(({ actions, values }) => ({
         setDateFilter: () => {
             actions.reloadAll()
+        },
+        openToolReport: ({ tool }) => {
+            router.actions.push(mcpToolReportUrl(tool, values.dateFilter))
         },
         setFilterTestAccounts: () => {
             actions.markFilterInteraction()

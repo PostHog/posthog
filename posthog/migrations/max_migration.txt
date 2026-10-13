@@ -1,1 +1,1 @@
-1388_activitylog_credential
+1396_events_retention_config

@@ -60,6 +60,12 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
 
+    def additional_session_columns(self) -> set[str]:
+        return set()
+
+    def resolved_breakdown_expr(self) -> ast.Expr | None:
+        return None
+
     def get_query_settings(self) -> HogQLGlobalSettings:
         # Extra aggregation threads create more partial states and spill files for the same sessions.
         return HogQLGlobalSettings(
@@ -258,19 +264,14 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
 
     def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """The credit side, using shared session resolution when eligible."""
-        if self.config.sessions_precomputation_enabled or self.config.live_session_resolution_enabled:
+        if self.config.live_session_resolution_enabled:
             from .attribution_sessions_read import build_person_arrays  # noqa: PLC0415 (import cycle)
 
-            with self.timings.measure(
-                "attribution_live_session_resolution"
-                if self.config.live_session_resolution_enabled
-                else "attribution_sessions_precompute_credit"
-            ):
-                precomputed = build_person_arrays(self, date_range)
-            if precomputed is not None:
-                self._sessions_precompute_used = not self.config.live_session_resolution_enabled
-                self._live_session_resolution_used = self.config.live_session_resolution_enabled
-                return precomputed
+            with self.timings.measure("attribution_live_session_resolution"):
+                resolved = build_person_arrays(self, date_range)
+            if resolved is not None:
+                self._live_session_resolution_used = True
+                return resolved
         return self._build_person_arrays_select(date_range)
 
     def _build_person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:

@@ -332,10 +332,16 @@ class PostgreSQLClient:
     @contextlib.asynccontextmanager
     async def connect(
         self,
+        *,
+        is_error_retryable: typing.Callable[[Exception], bool] | None = None,
     ) -> typing.AsyncIterator[typing.Self]:
         """Context manager for a PostgreSQL connection, backed by `psycopg`.
 
         Connection parameters are set when initializing a client.
+
+        `is_error_retryable` lets a caller stop the connect retries early on an error it knows
+        fails the same way every time. The `PostgreSQLConnectionError` raised then keeps that
+        error as its `__cause__`. Without it, every `OperationalError` is retried.
         """
         max_attempts = 5
         connect: typing.Callable[..., typing.Awaitable[psycopg.AsyncConnection]] = (
@@ -343,6 +349,7 @@ class PostgreSQLClient:
                 psycopg.AsyncConnection.connect,
                 max_attempts=max_attempts,
                 retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
+                is_exception_retryable=is_error_retryable or (lambda _: True),
             )
         )
 
