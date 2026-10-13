@@ -771,6 +771,9 @@ export class CloudPiSessionClient implements PiSession {
         type: "response",
         command: command.type,
         success: true,
+        data: {
+          disposition: command.type === "prompt" ? "started" : "handled",
+        },
       };
     }
 

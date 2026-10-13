@@ -275,14 +275,14 @@ class GoogleAdsColumn(Column):
     def __init__(
         self,
         qualified_name: str,
-        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType,
+        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType | int,
         is_repeatable: bool,
         type_url: str,
         output_name: str | None = None,
     ):
         self.name = output_name if output_name is not None else qualified_name.replace(".", "_")
         self.qualified_name = qualified_name
-        self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType(data_type.value)
+        self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType(int(data_type))
         self.type_url = type_url
         # Some types require special handling, so we provide quick access to them
         self.is_repeatable = is_repeatable

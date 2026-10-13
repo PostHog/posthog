@@ -22,6 +22,7 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'no_metric'
     | 'forced_variant_release_condition'
+    | 'flag_variants_mismatch'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -147,32 +148,39 @@ export function captureExperimentHealthFindingActedOn(
 /**
  * Compares the page's own rules with the server's checks for one experiment load. A `_browser` value is the
  * result of the page's rule, and a `_server` value is the result of the server's check.
+ *
+ * `health` is null when the request failed. The event then has `request_failed` set, and its finding and
+ * `_server` values are null. A failed request still reports `duration_ms`, so a request that times out
+ * counts in the slow tail of the request time.
  */
 export function captureExperimentHealthChecked(
     experiment: Experiment,
-    health: ExperimentHealthApi,
+    health: ExperimentHealthApi | null,
     healthUi: ExperimentHealthUi,
     browserWarning: ExperimentWarning | null,
-    browserNoMetricsWarning: boolean
+    browserNoMetricsWarning: boolean,
+    durationMs: number
 ): void {
-    const flagStateFinding = health.findings.find((finding) => FLAG_STATE_FINDING_CODES.has(finding.code))
+    const findings = health?.findings ?? null
+    const flagStateFinding = findings?.find((finding) => FLAG_STATE_FINDING_CODES.has(finding.code))
     // pinned: analytics event name, so renaming it breaks insights
     posthog.capture('experiment health checked', {
         experiment_id: experiment.id,
         experiment_status: getExperimentStatus(experiment),
         health_ui: healthUi,
-        health_finding_codes: health.findings.map((finding) => finding.code),
+        request_failed: health === null,
+        duration_ms: durationMs,
+        health_finding_codes: findings?.map((finding) => finding.code) ?? null,
         // pinned: `code:subcode`, as on the server's `experiment launched`. The code prefix keeps a subcode
         // unambiguous when two codes use the same subcode.
-        health_finding_subcodes: health.findings.flatMap(({ code, subcode }) =>
-            subcode ? [`${code}:${subcode}`] : []
-        ),
-        health_finding_count: health.findings.length,
+        health_finding_subcodes:
+            findings?.flatMap(({ code, subcode }) => (subcode ? [`${code}:${subcode}`] : [])) ?? null,
+        health_finding_count: findings?.length ?? null,
         flag_state_browser: browserWarning?.key ?? null,
         // The server sends the warning key as the subcode. A finding without one still differs from no finding.
         flag_state_server: flagStateFinding ? (flagStateFinding.subcode ?? flagStateFinding.code) : null,
         no_metric_browser: browserNoMetricsWarning,
-        no_metric_server: health.findings.some((finding) => finding.code === 'no_metric'),
+        no_metric_server: findings ? findings.some((finding) => finding.code === 'no_metric') : null,
     })
 }
 
