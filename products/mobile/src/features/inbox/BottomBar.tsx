@@ -1,31 +1,71 @@
-import type { ReactElement } from 'react'
+import type { ComponentType, ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { FadeEdge } from '@/ui/FadeEdge'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
+import { SpacesIcon } from '@/ui/icons/SpacesIcon'
+import type { IconProps } from '@/ui/icons/types'
+import { ViewsIcon } from '@/ui/icons/ViewsIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, shadows, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 interface BottomBarProps {
     onChat: () => void
+    onProducts: () => void
+    /** Dims the Products slot when there is no project to open in the web app. */
+    productsDisabled?: boolean
 }
 
-export function BottomBar({ onChat }: BottomBarProps): ReactElement {
+interface NavSlotProps {
+    label: string
+    Icon: ComponentType<IconProps>
+    onPress: () => void
+    disabled?: boolean
+    testID: string
+}
+
+function NavSlot({ label, Icon, onPress, disabled = false, testID }: NavSlotProps): ReactElement {
+    return (
+        <Pressable44
+            onPress={onPress}
+            disabled={disabled}
+            accessibilityRole="tab"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: false, disabled }}
+            pressedBackground={colors.background}
+            style={[styles.slot, disabled && styles.slotDisabled]}
+            haptic="selection"
+            testID={testID}
+        >
+            <Icon size={22} />
+        </Pressable44>
+    )
+}
+
+export function BottomBar({ onChat, onProducts, productsDisabled = false }: BottomBarProps): ReactElement {
     const insets = useScreenInsets()
     return (
         <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 34) }]}>
             <FadeEdge direction="up" solid={0.6} />
             <View style={[styles.nav, shadows.floatingBar]} accessibilityRole="tablist">
                 <View
-                    style={styles.slot}
+                    style={[styles.slot, styles.slotSelected]}
                     accessibilityRole="tab"
                     accessibilityLabel="Home"
                     accessibilityState={{ selected: true }}
                 >
                     <HomeIcon size={22} />
                 </View>
+                <NavSlot label="Chat" Icon={SpacesIcon} onPress={onChat} testID="inbox-nav-chat" />
+                <NavSlot
+                    label="Products"
+                    Icon={ViewsIcon}
+                    onPress={onProducts}
+                    disabled={productsDisabled}
+                    testID="inbox-nav-products"
+                />
             </View>
             <Pressable44
                 onPress={onChat}
@@ -61,7 +101,7 @@ const styles = StyleSheet.create({
         height: 64,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
+        justifyContent: 'space-around',
         backgroundColor: colors.white,
         borderWidth: 1,
         borderColor: colors.border,
@@ -69,13 +109,20 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         paddingHorizontal: 6,
     },
+    // Slots shrink below the handoff's 72pt on phones narrower than the 402pt prototype frame.
     slot: {
-        width: 72,
+        flexBasis: 72,
+        flexShrink: 1,
         height: 46,
         borderRadius: radii.pill,
-        backgroundColor: colors.sunken,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    slotSelected: {
+        backgroundColor: colors.sunken,
+    },
+    slotDisabled: {
+        opacity: 0.4,
     },
     // 54pt content box plus a 1pt border on each side.
     chat: {

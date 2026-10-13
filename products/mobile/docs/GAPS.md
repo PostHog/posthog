@@ -11,8 +11,9 @@ Known gaps and behavior that stays on the device.
 - **Time-based snooze is local.** "In an hour", "Tomorrow", "Next week", "In a month" and
   "Custom…" hide the report on this device only. Other devices and the web app still show it.
   "Until more signals arrive" is the only server-side snooze.
-- **Hidden navigation.** Spaces, Views, Teams, Notifications and Give feedback are not in v1.
-  The project switcher chevron does nothing yet.
+- **Hidden navigation.** Teams, Notifications and Give feedback are not in v1.
+  The project switcher chevron does nothing yet. The nav pill's Products slot leaves the app for the
+  web product library, and is dimmed in demo mode because there is no project to open.
 - **Agent progress UI.** The prototype's "Step N of M" segments are not shown; the run API has a
   free-text stage only.
 - **Read state** is recorded but not styled.

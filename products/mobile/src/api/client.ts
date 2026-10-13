@@ -102,6 +102,15 @@ export function apiUrl(path: string, query?: Record<string, QueryValue>): string
     return `${host}${path.startsWith('/') ? path : `/${path}`}${buildQuery(query)}`
 }
 
+/** The web app URL of a page in the current project, or undefined when no session or project is set. */
+export function projectWebUrl(path: string): string | undefined {
+    try {
+        return apiUrl(projectPath(path).replace(/^\/api\/projects\//, '/project/'))
+    } catch {
+        return undefined
+    }
+}
+
 function buildInit(init: ApiInit, accessToken: string, accept: string): RequestInit {
     const { json, query: _query, headers, ...rest } = init
     const merged: Record<string, string> = {

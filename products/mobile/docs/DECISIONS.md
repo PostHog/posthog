@@ -57,7 +57,9 @@ Choices the build contract left open, with the reason for each.
   match the prototype's wrapping of headlines, ledes, questions, PR titles and quotes.
 - **Focus ring.** Web text fields drop the browser outline; the field container is the affordance.
 - **Disabled chat tools.** Attach and Expand render at 40% opacity because they do nothing yet.
-- **Nav pill** keeps its full width with only the Home slot, centered (Spaces and Views hidden).
+- **Nav pill** shows the handoff's three slots as Home, Chat and Products. The app has no Spaces or
+  Views, so the chat-bubbles slot opens the chat sheet and the grid slot opens the web app's product
+  library (`/project/{id}/library`, the web rail's Products pane), which has no product screen in the app.
 - **Bottom padding floor.** `bottomOffset()` never returns less than 16pt. The handoff's bottom paddings include the
   34pt home indicator, so on a device with a home button (inset 0) several came out between 0 and 14pt.
 

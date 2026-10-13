@@ -1,14 +1,6 @@
-import { apiUrl, projectPath } from '@/api/client'
+import { apiUrl, projectWebUrl } from '@/api/client'
 
 import type { ChatLinkTarget } from './types'
-
-function projectWebUrl(path: string): string | undefined {
-    try {
-        return apiUrl(projectPath(path).replace(/^\/api\/projects\//, '/project/'))
-    } catch {
-        return undefined
-    }
-}
 
 export function chatLinkUrl(target: ChatLinkTarget, conversationId: string): string | undefined {
     if (target.kind === 'insight') {

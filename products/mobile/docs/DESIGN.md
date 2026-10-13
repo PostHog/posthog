@@ -65,8 +65,10 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 
 ## Screens and states
 
-- **Inbox**: header with Refresh and More, rows, pull to refresh, floating nav pill (Home only)
-  and the Chat button. Loading, empty and error states are separate screens.
+- **Inbox**: header with Refresh and More, rows, pull to refresh, floating nav pill (Home selected,
+  Chat, Products) and the Chat button. Chat in the pill opens the chat sheet, like the button.
+  Products opens the project's product library in the web app, and is dimmed in demo mode.
+  Loading, empty and error states are separate screens.
 - **Nav menu**: project name, Inbox (selected), Settings, Sign out.
 - **Report**: top chrome, headline, lede, evidence (trace, quotes, replay), facts, sparkline,
   activity, and the action bar.

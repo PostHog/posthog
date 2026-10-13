@@ -1,9 +1,11 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useState } from 'react'
-import { FlatList, RefreshControl, StyleSheet, View } from 'react-native'
+import { FlatList, Linking, RefreshControl, StyleSheet, View } from 'react-native'
 
+import { projectWebUrl } from '@/api/client'
 import { useAuthStore } from '@/auth/authStore'
 import { useViewer } from '@/auth/useViewer'
+import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
@@ -31,6 +33,7 @@ export function InboxScreen(): ReactElement {
     const viewer = useViewer()
     const query = useInboxItems()
     const signedIn = useAuthStore((state) => state.signedIn)
+    const demo = useDemoMode((state) => state.enabled)
     const exitDemo = useExitDemo()
     const signOut = useSignOutAction()
     const [menuOpen, setMenuOpen] = useState(false)
@@ -50,6 +53,15 @@ export function InboxScreen(): ReactElement {
         }
         setMenuOpen(false)
         setConfirmingSignOut(false)
+    }
+    // The app has no product screens, so Products opens the web app's product library for this project.
+    const openProducts = (): void => {
+        const url = projectWebUrl('library')
+        if (!url) {
+            return
+        }
+        track('mobile_products_opened')
+        Linking.openURL(url).catch(() => undefined)
     }
     const startSignOut = (): void => {
         if (signedIn) {
@@ -109,7 +121,7 @@ export function InboxScreen(): ReactElement {
                     <RefreshControl refreshing={query.isRefetching} onRefresh={refresh} tintColor={colors.tertiary} />
                 }
             />
-            <BottomBar onChat={() => router.push('/chat')} />
+            <BottomBar onChat={() => router.push('/chat')} onProducts={openProducts} productsDisabled={demo} />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}

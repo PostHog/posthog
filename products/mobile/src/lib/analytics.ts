@@ -8,6 +8,7 @@ export type AnalyticsEvent =
     | 'mobile_reviewers_changed'
     | 'mobile_report_marked_read'
     | 'mobile_chat_sent'
+    | 'mobile_products_opened'
     | 'mobile_push_opened'
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
