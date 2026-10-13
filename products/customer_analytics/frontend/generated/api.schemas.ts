@@ -780,10 +780,10 @@ export interface AccountApi {
      */
     churned_at?: string | null
     /**
-     * When Track Rules ignored the account. Null means the account is tracked.
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
      * @nullable
      */
-    readonly ignored_at: string | null
+    ignored_at?: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -993,10 +993,10 @@ export interface PatchedAccountApi {
      */
     churned_at?: string | null
     /**
-     * When Track Rules ignored the account. Null means the account is tracked.
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
      * @nullable
      */
-    readonly ignored_at?: string | null
+    ignored_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -1964,6 +1964,8 @@ export interface DataWarehouseSourceUsageApi {
 }
 
 export interface DataWarehouseSyncWarningApi {
+    /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+    data_is_current?: boolean | null
     /** Human-readable warning shown to the user */
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -2149,6 +2151,13 @@ export interface BreakdownFilterApi {
     breakdown_path_cleaning?: boolean | null
     breakdown_type?: BreakdownTypeApi | null
     breakdowns?: BreakdownApi[] | null
+}
+
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
 }
 
 export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
@@ -2515,6 +2524,8 @@ export interface BehavioralPropertyFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -4770,6 +4781,10 @@ export type AccountsListParams = {
      */
     all_roles_unassigned?: boolean
     /**
+     * When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.
+     */
+    inactive_last?: boolean
+    /**
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean
@@ -4989,7 +5004,7 @@ export type CustomerTasksListParams = {
      */
     archive_state?: CustomerTasksListArchiveState
     /**
-     * Filter by me, unassigned, or one user ID.
+     * Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.
      * @minLength 1
      */
     assigned_to?: string

@@ -2,15 +2,15 @@ use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
 
 use crate::metric_consts::{
     STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
-    STORE_CACHE_MISSES,
+    STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS,
 };
 
-use super::{chunk_id::SymbolSetCacheKey, Fetcher, Parser, Provider};
+use super::{chunk_id::SymbolSetCacheKey, Fetcher, ParsePermit, Parser, Provider};
 
 // Parsing can transiently need many times the fetched size (e.g. ProguardCache::write), and
 // none of that is held against the cache budget. We log large parses before they start, so
@@ -23,6 +23,33 @@ const LARGE_PARSED_BYTES: usize = 50_000_000;
 pub struct Caching<P> {
     inner: P,
     cache: Arc<Mutex<SymbolSetCache>>, // This inner cache is shared across providers
+    parse_limiter: Option<ParseLimiter>,
+}
+
+// Bounds how many large symbol sets are parsed at once. A parse can need many times the
+// fetched size in transient memory, and the cache budget does not count it. Clones share
+// one set of permits, so a single limiter covers every provider it is given to.
+#[derive(Clone)]
+pub struct ParseLimiter {
+    large_parse_bytes: usize,
+    permits: Arc<Semaphore>,
+}
+
+impl ParseLimiter {
+    pub fn new(large_parse_bytes: usize, max_concurrent_large_parses: usize) -> Self {
+        Self {
+            large_parse_bytes,
+            permits: Arc::new(Semaphore::new(max_concurrent_large_parses.max(1))),
+        }
+    }
+
+    async fn acquire(&self, required: bool) -> ParsePermit {
+        if !required {
+            return ParsePermit::none();
+        }
+        // UNWRAP - we never close the semaphore
+        ParsePermit::limited(self.permits.clone().acquire_owned().await.unwrap())
+    }
 }
 
 impl<P> Caching<P>
@@ -36,7 +63,16 @@ where
     P::Set: Countable + Any + Send + Sync,
 {
     pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
-        Self { inner, cache }
+        Self {
+            inner,
+            cache,
+            parse_limiter: None,
+        }
+    }
+
+    pub fn with_parse_limiter(mut self, parse_limiter: ParseLimiter) -> Self {
+        self.parse_limiter = Some(parse_limiter);
+        self
     }
 }
 
@@ -68,14 +104,28 @@ where
         let found = self.inner.fetch(team_id, r).await?;
         let fetched_bytes = found.byte_count();
         let set_type = set_type_name::<P::Set>();
+
+        let wait_start = Instant::now();
+        let permit = match &self.parse_limiter {
+            Some(limiter) => {
+                let required = found.requires_parse_permit(limiter.large_parse_bytes);
+                limiter.acquire(required).await
+            }
+            None => ParsePermit::none(),
+        };
+        let wait_ms = wait_start.elapsed().as_millis() as u64;
+        if permit.is_limited() {
+            metrics::histogram!(SYMBOL_SET_LARGE_PARSE_WAIT_MS).record(wait_ms as f64);
+        }
+
         if fetched_bytes >= LARGE_FETCHED_BYTES {
             info!(
                 team_id,
-                cache_key, set_type, fetched_bytes, "Parsing large symbol set"
+                cache_key, set_type, fetched_bytes, wait_ms, "Parsing large symbol set"
             );
         }
         let parse_start = Instant::now();
-        let parsed = self.inner.parse(found).await?;
+        let parsed = self.inner.parse(found, permit).await?;
         let bytes = parsed.byte_count();
         if fetched_bytes >= LARGE_FETCHED_BYTES || bytes >= LARGE_PARSED_BYTES {
             info!(
@@ -190,6 +240,10 @@ struct CachedSymbolSet {
 
 pub trait Countable {
     fn byte_count(&self) -> usize;
+
+    fn requires_parse_permit(&self, threshold: usize) -> bool {
+        self.byte_count() >= threshold
+    }
 }
 
 impl Countable for Vec<u8> {
@@ -202,6 +256,13 @@ impl Countable for Bytes {
     fn byte_count(&self) -> usize {
         self.len()
     }
+
+    fn requires_parse_permit(&self, threshold: usize) -> bool {
+        match posthog_symbol_data::symbol_data_known_decompressed_size(self) {
+            Ok(Some(size)) => size.max(self.len()) >= threshold,
+            Ok(None) | Err(_) => true,
+        }
+    }
 }
 
 fn set_type_name<T>() -> &'static str {
@@ -213,13 +274,15 @@ fn set_type_name<T>() -> &'static str {
 mod tests {
     use std::{
         convert::Infallible,
+        io::{Cursor, Write},
         sync::atomic::{AtomicUsize, Ordering},
-        sync::Arc,
+        sync::{Arc, Condvar, Mutex as StdMutex},
     };
 
     use super::*;
     use crate::symbolication::symbol_store::chunk_id::OrChunkId;
     use async_trait::async_trait;
+    use posthog_symbol_data::{write_symbol_data, SourceAndMap};
     use reqwest::Url;
 
     struct FakeProvider {
@@ -249,7 +312,11 @@ mod tests {
         type Set = Vec<u8>;
         type Err = Infallible;
 
-        async fn parse(&self, data: Self::Source) -> Result<Self::Set, Self::Err> {
+        async fn parse(
+            &self,
+            data: Self::Source,
+            _permit: ParsePermit,
+        ) -> Result<Self::Set, Self::Err> {
             Ok(data)
         }
     }
@@ -278,6 +345,185 @@ mod tests {
         assert_eq!(both.as_ref(), b"both");
         assert_eq!(chunk_only.as_ref(), b"chunk-id");
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+
+    struct SizedProvider {
+        fetched_bytes: usize,
+        in_flight: Arc<AtomicUsize>,
+        max_in_flight: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Fetcher for SizedProvider {
+        type Ref = OrChunkId<Url>;
+        type Fetched = Vec<u8>;
+        type Err = Infallible;
+
+        async fn fetch(&self, _team_id: i32, _r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
+            Ok(vec![0; self.fetched_bytes])
+        }
+    }
+
+    #[async_trait]
+    impl Parser for SizedProvider {
+        type Source = Vec<u8>;
+        type Set = Vec<u8>;
+        type Err = Infallible;
+
+        async fn parse(
+            &self,
+            data: Self::Source,
+            permit: ParsePermit,
+        ) -> Result<Self::Set, Self::Err> {
+            let _permit = permit;
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_in_flight.fetch_max(now, Ordering::SeqCst);
+            for _ in 0..5 {
+                tokio::task::yield_now().await;
+            }
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            Ok(data)
+        }
+    }
+
+    struct BlockingProvider {
+        active: Arc<AtomicUsize>,
+        started: tokio::sync::mpsc::UnboundedSender<()>,
+        release: Arc<(StdMutex<bool>, Condvar)>,
+    }
+
+    #[async_trait]
+    impl Fetcher for BlockingProvider {
+        type Ref = OrChunkId<Url>;
+        type Fetched = Vec<u8>;
+        type Err = Infallible;
+
+        async fn fetch(&self, _team_id: i32, _r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
+            Ok(vec![0])
+        }
+    }
+
+    #[async_trait]
+    impl Parser for BlockingProvider {
+        type Source = Vec<u8>;
+        type Set = Vec<u8>;
+        type Err = Infallible;
+
+        async fn parse(
+            &self,
+            data: Self::Source,
+            permit: ParsePermit,
+        ) -> Result<Self::Set, Self::Err> {
+            let active = self.active.clone();
+            let started = self.started.clone();
+            let release = self.release.clone();
+
+            Ok(tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                active.fetch_add(1, Ordering::SeqCst);
+                started.send(()).unwrap();
+
+                let (lock, condvar) = &*release;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = condvar.wait(released).unwrap();
+                }
+
+                active.fetch_sub(1, Ordering::SeqCst);
+                data
+            })
+            .await
+            .unwrap())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn parse_limiter_bounds_only_large_parses() {
+        for (fetched_bytes, expected_max) in [(100, 1), (99, 3)] {
+            let max_in_flight = Arc::new(AtomicUsize::new(0));
+            let provider = SizedProvider {
+                fetched_bytes,
+                in_flight: Arc::new(AtomicUsize::new(0)),
+                max_in_flight: max_in_flight.clone(),
+            };
+            let cache = Arc::new(Mutex::new(SymbolSetCache::new(1 << 20)));
+            let caching =
+                Caching::new(provider, cache).with_parse_limiter(ParseLimiter::new(100, 1));
+
+            futures::future::join_all(
+                (0..3).map(|i| caching.lookup(1, OrChunkId::<Url>::chunk_id(format!("set-{i}")))),
+            )
+            .await;
+
+            assert_eq!(
+                max_in_flight.load(Ordering::SeqCst),
+                expected_max,
+                "fetched_bytes = {fetched_bytes}"
+            );
+        }
+
+        let compressed = Bytes::from(
+            write_symbol_data(SourceAndMap {
+                minified_source: "a".repeat(100),
+                sourcemap: "b".repeat(100),
+            })
+            .unwrap(),
+        );
+        assert!(compressed.len() < 100);
+        assert!(compressed.requires_parse_permit(100));
+
+        let mut raw_zip = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut raw_zip);
+            writer
+                .start_file("symbols", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"symbols").unwrap();
+            writer.finish().unwrap();
+        }
+        let raw_zip = Bytes::from(raw_zip.into_inner());
+        assert!(raw_zip.requires_parse_permit(raw_zip.len() + 1));
+    }
+
+    #[tokio::test]
+    async fn cancelled_lookup_keeps_permit_until_blocking_parse_finishes() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
+        let release = Arc::new((StdMutex::new(false), Condvar::new()));
+        let provider = BlockingProvider {
+            active: active.clone(),
+            started: started_tx,
+            release: release.clone(),
+        };
+        let limiter = ParseLimiter::new(1, 1);
+        let caching = Arc::new(
+            Caching::new(provider, Arc::new(Mutex::new(SymbolSetCache::new(1024))))
+                .with_parse_limiter(limiter.clone()),
+        );
+
+        let lookup = tokio::spawn({
+            let caching = caching.clone();
+            async move {
+                caching
+                    .lookup(1, OrChunkId::<Url>::chunk_id("set".to_string()))
+                    .await
+            }
+        });
+        started_rx.recv().await.unwrap();
+        lookup.abort();
+        assert!(lookup.await.unwrap_err().is_cancelled());
+
+        assert_eq!(active.load(Ordering::SeqCst), 1);
+        assert_eq!(limiter.permits.available_permits(), 0);
+
+        let (lock, condvar) = &*release;
+        *lock.lock().unwrap() = true;
+        condvar.notify_one();
+        let released_permit = limiter.permits.clone().acquire_owned().await.unwrap();
+
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        drop(released_permit);
+        assert_eq!(limiter.permits.available_permits(), 1);
     }
 
     #[test]

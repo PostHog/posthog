@@ -705,6 +705,8 @@ export interface SnapshotApi {
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
     row_shift?: RowShiftApi | null
+    /** Whether a quarantine covered this snapshot when the run was last gated, so its diff did not block the pull request. It keeps that value after the quarantine ends or a new one starts. */
+    is_quarantined?: boolean
     id: string
     run_id: string
     identifier: string
@@ -720,7 +722,6 @@ export interface SnapshotApi {
     approved_hash: string
     /** @nullable */
     tolerated_hash_id?: string | null
-    is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
     /** @nullable */
     ssim_score?: number | null
@@ -735,7 +736,7 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
-    /** Count of this run's snapshots that match the other filters and whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+    /** Count of this run's snapshots that match the other filters and whose identifier is quarantined now. Excluded from results unless include_quarantined=true is passed. This can differ from the run's own counts, which use the quarantines at gating time. */
     quarantined_count?: number
 }
 
@@ -849,14 +850,24 @@ export type VisualReviewReposRunsListParams = {
      */
     offset?: number
     /**
-     * Filter by review state
+     * Filter by where the run stands in review. `needs_review`: a completed pull request run with changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. `stale`: superseded by a newer run while its changes were unapproved.
      */
-    review_state?: string
+    review_state?: VisualReviewReposRunsListReviewState
     /**
      * Free-text search over branch, commit SHA, run type, and PR number
      */
     search?: string
 }
+
+export type VisualReviewReposRunsListReviewState =
+    (typeof VisualReviewReposRunsListReviewState)[keyof typeof VisualReviewReposRunsListReviewState]
+
+export const VisualReviewReposRunsListReviewState = {
+    Clean: 'clean',
+    NeedsReview: 'needs_review',
+    Processing: 'processing',
+    Stale: 'stale',
+} as const
 
 export type VisualReviewReposSnapshotsListParams = {
     /**
@@ -891,14 +902,24 @@ export type VisualReviewRunsListParams = {
      */
     pr_number?: number
     /**
-     * Filter by review state
+     * Filter by where the run stands in review. `needs_review`: a completed pull request run with changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. `stale`: superseded by a newer run while its changes were unapproved.
      */
-    review_state?: string
+    review_state?: VisualReviewRunsListReviewState
     /**
      * Free-text search over branch, commit SHA, run type, and PR number
      */
     search?: string
 }
+
+export type VisualReviewRunsListReviewState =
+    (typeof VisualReviewRunsListReviewState)[keyof typeof VisualReviewRunsListReviewState]
+
+export const VisualReviewRunsListReviewState = {
+    Clean: 'clean',
+    NeedsReview: 'needs_review',
+    Processing: 'processing',
+    Stale: 'stale',
+} as const
 
 export type VisualReviewRunsSnapshotHistoryListParams = {
     /**
@@ -921,7 +942,7 @@ export type VisualReviewRunsSnapshotsListParams = {
      */
     exclude_unchanged?: boolean
     /**
-     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes. This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag holds the state when the run was gated, so for an older run pass true and read the flag.
      */
     include_quarantined?: boolean
     /**
@@ -933,7 +954,7 @@ export type VisualReviewRunsSnapshotsListParams = {
      */
     offset?: number
     /**
-     * Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.
+     * Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for. This uses the quarantines active now, not each snapshot's `is_quarantined` flag, so on an older run it misses stories whose quarantine has ended since.
      */
     quarantined_only?: boolean
     /**

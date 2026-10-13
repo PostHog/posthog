@@ -14,6 +14,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, Optional
 
+from django.conf import settings
+
 import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
@@ -259,12 +261,18 @@ class PostgresProducer:
         # A full_refresh is the exception: this run's batch 0 overwrites the table, so
         # an older attempt's loaded rows are gone either way and sparing it only leaves
         # its batches clogging the serial per-(team, schema) gate.
+        #
+        # An append is the same: the loader removes an older attempt's rows when this
+        # run's batch 0 arrives (see `load/append_rollback.py`).
         with _queue_db_errors():
             superseded = BatchQueue.supersede_other_runs(
                 self._conn,
                 job_id=self._job_id,
                 current_run_uuid=self._run_uuid,
-                spare_runs_with_progress=self._sync_type != "full_refresh",
+                spare_runs_with_progress=(
+                    self._sync_type != "full_refresh"
+                    and not (self._sync_type == "append" and settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED)
+                ),
             )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)

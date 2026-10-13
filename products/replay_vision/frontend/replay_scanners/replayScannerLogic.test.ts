@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -14,18 +15,24 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
+    leaveScannerEditor,
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
-import { consumeScannerHandoffIntent, markScannerHandoffIntent } from './scannerHandoffIntent'
+import {
+    consumeScannerHandoffIntent,
+    markScannerGoalDraftIntent,
+    markScannerHandoffIntent,
+} from './scannerHandoffIntent'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
@@ -392,6 +399,34 @@ describe('replayScannerLogic', () => {
 
         // A ?goal= link (e.g. crafted or shared) must not spend the user's AI allowance on its own;
         // it only prefills the box for an explicit click.
+        it('an in-session draft intent starts the draft once, while a ?draft= link never does', async () => {
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'crafted', draft: true })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(draftSpy).not.toHaveBeenCalled()
+
+            markScannerGoalDraftIntent('tell me what to watch')
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(logic.values.goalDraftInput).toEqual('tell me what to watch')
+            expect(draftSpy).toHaveBeenCalledTimes(1)
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(draftSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('a draft intent older than a minute is dropped', async () => {
+            const now = Date.now()
+            const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+            markScannerGoalDraftIntent('tell me what to watch')
+            nowSpy.mockReturnValue(now + 61_000)
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            nowSpy.mockRestore()
+
+            expect(logic.values.goalDraftInput).toBeFalsy()
+            expect(draftSpy).not.toHaveBeenCalled()
+        })
+
         it('a bare ?goal= param prefills the input without auto-starting the draft', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
 
@@ -691,7 +726,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.creditLimitState).toMatchObject({ limit: null, isOn: true })
             expect(logic.values.scannerValidationErrors).toMatchObject({
-                credit_limit: 'Enter a credit limit, or turn the limit off',
+                credit_limit: 'Enter a limit, or turn the limit off',
             })
         })
 
@@ -1023,10 +1058,10 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('seeds at least one credit for a tiny but non-zero forecast', async () => {
+        it('seeds at least one scan for a tiny but non-zero forecast', async () => {
             estimate(0.3)
             await expectLogic(logic).toMatchValues({
-                creditLimitState: expect.objectContaining({ seedValue: 1 }),
+                creditLimitState: expect.objectContaining({ seedValue: 15 }),
             })
         })
 
@@ -1042,7 +1077,11 @@ describe('replayScannerLogic', () => {
 
         it('flags a limit below the forecast and one below a single scan', async () => {
             estimate(100, 15)
-            logic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 10 })
+            logic.actions.setScannerValues({
+                model: ScannerModelEnumApi.Gemini38Flash,
+                credit_limit_enabled: true,
+                credit_limit: 10,
+            })
             await expectLogic(logic).toMatchValues({
                 creditLimitState: expect.objectContaining({
                     limit: 10,
@@ -1050,6 +1089,33 @@ describe('replayScannerLogic', () => {
                     isBelowEstimate: true,
                     cannotAffordOneScan: true,
                 }),
+            })
+        })
+
+        it.each([
+            ['the loaded estimate, which is authoritative', false, 7],
+            ['the model table while the estimate reloads for a new model', true, 5],
+        ])('prices an observation from %s', async (_name, reloading, expectedPrice) => {
+            logic.actions.setScannerValues({ model: ScannerModelEnumApi.Gemini3FlashPreview })
+            estimate(100, 7)
+            if (reloading) {
+                logic.actions.requestScannerEstimate()
+            }
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ creditsPerObservation: expectedPrice }),
+            })
+        })
+
+        it('keeps the credits and recounts the observations when the model changes', async () => {
+            logic.actions.setScannerValues({
+                model: ScannerModelEnumApi.Gemini3FlashPreview,
+                credit_limit_enabled: true,
+                credit_limit: 40,
+            })
+            logic.actions.setCreditLimitUnit('observations')
+            logic.actions.setScannerValue('model', ScannerModelEnumApi.Gemini38Flash)
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ limit: 40, observationLimit: 2 }),
             })
         })
     })
@@ -1087,7 +1153,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(editLogic).toMatchValues({
                 creditLimitState: expect.objectContaining({ limit: null, isOn: true }),
                 scannerValidationErrors: expect.objectContaining({
-                    credit_limit: 'Enter a credit limit, or turn the limit off',
+                    credit_limit: 'Enter a limit, or turn the limit off',
                 }),
             })
         })
@@ -1516,12 +1582,22 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('leaveScannerEditor', () => {
+        it.each([
+            ['the saved scanner’s editor is open', 'scanner-a', urls.replayVision('scanner-a')],
+            ['another scanner’s editor is open', 'scanner-b', urls.replayVisionScannerConfigure('scanner-b')],
+        ])('when %s', (_, openScannerId, expectedPathname) => {
+            router.actions.push(urls.replayVisionScannerConfigure(openScannerId))
+            leaveScannerEditor('scanner-a', urls.replayVision('scanner-a'))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
+        })
+    })
+
     describe('shouldGuardScannerNavigation', () => {
         const scannerId = 'abc-123'
         const configure = urls.replayVisionScannerConfigure(scannerId)
         const triggers = urls.replayVisionScannerTriggers(scannerId)
         const template = urls.replayVisionScannerTemplate(scannerId)
-        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
         const base = {
             hasUnsavedChanges: true,
@@ -1546,11 +1622,17 @@ describe('replayScannerLogic', () => {
             ['out to an unrelated scene', { ...base, nextPathname: '/insights' }, true],
             ['closing the tab (no next location)', { ...base, nextPathname: undefined }, true],
             [
+                'browser back to the previous step',
+                { ...base, currentPathname: triggers, browserPathname: `/project/123${configure}` },
+                false,
+            ],
+            ['browser back out to the detail page', { ...base, browserPathname: detail }, true],
+            ['closing the tab while the window still shows the step', { ...base, browserPathname: configure }, true],
+            [
                 'over to a different scanner’s editor',
                 { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
                 true,
             ],
-            ['out from the self-driving step', { ...base, currentPathname: selfDriving, nextPathname: detail }, true],
             // The router stores pathnames with the `/project/:id` prefix; `urls.*` are unprefixed.
             [
                 'out to settings from a project-prefixed URL',

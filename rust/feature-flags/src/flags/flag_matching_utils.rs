@@ -912,6 +912,26 @@ pub fn match_flag_value_to_flag_filter(
     }
 }
 
+/// Returns the flag this filter depends on when that flag failed earlier in this request.
+/// A flag with a recorded result never counts. An unsupported flag fails, but it is
+/// pre-seeded `false`, so its dependents still read it as false. A malformed filter never
+/// counts either, because `match_flag_value_to_flag_filter` rejects it for every value.
+pub fn failed_flag_dependency(
+    filter: &PropertyFilter,
+    flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+    failed_flag_ids: &HashSet<FeatureFlagId>,
+) -> Option<FeatureFlagId> {
+    if failed_flag_ids.is_empty()
+        || filter.operator != Some(OperatorType::FlagEvaluatesTo)
+        || !matches!(filter.value, Some(Value::Bool(_) | Value::String(_)))
+    {
+        return None;
+    }
+    let flag_id = filter.get_feature_flag_id()?;
+    (!flag_evaluation_results.contains_key(&flag_id) && failed_flag_ids.contains(&flag_id))
+        .then_some(flag_id)
+}
+
 /// Retrieves feature flag hash key overrides for a list of distinct IDs with retry logic.
 ///
 /// This function fetches any hash key overrides that have been set for feature flags

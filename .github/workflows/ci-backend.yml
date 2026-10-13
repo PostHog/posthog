@@ -150,7 +150,9 @@ jobs:
             backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
-            migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            # Added and modified files only. A squash retirement deletes thousands of
+            # migrations, and a step env string over 128 KiB fails the spawn (E2BIG).
+            migrations_review_files: ${{ steps.filter.outputs.migrations_review_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             # What the replay gate in check-migrations keys off. A ClickHouse or
             # async-migration change does not pay for a replay of a history the Django
@@ -391,6 +393,10 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                      migrations_review:
+                        - added|modified: 'posthog/migrations/*.py'
+                        - added|modified: 'products/*/backend/migrations/*.py'
+                        - added|modified: 'products/*/migrations/*.py'
                       # Any migration file in any app (broader than `migrations` above,
                       # which omits ee/ and posthog sub-package dirs). Gates the
                       # deleted-migration check in repo-checks.
@@ -1873,7 +1879,7 @@ jobs:
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_review_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # The PR checkout above uses the PR branch, which on unrebased PRs
@@ -2285,8 +2291,6 @@ jobs:
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
-              env:
-                  MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
@@ -4286,7 +4290,8 @@ jobs:
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   HEAD_REF: ${{ github.head_ref }}
-              run: python3 .github/scripts/ci_backend_relay.py gate
+              # Unbuffered, so each poll shows in the live log instead of all at once when the step ends.
+              run: python3 -u .github/scripts/ci_backend_relay.py gate
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |
@@ -4682,7 +4687,7 @@ jobs:
                   version: '0.12.13'
             - name: Download junit artifacts
               if: steps.timing-reporter.outputs.available == 'true'
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./junit-artifacts
                   pattern: '{junit-results-backend,product-junit-results}-*'
@@ -4749,14 +4754,14 @@ jobs:
             - name: Download coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true # a run where no shard emitted coverage data is not a failure
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./cov-artifacts
                   pattern: coverage-products-*
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true # core coverage only present once the Core segment ran with --cov
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./core-artifacts
                   pattern: coverage-core-*

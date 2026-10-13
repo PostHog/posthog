@@ -18,6 +18,7 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountPropertyUpdatesLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountPropertyUpdatesLogic'
 import { canEditEmailMatching, cleanDomains, cleanEmails } from './accountEmailMatching'
 import { accountLinksLogic } from './accountLinksLogic'
 import { getTileString, type AccountViewTileLogicProps } from './accountViewTileConfig'
@@ -260,6 +261,9 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
                         known_emails: emails,
                     } as PatchedAccountApiProperties,
                 })
+                if (values.currentTeamId) {
+                    accountPropertyUpdatesLogic.actions.accountUpdated(values.currentTeamId, updated)
+                }
                 actions.loadAccountSuccess(updated)
                 actions.closeMatchingEditor()
                 lemonToast.success('Meeting matching updated')

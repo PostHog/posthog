@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.db import close_old_connections
-from django.test import TestCase, TransactionTestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -51,7 +51,7 @@ FACADE_MODULES = [
 ]
 
 
-class TestFacadeImports(TestCase):
+class TestFacadeImports(SimpleTestCase):
     @parameterized.expand([(m,) for m in FACADE_MODULES])
     def test_module_imports_and_all_symbols_resolve(self, module_path):
         module = importlib.import_module(module_path)
@@ -286,9 +286,8 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
-                "scout_trial": {"id": "private-trial"},
-                "scout_trial_private": {"reports": [{"title": "Saved candidate"}]},
-                "posthog_mcp_scopes": "signals_scout_experiment",
+                "unknown_server_context": {"title": "Saved context"},
+                "posthog_mcp_scopes": "read_only",
                 "task_summary": "Private workflow context",
                 "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
                 "compute_cost": 2,
@@ -310,8 +309,7 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
-        assert "scout_trial" not in detail.state
-        assert "scout_trial_private" not in detail.state
+        assert "unknown_server_context" not in detail.state
         assert "posthog_mcp_scopes" not in detail.state
         assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
             detail.state
@@ -1888,7 +1886,7 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
-class TestAppendLogAgentActivity(TestCase):
+class TestAppendLogAgentActivity(SimpleTestCase):
     # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
     # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
     # timer on every write, so a run whose agent went silent could never time out.

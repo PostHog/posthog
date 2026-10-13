@@ -24,7 +24,7 @@ use crate::{
     symbolication::symbol_store::{chunk_id::SymbolSetKey, BlobClient},
 };
 
-use super::{caching::Countable, Fetcher, Parser};
+use super::{caching::Countable, Fetcher, ParsePermit, Parser};
 
 pub(crate) const MAX_REF_BYTES: usize = 2048;
 
@@ -126,6 +126,10 @@ pub struct Saveable {
 impl Countable for Saveable {
     fn byte_count(&self) -> usize {
         self.data.len()
+    }
+
+    fn requires_parse_permit(&self, threshold: usize) -> bool {
+        self.data.requires_parse_permit(threshold)
     }
 }
 
@@ -465,7 +469,7 @@ where
     type Set = F::Set;
     type Err = F::Err;
 
-    async fn parse(&self, data: Saveable) -> Result<Self::Set, Self::Err> {
+    async fn parse(&self, data: Saveable, permit: ParsePermit) -> Result<Self::Set, Self::Err> {
         let Saveable {
             data: bytes,
             storage_ptr,
@@ -482,7 +486,7 @@ where
             None
         };
 
-        match self.inner.parse(bytes).await {
+        match self.inner.parse(bytes, permit).await {
             Ok(s) => {
                 debug!(team_id, "parsed symbol set data");
                 if let (Some(bytes_to_save), Some(save_ref)) = (bytes_to_save, &save_ref) {

@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonCard, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -18,17 +17,12 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
-
-import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
-import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
@@ -39,19 +33,15 @@ import {
     ExperimentRecordingsListUnavailableReason,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
-    LinkedScanner,
     experimentReplayTabLogic,
 } from './experimentReplayTabLogic'
+import { ExperimentScannerEntryPoint } from './ExperimentScannerEntryPoint'
 import { VariantTag } from './VariantTag'
 
 // LemonSegmentedButton values must be strings; the logic stores null for "All". '$' is not an
 // allowed character in variant keys, so the '$' prefix guarantees no collision with a real
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
-
-// Unchanged from the earlier cross-sell wording, so a dismissal there still holds. Someone who
-// turned down scanners for this experiment did not ask to be told again in purple.
-const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-sell'
 
 // The 'all_exposed' caption carries the part that isn't guessable: exposure is resolved per
 // person, matching who the analysis counts, so sessions appear even when the exposure event fired
@@ -216,61 +206,6 @@ function MetricOptionLabel({ option }: { option: ExperimentReplayMetricOption })
     )
 }
 
-/** Placeholder for the watching-scanners card while the lookup is in flight, so the tab doesn't
- * flash the cross-sell banner before the card resolves. */
-function LinkedScannersSkeletonCard(): JSX.Element {
-    return (
-        <LemonCard hoverEffect={false} className="mb-2 p-3" data-attr="experiment-recordings-linked-scanners-loading">
-            <LemonSkeleton className="h-5 w-64 mb-2" />
-            <LemonSkeleton className="h-4 w-full" repeat={2} />
-        </LemonCard>
-    )
-}
-
-/** The scanners already watching this experiment, one row each, with a link and a monthly count. */
-function LinkedScannersCard({
-    scanners,
-    addAnotherUrl,
-    onAddAnother,
-}: {
-    scanners: LinkedScanner[]
-    addAnotherUrl: string
-    onAddAnother: () => void
-}): JSX.Element {
-    return (
-        <LemonCard hoverEffect={false} className="mb-2 p-3" data-attr="experiment-recordings-linked-scanners">
-            <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="font-semibold">Scanners watching this experiment</span>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={addAnotherUrl}
-                    onClick={() => onAddAnother()}
-                    data-attr="experiment-recordings-scanner-add-another"
-                >
-                    Add another
-                </LemonButton>
-            </div>
-            <div className="flex flex-col gap-1">
-                {scanners.map((scanner) => (
-                    <div key={scanner.id} className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-2 min-w-0">
-                            <Link to={urls.replayVision(scanner.id)} className="truncate">
-                                {scanner.name}
-                            </Link>
-                            <LemonTag type="muted">{scannerTypeLabel(scanner.scannerType)}</LemonTag>
-                            {scanner.startsAtLaunch && <LemonTag type="highlight">Starts at launch</LemonTag>}
-                        </span>
-                        <span className="text-muted shrink-0">
-                            {pluralize(scanner.observationsThisMonth, 'observation')} this month
-                        </span>
-                    </div>
-                ))}
-            </div>
-        </LemonCard>
-    )
-}
-
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
     const {
@@ -290,8 +225,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketLoading,
         sessionBucketError,
         sessionBucketRequest,
-        linkedScanners,
-        linkedScannersLoading,
         listUnavailableReason,
         listLoadError,
     } = useValues(logic)
@@ -306,9 +239,8 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         recordingsLoadFailed,
         retryListLoad,
         recordingOpened,
-        scannerCrossSellClicked,
     } = useActions(logic)
-    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_EXPERIMENTS')
+    const experimentScannerEnabled = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
     // Which in-session copy applies, from the evidence kind the availability check resolved.
     const inSessionCopy =
         IN_SESSION_COPY[inSessionExposure ? (inSessionExposure.uses_stamped_fallback ? 'stamped' : 'event') : 'unknown']
@@ -373,40 +305,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         (metricFilterMode === 'fired_all' || metricFilterMode === 'funnel_completed') &&
         effectiveMetricUuids.length > 0
 
-    const scannerSetupUrl = combineUrl(
-        urls.replayVisionScannerTemplate('new'),
-        experimentScannerParams({
-            experimentId: experiment.id as number,
-            variantKey: effectiveVariantKey,
-        })
-    ).url
-
     return (
         <div data-attr="experiment-recordings-tab">
-            {scannerCrossSellEnabled &&
-                (linkedScannersLoading ? (
-                    <LinkedScannersSkeletonCard />
-                ) : linkedScanners.length > 0 ? (
-                    <LinkedScannersCard
-                        scanners={linkedScanners}
-                        addAnotherUrl={scannerSetupUrl}
-                        onAddAnother={scannerCrossSellClicked}
-                    />
-                ) : (
-                    <LemonBanner
-                        type="ai"
-                        className="mb-2"
-                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
-                        action={{
-                            children: 'Set up scanner for this experiment',
-                            to: scannerSetupUrl,
-                            onClick: () => scannerCrossSellClicked(),
-                            'data-attr': 'experiment-recordings-scanner-cross-sell',
-                        }}
-                    >
-                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
-                    </LemonBanner>
-                ))}
+            {experimentScannerEnabled && (
+                <ExperimentScannerEntryPoint experiment={experiment} variantKey={effectiveVariantKey} />
+            )}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"

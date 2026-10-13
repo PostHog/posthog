@@ -19,6 +19,8 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
+import posthoganalytics
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -53,6 +55,7 @@ from posthog.utils import (
     get_js_url,
     get_self_capture_team_id,
     get_short_user_agent,
+    initialize_self_capture_api_token,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
@@ -67,7 +70,7 @@ from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CAC
 from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 
 
-class TestAbsoluteUrls(TestCase):
+class TestAbsoluteUrls(SimpleTestCase):
     def test_format_absolute_url(self) -> None:
         regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
         absolute_urls_test_cases = [
@@ -170,7 +173,7 @@ class TestAbsoluteUrls(TestCase):
                 absolute_uri(url)
 
 
-class TestFormatUrls(TestCase):
+class TestFormatUrls(SimpleTestCase):
     factory = RequestFactory()
 
     def test_format_query_params_absolute_url(self) -> None:
@@ -214,7 +217,7 @@ class TestFormatUrls(TestCase):
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
 
 
-class TestGetJsUrl(TestCase):
+class TestGetJsUrl(SimpleTestCase):
     factory = RequestFactory()
 
     @parameterized.expand(
@@ -283,7 +286,7 @@ class TestGetJsUrl(TestCase):
             self.assertEqual(expected, get_js_url(request))
 
 
-class TestGeneralUtils(TestCase):
+class TestGeneralUtils(SimpleTestCase):
     def test_available_timezones(self):
         timezones = get_available_timezones_with_offsets()
         self.assertEqual(timezones.get("Europe/Moscow"), 3)
@@ -332,7 +335,7 @@ class TestGeneralUtils(TestCase):
             get_from_env("test_key", type_cast=float)
 
 
-class TestRelativeDateParse(TestCase):
+class TestRelativeDateParse(SimpleTestCase):
     @time_machine.travel("2020-01-31T12:22:23", tick=False)
     def test_hour(self):
         self.assertEqual(
@@ -810,7 +813,7 @@ class TestLoadDataFromRequest(TestCase):
         self.assertEqual({"what is it": "the decompressed value"}, data)
 
 
-class TestShouldRefresh(TestCase):
+class TestShouldRefresh(SimpleTestCase):
     def test_refresh_requested_by_client_with_refresh_true(self):
         request = HttpRequest()
         request.GET["refresh"] = "true"
@@ -856,7 +859,7 @@ class TestShouldRefresh(TestCase):
         ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 21, 20, 41, 730028))
 
 
-class TestUtilities(TestCase):
+class TestUtilities(SimpleTestCase):
     def test_base64_decode(self):
         # Test with a simple string
         simple_string = "Hello, World!"
@@ -899,7 +902,7 @@ class TestUtilities(TestCase):
         self.assertEqual(decoded_json["groups"], {})
 
 
-class TestGetShortUserAgent(TestCase):
+class TestGetShortUserAgent(SimpleTestCase):
     def test_chrome_windows(self):
         request = HttpRequest()
         request.META = {
@@ -968,7 +971,7 @@ class TestGetShortUserAgent(TestCase):
         self.assertNotIn("1234", result)
 
 
-class TestFlatten(TestCase):
+class TestFlatten(SimpleTestCase):
     def test_flatten_lots_of_depth(self):
         assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]])) == [1, 2, 3, 4, 5, 6, 7]
 
@@ -1001,7 +1004,7 @@ def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping"
     return instance
 
 
-class TestStrToIntSet(TestCase):
+class TestStrToIntSet(SimpleTestCase):
     @parameterized.expand(
         [
             (None, set()),
@@ -1018,7 +1021,7 @@ class TestStrToIntSet(TestCase):
         assert str_to_int_set(value) == expected
 
 
-class TestGetIpAddress(TestCase):
+class TestGetIpAddress(SimpleTestCase):
     @parameterized.expand(
         [
             # Valid IPv4
@@ -1058,7 +1061,7 @@ class TestGetIpAddress(TestCase):
         assert get_ip_address(request) == expected
 
 
-class TestSharingOverrideProtection(TestCase):
+class TestSharingOverrideProtection(SimpleTestCase):
     """Sharing token authenticators must block query param overrides on shared dashboards."""
 
     def _make_request(self, authenticator, query_params=None):
@@ -1203,7 +1206,7 @@ class TestSharingOverrideProtection(TestCase):
         assert result == {"breakdown": "country"}
 
 
-class TestTemplateContextHistogram(TestCase):
+class TestTemplateContextHistogram(SimpleTestCase):
     @staticmethod
     def _count_for_labels(template_name: str, authenticated: str) -> int:
         from posthog.utils import TEMPLATE_CONTEXT_DURATION_HISTOGRAM
@@ -1404,6 +1407,33 @@ class TestBuildFlagProvider(TestCase):
     @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
     def test_explicit_env_team_id_wins_over_eu_region(self):
         assert _build_flag_provider()._resolve_team_id() == 5
+
+
+class TestInitializeSelfCaptureHost(SimpleTestCase):
+    def setUp(self):
+        for name in ("disabled", "api_key", "host"):
+            self.addCleanup(setattr, posthoganalytics, name, getattr(posthoganalytics, name))
+        for target, value in (
+            ("posthog.utils.resolve_self_capture_team", Team(api_token="phc_self_capture_test")),
+            ("posthog.utils._build_flag_provider", None),
+            ("posthoganalytics.feature_flag_definitions", {}),
+        ):
+            mocked = patch(target, return_value=value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
+    @parameterized.expand(
+        [
+            ("explicit host", "http://static-proxy:8000", "http://static-proxy:8000"),
+            ("falls back to site url", "", "https://preview.example.com"),
+        ]
+    )
+    def test_backend_sends_to_self_capture_host(self, _name, self_capture_host, expected_host):
+        with override_settings(SELF_CAPTURE_HOST=self_capture_host, SITE_URL="https://preview.example.com"):
+            async_to_sync(initialize_self_capture_api_token)()
+
+        assert posthoganalytics.host == expected_host
+        assert posthoganalytics.api_key == "phc_self_capture_test"
 
 
 class TestSelfCaptureBrowserFlagToken(TestCase):

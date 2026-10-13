@@ -83,6 +83,7 @@ def test_an_eligible_key_type_can_always_be_checkpointed(arrow_type, last_key):
     with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
         get_redis.return_value.__enter__.return_value = redis
         manager.save_state(KeysetResumeState(last_key=last_key))
+        manager.confirm()
         manager.commit()
         redis.get.return_value = redis.set.call_args.args[1]
         restored = manager.load_state()

@@ -76,6 +76,7 @@ import {
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLQuery,
+    HogQLQueryModifiers,
     NodeKind,
     PredicateQuickfix,
 } from '~/queries/schema/schema-general'
@@ -142,6 +143,7 @@ import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { findSelectionProblem } from './saveCandidateProblems'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
+import { SQLEditorPlaceholder, placeholderPreviewValues } from './sqlEditorPlaceholders'
 import {
     aiSuggestionOnAccept,
     aiSuggestionOnAcceptText,
@@ -159,6 +161,8 @@ import { ViewEmptyState } from './ViewLoadingState'
 export interface SqlEditorLogicProps {
     tabId: string
     mode?: SQLEditorMode
+    singleStatement?: boolean
+    hideAgentHints?: boolean
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
@@ -652,7 +656,10 @@ export interface sqlEditorLogicValues {
     metricPrefill: MetricFormPrefill | null
     metricUpdating: boolean
     originalQueryInput: string | null | undefined
+    placeholderValues: Record<string, string> | null
+    placeholders: SQLEditorPlaceholder[]
     queryInput: string | null
+    queryModifiers: HogQLQueryModifiers | null
     rejectText: string
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
@@ -660,6 +667,9 @@ export interface sqlEditorLogicValues {
     selectedQueryColumns: Record<string, boolean>
     selectedQueryTablesAndColumns: Record<string, Record<string, boolean>>
     sendRawQueryEnabled: boolean
+    showAgentHints: boolean
+    singleStatement: boolean
+    singleStatementDisabledReason: string | null
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
     suggestedQueryInput: string
@@ -1127,8 +1137,14 @@ export interface sqlEditorLogicActions {
     setMetricUpdating: (updating: boolean) => {
         updating: boolean
     }
+    setPlaceholders: (placeholders: SQLEditorPlaceholder[]) => {
+        placeholders: SQLEditorPlaceholder[]
+    }
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null
+    }
+    setQueryModifiers: (queryModifiers: HogQLQueryModifiers | null) => {
+        queryModifiers: HogQLQueryModifiers | null
     }
     setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => {
         tablesAndColumns: Record<string, Record<string, boolean>>
@@ -1190,6 +1206,7 @@ export interface sqlEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         editorUrl: (arg: SQLEditorMode | undefined) => string
+        placeholderValues: (placeholders: SQLEditorPlaceholder[]) => Record<string, string> | null
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
         ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
@@ -1223,6 +1240,9 @@ export interface sqlEditorLogicMeta {
         isEditingMaterializedView: (editingView: DataWarehouseSavedQuery | undefined) => boolean
         splitQueryRanges: (queryInput: string | null) => QueryRange[]
         isMultiQuery: (splitQueryRanges: QueryRange[]) => boolean
+        singleStatement: (arg: any) => boolean
+        showAgentHints: (arg: any) => boolean
+        singleStatementDisabledReason: (singleStatement: boolean, isMultiQuery: boolean) => string | null
         isSourceQueryLastRun: (
             queryInput: string | null,
             lastRunQuery: DataVisualizationNode | null,
@@ -1471,6 +1491,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
+        setPlaceholders: (placeholders: SQLEditorPlaceholder[]) => ({ placeholders }),
+        setQueryModifiers: (queryModifiers: HogQLQueryModifiers | null) => ({ queryModifiers }),
         applyIndexQuickfix: (quickfix: PredicateQuickfix) => ({ quickfix }),
         fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
@@ -1622,6 +1644,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sanitizeSourceQuery(sourceQuery),
+            },
+        ],
+        placeholders: [
+            [] as SQLEditorPlaceholder[],
+            {
+                setPlaceholders: (_, { placeholders }) => placeholders,
+            },
+        ],
+        queryModifiers: [
+            null as HogQLQueryModifiers | null,
+            {
+                setQueryModifiers: (_, { queryModifiers }) => queryModifiers,
             },
         ],
         lastRunQuery: [
@@ -2290,6 +2324,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             runQuery: ({ queryOverride, switchTab }) => {
+                // Cmd+Enter reaches this listener even while the run button is disabled
+                if (values.singleStatementDisabledReason) {
+                    return
+                }
                 const biEditorState = getActiveBIEditorState()
                 if (
                     !queryOverride &&
@@ -2343,6 +2381,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // insights/views and change detection never pick them up
                 const executedSource: HogQLQuery = {
                     ...newSource,
+                    // Like tags, the host's preview values and modifiers stay out of sourceQuery so it never saves them
+                    ...(values.placeholderValues
+                        ? { values: { ...newSource.values, ...values.placeholderValues } }
+                        : {}),
+                    ...(values.queryModifiers
+                        ? { modifiers: { ...newSource.modifiers, ...values.queryModifiers } }
+                        : {}),
                     tags: { ...newSource.tags, productKey: 'sql_editor' },
                 }
 
@@ -2379,7 +2424,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
                 const compactQuery = query.replace(/\s+/g, ' ').trim()
                 const truncated = compactQuery.length > 80 ? compactQuery.slice(0, 77) + '…' : compactQuery
-                tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
+                if (values.showAgentHints) {
+                    tryShowMCPHint(
+                        'sql.execute',
+                        truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined
+                    )
+                }
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const isStaff = values.user?.is_staff ?? false
@@ -3517,6 +3567,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (mode: SQLEditorMode | undefined) =>
                 mode === SQLEditorMode.BusinessIntelligence ? urls.businessIntelligence() : urls.sqlEditor(),
         ],
+        placeholderValues: [
+            (s) => [s.placeholders],
+            (placeholders: SQLEditorPlaceholder[]): Record<string, string> | null =>
+                placeholderPreviewValues(placeholders),
+        ],
         suggestedSource: [
             (s) => [s.suggestionPayload],
             (suggestionPayload: SuggestionPayload | null) => {
@@ -3674,6 +3729,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (queryInput: string | null): QueryRange[] => splitQueries(queryInput ?? ''),
         ],
         isMultiQuery: [(s) => [s.splitQueryRanges], (ranges: QueryRange[]): boolean => ranges.length > 1],
+        singleStatement: [
+            () => [(_, props) => props.singleStatement],
+            (singleStatement?: boolean): boolean => !!singleStatement,
+        ],
+        showAgentHints: [
+            () => [(_, props) => props.hideAgentHints],
+            (hideAgentHints?: boolean): boolean => !hideAgentHints,
+        ],
+        singleStatementDisabledReason: [
+            (s) => [s.singleStatement, s.isMultiQuery],
+            (singleStatement: boolean, isMultiQuery: boolean): string | null =>
+                singleStatement && isMultiQuery
+                    ? 'Only one query can run here. Remove the extra statements separated by semicolons.'
+                    : null,
+        ],
         isSourceQueryLastRun: [
             (s) => [s.queryInput, s.lastRunQuery, s.sourceQuery, s.splitQueryRanges],
             (

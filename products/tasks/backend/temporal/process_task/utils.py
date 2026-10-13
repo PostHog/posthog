@@ -13,6 +13,8 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.egress.limiter.policies import Priority
+from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
@@ -96,10 +98,11 @@ class GitHubCredentialSource(StrEnum):
     SERVER_INTEGRATION = "server_integration"
 
 
-class RunSource(StrEnum):
-    MANUAL = "manual"
-    SIGNAL_REPORT = "signal_report"
-    AGENT = "agent"
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class RunSource(LabeledStrEnum):
+    MANUAL = "manual", "manual"
+    SIGNAL_REPORT = "signal_report", "signal_report"
+    AGENT = "agent", "agent"
 
 
 def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_only", "full"]:
@@ -110,9 +113,10 @@ def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_onl
 USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "posthog_ai")
 
 
-class RuntimeAdapter(StrEnum):
-    CLAUDE = "claude"
-    CODEX = "codex"
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class RuntimeAdapter(LabeledStrEnum):
+    CLAUDE = "claude", "claude"
+    CODEX = "codex", "codex"
 
 
 class LLMProvider(StrEnum):
@@ -876,7 +880,7 @@ def get_sandbox_ph_mcp_configs(
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
     integration = Integration.objects.get(id=github_integration_id)
-    github_integration = GitHubIntegration(integration)
+    github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.installation_unavailable():
         raise CredentialUnavailableError(
@@ -958,7 +962,7 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
 def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
-    github_integration = UserGitHubIntegration(integration)
+    github_integration = UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
     return github_integration.integration.sensitive_config.get("access_token") or None
@@ -987,7 +991,7 @@ def _user_integration_has_repository(
     if repository is None:
         return True
 
-    github = UserGitHubIntegration(integration)
+    github = UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
     cached_repositories = integration.repository_cache
     if isinstance(cached_repositories, list) and _repository_matches_cached_list(cached_repositories, repository):
         return True
@@ -1021,7 +1025,7 @@ def get_user_github_integration(
             normalized_repository,
             allow_refresh=allow_refresh,
         ):
-            return UserGitHubIntegration(integration)
+            return UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     return None
 
@@ -1068,7 +1072,7 @@ def resolve_user_github_integration_for_task(
             normalized_repository,
             allow_refresh=allow_refresh,
         ):
-            return UserGitHubIntegration(integration)
+            return UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     return get_user_github_integration(
         user,

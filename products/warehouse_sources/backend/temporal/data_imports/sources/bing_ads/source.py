@@ -48,6 +48,15 @@ BING_ADS_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {
     BingAdsResource.DESTINATION_URL_PERFORMANCE_REPORT.value: 15 * 24 * 60 * 60,
 }
 
+# The account picker runs before the user enters an Account ID, so the sync-time guidance does not apply there.
+BING_ADS_LISTING_MESSAGE_OVERRIDES: dict[str, str] = {
+    "Invalid client data": (
+        "Microsoft returned 'Invalid client data' for the signed-in Microsoft login. This usually means that "
+        "the login cannot access a Microsoft Advertising account. Reconnect your Bing Ads integration and sign in "
+        "with a login that can access your Microsoft Advertising account."
+    ),
+}
+
 
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
@@ -257,7 +266,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         catalog — entries with a None friendly message are internal config issues, not user-actionable."""
         for substring, friendly in self.get_non_retryable_errors().items():
             if friendly is not None and substring in error:
-                return friendly
+                return BING_ADS_LISTING_MESSAGE_OVERRIDES.get(substring, friendly)
         return None
 
     def get_oauth_accounts(

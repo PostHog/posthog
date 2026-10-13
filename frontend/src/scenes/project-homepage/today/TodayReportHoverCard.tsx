@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
-import { IconCheckCircle, IconHide, IconPullRequest } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconLeave, IconPullRequest } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -57,7 +57,7 @@ const LISTED_METRIC_COUNT = 2
 export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview }): JSX.Element {
     const { card } = preview
     const { reportStateOverrides } = useValues(todayLogic)
-    const { reportPreviewed, requestReportVerdict } = useActions(todayLogic)
+    const { reportPreviewed, requestReportVerdict, leaveReportReview } = useActions(todayLogic)
     // Keyed on the report, not the card object: a poll replaces the object while the card stays open.
     useEffect(() => {
         reportPreviewed(card.key, preview.surface)
@@ -108,19 +108,27 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
 
     return (
         <div className="flex flex-col" data-attr="today-report-hover-card">
-            {/* `flex-nowrap` keeps the state badge beside a long title. */}
-            <Item size="xs" className="flex-nowrap items-start">
+            <Item size="xs" className="items-start">
                 <ItemContent className="min-w-0 gap-0.5">
-                    {/* `wrap-anywhere`: the title sizes to its content, so a long title would widen the card. */}
-                    <ItemTitle className="wrap-anywhere">
-                        <span className="min-w-0 font-semibold">{card.title}</span>
-                    </ItemTitle>
+                    {/* The badge shares a row with the title alone, so it narrows the title and not the
+                        line below, which has to stay on one line. */}
+                    <div className="flex items-start justify-between gap-2">
+                        {/* `wrap-anywhere`: the title sizes to its content, so a long title would widen the card. */}
+                        <ItemTitle className="min-w-0 wrap-anywhere">
+                            <span className="min-w-0 font-semibold">{card.title}</span>
+                        </ItemTitle>
+                        {stateLabel && (
+                            <ItemActions className="shrink-0">
+                                <Badge variant={resolved ? 'completed' : 'default'}>{stateLabel}</Badge>
+                            </ItemActions>
+                        )}
+                    </div>
+                    {/* The lead gives up room to the mark, which is short and must stay whole. */}
                     {(lead || card.pullRequestUrl) && (
-                        <ItemDescription className="flex flex-wrap items-center gap-x-1.5">
-                            {lead && <span>{lead}</span>}
+                        <ItemDescription className="flex flex-nowrap items-center gap-x-2">
+                            {lead && <span className="truncate">{lead}</span>}
                             {card.pullRequestUrl && (
-                                <span className="flex min-w-0 items-center gap-1.5">
-                                    {lead && <span aria-hidden>·</span>}
+                                <span className="flex shrink-0 items-center gap-1.5">
                                     <LinkPrimitive
                                         to={card.pullRequestUrl}
                                         target="_blank"
@@ -142,11 +150,6 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                         </ItemDescription>
                     )}
                 </ItemContent>
-                {stateLabel && (
-                    <ItemActions className="self-start">
-                        <Badge variant={resolved ? 'completed' : 'default'}>{stateLabel}</Badge>
-                    </ItemActions>
-                )}
             </Item>
             {card.summary && (
                 // Its own row, so the summary uses the full card width, not the column beside the state badge.
@@ -244,6 +247,21 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             <IconCheckCircle />
                             Resolve
                         </Button>
+                        {/* The click gives the report a state label, which takes this whole row off the
+                            card, so the request cannot be sent twice and needs no in-flight state. */}
+                        {card.canLeaveReview && (
+                            <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={isSample}
+                                title="Remove yourself from this report’s reviewers"
+                                onClick={() => leaveReportReview(reportId, preview.surface)}
+                                data-attr="today-report-hover-card-leave-review"
+                            >
+                                <IconLeave />
+                                Not me
+                            </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="xs"

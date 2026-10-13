@@ -63,6 +63,14 @@ function missingParentNode(parentSpanId: string, child: Span): SpanNode {
     }
 }
 
+// A root span has the all-zero OTel parent id, which the API returns as hex ("0000000000000000"), not "".
+function parentSpanIdOf(span: Span): string | null {
+    if (span.is_root_span || !span.parent_span_id || /^0+$/.test(span.parent_span_id)) {
+        return null
+    }
+    return span.parent_span_id
+}
+
 function buildSpanTree(spans: Span[]): SpanNode[] {
     const byId = new Map<string, SpanNode>()
     const missingParents = new Map<string, SpanNode>()
@@ -73,7 +81,7 @@ function buildSpanTree(spans: Span[]): SpanNode[] {
     }
 
     for (const node of byId.values()) {
-        const parentSpanId = node.span.parent_span_id
+        const parentSpanId = parentSpanIdOf(node.span)
         if (parentSpanId && byId.has(parentSpanId)) {
             const parent = byId.get(parentSpanId)!
             parent.children.push(node)
@@ -430,7 +438,7 @@ function WaterfallRow({
                             <IconWarning className="text-danger shrink-0 mr-1" fontSize={14} />
                         </Tooltip>
                     )}
-                    <Tooltip title={span.name}>
+                    <Tooltip title={isMissingParent ? `span ${span.span_id} not found` : span.name}>
                         <span
                             className={`text-xs truncate ${isError || isMissingParent ? 'text-danger' : ''} ${
                                 isSelected || isError ? 'font-semibold' : 'font-medium'

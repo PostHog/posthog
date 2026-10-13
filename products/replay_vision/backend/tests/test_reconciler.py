@@ -31,6 +31,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.temporal.activities import (
+    complete_observation_requests_activity,
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
@@ -244,6 +245,7 @@ class _ReconcileMocks:
             reap_childless_inline_scanners_activity,
             reap_backfill_schedules_activity,
             start_launched_scanners_activity,
+            complete_observation_requests_activity,
         ):
             return 0
         if activity_fn is reap_orphaned_observations_activity:
@@ -268,7 +270,7 @@ class _ReconcileMocks:
         raise AssertionError(f"unexpected activity: {activity_fn!r}")
 
 
-async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
+async def _run_reconcile(mocks: _ReconcileMocks):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -278,8 +280,6 @@ async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
-        patch("temporalio.workflow.patched", return_value=patched),
-        patch("temporalio.workflow.deprecate_patch"),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 
@@ -403,20 +403,14 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
 
 
 @pytest.mark.asyncio
-@parameterized.expand([("patched_syncs_first", True), ("pre_patch_reaps_first", False)])
-async def test_reconcile_workflow_orders_sync_before_reapers(_name: str, patched: bool) -> None:
+async def test_reconcile_workflow_orders_sync_before_reapers() -> None:
     # The reapers' combined start-to-close budget is larger than the workflow execution timeout, so
-    # running them ahead of the sync lets one slow reaper starve schedule sync on every tick. Replays
-    # of pre-patch executions must keep the old order or they fail the determinism check.
+    # running them ahead of the sync lets one slow reaper starve schedule sync on every tick.
     sid = uuid.uuid4()
     fp = compute_schedule_fingerprint({"sample_rate": 0.5})
     mocks = _ReconcileMocks(enabled=_enabled((sid, 1, fp)), existing=_existing())
-    result = await _run_reconcile(mocks, patched=patched)
-    synced_first = mocks.calls.index(list_enabled_scanners_activity) < mocks.calls.index(
-        reap_orphaned_observations_activity
-    )
-    assert synced_first is patched
-    # Either way the sync itself still happens.
+    result = await _run_reconcile(mocks)
+    assert mocks.calls.index(list_enabled_scanners_activity) < mocks.calls.index(reap_orphaned_observations_activity)
     assert result.upserted == [sid]
 
 

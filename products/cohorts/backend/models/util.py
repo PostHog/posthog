@@ -82,6 +82,7 @@ class CohortErrorCode(StrEnum):
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
+    FLAG_EVALUATION_FAILED = "flag_evaluation_failed"
     UNKNOWN = "unknown"
 
 
@@ -101,6 +102,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+    CohortErrorCode.FLAG_EVALUATION_FAILED: "We couldn't evaluate the feature flag for some people, so this cohort may be missing people who match it. Create a new cohort from the flag to try again.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 

@@ -36,6 +36,7 @@ from semantic_version import NpmSpec
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
+from posthog.utils import get_instance_region
 
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
@@ -90,7 +91,7 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
-from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.models import DevStackImageTarget, SandboxSnapshot
 
 from .agent_server_launcher import (
     AGENT_SERVER_PORT as AGENT_SERVER_PORT,
@@ -417,18 +418,7 @@ def _resolve_image_digest_once(image: str) -> str:
     return f"{image}@{digest}"
 
 
-@cached(cache=_image_ref_cache, lock=_image_ref_lock)
-def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
-    """Resolve the sandbox image to an immutable digest pin.
-
-    Modal caches sandbox images by reference indefinitely, so a mutable
-    ``:master`` tag would let Modal keep serving a stale or broken image. We
-    therefore retry transient GHCR failures with exponential backoff and, if
-    resolution still fails, fail closed by raising ``SandboxProvisionError``
-    (transient — the provisioning activity retries) rather than ever returning
-    the floating tag. Successful resolutions are cached for ~5 minutes;
-    failures are not cached and re-resolve on the next call.
-    """
+def _resolve_sandbox_image_reference(image: str) -> str:
     last_error: Exception | None = None
     for attempt in range(1, _GHCR_RESOLVE_MAX_ATTEMPTS + 1):
         try:
@@ -451,6 +441,21 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
         {"image": image},
         cause=last_error if last_error is not None else RuntimeError("digest resolution failed"),
     )
+
+
+@cached(cache=_image_ref_cache, lock=_image_ref_lock)
+def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
+    """Resolve the sandbox image to an immutable digest pin.
+
+    Modal caches sandbox images by reference indefinitely, so a mutable
+    ``:master`` tag would let Modal keep serving a stale or broken image. We
+    therefore retry transient GHCR failures with exponential backoff and, if
+    resolution still fails, fail closed by raising ``SandboxProvisionError``
+    (transient — the provisioning activity retries) rather than ever returning
+    the floating tag. Successful resolutions are cached for ~5 minutes;
+    failures are not cached and re-resolve on the next call.
+    """
+    return _resolve_sandbox_image_reference(image)
 
 
 # Templates whose image bundles the agent-server at /scripts and can therefore
@@ -698,7 +703,7 @@ def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
     return get_template_base_image(template)
 
 
-def resolve_template_base_image_reference(template: SandboxTemplate) -> str | None:
+def resolve_template_base_image_reference(template: SandboxTemplate, *, use_cache: bool = True) -> str | None:
     if settings.DEBUG:
         return None
 
@@ -711,7 +716,9 @@ def resolve_template_base_image_reference(template: SandboxTemplate) -> str | No
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Template does not use a registry image: {template}")
-    return _get_sandbox_image_reference(registry_image)
+    return (
+        _get_sandbox_image_reference(registry_image) if use_cache else _resolve_sandbox_image_reference(registry_image)
+    )
 
 
 @lru_cache(maxsize=3)
@@ -931,12 +938,30 @@ class ModalSandbox(AgentServerLaunchMixin):
             except Exception as e:
                 _raise_if_proxy_failure(e, None, "lookup")
                 raise
-            base_image = _get_template_image(config.template)
+            base_image = (
+                modal.Image.from_registry(config.base_image_reference)
+                if config.base_image_reference
+                else _get_template_image(config.template)
+            )
             custom_image_bare: modal.Image | None = None
             custom_image: modal.Image | None = None
+            custom_image_failure: str | None = None
             if config.custom_image_name:
                 try:
-                    custom_image_bare = modal.Image.from_name(config.custom_image_name)
+                    if config.custom_image_name == DEV_STACK_IMAGE_NAME:
+                        target = (
+                            DevStackImageTarget.objects.using("default")
+                            .filter(region=get_instance_region() or "DEV", name=DEV_STACK_IMAGE_NAME)
+                            .first()
+                        )
+                        if target is not None:
+                            if not target.active_image_id:
+                                raise RuntimeError("No verified dev-stack image is active")
+                            custom_image_bare = modal.Image.from_id(target.active_image_id)
+                        else:
+                            custom_image_bare = modal.Image.from_name(config.custom_image_name)
+                    else:
+                        custom_image_bare = modal.Image.from_name(config.custom_image_name)
                     # The prebaked dev-stack image is a published sandbox filesystem snapshot,
                     # which Modal cannot layer build steps on — mount-only overlay for it.
                     custom_image = _attach_local_package_mounts(
@@ -945,6 +970,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                         install_dependencies=config.custom_image_name != DEV_STACK_IMAGE_NAME,
                     )
                 except Exception as e:
+                    custom_image_failure = f"custom image {config.custom_image_name} unavailable"
                     logger.warning(f"Failed to load custom image {config.custom_image_name}: {e}")
                     capture_exception(e)
             config.snapshot_restored = False
@@ -1024,6 +1050,14 @@ class ModalSandbox(AgentServerLaunchMixin):
                     )
                 )
             candidates.append(ImageCandidate(base_image, "base image"))
+            if config.require_snapshot:
+                if snapshot_image is None or snapshot_kind != SNAPSHOT_KIND_FILESYSTEM:
+                    raise RuntimeError("The required filesystem snapshot could not be loaded")
+                candidates = [
+                    ImageCandidate(
+                        snapshot_image, f"snapshot image {snapshot_external_id}", restored_from_snapshot=True
+                    )
+                ]
 
             secrets = []
             if config.environment_variables:
@@ -1058,6 +1092,8 @@ class ModalSandbox(AgentServerLaunchMixin):
                 create_kwargs["secrets"] = secrets
 
             sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, candidates, config)
+            if custom_image_failure and winner.label == "base image":
+                config.image_fallback = f"{custom_image_failure} -> base image"
 
             directory_mount_applied = False
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:

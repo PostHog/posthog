@@ -634,26 +634,10 @@ describe('ToolExecutor', () => {
         })
 
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
-            const tools = [
-                uiAppTool,
-                { name: 'query-trends', annotations: { readOnlyHint: true } },
-                { name: 'survey-create', annotations: { readOnlyHint: false } },
-            ]
-            const state = makeToolExecutorState(tools, { useSingleExec: true, renderUiEnabled: true })
+            const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
             const result = await executor.handleToolsList(state)
-            expect(result.tools.map((t) => t.name)).toEqual(
-                expect.arrayContaining(['exec', 'render-ui', 'survey-get', 'query-trends'])
-            )
-            expect(result.tools).toHaveLength(4)
-            for (const name of ['survey-get', 'query-trends']) {
-                const appTool = result.tools.find((tool) => tool.name === name)!
-                expect(appTool._meta?.ui).toMatchObject({
-                    visibility: ['app'],
-                })
-                expect(appTool.inputSchema.required ?? []).not.toContain('context')
-                expect(appTool.inputSchema.required ?? []).not.toContain('llm_model')
-            }
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
 
             // Pin the complete advertised schema because clients generate
             // render-ui calls from this list response.

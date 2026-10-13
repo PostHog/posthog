@@ -33,7 +33,7 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [if(empty(replaceRegexpOne(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                  [if(empty(replaceRegexpOne(ifNull(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), ''), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -65,7 +65,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname[new_events_schema]
@@ -102,7 +103,7 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [if(empty(replaceRegexpOne(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                  [if(empty(replaceRegexpOne(ifNull(toString(if(notEquals(toJSONString(e.properties.^`$pathname`), '{}'), toJSONString(e.properties.^`$pathname`), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(if(notEquals(toJSONString(e.properties.^`$pathname`), '{}'), toJSONString(e.properties.^`$pathname`), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -134,7 +135,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname_with_path_cleaning[new_events_schema]
@@ -171,7 +173,7 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [if(empty(replaceRegexpOne(replaceRegexpAll(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', '')), '/', replaceRegexpOne(replaceRegexpAll(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', ''))] AS prop_basic,
+                  [if(empty(replaceRegexpOne(replaceRegexpAll(ifNull(toString(if(notEquals(toJSONString(e.properties.^`$pathname`), '{}'), toJSONString(e.properties.^`$pathname`), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', '')), '/', replaceRegexpOne(replaceRegexpAll(ifNull(toString(if(notEquals(toJSONString(e.properties.^`$pathname`), '{}'), toJSONString(e.properties.^`$pathname`), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '/home.*', '/cleaned-home'), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -203,7 +205,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname_with_path_cleaning_without_normalization[new_events_schema]
@@ -240,7 +243,7 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
-                  [replaceRegexpAll(ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$pathname`)), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '/home.*', '/cleaned-home')] AS prop_basic,
+                  [replaceRegexpAll(ifNull(toString(if(notEquals(toJSONString(e.properties.^`$pathname`), '{}'), toJSONString(e.properties.^`$pathname`), if(isNull(nullIf(toString(e.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(e.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$pathname`), '[]'), '{}'), toString(e.properties.`$pathname`))))), ''), '/home.*', '/cleaned-home')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -272,6 +275,7 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---

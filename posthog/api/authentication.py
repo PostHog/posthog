@@ -75,6 +75,7 @@ from posthog.helpers.two_factor_session import (
     clear_two_factor_session_flags,
     code_based_verifier,
     has_passkeys,
+    is_backup_code_attempt,
     normalize_verification_code,
     set_two_factor_verified_in_session,
 )
@@ -89,6 +90,7 @@ from posthog.rate_limit import (
     CodeBasedVerificationThrottle,
     LoginPrecheckThrottle,
     SSOLoginThrottle,
+    TwoFactorBackupCodeThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -771,7 +773,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = TwoFactorSerializer
     queryset = User.objects.none()
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = [TwoFactorThrottle]
+    throttle_classes = [TwoFactorThrottle, TwoFactorBackupCodeThrottle]
 
     def _token_is_valid(self, request, user: User, device) -> Response:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -888,6 +890,22 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
                 detail="Passkey verification failed. Please try again.", code="2fa_passkey_failed"
             )
 
+    @staticmethod
+    def _too_many_attempts_message(throttle_info: dict[str, Any] | None, can_use_backup_code: bool) -> str:
+        locked_until = (throttle_info or {}).get("locked_until")
+        if locked_until is None:
+            wait = "in a moment"
+        else:
+            seconds = max(1, math.ceil((locked_until - timezone.now()).total_seconds()))
+            if seconds < 60:
+                wait = f"in {seconds} second{'s' if seconds != 1 else ''}"
+            else:
+                minutes = math.ceil(seconds / 60)
+                wait = f"in {minutes} minute{'s' if minutes != 1 else ''}"
+        if can_use_backup_code:
+            return f"Too many attempts. Try again {wait}, or enter one of your backup codes."
+        return f"Too many attempts. Try again {wait}."
+
     def _handle_totp_2fa(self, request: Request, user: User, token: str) -> Response:
         """
         Handle TOTP token or backup code 2FA authentication.
@@ -904,26 +922,34 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             ValidationError: If token verification fails
         """
         with transaction.atomic():
-            # First try TOTP device
             totp_device = default_device(user)
-            if totp_device:
-                is_allowed = totp_device.verify_is_allowed()
-                if not is_allowed[0]:
-                    raise serializers.ValidationError(detail="Too many attempts.", code="2fa_too_many_attempts")
-                if totp_device.verify_token(token):
-                    return self._token_is_valid(request, user, totp_device)
-                totp_device.throttle_increment()
-
-            # Then try backup codes
             # Backup codes are in place in case a user's device is lost or unavailable.
             # They can be consumed in any order; each token will be removed from the
             # database as soon as it is used.
             static_device = StaticDevice.objects.filter(user=user).first()
-            if static_device and static_device.verify_token(token):
-                # Send email notification when backup code is used
-                send_two_factor_auth_backup_code_used_email.delay(user.id)
-                return self._token_is_valid(request, user, static_device)
 
+            # Check the token against one device only. A wrong code then counts against that
+            # device's throttle alone, and a locked authenticator leaves the backup codes usable.
+            if totp_device and not is_backup_code_attempt(token):
+                device, other_device = totp_device, static_device
+            else:
+                device, other_device = static_device, totp_device
+
+            is_allowed, throttle_info = device.verify_is_allowed() if device else (True, None)
+            if device and is_allowed and device.verify_token(token):
+                if other_device:
+                    other_device.throttle_reset()
+                if device is static_device:
+                    send_two_factor_auth_backup_code_used_email.delay(user.id)
+                return self._token_is_valid(request, user, device)
+
+        # Raise after the transaction commits, so the failed attempt verify_token recorded is kept.
+        if not is_allowed:
+            can_use_backup_code = device is totp_device and static_device and static_device.token_set.exists()
+            raise serializers.ValidationError(
+                detail=self._too_many_attempts_message(throttle_info, bool(can_use_backup_code)),
+                code="2fa_too_many_attempts",
+            )
         raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Any:

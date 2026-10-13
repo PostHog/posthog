@@ -203,7 +203,8 @@ CREATE TABLE posthog.writable_metrics4_names (
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
   original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
-  service_name LowCardinality(String)
+  service_name LowCardinality(String),
+  metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String))
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_names');
 CREATE TABLE posthog.writable_metrics4_samples (
   team_id Int32,
@@ -478,13 +479,14 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)), service_name LowCardinality(String)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)), service_name LowCardinality(String), metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String))) AS SELECT
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
   maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-  service_name
+  service_name,
+  groupUniqArrayArraySimpleState([toString(metric_type)]) AS metric_types
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY

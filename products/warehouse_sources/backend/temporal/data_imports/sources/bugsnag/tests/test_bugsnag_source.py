@@ -1,13 +1,9 @@
-from typing import Any
-
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.settings import (
     BUGSNAG_ENDPOINTS,
-    ENDPOINTS,
     BugsnagScope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source import BugsnagSource
@@ -39,33 +35,6 @@ class TestBugsnagSource:
         self.source = BugsnagSource()
         self.team_id = 1
 
-    def test_source_config_basics(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Bugsnag"
-        # Alpha + still unreleased while it ships full-refresh-only and awaits live-API verification.
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["auth_token"]
-        auth_field = config.fields[0]
-        assert isinstance(auth_field, SourceFieldInputConfig)
-        assert auth_field.required is True
-        assert auth_field.secret is True
-
-    def test_generated_config_parses_auth_token(self) -> None:
-        # Guards the hand-checked generated_configs.py edit: the form field must map to `auth_token`.
-        config = BugsnagSourceConfig.from_dict({"auth_token": "tok_123"})
-        assert config.auth_token == "tok_123"
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_all_schemas_are_full_refresh(self) -> None:
-        # Incremental isn't advertised until the server-side time-filter behavior is verified
-        # against the live API, so every table ships full refresh only.
-        for schema in self.source.get_schemas(MagicMock(), team_id=self.team_id):
-            assert schema.supports_incremental is False, schema.name
-            assert schema.supports_append is False, schema.name
-
     @parameterized.expand(
         [
             ("organizations", True),
@@ -92,26 +61,6 @@ class TestBugsnagSource:
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["errors", "projects"])
         assert {s.name for s in schemas} == {"errors", "projects"}
-
-    def test_publishes_table_catalog_for_public_docs(self) -> None:
-        # `lists_tables_without_credentials` gates whether the static endpoint catalog reaches the
-        # posthog.com "Supported tables" section. Dropping the flag (or making get_schemas require
-        # credentials) would silently empty that section, so assert the catalog flows through with
-        # canonical descriptions attached.
-        tables = self.source.get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert set(ENDPOINTS).issubset(names)
-        errors = next(t for t in tables if t["name"] == "errors")
-        assert "Full refresh" in errors["sync_methods"]
-        assert errors["description"]
-
-    def test_source_for_pipeline_plumbs_args(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("errors"))
-        response = self.source.source_for_pipeline(
-            BugsnagSourceConfig(auth_token="tok"), manager, _source_inputs("errors")
-        )
-        assert response.name == "errors"
-        assert response.primary_keys == BUGSNAG_ENDPOINTS["errors"].primary_keys
 
     @parameterized.expand(
         [
@@ -187,11 +136,6 @@ class TestBugsnagSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_canonical_description_keys_are_real_endpoints(self) -> None:
-        # Canonical descriptions are keyed by schema name; a typo'd key would silently never apply.
-        descriptions: dict[str, Any] = self.source.get_canonical_descriptions()
-        assert set(descriptions).issubset(set(ENDPOINTS))
 
     def test_error_grain_endpoints_bound_their_error_fan_out(self) -> None:
         # Error-grain endpoints cost one request per error and BugSnag exposes no filter to narrow

@@ -73,6 +73,15 @@ def _handle_to_last_day_of_month(args: list[str]) -> str:
     return f"CAST((DATE_TRUNC('month', {args[0]}) + INTERVAL '1 month' - INTERVAL '1 day') AS DATE)"
 
 
+def _handle_position_case_insensitive_utf8(args: list[str]) -> str:
+    haystack, needle = f"LOWER({args[0]})", f"LOWER({args[1]})"
+    if len(args) == 2:
+        return f"STRPOS({haystack}, {needle})"
+    start = f"GREATEST(1, {args[2]})"
+    position = f"STRPOS(SUBSTRING({haystack} FROM {start}), {needle})"
+    return f"CASE WHEN {position} = 0 THEN 0 ELSE {position} + {start} - 1 END"
+
+
 def _handle_today(args: list[str]) -> str:
     return "CURRENT_DATE"
 
@@ -211,6 +220,7 @@ def _handle_log2(args: list[str]) -> str:
 # PostgresPrinter._visit_to_start_of_call() and inline sub-hour code
 # in visit_call(), which intercept before this dict is consulted.
 POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
+    "positionCaseInsensitiveUTF8": _handle_position_case_insensitive_utf8,
     # Type conversions
     "toDate": _make_cast_handler("DATE"),
     "toDateTime": _make_cast_handler("TIMESTAMP"),

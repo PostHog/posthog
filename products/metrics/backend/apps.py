@@ -7,3 +7,8 @@ class MetricsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "products.metrics.backend"
     label = "metrics"
+
+    def ready(self) -> None:
+        from products.metrics.backend.dashboard_import import receivers  # noqa: PLC0415 — needs the app registry
+
+        receivers.connect()

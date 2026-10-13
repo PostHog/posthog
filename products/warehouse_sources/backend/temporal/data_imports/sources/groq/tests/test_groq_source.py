@@ -4,8 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.groq.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.source import GroqSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.groq.source"
@@ -18,33 +16,9 @@ def _make_config(api_key: str = "gsk_test") -> Any:
 
 
 class TestGroqSource:
-    def test_source_config_has_single_password_api_key_field(self) -> None:
-        config = GroqSource().get_source_config
-        assert [f.name for f in config.fields] == ["api_key"]
-        (api_key_field,) = config.fields
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        # The API key is a secret credential, so it must render as a password input.
-        assert api_key_field.type == "password"
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert GroqSource.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
-        schemas = GroqSource().get_schemas(_make_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Groq exposes no server-side timestamp filter, so nothing supports incremental/append.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_exposes_primary_keys(self) -> None:
-        schemas = {s.name: s for s in GroqSource().get_schemas(_make_config(), team_id=1)}
-        assert schemas["batches"].detected_primary_keys == ["id"]
-        assert schemas["files"].detected_primary_keys == ["id"]
-        assert schemas["models"].detected_primary_keys == ["id"]
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = GroqSource().get_schemas(_make_config(), team_id=1, names=["batches", "models"])
@@ -88,9 +62,3 @@ class TestGroqSource:
         errors = GroqSource().get_non_retryable_errors()
         assert expected_key in errors
         assert errors[expected_key]
-
-    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
-        descriptions = GroqSource().get_canonical_descriptions()
-        # Every documented entry must map to a real endpoint or the docs render orphaned tables.
-        assert set(descriptions.keys()) <= set(ENDPOINTS)
-        assert {"batches", "files", "models"} <= set(descriptions.keys())

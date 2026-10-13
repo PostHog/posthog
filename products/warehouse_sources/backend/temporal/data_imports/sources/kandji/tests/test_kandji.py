@@ -1,36 +1,23 @@
-from typing import Any, cast
-
 import pytest
 from unittest.mock import Mock, patch
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-    SinglePagePaginator,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kandji import KandjiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji import (
     KandjiNextLinkPaginator,
     build_base_url,
-    get_resource,
     kandji_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.settings import KANDJI_ENDPOINTS
-
-
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.source import KandjiSource
 
 
 class TestKandjiTransport:
@@ -74,57 +61,32 @@ class TestKandjiTransport:
             ("unexpected", 500, None, False),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.make_tracked_session")
     def test_validate_credentials_status_mapping(
-        self, _name, status_code, schema_name, expected_ok, mock_session
+        self, _name: str, status_code: int, schema_name: str | None, expected_ok: bool
     ) -> None:
-        response = Mock(status_code=status_code)
-        mock_session.return_value.get.return_value = response
-
-        is_valid, _message = validate_credentials(
-            api_token="tok", subdomain="accuhive", region="us", schema_name=schema_name
-        )
+        response = ScriptedResponse(status=status_code)
+        with scripted_network(always(response) if status_code == 500 else [response]) as network:
+            is_valid, _message = validate_credentials(
+                api_token="tok", subdomain="accuhive", region="us", schema_name=schema_name
+            )
 
         assert is_valid is expected_ok
+        assert {request.path for request in network.requests_log} == {"/api/v1/devices"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
+        assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer tok"}
 
     def test_validate_credentials_rejects_bad_base_url_before_request(self) -> None:
         is_valid, message = validate_credentials(api_token="tok", subdomain="", region="us")
         assert is_valid is False
         assert message is not None
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.make_tracked_session")
-    def test_validate_credentials_probes_devices_with_bearer(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=200)
+    def test_validate_credentials_handles_request_exception(self) -> None:
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))) as network:
+            is_valid, message = validate_credentials(api_token="tok", subdomain="accuhive", region="us")
 
-        validate_credentials(api_token="tok", subdomain="accuhive", region="us")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://accuhive.api.kandji.io/api/v1/devices"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer tok"
-        assert call.kwargs["params"] == {"limit": 1}
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.make_tracked_session")
-    def test_validate_credentials_handles_request_exception(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.exceptions.RequestException("boom")
-        is_valid, message = validate_credentials(api_token="tok", subdomain="accuhive", region="us")
         assert is_valid is False
         assert message is not None and "boom" in message
-
-    def test_get_resource_devices_bare_array_offset_paginated(self) -> None:
-        resource = cast(dict[str, Any], get_resource(KANDJI_ENDPOINTS["devices"]))
-        assert resource["name"] == "devices"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/devices"
-        # List Devices returns a bare array, paginated by limit/offset.
-        assert resource["endpoint"]["data_selector"] == "$"
-        assert isinstance(resource["endpoint"]["paginator"], OffsetPaginator)
-
-    def test_get_resource_blueprints_wrapped_results(self) -> None:
-        resource = cast(dict[str, Any], get_resource(KANDJI_ENDPOINTS["blueprints"]))
-        assert resource["endpoint"]["data_selector"] == "results"
-        paginator = resource["endpoint"]["paginator"]
-        assert isinstance(paginator, OffsetPaginator)
-        assert paginator.total_path == "count"
+        assert {request.path for request in network.requests_log} == {"/api/v1/devices"}
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.rest_api_resource")
     def test_kandji_source_devices_top_level(self, mock_rest_api_resource) -> None:
@@ -142,61 +104,24 @@ class TestKandjiTransport:
         assert response.primary_keys == ["device_id"]
         assert response.sort_mode == "asc"
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_kandji_source_device_apps_fanout_injects_parent_id(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("devices", [{"device_id": "dev_1"}]),
-            _FakeDltResource("device_apps", [{"bundle_id": "com.apple.Safari", "_devices_device_id": "dev_1"}]),
-        ]
-
-        response = kandji_source(
-            api_token="tok",
-            subdomain="accuhive",
-            region="us",
-            endpoint="device_apps",
-            team_id=1,
-            job_id="job-1",
+    def test_kandji_source_device_apps_fanout_injects_parent_id(self) -> None:
+        result = SourceDriver(
+            KandjiSource(), KandjiSourceConfig(api_token="tok", subdomain="accuhive", region="us")
+        ).run(
+            "device_apps",
+            [
+                ScriptedResponse(json=[{"device_id": "dev_1"}]),
+                ScriptedResponse(json={"apps": [{"bundle_id": "com.apple.Safari"}]}),
+            ],
         )
 
-        rows = list(cast(Any, response.items()))
+        assert result.raised is None
+        assert result.paths == ["/api/v1/devices", "/api/v1/devices/dev_1/apps"]
         # The parent device id is injected onto each child row and renamed to device_id.
-        assert rows == [{"bundle_id": "com.apple.Safari", "device_id": "dev_1"}]
+        assert result.rows == [{"bundle_id": "com.apple.Safari", "device_id": "dev_1"}]
         # bundle_id is only unique within a device, so the parent device id is part of the key.
-        assert response.primary_keys == ["device_id", "bundle_id"]
-
-    @parameterized.expand(
-        [
-            ("library_items", "device_library_items", "library_items"),
-            # Device Status also returns `library_items`; only its `parameters` list is synced.
-            ("status_parameters", "device_parameters", "parameters"),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.build_dependent_resource")
-    def test_kandji_source_fanout_wires_single_page_children(
-        self, _name, endpoint, expected_selector, mock_build_dependent_resource
-    ) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        kandji_source(
-            api_token="tok",
-            subdomain="accuhive",
-            region="us",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-        )
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        # Kandji is full-refresh only — the fan-out must not request incremental merge behavior.
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
-        assert kwargs["child_endpoint_extra"]["data_selector"] == expected_selector
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
-        # The devices parent lists a bare array.
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "$"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], OffsetPaginator)
+        assert result.response is not None
+        assert result.response.primary_keys == ["device_id", "bundle_id"]
 
 
 class TestKandjiNextLinkPaginator:

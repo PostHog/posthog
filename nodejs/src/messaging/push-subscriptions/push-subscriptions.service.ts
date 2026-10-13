@@ -7,7 +7,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
 import { verifyPushIdentityToken } from './identity-token'
 import { ProjectTokenLookup } from './project-token-lookup'
-import { PushCaptureService } from './push-capture'
+import { CaptureBillingLimitError, PushCaptureService } from './push-capture'
 import { InflatedBodyTooLargeError, RawRequest, decodeRequest } from './request-decoding'
 
 export type PushRejectionCode =
@@ -19,6 +19,7 @@ export type PushRejectionCode =
     | 'missing_fields'
     | 'identity_verification_failed'
     | 'capture_failed'
+    | 'capture_billing_limited'
 
 export type PushErrorType = 'validation_error' | 'authentication_error' | 'server_error'
 
@@ -84,8 +85,9 @@ export class PushSubscriptionsService {
         private projectTokens: Pick<ProjectTokenLookup, 'getTeamByToken'>,
         private postgres: PostgresRouter,
         private encryptedFields: EncryptedFields,
-        private capture: PushCaptureService,
-        private secretKey: string
+        private capture: Pick<PushCaptureService, 'capture'>,
+        private secretKey: string,
+        private mirroredCapture: Pick<PushCaptureService, 'capture'> = capture
     ) {
         this.invalidTokens = new LRUCache({ max: INVALID_TOKEN_CACHE_SIZE, ttl: INVALID_TOKEN_CACHE_TTL_MS })
         this.configuredAppIdsCache = new LRUCache({
@@ -249,7 +251,8 @@ export class PushSubscriptionsService {
         try {
             // An SDK told the registration was stored stops re-sending it, so a capture that did
             // not happen has to surface here.
-            await this.capture.capture({
+            const capture = request.mirrored ? this.mirroredCapture : this.capture
+            await capture.capture({
                 token: team.api_token,
                 event: '$set',
                 distinctId,
@@ -258,7 +261,8 @@ export class PushSubscriptionsService {
         } catch (error) {
             return {
                 ...reject(
-                    'capture_failed',
+                    // A code of its own lets the error-rate alert leave out projects over their billing limit.
+                    error instanceof CaptureBillingLimitError ? 'capture_billing_limited' : 'capture_failed',
                     500,
                     'server_error',
                     request.method === 'POST'

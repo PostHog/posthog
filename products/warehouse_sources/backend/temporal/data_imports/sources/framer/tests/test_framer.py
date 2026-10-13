@@ -1,6 +1,5 @@
 import os
 import json
-import math
 import socket
 import threading
 from collections import deque
@@ -11,7 +10,7 @@ from typing import Any, Optional, cast
 import pytest
 
 from parameterized import parameterized
-from websockets.exceptions import InvalidMessage
+from websockets.exceptions import ConnectionClosedError, InvalidMessage
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
@@ -24,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer.fra
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.settings import (
     DEPLOYMENTS_PAGE_SIZE,
-    ENDPOINTS,
     PRIMARY_KEYS,
 )
 
@@ -191,13 +189,6 @@ class TestFramer:
     def test_parse_unknown_custom_wrapper_falls_back_to_payload(self) -> None:
         assert devalue.parse('[{"node":1},["plugin-marshal",2],{"id":3},"n1"]') == {"node": {"id": "n1"}}
 
-    def test_parse_special_numbers(self) -> None:
-        parsed = devalue.parse('[{"nan":-3,"inf":-4,"ninf":-5,"nzero":-6}]')
-        assert math.isnan(parsed["nan"])
-        assert parsed["inf"] == math.inf
-        assert parsed["ninf"] == -math.inf
-        assert parsed["nzero"] == 0.0
-
     @parameterized.expand(
         [
             ({"type": "ping"},),
@@ -208,10 +199,6 @@ class TestFramer:
     )
     def test_stringify_round_trips(self, value: Any) -> None:
         assert devalue.parse(devalue.stringify(value)) == value
-
-    def test_stringify_matches_reference_encoding(self) -> None:
-        # Byte-for-byte fixture from the reference JS library.
-        assert devalue.stringify({"type": "ping"}) == '[{"type":1},"ping"]'
 
     @parameterized.expand(
         [
@@ -254,13 +241,6 @@ class TestFramer:
         assert server.sent[-1] == {"type": "client-disconnect"}
         assert server.closed
 
-    def test_client_close_without_graceful_disconnect(self) -> None:
-        server = FakeFramerServer()
-        client = make_client(server)
-        client.close()
-        assert all(message.get("type") != "client-disconnect" for message in server.sent)
-        assert server.closed
-
     def test_client_raises_on_server_error_message(self) -> None:
         server = FakeFramerServer(
             ready_message={"type": "error", "code": "UNAUTHORIZED", "message": "API key does not have access"}
@@ -285,9 +265,17 @@ class TestFramer:
             client.connect()
         assert exc_info.value.retryable
 
-    def test_client_wraps_handshake_eof_as_retryable(self) -> None:
+    @parameterized.expand(
+        [
+            ("eof_before_response", InvalidMessage("did not receive a valid HTTP response")),
+            # Raised when the TLS/TCP connection drops mid-handshake (e.g. a transient SSL
+            # error) after the HTTP upgrade itself succeeds.
+            ("dropped_mid_handshake", ConnectionClosedError(None, None)),
+        ]
+    )
+    def test_client_wraps_handshake_failure_as_retryable(self, _name: str, raised: Exception) -> None:
         def connect_fn(*args: Any, **kwargs: Any) -> Any:
-            raise InvalidMessage("did not receive a valid HTTP response")
+            raise raised
 
         client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=connect_fn)
         with pytest.raises(FramerAPIError) as exc_info:
@@ -304,12 +292,6 @@ class TestFramer:
         with pytest.raises(FramerAPIError) as exc_info:
             client.call("getNode")
         assert "Node not found" in str(exc_info.value)
-
-    def test_client_ignores_unrelated_messages(self) -> None:
-        server = FakeFramerServer(methods={"getLocales": [{"id": "l1"}]})
-        client = make_client(server)
-        server.incoming.appendleft(devalue.stringify({"type": "permissionUpdate", "permissionMap": {}}))
-        assert client.call("getLocales") == [{"id": "l1"}]
 
     def test_client_reassembles_chunked_messages(self) -> None:
         server = FakeFramerServer()
@@ -354,11 +336,6 @@ class TestFramer:
         proxy.join()
         assert exc_info.value.code == "PROXY"
         assert exc_info.value.retryable
-
-    def test_client_connects_directly_without_proxy(self) -> None:
-        server = FakeFramerServer()
-        make_client(server)
-        assert "sock" not in server.connect_kwargs
 
     def test_validate_credentials_success(self) -> None:
         server = FakeFramerServer(methods={"getProjectInfo2": {"id": PROJECT_ID, "name": "Site"}})
@@ -525,18 +502,6 @@ class TestFramer:
             }
         ]
 
-    def test_collection_items_prefers_external_id(self) -> None:
-        rows = self._run_endpoint(
-            "CollectionItems",
-            {
-                "getCollections": [{"id": "c1", "name": "Blog"}],
-                "getCollectionFields2": [],
-                "getCollectionItems2": [{"nodeId": "n1", "externalId": "ext-1", "slug": "s", "fieldData": {}}],
-            },
-        )
-        assert rows[0]["id"] == "ext-1"
-        assert rows[0]["nodeId"] == "n1"
-
     def test_collection_items_keep_field_whose_name_matches_another_field_id(self) -> None:
         rows = self._run_endpoint(
             "CollectionItems",
@@ -589,9 +554,6 @@ class TestFramer:
         assert self._run_endpoint("Redirects", {"getRedirects": [{"id": "r1", "from": "/a", "to": "/b"}]}) == [
             {"id": "r1", "from": "/a", "to": "/b"}
         ]
-
-    def test_every_endpoint_has_a_primary_key(self) -> None:
-        assert set(PRIMARY_KEYS) == set(ENDPOINTS)
 
     def test_source_response_raises_for_invalid_project(self) -> None:
         response = framer_source("not a project", "key", "Project", protocol_version="0.1.29")

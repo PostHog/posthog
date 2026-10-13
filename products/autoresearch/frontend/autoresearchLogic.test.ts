@@ -15,6 +15,7 @@ import {
     autoresearchList,
     autoresearchPauseCreate,
     autoresearchResumeCreate,
+    autoresearchTrainCreate,
 } from './generated/api'
 import { AutoresearchPipelineApi } from './generated/api.schemas'
 
@@ -23,6 +24,7 @@ jest.mock('./generated/api', () => ({
     autoresearchDestroy: jest.fn(),
     autoresearchPauseCreate: jest.fn(),
     autoresearchResumeCreate: jest.fn(),
+    autoresearchTrainCreate: jest.fn(),
 }))
 
 const mockList = autoresearchList as jest.Mock
@@ -59,6 +61,7 @@ describe('autoresearchLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(statusLogicValues()).toBe('unknown')
         expect(logic.values.pipelinesLoadFailed).toBe(true)
+        expect(logic.values.pipelines).toEqual([])
 
         mockList.mockReturnValue(new Promise(() => {}))
         logic.actions.loadPipelines()
@@ -103,6 +106,7 @@ describe('autoresearchLogic', () => {
         ['deletePipeline', autoresearchDestroy],
         ['pausePipeline', autoresearchPauseCreate],
         ['resumePipeline', autoresearchResumeCreate],
+        ['startTraining', autoresearchTrainCreate],
     ] as const)('sends one %s request while the first is in flight', async (action, apiCall) => {
         mockList.mockResolvedValue({ results: [] })
         ;(apiCall as jest.Mock).mockReturnValue(new Promise(() => {}))

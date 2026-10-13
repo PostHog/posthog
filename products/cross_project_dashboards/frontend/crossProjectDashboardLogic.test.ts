@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -165,6 +166,20 @@ describe('crossProjectDashboardLogic', () => {
             color: styledTile.color,
             filters_overrides: styledTile.filters_overrides,
         })
+    })
+
+    it('reports one view per visit, not one per saved change', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        await mountWith({})
+
+        logic.actions.setDates('-7d', null)
+        logic.actions.setInterval('week')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const views = capture.mock.calls.filter(([event]) => event === 'cross project dashboard viewed')
+        expect(views).toEqual([
+            ['cross project dashboard viewed', { dashboard_id: DASHBOARD_ID, tile_count: 1, project_count: 1 }],
+        ])
     })
 
     it('keeps both of two quick filter edits instead of letting the second overwrite the first', async () => {

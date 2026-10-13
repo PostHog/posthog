@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import math
 import uuid
 import base64
@@ -60,6 +61,21 @@ SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 # the filter, and each attempt of the import runs it again. Its result is only a progress estimate.
 ROW_COUNT_TIMEOUT_MS = 60_000
 COLLECTION_STATS_TIMEOUT_MS = 30_000
+
+# Client-side limits of each connection. pymongo has no socket timeout by default, so a server that
+# stops answering holds a `find` or a `getMore` for as long as the socket stays open.
+SERVER_SELECTION_TIMEOUT_MS = 10_000
+CONNECT_TIMEOUT_MS = 10_000
+# The wait for one answer from the server: the first batch of a cursor, or one `getMore`. A read
+# that keeps returning batches starts a new wait with each one, so this is not a limit on the read.
+# The data cursor gets no `maxTimeMS`, because the server counts that limit over the cursor as a
+# whole and it would end a long read that is in good health.
+SOCKET_TIMEOUT_MS = 10 * 60 * 1000
+# A limit that the connection string sets itself is kept.
+_CONNECTION_TIMEOUT_DEFAULTS: dict[str, int] = {
+    "connectTimeoutMS": CONNECT_TIMEOUT_MS,
+    "socketTimeoutMS": SOCKET_TIMEOUT_MS,
+}
 
 # Mongo yields whole documents (the full doc rides along under `data`), so a collection of large
 # documents can OOM the worker when a chunk is materialised into a PyArrow table — before any Delta
@@ -316,12 +332,21 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
     return selector
 
 
+def connection_timeouts(connection_string: str) -> dict[str, int]:
+    """The connect and socket timeouts to pass to `MongoClient`, less those the connection string sets."""
+    option_keys = {
+        option.partition("=")[0].lower() for option in re.split(r"[&;]", connection_string.partition("?")[2])
+    }
+    return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
+
+
 @contextlib.contextmanager
 def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
     # rpartition strips credentials; multiple hosts stay comma-joined as-is.
     log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
     kwargs: dict[str, Any] = {
-        "serverSelectionTimeoutMS": 10000,
+        "serverSelectionTimeoutMS": SERVER_SELECTION_TIMEOUT_MS,
+        **connection_timeouts(connection_string),
         "tls": True,
         "tlsCAFile": certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),

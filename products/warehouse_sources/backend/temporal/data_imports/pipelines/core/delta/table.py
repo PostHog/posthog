@@ -160,13 +160,13 @@ def live_row_count(delta_table: deltalake.DeltaTable) -> int | None:
     because the copied files also keep every physical row.
 
     None when a live file has no statistic or the log cannot give the statistics. The caller then
-    counts the files instead.
+    counts the files, or keeps the run count for a full refresh.
     """
     try:
         add_actions = pa.table(delta_table.get_add_actions(flatten=False))
     except Exception:
         # The stats of a large table can overflow Arrow's 32-bit string offsets (see
-        # repartition.measure_partition_bytes), and the fallback count gives the same number.
+        # repartition.measure_partition_bytes), and the caller has a fallback.
         return None
     if "num_records" not in add_actions.column_names:
         return None
@@ -352,6 +352,26 @@ class DeltaTableRef:
         self._cached_table_stale = False
         self._known_missing = False
         self._expect_missing = False
+
+    async def adopt_open_table(self, table: deltalake.DeltaTable) -> bool:
+        """Take a handle that an earlier ref opened on this table, in place of a new open.
+
+        The handle first reads the commits that landed since its last use, which is one log listing
+        and one read for each new commit. A commit from another writer is thus in the snapshot before
+        any caller reads it. Returns False and keeps nothing when that read fails, so the next
+        `get_delta_table` opens the table and classifies the error as it always did.
+
+        Only for a caller that knows the table was not replaced under this URI since the handle was
+        last used: an incremental read cannot tell a new table from the old one.
+        """
+        try:
+            await asyncio.to_thread(table.update_incremental)
+        except Exception:
+            return False
+        self._cached_table = table
+        self._cached_table_stale = False
+        self._known_missing = False
+        return True
 
     async def _refresh_cached_table(self, table: deltalake.DeltaTable) -> None:
         try:
@@ -558,7 +578,7 @@ class DeltaTableRef:
 
         row_count = await asyncio.to_thread(live_row_count, delta_table)
         if row_count is None:
-            await self._logger.adebug("The Delta log has no complete row count, counting the published files")
+            await self._logger.adebug("The Delta log has no complete row count")
         return row_count
 
     async def get_live_size_mib(self) -> float | None:

@@ -31,8 +31,11 @@ from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
+    SyncAlertEvent,
+    SyncAlertKind,
     a_unpause_external_data_schedule,
     create_warehouse_templates_for_source,
+    emit_sync_alert,
     update_external_job_status,
 )
 from products.managed_warehouse.backend.facade.temporal import (
@@ -62,6 +65,8 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
+    get_retry_budget_reduced_metric,
+    get_run_deferred_metric,
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
 )
@@ -80,6 +85,7 @@ from products.warehouse_sources.backend.temporal.data_imports.post_import_job im
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
+    import_retry_budget,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -259,6 +265,17 @@ TRANSIENT_SOURCE_CONNECTION_MESSAGE = (
     "reachable and doesn't drop idle connections; the next sync runs on schedule."
 )
 
+# libpq prefixes a failure with "connection to server at <host>, port <port> failed:" only while it
+# sets the connection up. A drop there never reached an idle connection, so the generic copy points
+# the customer at the wrong cause. A server that accepts the TCP connection and then closes it
+# during startup is usually down, or an allowlist in front of it rejects PostHog's addresses.
+LIBPQ_CONNECT_FAILURE_MARKER = "connection to server at"
+
+TRANSIENT_CONNECT_DROPPED_MESSAGE = (
+    "Your database closed the connection while PostHog was connecting. Check that it's running and "
+    "allows PostHog's IP addresses; the next sync runs on schedule."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -301,7 +318,31 @@ SYNC_RUN_STALLED_MESSAGE = (
 # Unlike `Any_Source_Errors` above, matching here only rewrites the stored message: the error stays
 # retryable and the schema stays enabled. Keys are the same stable, host-free fragments the sources
 # already classify these conditions by, so they can't collide with a customer value.
+# A source reached over Railway's TCP proxy. A driver names the endpoint it dialled in the
+# connection-drop message, as the host it resolved and the address behind it, so the proxy is
+# identifiable from the error text without reading the source config. Both markers belong to the
+# TCP proxy alone: `.rlwy.net` is the domain it hands out, and `66.33.22.0/24` is the address range
+# it resolved to as of October 2026, matched because customers paste the address as often as the
+# host name. A Railway-hosted HTTP API is `*.up.railway.app` and matches neither, so a REST source
+# behind one keeps the copy for its own failure.
+RAILWAY_PROXY_ENDPOINT_MARKERS = (".rlwy.net", "66.33.22.")
+
+
+# Specialises TRANSIENT_SOURCE_CONNECTION_MESSAGE for that proxy. The generic copy asks the customer
+# to look for a pooler, a firewall or an SSH tunnel ending the connection, and on Railway the thing
+# in front of the source is none of those, so it sends them looking for something they cannot find.
+RAILWAY_PROXY_CONNECTION_MESSAGE = (
+    "PostHog's connection to your source kept closing before the sync could finish. This host is "
+    "Railway's TCP proxy, which closes connections when the service behind it is asleep or out of "
+    "connection slots. In Railway, check that the service is running, and check its connection "
+    "limit. This sync is still enabled and will run again on its next schedule."
+)
+
+
 Transient_Error_Messages: dict[str, str] = {
+    # Before the generic connection-drop copy below, because first match wins and this one names
+    # the cause. Railway's own host strings, which libpq prints in the connection-drop message.
+    **dict.fromkeys(RAILWAY_PROXY_ENDPOINT_MARKERS, RAILWAY_PROXY_CONNECTION_MESSAGE),
     # libpq/psycopg losing an established connection, at connect or mid-stream, in every wording
     # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` (postgres.py) retries in-process first.
     "server closed the connection unexpectedly": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
@@ -366,6 +407,12 @@ TRANSIENT_SOURCE_ERROR_MESSAGE = (
     "again on its next schedule."
 )
 
+# The marker hand-rolled source transports raise once their own backoff on a 429 or 5xx runs out:
+# "<Vendor> API error (retryable): status=<code>, url=<url>". Unlike `RESTClientRetryableError`
+# it reaches the finalizer as plain message text, which carries the vendor URL and, for a
+# self-hosted source, the customer's own host.
+RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -429,7 +476,7 @@ def _transient_error_message(internal_error: str) -> str | None:
 
     First match wins, mirroring how the non-retryable path picks its friendly message.
     """
-    return next(
+    message = next(
         (
             message
             for pattern, message in Transient_Error_Messages.items()
@@ -437,6 +484,11 @@ def _transient_error_message(internal_error: str) -> str | None:
         ),
         None,
     )
+    if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
+        internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
+    ):
+        return TRANSIENT_CONNECT_DROPPED_MESSAGE
+    return message
 
 
 def _fail_stale_running_schema(
@@ -556,6 +608,7 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
 
     source: ExternalDataSource | None = None
     has_non_retryable_error = False
+    platform_failure = False
     if inputs.internal_error:
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
@@ -611,16 +664,34 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
             # consulted first; the source's own exhaustion messages cover the classes it does not
             # name. Retryability is untouched: the schema is not disabled and the next scheduled
             # run still tries.
-            transient_message = _transient_error_message(internal_error_normalized) or next(
-                (
-                    message
-                    for error, message in source_cls.get_retry_exhausted_errors().items()
-                    if error_message_matches(internal_error_normalized, [error])
-                ),
-                None,
+            # The retryable-status marker comes last, so a source that names its own vendor in
+            # `get_retry_exhausted_errors` keeps that copy.
+            transient_message = (
+                _transient_error_message(internal_error_normalized)
+                or next(
+                    (
+                        message
+                        for error, message in source_cls.get_retry_exhausted_errors().items()
+                        if error_message_matches(internal_error_normalized, [error])
+                    ),
+                    None,
+                )
+                or (
+                    TRANSIENT_SOURCE_ERROR_MESSAGE
+                    if error_message_matches(internal_error_normalized, [RETRYABLE_STATUS_ERROR_MARKER])
+                    else None
+                )
             )
             if transient_message is not None:
                 inputs.latest_error = transient_message
+
+    # A failure PostHog caused says nothing about the source, and an auto-disabled schema runs
+    # again only once a person turns syncing back on, so neither may throttle the next run.
+    counts_as_source_failure = (
+        not platform_failure
+        and not has_non_retryable_error
+        and (inputs.latest_error not in (WORKER_RESTART_ERROR_MESSAGE, CANCELLED_RUN_MESSAGE))
+    )
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
@@ -628,7 +699,20 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         latest_error=inputs.latest_error,
         logger=logger,
         team_id=inputs.team_id,
+        counts_as_source_failure=counts_as_source_failure,
     )
+
+    if has_non_retryable_error:
+        # A non-retryable failure does not count toward the failure streak, so the status write
+        # above sends no failed alert for it. The schema stops syncing until a person turns it back
+        # on, which is the failure a destination most needs to hear about.
+        await database_sync_to_async_pool(emit_sync_alert)(
+            team_id=inputs.team_id,
+            schema_id=inputs.schema_id,
+            event=SyncAlertEvent.FAILED,
+            kind=SyncAlertKind.SCHEMA_PAUSED,
+            job_id=job_id,
+        )
 
     if inputs.internal_error and source is not None:
         # This activity runs once the workflow has given up, so every error reaching here has
@@ -961,6 +1045,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
 
+            if lock_result is not None and lock_result.deferred:
+                workflow.logger.info(
+                    "Run deferred because this sync keeps failing",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                get_run_deferred_metric().add(1)
+                return
+
             if lock_result is None or not lock_result.acquired:
                 workflow.logger.info(
                     "V3 pipeline lock not acquired, skipping",
@@ -1007,6 +1099,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = False
                 source_templates_needed = True
                 import_handoffs_are_free = False
+                failed_runs_in_a_row = 0
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -1024,6 +1117,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = create_job_result.hit_billing_limit
                 source_templates_needed = create_job_result.source_templates_needed
                 import_handoffs_are_free = create_job_result.import_handoffs_are_free
+                failed_runs_in_a_row = create_job_result.failed_runs_in_a_row
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # The job-creation activity answers the billing question in the same round trip. The
@@ -1059,6 +1153,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=str(inputs.external_data_schema_id),
                             job_id=str(job_id),
                             source_id=str(inputs.external_data_source_id),
+                            reset_pipeline=inputs.reset_pipeline,
                         ),
                         start_to_close_timeout=dt.timedelta(hours=6),
                         heartbeat_timeout=dt.timedelta(minutes=5),
@@ -1080,16 +1175,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         "scheduled_full_refresh": scheduled_full_refresh,
                     },
                 )
-
-            job_inputs = ImportDataActivityInputs(
-                team_id=inputs.team_id,
-                run_id=job_id,
-                schema_id=inputs.external_data_schema_id,
-                source_id=inputs.external_data_source_id,
-                reset_pipeline=inputs.reset_pipeline,
-                fast_return_eligible=fast_return_eligible,
-                scheduled_full_refresh=scheduled_full_refresh,
-            )
 
             is_resumable_source = False
             if source_type is not None:
@@ -1115,6 +1200,31 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             else:
                 import_start_to_close_timeout = dt.timedelta(hours=24)
                 import_max_attempts = 3
+
+            # Derived from a recorded activity result, so a replay picks the same cap.
+            full_import_max_attempts = import_max_attempts
+            import_max_attempts = import_retry_budget(import_max_attempts, failed_runs_in_a_row)
+            if import_max_attempts != full_import_max_attempts:
+                workflow.logger.info(
+                    "Retry cap reduced because this sync keeps failing",
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "failed_runs_in_a_row": failed_runs_in_a_row,
+                        "max_attempts": import_max_attempts,
+                    },
+                )
+                get_retry_budget_reduced_metric(source_type=source_type).add(1)
+
+            job_inputs = ImportDataActivityInputs(
+                team_id=inputs.team_id,
+                run_id=job_id,
+                schema_id=inputs.external_data_schema_id,
+                source_id=inputs.external_data_source_id,
+                reset_pipeline=inputs.reset_pipeline,
+                fast_return_eligible=fast_return_eligible,
+                scheduled_full_refresh=scheduled_full_refresh,
+                on_resumable_retry_budget=is_resumable_source,
+            )
 
             # A hand-off loop schedules the import activity more than once, which a history recorded
             # without it cannot replay. Two things keep replay on the recorded branch. The flag is

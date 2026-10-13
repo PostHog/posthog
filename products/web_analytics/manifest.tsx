@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -74,6 +75,20 @@ export const manifest: ProductManifest = {
             iconType: 'web_analytics',
             iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
             href: urls.webAnalytics(),
+            searchKeywords: ['traffic', 'pageviews', 'visitors', 'bounce rate', 'referrers'],
+            searchTabs: [
+                { name: 'Web vitals', href: urls.webAnalyticsWebVitals() },
+                { name: 'Page reports', href: urls.webAnalyticsPageReports() },
+                { name: 'Live', href: urls.webAnalyticsLive() },
+                { name: 'Installation health', href: urls.webAnalyticsHealth() },
+                { name: 'Bots', href: urls.webAnalyticsBotAnalytics(), flag: FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS },
+                {
+                    name: 'Search & AI',
+                    href: urls.webAnalyticsPagePerformance(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
+                },
+                { name: 'Agents', href: urls.webAnalyticsAgents(), flag: FEATURE_FLAGS.WEB_ANALYTICS_AGENT_ANALYTICS },
+            ],
             sceneKey: 'WebAnalytics',
             sceneKeys: ['WebAnalytics'],
         },

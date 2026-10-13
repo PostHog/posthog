@@ -44,6 +44,13 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
             ),
             True,
         ),
+        (
+            OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  sorry, too many clients already"
+            ),
+            True,
+        ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
         # psycopg raises this straight off local state (no new network I/O) when a connection

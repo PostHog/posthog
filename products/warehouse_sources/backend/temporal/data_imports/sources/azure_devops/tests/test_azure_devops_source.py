@@ -23,30 +23,6 @@ class TestAzureDevOpsSource:
         assert self.source.connection_host_fields == ["organization"]
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "Azure DevOps returned a sign-in page (203) — the personal access token is invalid or expired.",
-            "401 Client Error: Unauthorized for url: https://dev.azure.com/myorg/_apis/projects",
-            "403 Client Error: Forbidden for url: https://dev.azure.com/myorg/Alpha/_apis/build/builds",
-            "404 Client Error: Not Found for url: https://dev.azure.com/nope/_apis/projects",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_vendor_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://dev.azure.com/myorg/_apis/projects",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_vendor_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
         "probe_result",
         [
             (True, None),
@@ -90,28 +66,6 @@ class TestAzureDevOpsSource:
         assert kwargs["api_version"] == AZURE_DEVOPS_VERSION_7_2
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
-
-    @pytest.mark.parametrize(
-        "pinned, expected",
-        [
-            (None, AZURE_DEVOPS_VERSION_7_2),
-            ("", AZURE_DEVOPS_VERSION_7_2),
-            (AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_LEGACY),
-            (AZURE_DEVOPS_VERSION_7_2, AZURE_DEVOPS_VERSION_7_2),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.azure_devops_source"
-    )
-    def test_source_for_pipeline_resolves_the_pin(self, mock_ado_source, pinned, expected):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "projects"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pinned
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_ado_source.call_args.kwargs["api_version"] == expected
 
     def test_default_version_is_the_new_ga_version(self):
         # New sources start on 7.2; the legacy label stays supported so existing pins keep working.

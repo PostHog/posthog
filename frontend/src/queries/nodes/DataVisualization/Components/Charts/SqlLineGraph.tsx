@@ -69,6 +69,7 @@ export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
                 >
+                    {props.children}
                     {props.showAnnotations && props.insightNumericId && (
                         <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
                     )}

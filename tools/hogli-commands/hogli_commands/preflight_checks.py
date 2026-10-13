@@ -8,6 +8,7 @@ import json
 import time
 import shutil
 import tempfile
+import functools
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -401,14 +402,37 @@ def _node(script: str, files: list[str], env: dict[str, str]) -> object:
     return json.loads(result.stdout)
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Lane:
+    """The diff's lane as CI computes it, shared by both lane checks. Unchecked script output."""
+
+    changed: list[str]
+    targets: object
+    summary: object
+
+
+def _lane(scope: Scope) -> Lane:
+    # CI lists a rename as its old path and its new one, and the old path can widen the lane.
+    changed = tuple(sorted({*scope.changed, *_renamed_from(scope).values()}))
+    return _lane_for(changed, scope.merge_base)
+
+
+@functools.cache
+def _lane_for(changed: tuple[str, ...], merge_base: str) -> Lane:
+    env = {**os.environ, "LANE_MERGE_BASE": merge_base}
+    targets = _node(LANE_TARGETS_SCRIPT, list(changed), env)
+    summary = _node(
+        LANE_SUMMARY_SCRIPT, list(changed), {**env, "IMPACTED_TARGETS": json.dumps({"impactedTargets": targets})}
+    )
+    return Lane(changed=list(changed), targets=targets, summary=summary)
+
+
 def check_merge_queue_lane(scope: Scope) -> Outcome:
     if shutil.which("node") is None:
         return "skipped", "node not found"
-    # CI lists a rename as its old path and its new one, and the old path can widen the lane.
-    changed = sorted({*scope.changed, *_renamed_from(scope).values()})
+    computed = _lane(scope)
+    changed, targets, lane = computed.changed, computed.targets, computed.summary
     env = {**os.environ, "LANE_MERGE_BASE": scope.merge_base}
-    targets = _node(LANE_TARGETS_SCRIPT, changed, env)
-    lane = _node(LANE_SUMMARY_SCRIPT, changed, {**env, "IMPACTED_TARGETS": json.dumps({"impactedTargets": targets})})
     if not isinstance(lane, dict) or not isinstance(targets, list):
         return "skipped", "could not compute the merge queue lane"
     if not lane.get("is_all"):
@@ -432,4 +456,35 @@ def check_merge_queue_lane(scope: Scope) -> Outcome:
         "claims every merge queue lane, so the whole queue merges in series behind this PR. "
         f"Without these {len(suspects)} file(s) the other changes claim {len(narrowed)} of {len(targets)} "
         f"lane targets: {', '.join(suspects[:3])}{more}",
+    )
+
+
+CROSS_LANE_LABEL = "cross-lane-change"
+
+
+def _first(files: list[str], total: int) -> str:
+    count = max(total, len(files))
+    more = f" (+{count - 2} more)" if count > 2 else ""
+    return ", ".join(files[:2]) + more
+
+
+def check_cross_lane(scope: Scope) -> Outcome:
+    if shutil.which("node") is None:
+        return "skipped", "node not found"
+    lane = _lane(scope).summary
+    verdict = lane.get("cross_lane") if isinstance(lane, dict) else None
+    if verdict is False:
+        return "pass", "stays on one side of the merge queue lanes"
+    if verdict is not True:
+        return "skipped", "could not classify the diff by lane side"
+    assert isinstance(lane, dict)
+    mixed = (
+        f"mixes Python or frontend files "
+        f"({_first(lane.get('cross_lane_heavy_files') or [], lane.get('cross_lane_heavy_file_count') or 0)}) "
+        f"with Node or Rust files "
+        f"({_first(lane.get('cross_lane_light_files') or [], lane.get('cross_lane_light_file_count') or 0)})"
+    )
+    return (
+        "warning",
+        f"{mixed}, which fails CI. Split the PR, or add the {CROSS_LANE_LABEL} label if the halves must land together",
     )

@@ -17,7 +17,7 @@ use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
 use personhog_common::grpc::semantic_refusal;
-use personhog_common::persons::person_uuid;
+use personhog_common::persons::{person_uuid, COOKIELESS_SENTINEL_VALUE};
 use serde_json::json;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
@@ -108,6 +108,23 @@ impl MergeHarness {
         .execute(&self.ctx.pool)
         .await
         .expect("insert distinct id");
+    }
+
+    async fn insert_hash_key_override(&self, person_id: i64, flag: &str, hash_key: &str) {
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO {} (team_id, person_id, feature_flag_key, hash_key)
+            VALUES ($1, $2, $3, $4)
+            "#,
+            self.ctx.tables.ff_hash_key_override
+        ))
+        .bind(self.ctx.team_id as i32)
+        .bind(person_id)
+        .bind(flag)
+        .bind(hash_key)
+        .execute(&self.ctx.pool)
+        .await
+        .expect("insert hash key override");
     }
 
     async fn set_person(&self, person_id: i64, properties: &str, version: i64, identified: bool) {
@@ -396,21 +413,10 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
         .execute(&h.ctx.pool)
         .await
         .unwrap();
-    for (person, hash) in [(target, "target-hash"), (source, "source-hash")] {
-        sqlx::query(
-            r#"
-            INSERT INTO posthog_featureflaghashkeyoverride
-                (feature_flag_key, hash_key, person_id, team_id)
-            VALUES ('flag', $2, $1, $3)
-            "#,
-        )
-        .bind(person)
-        .bind(hash)
-        .bind(h.ctx.team_id as i32)
-        .execute(&h.ctx.pool)
-        .await
-        .unwrap();
-    }
+    h.insert_hash_key_override(target, "flag", "target-hash")
+        .await;
+    h.insert_hash_key_override(source, "flag", "source-hash")
+        .await;
 
     // The source was seen after the target: the fold must carry the max.
     h.leader.set_last_seen(target, 1_000);
@@ -504,6 +510,68 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     // Marks settled: the target's cleared, the source's deleted.
     assert_eq!(h.op_person_status(op_id, target).await, "cleared");
     assert_eq!(h.op_person_status(op_id, source).await, "deleted");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_merge_keeps_a_real_hash_key_over_the_cookieless_sentinel() {
+    let h = MergeHarness::new().await;
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("sentinel-target")
+        .await;
+    let s1 = h.ctx.insert_person_with_distinct_id("sentinel-s1").await;
+    let s2 = h.ctx.insert_person_with_distinct_id("sentinel-s2").await;
+    for (person, flag, hash) in [
+        (target, "target-sentinel", COOKIELESS_SENTINEL_VALUE),
+        (s1, "target-sentinel", "s1-hash"),
+        (s1, "shared", COOKIELESS_SENTINEL_VALUE),
+        (s2, "shared", "s2-hash"),
+        (target, "both-real", COOKIELESS_SENTINEL_VALUE),
+        (s1, "both-real", "s1-both"),
+        (s2, "both-real", "s2-both"),
+        (s1, "source-sentinel", COOKIELESS_SENTINEL_VALUE),
+    ] {
+        h.insert_hash_key_override(person, flag, hash).await;
+    }
+
+    let outcome = h
+        .execute(
+            Uuid::now_v7(),
+            &merge_request("sentinel-target", &["sentinel-s1", "sentinel-s2"]),
+        )
+        .await
+        .expect("merge completes");
+    assert!(!outcome.aborted);
+
+    let overrides: Vec<(i64, String, String)> = sqlx::query_as(&format!(
+        r#"
+        SELECT person_id, feature_flag_key, hash_key FROM {}
+        WHERE team_id = $1
+        ORDER BY feature_flag_key
+        "#,
+        h.ctx.tables.ff_hash_key_override
+    ))
+    .bind(h.ctx.team_id as i32)
+    .fetch_all(&h.ctx.pool)
+    .await
+    .unwrap();
+    let flags: Vec<(i64, &str)> = overrides
+        .iter()
+        .map(|(person, flag, _)| (*person, flag.as_str()))
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            (target, "both-real"),
+            (target, "shared"),
+            (target, "target-sentinel"),
+        ]
+    );
+    assert!(["s1-both", "s2-both"].contains(&overrides[0].2.as_str()));
+    assert_eq!(overrides[1].2, "s2-hash");
+    assert_eq!(overrides[2].2, "s1-hash");
 
     h.ctx.cleanup().await.expect("cleanup");
 }

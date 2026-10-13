@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -8,11 +10,13 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
@@ -22,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     FAILURE_MESSAGES,
     CheckFailure,
@@ -77,6 +82,8 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert [d["id"] for d in listing["results"]] == [str(destination.id)]
         assert listing["results"][0]["is_posthog_warehouse"] is False
+        assert listing["results"][0]["status"] == ExternalDataDestination.Status.HEALTHY
+        assert listing["results"][0]["latest_error"] is None
 
     def test_a_destination_needs_an_integration(self) -> None:
         response = self.client.post(self.base, {"type": ExternalDataDestination.Type.POSTGRES, "name": "no creds"})
@@ -312,6 +319,205 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert destination.name == "analytics postgres"
 
 
+class TestAddSources(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.destination = self._create_destination()
+        self.url = f"{self.base}/{self.destination.id}/add_sources/"
+
+    def _source(self, name: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=name,
+            connection_id=f"{name}-connection",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+
+    def test_attaches_two_sources_and_keeps_existing_destinations(self) -> None:
+        second = self._source("second")
+        previous = self._create_destination(name="previous")
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=previous
+        )
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id), str(second.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [entry["id"] for entry in response.json()["attached"]] == [str(self.source.id), str(second.id)]
+        assert response.json()["skipped"] == []
+        assert response.json()["tables_resyncing"] == 0
+        links = ExternalDataSourceDestination.objects.for_team(self.team.pk)
+        assert set(links.filter(source=self.source, enabled=True).values_list("destination_id", flat=True)) == {
+            previous.id,
+            self.destination.id,
+        }
+        assert list(links.filter(source=second, enabled=True).values_list("destination_id", flat=True)) == [
+            self.destination.id
+        ]
+
+    def test_already_attached_source_is_skipped_without_duplicate(self) -> None:
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=self.destination
+        )
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["attached"] == []
+        assert response.json()["skipped"][0]["id"] == str(self.source.id)
+        assert response.json()["skipped"][0]["reason"] == "Already attached."
+        assert (
+            ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .filter(source=self.source, destination=self.destination)
+            .count()
+            == 1
+        )
+
+    def test_limit_skips_one_source_and_attaches_another(self) -> None:
+        second = self._source("second")
+        for index in range(10):
+            other = ExternalDataDestination.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk, type=ExternalDataDestination.Type.POSTGRES, name=f"other-{index}"
+            )
+            ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk, source=self.source, destination=other
+            )
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id), str(second.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [entry["id"] for entry in response.json()["attached"]] == [str(second.id)]
+        assert response.json()["skipped"][0]["id"] == str(self.source.id)
+        assert "10 enabled destinations" in response.json()["skipped"][0]["reason"]
+        assert (
+            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .filter(source=self.source, destination=self.destination)
+            .exists()
+        )
+
+    @parameterized.expand([("empty", []), ("too_many", [str(uuid4()) for _ in range(51)])])
+    def test_rejects_invalid_source_count(self, _name: str, source_ids: list[str]) -> None:
+        response = self.client.post(self.url, {"source_ids": source_ids}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_unknown_source_is_rejected_and_named(self) -> None:
+        unknown = str(uuid4())
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id), unknown]}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert unknown in str(response.json())
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_soft_deleted_destination_is_rejected(self) -> None:
+        self.destination.deleted = True
+        self.destination.save(update_fields=["deleted"])
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_false_does_not_start_a_resync(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.resync_schema"
+        ) as resync:
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tables_resyncing"] == 0
+        resync.assert_not_called()
+
+    def test_resync_true_only_starts_enabled_tables_on_new_sources(self) -> None:
+        disabled = ExternalDataSchema.objects.create(
+            team=self.team, source=self.source, name="disabled", should_sync=False
+        )
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.resync_schema",
+            return_value=Response(status=status.HTTP_200_OK),
+        ) as resync:
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tables_resyncing"] == 1
+        resync.assert_called_once()
+        assert resync.call_args.args[0].id == self.schema.id
+        assert resync.call_args.args[0].id != disabled.id
+
+    def test_rejects_system_managed_sources(self) -> None:
+        self.source.connection_metadata = {"system_managed": True}
+        self.source.save(update_fields=["connection_metadata"])
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_true_rejected_before_attaching_when_syncs_are_paused(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.is_any_external_data_schema_paused",
+            return_value=True,
+        ):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_failure_is_reported_and_links_are_kept(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.resync_schema",
+            return_value=Response(status=status.HTTP_400_BAD_REQUEST, data={"detail": "boom"}),
+        ):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["tables_resyncing"] == 0
+        assert [failure["schema_id"] for failure in body["resync_failures"]] == [str(self.schema.id)]
+        assert len(body["attached"]) == 1
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 1
+
+    def test_requires_editor_on_selected_source_tables(self) -> None:
+        table = DataWarehouseTable.objects.create(name="charges", team=self.team, external_data_source=self.source)
+        self.schema.table = table
+        self.schema.save(update_fields=["table"])
+
+        original = UserAccessControl.get_user_access_level
+
+        def access_level(uac: UserAccessControl, obj: object, *args: object, **kwargs: object) -> str | None:
+            # Only the source and its table are overridden; the team keeps its real project-level access.
+            if obj == table:
+                return "viewer"
+            if obj == self.source:
+                return "editor"
+            return original(uac, obj, *args, **kwargs)  # type: ignore[arg-type]
+
+        with patch.object(UserAccessControl, "get_user_access_level", access_level):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_requires_editor_on_tables_already_wired_to_destination(self) -> None:
+        second = self._source("second")
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=self.destination
+        )
+
+        with patch.object(ExternalDataDestinationViewSet, "_assert_can_mutate", side_effect=PermissionDenied("nope")):
+            response = self.client.post(self.url, {"source_ids": [str(second.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .filter(source=second, destination=self.destination)
+            .exists()
+        )
+
+
 class TestSyncedSources(DestinationAPITestBase):
     def _listing(self) -> dict:
         results = self.client.get(self.base).json()["results"]
@@ -491,6 +697,79 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
 
         assert self.client.get(self.source_url).json()["destination_ids"] == [str(other.id)]
 
+    @parameterized.expand(
+        [
+            ("edit_paused", "edit", ExternalDataDestination.Status.PAUSED),
+            ("edit_failing", "edit", ExternalDataDestination.Status.FAILING),
+            ("select_on_source", "source", ExternalDataDestination.Status.PAUSED),
+            ("select_on_table", "schema", ExternalDataDestination.Status.PAUSED),
+        ]
+    )
+    def test_a_user_turns_a_paused_destination_back_on(self, _name: str, action: str, status_before: str) -> None:
+        other_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="other",
+            connection_id="conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        paused = status_before == ExternalDataDestination.Status.PAUSED
+        source_link = ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=other_source, destination=self.destination, enabled=not paused
+        )
+        schema_link = ExternalDataSchemaDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, schema=self.schema, destination=self.destination, enabled=not paused
+        )
+        ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+            status=status_before, consecutive_configuration_failures=3, latest_error="The host name does not exist."
+        )
+
+        if action == "edit":
+            response = self.client.patch(f"{self.base}/{self.destination.id}", {"name": "fixed"})
+        else:
+            url = self.source_url if action == "source" else self.schema_url
+            response = self.client.patch(url, {"destination_ids": [str(self.destination.id)]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        if action == "edit":
+            assert response.json()["status"] == ExternalDataDestination.Status.HEALTHY
+        self.destination.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.HEALTHY
+        assert self.destination.consecutive_configuration_failures == 0
+        assert self.destination.latest_error == "The host name does not exist."
+        source_link.refresh_from_db()
+        assert source_link.enabled is True
+        if action != "schema":
+            schema_link.refresh_from_db()
+            assert schema_link.enabled is True
+
+    def test_selecting_a_destination_recovers_a_pause_that_races_with_selection(self) -> None:
+        from products.warehouse_sources.backend.presentation.views.destination_links import _resolve_destinations
+
+        def pause_after_resolving(*args, **kwargs):
+            destinations = _resolve_destinations(*args, **kwargs)
+            ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+                status=ExternalDataDestination.Status.PAUSED,
+                consecutive_configuration_failures=3,
+            )
+            return destinations
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.destination_links._resolve_destinations",
+            side_effect=pause_after_resolving,
+        ):
+            response = self.client.patch(self.source_url, {"destination_ids": [str(self.destination.id)]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.destination.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.HEALTHY
+        assert self.destination.consecutive_configuration_failures == 0
+        assert (
+            ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .get(source=self.source, destination=self.destination)
+            .enabled
+        )
+
     def test_an_unknown_destination_is_rejected(self) -> None:
         response = self.client.patch(self.source_url, {"destination_ids": ["00000000-0000-0000-0000-000000000000"]})
 
@@ -555,3 +834,67 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
         body = self.client.get(self.schema_url).json()
         assert body["inherits_from_source"] is False
         assert body["destination_ids"] == [str(other.id)]
+
+
+@pytest.mark.ee
+class TestDestinationResumeAccessControl(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.editor = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
+        membership = self.organization.memberships.get(user=self.editor)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.hidden_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="hidden",
+            connection_id="hidden-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=self.hidden_source, name="hidden_table")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(self.hidden_source.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.destination = self._create_destination()
+        self.hidden_link = ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.hidden_source, destination=self.destination, enabled=False
+        )
+        ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+            status=ExternalDataDestination.Status.PAUSED
+        )
+        self.client.force_login(self.editor)
+
+    @parameterized.expand([("edit",), ("select_on_source",), ("select_on_table",)])
+    def test_resuming_requires_editor_access_to_every_wired_table(self, action: str) -> None:
+        if action == "edit":
+            response = self.client.patch(f"{self.base}/{self.destination.id}", {"name": "fixed"})
+        elif action == "select_on_source":
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_sources/{self.source.id}/destinations",
+                {"destination_ids": [str(self.destination.id)]},
+            )
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_schemas/{self.schema.id}/destinations",
+                {"destination_ids": [str(self.destination.id)]},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.destination.refresh_from_db()
+        self.hidden_link.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.PAUSED
+        assert self.hidden_link.enabled is False

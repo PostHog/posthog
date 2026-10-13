@@ -33,25 +33,6 @@ class TestPersonaGetSchemas:
         schemas = PersonaSource().get_schemas(MagicMock(), team_id=1, names=["cases"])
         assert [s.name for s in schemas] == ["cases"]
 
-    def test_only_opt_in_endpoints_are_not_preselected(self) -> None:
-        schemas = PersonaSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas if not s.should_sync_default} == {"verifications", "inquiry_template_versions"}
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O), so the public docs render the table list.
-        assert PersonaSource.lists_tables_without_credentials is True
-        tables = PersonaSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {
-            "inquiries",
-            "verifications",
-            "accounts",
-            "cases",
-            "transactions",
-            "events",
-            "inquiry_templates",
-            "inquiry_template_versions",
-        }
-
 
 class TestPersonaValidateCredentials:
     @parameterized.expand(

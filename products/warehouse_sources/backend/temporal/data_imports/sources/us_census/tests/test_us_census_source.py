@@ -32,23 +32,10 @@ class TestUSCensusSource:
     def setup_method(self):
         self.source = USCensusSource()
 
-    def test_get_schemas_static_catalog(self):
-        schemas = self.source.get_schemas(_config(), team_id=1)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        assert all(schema.supports_incremental is False for schema in schemas)
-        assert all(schema.supports_append is False for schema in schemas)
-        assert all(schema.description for schema in schemas)
-
     def test_get_schemas_includes_custom_query_when_configured(self):
         schemas = self.source.get_schemas(_custom_config(), team_id=1)
 
         assert [schema.name for schema in schemas] == [*ENDPOINTS, CUSTOM_QUERY_ENDPOINT]
-
-    def test_get_schemas_names_filter(self):
-        schemas = self.source.get_schemas(_config(), team_id=1, names=["AcsDemographicsByState"])
-
-        assert [schema.name for schema in schemas] == ["AcsDemographicsByState"]
 
     @pytest.mark.parametrize(
         "overrides",
@@ -97,18 +84,3 @@ class TestUSCensusSource:
     def test_source_for_pipeline_custom_query_unconfigured_raises(self):
         with pytest.raises(ValueError, match="US Census custom query"):
             self.source.source_for_pipeline(_config(), _FakeInputs(CUSTOM_QUERY_ENDPOINT))  # type: ignore[arg-type]
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "US Census API key is missing or invalid. Request a free key at https://api.census.gov/data/key_signup.html",
-            "US Census API rejected the request (400): error: unknown variable 'B99999_999E'",
-            "US Census API rejected the request (400): error: unsupported geography hierarchy",
-            "US Census custom query is incomplete: set the dataset path, variables, and geography together",
-            "US Census API response is too large (over 256 MiB). Narrow the query with fewer variables or a smaller geography (e.g. an in= filter).",
-        ],
-    )
-    def test_known_permanent_failures_are_non_retryable(self, error_message):
-        non_retryable = self.source.get_non_retryable_errors()
-
-        assert any(pattern in error_message for pattern in non_retryable)

@@ -197,6 +197,11 @@ impl GrpcTransport {
         self.assignment_epoch = epoch;
     }
 
+    /// The most sub-batches one worker stream keeps un-acked.
+    pub fn max_unacked(&self) -> usize {
+        self.max_unacked
+    }
+
     /// The assignment epoch this transport stamps on sub-batches.
     pub fn assignment_epoch(&self) -> AssignmentEpoch {
         self.assignment_epoch.clone()

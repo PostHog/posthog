@@ -1,4 +1,4 @@
-import { fireEvent, render, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import { TraceWaterfallView } from './TraceWaterfallView'
 import type { Span } from './types'
@@ -105,7 +105,15 @@ describe('TraceWaterfallView', () => {
         expect(within(container).queryByLabelText('Collapse all spans')).toBeNull()
     })
 
-    it('puts spans whose parent is not loaded under one parent span missing row, which selects the missing id', () => {
+    it('does not show a parent span missing row for a root span with the all-zero parent id', () => {
+        const zeroParentRoot = { ...root, parent_span_id: '0000000000000000' }
+        const { container } = render(<TraceWaterfallView spans={[zeroParentRoot, child]} />)
+
+        expect(container.querySelectorAll('[data-row-key^="missing-parent-"]')).toHaveLength(0)
+        expect(within(container).queryByText('<parent span missing>')).toBeNull()
+    })
+
+    it('puts spans whose parent is not loaded under one parent span missing row, which selects the missing id', async () => {
         const onSpanSelect = jest.fn()
         const sibling = makeSpan({
             uuid: 'uuid-sibling',
@@ -116,6 +124,12 @@ describe('TraceWaterfallView', () => {
         const { container } = render(<TraceWaterfallView spans={[child, sibling]} onSpanSelect={onSpanSelect} />)
 
         expect(container.querySelectorAll('[data-row-key^="missing-parent-"]')).toHaveLength(1)
+        const missingLabel = within(container).getAllByText('<parent span missing>')[0]
+        fireEvent.pointerEnter(missingLabel, { pointerType: 'mouse' })
+        fireEvent.mouseEnter(missingLabel)
+        fireEvent.mouseMove(missingLabel)
+        expect(await screen.findByText('span span-root not found', undefined, { timeout: 2000 })).toBeTruthy()
+
         clickSpanRow(container, '<parent span missing>')
         expect(onSpanSelect).toHaveBeenCalledWith('span-root')
 

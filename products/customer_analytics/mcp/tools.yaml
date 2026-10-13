@@ -806,8 +806,9 @@ tools:
         list: true
         title: List customer tasks
         description: >
-            List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, or user
-            ID), comma-separated statuses, deadline, or archive state. Active tasks are returned by default.
+            List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, a user
+            ID, or role:<role UUID> for tasks assigned to any current member of that role), comma-separated statuses,
+            deadline, or archive state. Active tasks are returned by default. Use roles-list to find role UUIDs.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-partial-update:
         operation: customer_tasks_partial_update

@@ -8,9 +8,9 @@ import { urls } from 'scenes/urls'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { todayReportLogic } from './todayReportLogic'
-import { TodayReportSectionTitle } from './TodayReportSectionTitle'
 import { TodayReportSignalRow } from './TodayReportSignalRow'
 import { isSampleReportId } from './todaySampleReports'
+import { TodaySectionTitle } from './TodaySectionTitle'
 
 function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
     const { shownEvidence } = useValues(todayReportLogic({ reportId }))
@@ -38,7 +38,7 @@ export function TodayReportEvidence({ report }: { report: SignalReport }): JSX.E
     return (
         <section className="flex flex-col gap-0.5" aria-label="Evidence" data-attr="today-report-evidence">
             <div className="flex items-baseline justify-between gap-3">
-                <TodayReportSectionTitle>Evidence</TodayReportSectionTitle>
+                <TodaySectionTitle>Evidence</TodaySectionTitle>
                 {showsSeeAll && (
                     <Button
                         variant="link-muted"

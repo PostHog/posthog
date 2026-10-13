@@ -26,12 +26,12 @@ import type { WarehouseStatusResponseApi } from 'products/data_warehouse/fronten
 import type { WarehouseStatusResponseStateEnumApi } from '../../../generated/api.schemas'
 
 // The warehouse name becomes the connection's SNI subdomain (a DNS-1123 label), so it
-// mirrors the backend validator in products/data_warehouse/backend/api/managed_warehouse.py:
+// mirrors the backend validator in products/managed_warehouse/backend/presentation/views.py:
 // 3-63 chars, lowercase alphanumerics and hyphens, starting/ending alphanumeric (no underscores).
 const WAREHOUSE_NAME_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/
 
 // DNS zone the connection host lives under, selected by deployment region. Mirrors
-// _MANAGED_WAREHOUSE_DOMAINS in products/data_warehouse/backend/api/managed_warehouse.py.
+// _MANAGED_WAREHOUSE_DOMAINS in products/managed_warehouse/backend/presentation/views.py.
 const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
     [Region.US]: 'us.postwh.com',
     [Region.EU]: 'eu.postwh.com',
@@ -712,7 +712,17 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 // Keep polling while teardown is in flight, and while the org record still needs
                 // removing (`deleted`) so a failed delete-org retries on the next tick. A
                 // successful delete-org 404s the next read, which falls through to stopPolling.
-                if (state === 'pending' || state === 'provisioning' || state === 'deleting' || state === 'deleted') {
+                // The trino block is only present for the Trino variant, where the warehouse is
+                // usable once Trino is ready too.
+                const trinoState = warehouseStatus?.trino?.state
+                const trinoSettingUp = state === 'ready' && (trinoState === 'pending' || trinoState === 'provisioning')
+                if (
+                    state === 'pending' ||
+                    state === 'provisioning' ||
+                    state === 'deleting' ||
+                    state === 'deleted' ||
+                    trinoSettingUp
+                ) {
                     actions.pollStatus()
                 } else {
                     actions.stopPolling()

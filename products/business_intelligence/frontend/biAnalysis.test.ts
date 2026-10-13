@@ -20,6 +20,72 @@ const config: BIConfig = {
 }
 
 describe('BI analysis queries', () => {
+    it.each(['gap', 'zero'] as const)(
+        'fills %s dates on direct connections before calculating windows',
+        (missingDates) => {
+            const source = { table: 'orders', connectionId: 'connection' }
+            const date = { ...field('created_at', 'datetime'), source, dateBucket: 'day' as const }
+            const worksheet: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                source,
+                dateField: date,
+                rows: [date],
+                columns: [{ ...field('region'), source }],
+                values: [
+                    {
+                        field: { ...field('amount', 'float'), source },
+                        aggregation: 'sum',
+                        tableCalculation: { type: 'moving_average', window: 3 },
+                    },
+                ],
+                chartType: ChartDisplayType.ActionsTable,
+                missingDates,
+                dateRange: { date_from: '2026-01-01', date_to: '2026-01-03' },
+            }
+            const query = buildBIQuery(worksheet)!.query
+            expect(query).not.toContain('WITH FILL')
+            expect(query).toContain('bi_dates CROSS JOIN bi_series LEFT JOIN bi_observed')
+            expect(query).toContain('bi_observed.bi_column_region IS NULL AND bi_series.bi_column_region IS NULL')
+            expect(query).toContain(
+                `if(bi_observed.bi_present = 1, toFloat(bi_observed.sum_amount), ${missingDates === 'zero' ? '0' : 'NULL'})`
+            )
+            expect(query).toContain('< {filters.dateRange.to}')
+            expect(query).toContain('FROM bi_current_filled')
+            expect(
+                buildBIQuery({ ...worksheet, dateRange: { date_from: '1800-01-01', date_to: '2026-01-01' } })!.query
+            ).not.toContain('bi_digits')
+        }
+    )
+    it.each(['gap', 'zero'] as const)(
+        'fills %s date buckets separately in each period before window calculations',
+        (missingDates) => {
+            const worksheet: BIConfig = {
+                ...config,
+                chartType: ChartDisplayType.ActionsLineGraph,
+                missingDates,
+                dateRange: { date_from: '-7d' },
+                compareFilter: { compare: true },
+                values: [
+                    {
+                        ...config.values[0],
+                        tableCalculation: { type: 'moving_average', window: 3, requireFullWindow: true },
+                    },
+                ],
+            }
+            const parsed = parseBIEditorState(BIEditorView.BI, worksheet)!.config
+            expect(parsed.missingDates).toBe(missingDates)
+            expect(parsed.values[0].tableCalculation?.requireFullWindow).toBe(true)
+            const query = buildBIQuery(parsed)!.query
+            expect(query).toContain('bi_current_filled AS')
+            expect(query).toContain('bi_previous_filled AS')
+            expect(query).toContain('FROM toStartOfDay({filters.dateRange.from})')
+            expect(query).toContain('ORDER BY bi_column_event ASC, bi_row_timestamp ASC WITH FILL')
+            expect(query).toContain('2 PRECEDING AND CURRENT ROW) = 3')
+            expect(query.indexOf('bi_current_filled AS')).toBeLessThan(query.indexOf('bi_calculated AS'))
+            expect(query.includes('INTERPOLATE (sum_properties_amount AS 0)')).toBe(missingDates === 'zero')
+            expect(buildBIQuery({ ...worksheet, dateRange: { date_from: 'all' } })!.query).not.toContain('WITH FILL')
+        }
+    )
     it.each([false, true])(
         'filters aggregated and calculated results before the final limit (comparison: %s)',
         (compare) => {
@@ -143,7 +209,10 @@ describe('BI analysis queries', () => {
         expect(result.query).toContain("['1', 'Other']")
         expect(result.query).toContain("' (category)'")
         expect(result.query).not.toMatch(/sum\((average|count_distinct)/)
-        expect(result.query).toContain('grouping(bi_row_timestamp, bi_column_event)')
+        expect(result.query).toContain('grouping(toStartOfDay(timestamp), if((event IN (SELECT bi_key FROM bi_top)')
+        expect(buildBIQuery({ ...worksheet, topN: undefined, totals: undefined })!.query).toContain(
+            "startsWith(toString(bi_column_event), 'Total')"
+        )
         expect(parseBIEditorState(BIEditorView.BI, worksheet)?.config.topN).toEqual(worksheet.topN)
         expect(parseBIEditorState(BIEditorView.BI, worksheet)?.config.totals).toEqual(worksheet.totals)
     })
@@ -169,7 +238,7 @@ describe('BI analysis queries', () => {
         expect(probe.query).toMatch(/LIMIT 101$/)
     })
 
-    it('probes beyond the combined comparison limit without changing the saved query', () => {
+    it('limits complete comparison groups and probes one extra group without changing the saved query', () => {
         const worksheet: BIConfig = {
             ...config,
             limit: 100,
@@ -178,11 +247,12 @@ describe('BI analysis queries', () => {
         }
         const saved = buildBIQuery(worksheet)!
         const probe = buildBIQuery(worksheet, true)!
-        expect(saved.query).toMatch(/^SELECT \* FROM \(/)
-        expect(saved.query).toMatch(/\)\) LIMIT 100$/)
+        expect(saved.query).toContain('bi_comparison_rank <= 50')
+        expect(saved.query).toMatch(/LIMIT 100$/)
         expect(probe.query).toContain('UNION ALL')
-        expect(probe.query.match(/LIMIT 101/g)).toHaveLength(3)
-        expect(probe.query).toMatch(/\)\) LIMIT 101$/)
+        expect(probe.query.match(/LIMIT /g)).toHaveLength(1)
+        expect(probe.query).toContain('bi_comparison_rank <= 51')
+        expect(probe.query).toMatch(/LIMIT 102$/)
     })
 
     it.each([undefined, '-1y'])(

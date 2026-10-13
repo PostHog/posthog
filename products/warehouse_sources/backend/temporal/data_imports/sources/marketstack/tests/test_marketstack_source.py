@@ -1,65 +1,45 @@
-from datetime import date
-from typing import Any
-
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
+    MarketstackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
     MARKETSTACK_API_VERSION_V1,
     MARKETSTACK_API_VERSION_V2,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
 
-_TIME_SERIES = {"eod", "intraday", "splits", "dividends"}
-_REFERENCE = {"tickers", "exchanges", "currencies", "timezones"}
 
-
-def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> Any:
-    config = MagicMock()
-    config.access_key = access_key
-    config.symbols = symbols
-    return config
+def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> MarketstackSourceConfig:
+    return MarketstackSourceConfig(access_key=access_key, symbols=symbols)
 
 
 class TestMarketstackSource:
-    def test_source_config_fields(self) -> None:
-        config = MarketstackSource().get_source_config
-        assert [f.name for f in config.fields] == ["access_key", "symbols"]
-
-        access_key_field = config.fields[0]
-        assert isinstance(access_key_field, SourceFieldInputConfig)
-        # The access key is a secret credential, so it must render as a password input.
-        assert access_key_field.type == "password"
-        assert access_key_field.secret is True
-        assert access_key_field.required is True
-
-        symbols_field = config.fields[1]
-        assert isinstance(symbols_field, SourceFieldInputConfig)
-        # Symbols are only needed for the time-series tables, so the field is optional.
-        assert symbols_field.required is False
-        assert symbols_field.secret is False
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = MarketstackSource().get_schemas(_make_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_marks_only_time_series_incremental(self) -> None:
-        schemas = {s.name: s for s in MarketstackSource().get_schemas(_make_config(), team_id=1)}
-        for name in _TIME_SERIES:
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
-        for name in _REFERENCE:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = MarketstackSource().get_schemas(_make_config(), team_id=1, names=["eod", "exchanges"])
         assert {s.name for s in schemas} == {"eod", "exchanges"}
+
+    @parameterized.expand(
+        [
+            ("legacy_v1_pin_hides_v2_only_tables", MARKETSTACK_API_VERSION_V1, False),
+            ("v2_pin_lists_v2_only_tables", MARKETSTACK_API_VERSION_V2, True),
+            ("no_pin_resolves_to_v2", None, True),
+        ]
+    )
+    def test_get_schemas_lists_v2_only_tables_by_pin(self, _name: str, pin: str | None, expected: bool) -> None:
+        names = {s.name for s in MarketstackSource().get_schemas(_make_config(), team_id=1, api_version=pin)}
+        assert "eod" in names
+        assert (
+            {"tickerinfo", "companyratings", "submissions"} <= names
+            if expected
+            else not ({"tickerinfo", "companyratings", "submissions"} & names)
+        )
 
     @parameterized.expand(
         [
@@ -81,32 +61,21 @@ class TestMarketstackSource:
         assert probe.call_args.args[1] == MARKETSTACK_API_VERSION_V2
 
     def test_source_for_pipeline_plumbs_symbols_and_keys(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "eod"
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2021-04-09"
-        inputs.api_version = MARKETSTACK_API_VERSION_V2
+        result = SourceDriver(MarketstackSource(), _make_config("abc", "AAPL,MSFT")).run(
+            "eod",
+            [ScriptedResponse(json={"data": [], "pagination": {"total": 0}})],
+            db_incremental_field_last_value="2021-04-09",
+            should_use_incremental_field=True,
+            api_version=MARKETSTACK_API_VERSION_V2,
+        )
 
-        response = MarketstackSource().source_for_pipeline(_make_config("abc", "AAPL,MSFT"), MagicMock(), inputs)
-
-        assert response.name == "eod"
-        assert response.primary_keys == ["symbol", "exchange", "date"]
-
-    def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "tickers"
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "should-be-ignored"
-        inputs.api_version = MARKETSTACK_API_VERSION_V2
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source.marketstack_source"
-        ) as mocked:
-            MarketstackSource().source_for_pipeline(_make_config(), MagicMock(), inputs)
-        # A full-refresh run must never forward a stale watermark to the transport.
-        assert mocked.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "eod"
+        assert result.response.primary_keys == ["symbol", "exchange", "date"]
+        assert result.requests[0].param("symbols") == "AAPL,MSFT"
+        assert result.requests[0].param("access_key") == "abc"
+        assert result.requests[0].param("date_from") == "2021-04-09"
 
     @parameterized.expand(
         [
@@ -116,28 +85,12 @@ class TestMarketstackSource:
         ]
     )
     def test_source_for_pipeline_threads_resolved_version(self, _name: str, pin: str | None, expected: str) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "eod"
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pin
+        result = SourceDriver(MarketstackSource(), _make_config()).run(
+            "eod", [ScriptedResponse(json={"data": [], "pagination": {"total": 0}})], api_version=pin
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source.marketstack_source"
-        ) as mocked:
-            MarketstackSource().source_for_pipeline(_make_config(), MagicMock(), inputs)
-        assert mocked.call_args.kwargs["api_version"] == expected
-
-    def test_version_metadata_declares_v1_deprecation(self) -> None:
-        source = MarketstackSource()
-        assert source.supported_versions == (MARKETSTACK_API_VERSION_V1, MARKETSTACK_API_VERSION_V2)
-        assert source.default_version == MARKETSTACK_API_VERSION_V2
-        # The deprecated v1 carries the vendor's announced sunset date; the generic banner reads it.
-        deprecation = source.get_version_deprecation(MARKETSTACK_API_VERSION_V1)
-        assert deprecation is not None
-        assert deprecation.sunset_at == date(2025, 6, 30)
-        # The current default must never be flagged deprecated.
-        assert source.get_version_deprecation(MARKETSTACK_API_VERSION_V2) is None
+        assert result.raised is None
+        assert result.requests[0].path == f"/{expected}/eod"
 
     @parameterized.expand(
         [
@@ -152,10 +105,3 @@ class TestMarketstackSource:
         errors = MarketstackSource().get_non_retryable_errors()
         assert expected_key in errors
         assert errors[expected_key]
-
-    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
-        descriptions = MarketstackSource().get_canonical_descriptions()
-        # Every documented entry must map to a real endpoint or the docs render orphaned tables.
-        assert set(descriptions.keys()) <= set(ENDPOINTS)
-        assert "eod" in descriptions
-        assert "tickers" in descriptions

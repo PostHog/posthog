@@ -353,8 +353,6 @@
     --color-product-llm-clusters-light: rgb(108 93 238);
     --color-product-llm-datasets-light: rgb(121 87 235);
     --color-product-llm-evaluations-light: rgb(135 81 232);
-    --color-product-ai-gateway-light: rgb(99 102 241);
-    --color-product-ai-gateway-dark: rgb(129 140 248);
     --color-product-mcp-analytics-light: rgb(150 76 229);
     --color-product-mcp-analytics-dark: rgb(181 124 249);
     --color-product-notebooks-light: rgb(239 68 68);
@@ -1231,6 +1229,14 @@
         &::-webkit-search-results-decoration {
             display: none;
         }
+    }
+
+    // Icons that use a clip path share its id across every copy on the page, and the browser uses the first copy.
+    // If that copy sits in a `visibility: hidden` container (a closed drawer), the clip path inherits it and every
+    // copy of the icon goes blank. A clip path is never drawn by itself, so keeping it visible changes nothing else.
+    clipPath,
+    clipPath * {
+        visibility: visible;
     }
 
     a:focus-visible,

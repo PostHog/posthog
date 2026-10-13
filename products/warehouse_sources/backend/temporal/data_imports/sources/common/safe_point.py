@@ -22,6 +22,7 @@ from contextvars import ContextVar
 from posthog.dataclasses import frozen
 
 SafePointHook = Callable[[], None]
+ShutdownSignal = Callable[[], bool]
 
 
 @frozen
@@ -31,6 +32,9 @@ class _ActiveSafePoint:
     # when the framework's own generator is what the pipeline iterates. A source that wraps it could
     # buffer rows between the two, and the framework cannot see that buffer.
     covers_framework_checkpoints: bool
+    # Tells a wait that the worker is shutting down. The pipeline sets it only for a run that it
+    # hands to another worker at the next item or safe point, so a wait may end early for it.
+    is_shutting_down: ShutdownSignal | None
 
 
 _active_safe_point: ContextVar[_ActiveSafePoint | None] = ContextVar("warehouse_source_safe_point", default=None)
@@ -38,10 +42,16 @@ _safe_points_held: ContextVar[bool] = ContextVar("warehouse_source_safe_points_h
 
 
 @contextmanager
-def activate_safe_point(hook: SafePointHook, *, covers_framework_checkpoints: bool) -> Iterator[None]:
+def activate_safe_point(
+    hook: SafePointHook, *, covers_framework_checkpoints: bool, is_shutting_down: ShutdownSignal | None = None
+) -> Iterator[None]:
     """Install `hook` for code that runs in this context, including source threads started in it."""
     token = _active_safe_point.set(
-        _ActiveSafePoint(hook=hook, covers_framework_checkpoints=covers_framework_checkpoints)
+        _ActiveSafePoint(
+            hook=hook,
+            covers_framework_checkpoints=covers_framework_checkpoints,
+            is_shutting_down=is_shutting_down,
+        )
     )
     try:
         yield
@@ -80,3 +90,9 @@ def reach_framework_safe_point() -> None:
     """The REST framework's safe point, which applies only when nothing wraps the framework's output."""
     if framework_checkpoints_are_covered():
         reach_safe_point()
+
+
+def shutdown_signal() -> ShutdownSignal | None:
+    """The signal a wait polls to end early, or None when no run that can hand off is active."""
+    active = _active_safe_point.get()
+    return None if active is None else active.is_shutting_down

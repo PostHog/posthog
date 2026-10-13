@@ -29,7 +29,10 @@ export function SavedInsight({
     attachTo,
     editMode,
 }: InsightProps): JSX.Element {
-    const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId }
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: propsQuery.shortId,
+        retainResponseOnUnmount: context?.insightProps?.retainResponseOnUnmount,
+    }
     const { insight, insightLoading, insightMissing } = useValues(insightLogic(insightProps))
     const { query: dataQuery } = useValues(insightDataLogic(insightProps))
 
@@ -60,6 +63,7 @@ export function SavedInsight({
 
     return (
         <Query
+            attachTo={attachTo}
             query={query}
             cachedResults={insight}
             context={{ ...context, insightProps }}

@@ -101,13 +101,13 @@ describe('navProductsTabLogic', () => {
                 href: '/ai',
                 visualOrder: 1,
             },
-            { path: 'AI gateway', category: 'AI engineering', href: '/ai-gateway' },
+            { path: 'Evaluations', category: 'AI engineering', href: '/ai-evals/evaluations' },
             { path: 'Logs', category: 'Monitoring', href: '/logs' },
         ]
         const groups = groupProducts(items, '')
         expect(groups.map((group) => [group.label, group.items.map(productsItemName)])).toEqual([
             ['Analytics', ['Web analytics']],
-            ['AI engineering', ['AI gateway', 'AI observability']],
+            ['AI engineering', ['AI observability', 'Evaluations']],
             ['Monitoring', ['Logs']],
             ['Unreleased', ['Pulse']],
         ])
@@ -319,8 +319,13 @@ describe('navProductsTabLogic', () => {
             { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
         ])
         navProductsTabLogic.actions.openStarredSetup()
+        navProductsTabLogic.actions.setDraftStarred('Logs', true)
+        expect(navProductsTabLogic.values.hasDraftStarredChanges).toBe(true)
+        navProductsTabLogic.actions.setDraftStarred('Logs', false)
+        expect(navProductsTabLogic.values.hasDraftStarredChanges).toBe(false)
 
         navProductsTabLogic.actions.unselectAllStarred()
+        expect(navProductsTabLogic.values.hasDraftStarredChanges).toBe(true)
         navProductsTabLogic.actions.setDraftStarred('Logs', true)
         expect([...navProductsTabLogic.values.draftStarredPaths]).toEqual(['Logs'])
 

@@ -3,8 +3,10 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
+from posthog.enums import LabeledStrEnum
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.comparison.platform_history import (
@@ -23,6 +25,10 @@ WINDOW = (OCCURRED_AT - timedelta(hours=1), OCCURRED_AT + timedelta(hours=1))
 
 def _key(window_end: str) -> str:
     return f"slot:{OCCURRED_AT.isoformat()}|window:{window_end}"
+
+
+class _LogsOnlySourceKind(LabeledStrEnum):
+    LOGS = "logs", "Logs"
 
 
 class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
@@ -119,7 +125,12 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
         # the first insight comparison concludes the parallel run is quiet.
         since, until = WINDOW
 
-        with pytest.raises(UnregisteredSource):
+        # Every contract kind is registered today, so the model is narrowed to logs to stand in for
+        # the next source whose contract member lands before its model choice.
+        with (
+            patch.object(PlatformAlertConfiguration, "SourceKind", _LogsOnlySourceKind),
+            pytest.raises(UnregisteredSource),
+        ):
             read_platform_checks(team_id=self.team.id, source=SourceKind.INSIGHT, since=since, until=until)
 
     def test_only_teams_holding_a_configuration_for_the_source_are_worth_sweeping(self) -> None:

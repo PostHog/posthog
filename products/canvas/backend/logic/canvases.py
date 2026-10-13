@@ -1,6 +1,6 @@
 """Canvas records: list, read, create, update, delete, and the home canvas."""
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -13,7 +13,6 @@ import structlog
 from posthog.models.user import User
 
 from products.canvas.backend.facade.contracts import (
-    CanvasAccessDeniedError,
     CanvasFieldChange,
     CanvasNotFoundError,
     CanvasRecord,
@@ -27,7 +26,7 @@ from products.canvas.backend.models import Canvas, CanvasHomePreference
 from products.canvas.backend.welcome import seed_home_canvas
 
 if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -44,24 +43,13 @@ def canvas_row(team_id: int, canvas_id: UUID | str) -> Canvas:
     return Canvas.objects.unscoped().select_related(*_RECORD_RELATIONS).get(team_id=team_id, id=canvas_id)
 
 
-def check_object_access(
-    canvas: Canvas, user_access_control: "UserAccessControl | None", required_level: str | None
-) -> None:
-    """The object-level access-control check that `get_object` runs for a model viewset."""
-    if user_access_control is None or required_level is None:
-        return
-    if not user_access_control.check_access_level_for_object(
-        canvas, required_level=cast("AccessControlLevel", required_level)
-    ):
-        raise CanvasAccessDeniedError(required_level)
-
-
 def _listing(
     viewer: CanvasViewer,
     *,
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet[Canvas]:
@@ -82,6 +70,12 @@ def _listing(
         queryset = queryset.filter(kind=kind)
     if search:
         queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+    if created_by:
+        try:
+            created_by = str(UUID(created_by))
+        except ValueError:
+            return queryset.none()
+        queryset = queryset.filter(created_by__uuid=created_by)
     return queryset
 
 
@@ -91,6 +85,7 @@ def count_canvases(
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None = None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> int:
@@ -99,6 +94,7 @@ def count_canvases(
         channel_id=channel_id,
         kind=kind,
         search=search,
+        created_by=created_by,
         user_access_control=user_access_control,
         include_all_if_admin=include_all_if_admin,
     ).count()
@@ -110,6 +106,7 @@ def list_canvases(
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None = None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
     offset: int,
@@ -122,6 +119,7 @@ def list_canvases(
         channel_id=channel_id,
         kind=kind,
         search=search,
+        created_by=created_by,
         user_access_control=user_access_control,
         include_all_if_admin=include_all_if_admin,
     ).select_related(*_RECORD_RELATIONS)
@@ -130,22 +128,14 @@ def list_canvases(
     return [canvas_record(canvas) for canvas in rows[offset : offset + limit]]
 
 
-def get_canvas(
-    viewer: CanvasViewer,
-    access: CanvasAccess,
-    canvas_id: UUID | str,
-    *,
-    user_access_control: "UserAccessControl | None",
-    required_level: str | None,
-) -> CanvasRecord:
-    """The canvas, or CanvasNotFoundError when `access` cannot reach it, or CanvasAccessDeniedError."""
+def get_canvas(viewer: CanvasViewer, access: CanvasAccess, canvas_id: UUID | str) -> CanvasRecord:
+    """The canvas, or CanvasNotFoundError when `access` cannot reach it."""
     try:
         canvas = authorized_canvases(viewer, access).select_related(*_RECORD_RELATIONS).filter(id=canvas_id).first()
     except (ValueError, ValidationError):
         canvas = None
     if canvas is None:
         raise CanvasNotFoundError
-    check_object_access(canvas, user_access_control, required_level)
     return canvas_record(canvas)
 
 

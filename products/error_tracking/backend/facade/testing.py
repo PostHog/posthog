@@ -33,8 +33,11 @@ def create_issue(
     status: ErrorTrackingIssueStatus = ErrorTrackingIssueStatus.ACTIVE,
     severity: str | None = None,
     created_at: datetime | None = None,
+    description: str | None = None,
 ) -> UUID:
-    issue = ErrorTrackingIssue.objects.create(team_id=team_id, name=name, status=status, severity=severity)
+    issue = ErrorTrackingIssue.objects.create(
+        team_id=team_id, name=name, status=status, severity=severity, description=description
+    )
     if created_at is not None:
         # created_at is auto_now_add, so it can only be set after the insert.
         ErrorTrackingIssue.objects.filter(id=issue.id).update(created_at=created_at)

@@ -9,10 +9,14 @@ import pyarrow as pa
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from snowflake.connector.errors import DatabaseError, HttpError, OperationalError
+from snowflake.connector.errors import DatabaseError, HttpError, OperationalError, ProgrammingError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -23,8 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
+    _SNOWFLAKE_LOGIN_TIMEOUT_SECONDS,
     _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
     _SNOWFLAKE_QUERY_TIMEOUT_SECONDS,
+    _SNOWFLAKE_ROW_COUNT_TIMEOUT_SECONDS,
     SnowflakeImplementation,
     SnowflakeResumeState,
     _batch_checkpoint,
@@ -421,6 +427,7 @@ class TestConnect:
             mock_connect.return_value.__enter__.return_value = MagicMock()
             with impl.connect(_make_config()):
                 pass
+            assert mock_connect.call_args.kwargs["login_timeout"] == _SNOWFLAKE_LOGIN_TIMEOUT_SECONDS
             network_timeout = mock_connect.call_args.kwargs["network_timeout"]
             # A finite, positive bound is the invariant. `0` reads as infinite to the connector, so
             # guard that explicitly — equality alone can't catch the constant regressing to `0`.
@@ -666,14 +673,35 @@ class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):
         cursor.fetchone.return_value = (321,)
         assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 321
-        # The COUNT(*) probe scans the same table, so it carries the same long per-query timeout —
-        # otherwise a large table trips the connector timebomb and the probe spuriously logs a 604.
-        assert cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_QUERY_TIMEOUT_SECONDS
+        # The count runs before the first row on each attempt, so it must not get the long limit
+        # of the read.
+        assert cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_ROW_COUNT_TIMEOUT_SECONDS
 
-    def test_returns_zero_on_exception(self, impl, cursor, logger):
+    @pytest.mark.parametrize(
+        "error, expect_capture",
+        [
+            (RuntimeError("boom"), True),
+            # The connector's error when the count reaches its `timeout`.
+            (
+                ProgrammingError(
+                    msg="SQL execution was cancelled by the client due to a timeout. "
+                    "Error message received from the server: SQL execution canceled",
+                    errno=604,
+                    sqlstate="57014",
+                ),
+                False,
+            ),
+        ],
+        ids=["unexpected_error", "count_past_its_limit"],
+    )
+    def test_returns_zero_on_exception(self, impl, cursor, logger, error, expect_capture):
         # Sync must never bail because the COUNT(*) probe failed
-        cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 0
+        cursor.execute.side_effect = error
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 0
+        assert mock_capture.called is expect_capture
 
 
 # ---------------------------------------------------------------------------
@@ -1210,6 +1238,8 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Client-side query-timeout cancellation should be classified retryable: {error_msg}"
+        # The read query reaches the same error at its own limit, and that must not stop the sync.
+        assert not error_message_matches(error_msg, {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
 
 class TestSnowflakeValidateCredentials:

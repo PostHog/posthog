@@ -38,6 +38,7 @@ KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
     "materials": KatanaEndpointConfig(name="materials", path="/materials", incremental_fields=_UPDATED_AND_CREATED),
     "variants": KatanaEndpointConfig(name="variants", path="/variants", incremental_fields=_UPDATED_AND_CREATED),
     "services": KatanaEndpointConfig(name="services", path="/services", incremental_fields=_UPDATED_AND_CREATED),
+    "bom_rows": KatanaEndpointConfig(name="bom_rows", path="/bom_rows", incremental_fields=_UPDATED_AND_CREATED),
     # --- Partners ---
     "customers": KatanaEndpointConfig(name="customers", path="/customers", incremental_fields=_UPDATED_AND_CREATED),
     "suppliers": KatanaEndpointConfig(name="suppliers", path="/suppliers", incremental_fields=_UPDATED_AND_CREATED),
@@ -53,6 +54,9 @@ KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
     ),
     "sales_returns": KatanaEndpointConfig(
         name="sales_returns", path="/sales_returns", incremental_fields=_UPDATED_AND_CREATED
+    ),
+    "sales_order_fulfillments": KatanaEndpointConfig(
+        name="sales_order_fulfillments", path="/sales_order_fulfillments", incremental_fields=_UPDATED_AND_CREATED
     ),
     # --- Order line items ---
     "sales_order_rows": KatanaEndpointConfig(
@@ -70,6 +74,14 @@ KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
         name="manufacturing_order_productions",
         path="/manufacturing_order_productions",
         incremental_fields=_UPDATED_AND_CREATED,
+    ),
+    "manufacturing_order_operation_rows": KatanaEndpointConfig(
+        name="manufacturing_order_operation_rows",
+        path="/manufacturing_order_operation_rows",
+        incremental_fields=_UPDATED_AND_CREATED,
+    ),
+    "sales_return_rows": KatanaEndpointConfig(
+        name="sales_return_rows", path="/sales_return_rows", incremental_fields=_UPDATED_AND_CREATED
     ),
     # --- Stock movements ---
     "stock_adjustments": KatanaEndpointConfig(

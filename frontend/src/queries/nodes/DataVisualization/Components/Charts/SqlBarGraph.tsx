@@ -107,6 +107,7 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         }
                         onError={handleChartError}
                     >
+                        {props.children}
                         {props.showAnnotations && props.insightNumericId && (
                             <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
                         )}

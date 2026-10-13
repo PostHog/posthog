@@ -49,6 +49,7 @@ import {
 } from "../../acp-extensions";
 import type { ModelInfo } from "../../gateway-models";
 import { DEFAULT_CODEX_MODEL } from "../../gateway-models";
+import { isTaskRunSandbox } from "../../server/memory-watchdog";
 import type { ProcessSpawnedCallback } from "../../types";
 import { ALLOW_BYPASS } from "../../utils/common";
 import { Logger } from "../../utils/logger";
@@ -92,6 +93,7 @@ import {
 } from "./mapping";
 import { toCodexMcpServers } from "./mcp-config";
 import { McpManager } from "./mcp-manager";
+import { getMemoryKillHookTrust } from "./memory-kill-hook";
 import {
   APP_SERVER_METHODS,
   APP_SERVER_NOTIFICATIONS,
@@ -109,7 +111,11 @@ import {
   type CodexAppServerProcessOptions,
   spawnCodexAppServerProcess,
 } from "./spawn";
-import { parseStructuredOutput } from "./structured-output";
+import {
+  parseStructuredOutput,
+  stripSyntheticNulls,
+  toStrictOutputSchema,
+} from "./structured-output";
 import { TurnController } from "./turn-controller";
 import { mergeUsage, UsageTracker } from "./usage-tracker";
 
@@ -579,6 +585,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       { gatePosthogExec: true },
     );
     const config = buildThreadConfig(mcpServers, this.additionalDirectories);
+    if (config && localTools && cwd && isTaskRunSandbox(process.env)) {
+      config["hooks.state"] = await getMemoryKillHookTrust(this.rpc, cwd);
+    }
     const developerInstructions = this.threadSetup?.developerInstructions;
 
     await this.rpc.request(APP_SERVER_METHODS.THREAD_RESUME, {
@@ -723,6 +732,12 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       },
     );
     const config = buildThreadConfig(mcpServers, params.additionalDirectories);
+    if (config && localTools && params.cwd && isTaskRunSandbox(process.env)) {
+      config["hooks.state"] = await getMemoryKillHookTrust(
+        this.rpc,
+        params.cwd,
+      );
+    }
 
     const result = await this.rpc.request<{ thread?: AppServerThread }>(
       method,
@@ -1120,6 +1135,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private turnStartParams(input: CodexUserInput[]): Record<string, unknown> {
     const approvalPolicy = this.config.approvalPolicy();
     const sandboxPolicy = this.sandboxPolicyForTurn();
+    const outputSchema = this.jsonSchema
+      ? toStrictOutputSchema(this.jsonSchema)
+      : null;
     return {
       threadId: this.threadId,
       input,
@@ -1139,7 +1157,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ? { sandboxPolicy }
         : {}),
       // Constrain the final message to the task schema for parseable structured output.
-      ...(this.jsonSchema ? { outputSchema: this.jsonSchema } : {}),
+      ...(outputSchema ? { outputSchema } : {}),
     };
   }
 
@@ -2148,7 +2166,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const parsed = parseStructuredOutput(message);
       if (parsed) {
         try {
-          await this.onStructuredOutput(parsed);
+          await this.onStructuredOutput(
+            stripSyntheticNulls(parsed, this.jsonSchema),
+          );
         } catch (err) {
           this.logger.warn("onStructuredOutput callback threw", { error: err });
         }

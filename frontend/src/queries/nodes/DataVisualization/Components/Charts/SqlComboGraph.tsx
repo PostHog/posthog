@@ -56,6 +56,7 @@ export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
                             : undefined
                     }
                 >
+                    {props.children}
                     {props.showAnnotations && props.insightNumericId && (
                         <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
                     )}
