@@ -11,13 +11,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.helpers import mock_transpile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
@@ -423,7 +423,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert (function.inputs or {}) == {}
         assert (function.encrypted_inputs or {})["token"]["value"] == "example-private-browser-value"
 
-        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(function.id) in result
@@ -458,7 +458,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             unsafe.refresh_from_db()
         safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True, hog=SITE_HOG)
 
-        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(unsafe.id) not in result
@@ -506,7 +506,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             mappings=list(mappings),
         )
 
-        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(function.id) in result

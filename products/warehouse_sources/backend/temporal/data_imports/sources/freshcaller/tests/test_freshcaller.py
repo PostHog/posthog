@@ -1,83 +1,39 @@
-import json
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.freshcaller import (
     FreshcallerResumeConfig,
     _format_datetime,
-    freshcaller_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import DEFAULT_START_DATETIME
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the freshcaller module.
-FRESHCALLER_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.freshcaller.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
+    FreshcallerSourceConfig,
 )
 
 
+def _driver() -> SourceDriver:
+    return SourceDriver(FreshcallerSource(), FreshcallerSourceConfig(subdomain="acme", api_key="key"))
+
+
 def _page(
-    data_key: str, items: list[dict], *, current: Optional[int] = None, total_pages: Optional[int] = None
-) -> Response:
+    data_key: str, items: list[dict[str, Any]], *, current: int | None = None, total_pages: int | None = None
+) -> ScriptedResponse:
     body: dict[str, Any] = {data_key: items}
     if total_pages is not None:
         body["meta"] = {"current": current, "total_pages": total_pages, "total_count": 999}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _error(status_code: int) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps({"error": "boom"}).encode()
-    return resp
-
-
-def _make_manager(resume_state: Optional[FreshcallerResumeConfig] = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so a copy must be snapshotted when
-    each request is prepared rather than read after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = "https://acme.freshcaller.com/api/v1/x"
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return freshcaller_source(
-        "key", "acme", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
-    )
+    return ScriptedResponse(json=body)
 
 
 class TestFormatDatetime:
@@ -95,112 +51,85 @@ class TestFormatDatetime:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_by_page_number_and_saves_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_paginates_by_page_number_and_saves_state(self) -> None:
+        result = _driver().run(
+            "calls",
             [
                 _page("calls", [{"id": 1}], current=1, total_pages=2),
                 _page("calls", [{"id": 2}], current=2, total_pages=2),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_source("calls", manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
+        assert result.raised is None
+        assert result.rows == [{"id": 1}, {"id": 2}]
+        assert result.params("page") == ["1", "2"]
         # State saved once, pointing at page 2 (the next page after the first was written).
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == FreshcallerResumeConfig(page=2)
+        assert result.saved_states == [FreshcallerResumeConfig(page=2)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("calls", [{"id": 50}], current=5, total_pages=5)])
-        manager = _make_manager(FreshcallerResumeConfig(page=5))
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "calls",
+            [_page("calls", [{"id": 50}], current=5, total_pages=5)],
+            resume_state=FreshcallerResumeConfig(page=5),
+        )
 
-        _rows(_source("calls", manager))
-
+        assert result.raised is None
         # First request must hit the resumed page, not page 1.
-        assert params[0]["page"] == 5
+        assert result.params("page") == ["5"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_terminates(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("calls", [], current=1, total_pages=3)])
-        manager = _make_manager()
+    def test_empty_page_terminates(self) -> None:
+        result = _driver().run("calls", [_page("calls", [], current=1, total_pages=3)])
 
-        rows = _rows(_source("calls", manager))
+        assert result.raised is None
+        assert result.rows == []
+        assert result.params("page") == ["1"]
+        assert result.saved_states == []
 
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_without_meta_continues_then_short_page_stops(self, MockSession) -> None:
+    def test_full_page_without_meta_continues_then_short_page_stops(self) -> None:
         # With no usable meta, a full (per_page-sized) page implies more; a short page ends it.
-        session = MockSession.return_value
         full = [{"id": i} for i in range(1000)]
-        _wire(session, [_page("users", full), _page("users", [{"id": 1000}])])
-        manager = _make_manager()
+        result = _driver().run("users", [_page("users", full), _page("users", [{"id": 1000}])])
 
-        rows = _rows(_source("users", manager))
+        assert result.raised is None
+        assert len(result.rows) == 1001
+        assert result.params("page") == ["1", "2"]
 
-        assert len(rows) == 1001
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_session_redacts_api_key(self, MockSession) -> None:
+    def test_session_redacts_api_key(self) -> None:
         # The key rides in the X-Api-Auth header; the tracked session must value-redact it so it
         # can't leak into captured HTTP samples.
-        session = MockSession.return_value
-        _wire(session, [_page("users", [{"id": 1}], current=1, total_pages=1)])
+        result = _driver().run("users", [_page("users", [{"id": 1}], current=1, total_pages=1)])
 
-        _rows(_source("users", _make_manager()))
-
-        assert MockSession.call_args.kwargs.get("redact_values") == ("key",)
+        assert result.raised is None
+        assert result.session_options[0].get("redact_values") == ("key",)
 
     @pytest.mark.parametrize("status_code", [401, 403, 404])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_retryable_status_raises(self, MockSession, status_code: int) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error(status_code)])
-        manager = _make_manager()
+    def test_non_retryable_status_raises(self, status_code: int) -> None:
+        result = _driver().run("calls", [ScriptedResponse(status=status_code, json={"error": "boom"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("calls", manager))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestIncremental:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_call_metrics_includes_life_cycle(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("call_metrics", [{"id": 1}], current=1, total_pages=1)])
-
-        _rows(
-            _source(
-                "call_metrics",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-            )
+    def test_call_metrics_includes_life_cycle(self) -> None:
+        result = _driver().run(
+            "call_metrics",
+            [_page("call_metrics", [{"id": 1}], current=1, total_pages=1)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
         )
 
-        assert params[0]["include"] == "life_cycle"
-        assert params[0]["by_time[from]"] == DEFAULT_START_DATETIME
+        assert result.raised is None
+        assert result.requests[0].param("include") == "life_cycle"
+        assert result.requests[0].param("by_time[from]") == DEFAULT_START_DATETIME
 
 
 class TestValidateCredentials:
-    @mock.patch(FRESHCALLER_SESSION_PATCH)
-    def test_connection_error_returns_none(self, mock_make) -> None:
-        mock_make.return_value.get.side_effect = requests.ConnectionError("nope")
-        assert validate_credentials("acme", "key") is None
+    def test_connection_error_returns_none(self) -> None:
+        with scripted_network(always(ConnectionError("nope"))):
+            assert validate_credentials("acme", "key") is None
 
-    @mock.patch(FRESHCALLER_SESSION_PATCH)
-    def test_session_redacts_api_key(self, mock_make) -> None:
-        mock_make.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("acme", "secret-key")
-        assert mock_make.call_args.kwargs.get("redact_values") == ("secret-key",)
+    def test_session_redacts_api_key(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("acme", "secret-key")
+
+        assert network.session_options[0].get("redact_values") == ("secret-key",)

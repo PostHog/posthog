@@ -331,7 +331,13 @@ layer = "modules"
 
 [[modules]]
 path = "products.groups"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.event_definitions",
+    "products.notebooks",
+    "products.warehouse_sources",
+]
 layer = "modules"
 
 [[modules]]
@@ -544,6 +550,8 @@ depends_on = [
     "products.dashboards",
     "products.exports",
     "products.workflows", "products.access_control",
+    # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -1113,7 +1121,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1474,7 +1482,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.annotations"
-depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking"]
 layer = "modules"
 
 [[modules]]

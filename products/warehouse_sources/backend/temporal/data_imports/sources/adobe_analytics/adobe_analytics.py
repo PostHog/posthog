@@ -286,7 +286,7 @@ def _metadata_batches(
     resume: Optional[AdobeAnalyticsResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = ADOBE_ANALYTICS_ENDPOINTS[endpoint]
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.extra_params)
     if config.report_suite_param:
         params[config.report_suite_param] = report_suite_id
 
@@ -303,6 +303,13 @@ def _metadata_batches(
     page = resume.page if resume is not None else 0
     while True:
         payload = client.get_json(config.path, {**params, "limit": METADATA_PAGE_SIZE, "page": page})
+        # The spec documents `/users` as a bare array while the live API wraps it in a page
+        # envelope, so accept either shape.
+        if isinstance(payload, list):
+            if payload:
+                yield payload
+            break
+
         items = list((payload or {}).get(config.data_key) or [])
         if items:
             yield items

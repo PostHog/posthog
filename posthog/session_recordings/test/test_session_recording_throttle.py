@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.request import Request
@@ -211,7 +211,7 @@ class TestSnapshotRatesFromSettings(BaseTest):
         assert rates["free"]["snapshots_burst"] == "999/minute"
 
 
-class TestListingRatesConfig(BaseTest):
+class TestListingRatesConfig(SimpleTestCase):
     @parameterized.expand(
         [
             ("free_burst", "free", "listing_burst", "12/minute"),
@@ -288,7 +288,7 @@ class TestTierAwareListingThrottle(BaseTest):
         assert throttle.rate == "200/minute"
 
 
-class TestListingRatesFromSettings(BaseTest):
+class TestListingRatesFromSettings(SimpleTestCase):
     @override_settings(LISTING_RATE_FREE_BURST="999/minute")
     def test_listing_rates_reads_from_settings(self) -> None:
         rates = listing_rates()

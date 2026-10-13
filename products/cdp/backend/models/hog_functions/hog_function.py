@@ -290,7 +290,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         return absolute_uri(f"/project/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
 
     def _compile_filters(self) -> dict:
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         compiled = compile_filters_bytecode(self.filters, self.team)
         if not compiled.get("bytecode_error"):
@@ -422,11 +422,11 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
 
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    from posthog.cdp.templates.hog_function_template import sync_template_to_db
     from posthog.plugins.plugin_server_api import get_hog_function_templates
 
     from products.cdp.backend.api.hog_function import HogFunctionSerializer
     from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+    from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
     if settings.DISABLE_MMDB or not created:
         return

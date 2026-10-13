@@ -1,18 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { memo, useMemo } from 'react'
-import type { ReactNode } from 'react'
+import { memo } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -26,8 +20,9 @@ import type {
 
 import { MONITORING_WINDOW_OPTIONS, managedWarehouseMonitoringLogic } from './managedWarehouseMonitoringLogic'
 import type { MonitoringWorker } from './managedWarehouseMonitoringLogic'
-import { buildMonitoringChartData } from './monitoringChartData'
-import type { MonitoringChartMetricConfig } from './monitoringChartData'
+import { MonitoringChart } from './MonitoringChart'
+import { MonitoringMetricCard } from './MonitoringMetricCard'
+import { MonitoringSection } from './MonitoringSection'
 
 const WORKER_STATE_TAGS: Record<string, LemonTagType> = {
     hot: 'success',
@@ -51,78 +46,6 @@ const WAREHOUSE_STATE_TAGS: Record<string, LemonTagType> = {
 function sentenceCase(value: string): string {
     const normalized = value.replaceAll('_', ' ')
     return normalized.charAt(0).toUpperCase() + normalized.slice(1)
-}
-
-function MonitoringMetricCard({
-    label,
-    value,
-    description,
-    loading,
-}: {
-    label: string
-    value: string
-    description: string
-    loading: boolean
-}): JSX.Element {
-    return (
-        <LemonCard hoverEffect={false} className="min-h-32 p-4">
-            <div className="text-sm font-semibold text-muted-alt">{label}</div>
-            {loading ? (
-                <LemonSkeleton className="my-3 h-8 w-24" />
-            ) : (
-                <div className="my-2 truncate text-3xl font-bold tabular-nums">{value}</div>
-            )}
-            <div className="text-xs text-muted">{description}</div>
-        </LemonCard>
-    )
-}
-
-function MonitoringChart({
-    title,
-    description,
-    responses,
-    metrics,
-    yAxis,
-    valueFormatter,
-    loading,
-}: {
-    title: string
-    description: string
-    responses: ManagedWarehouseMonitoringSeriesResponseApi[]
-    metrics: MonitoringChartMetricConfig[]
-    yAxis?: TimeSeriesLineChartConfig['yAxis']
-    valueFormatter?: (value: number) => string
-    loading: boolean
-}): JSX.Element {
-    const theme = useChartTheme()
-    const data = useMemo(() => buildMonitoringChartData(responses, metrics), [responses, metrics])
-    const config = useChartConfig<TimeSeriesLineChartConfig>(
-        () => ({
-            xAxis: { timezone: 'UTC' },
-            yAxis,
-            legend: { show: data.series.length > 1, interactive: true, position: 'bottom' },
-            tooltip: { placement: 'cursor', sortedByValue: true, valueFormatter },
-        }),
-        [data.series.length, valueFormatter, yAxis]
-    )
-
-    return (
-        <LemonCard hoverEffect={false} className="flex min-h-80 flex-col p-4">
-            <div className="mb-4">
-                <h3 className="mb-1">{title}</h3>
-                <p className="mb-0 text-xs text-muted">{description}</p>
-            </div>
-            {loading && !data.labels.length ? (
-                <LemonSkeleton className="h-64 w-full" />
-            ) : data.labels.length && data.series.length ? (
-                <div className="flex h-64 flex-col">
-                    <TimeSeriesLineChart series={data.series} labels={data.labels} theme={theme} config={config} />
-                </div>
-            ) : (
-                <div className="flex h-64 items-center justify-center text-muted">No data in this time range.</div>
-            )}
-        </LemonCard>
-    )
 }
 
 function WorkerState({ worker }: { worker: MonitoringWorker }): JSX.Element {
@@ -257,26 +180,6 @@ function SummaryCards({
                 loading={loading}
             />
         </div>
-    )
-}
-
-function MonitoringSection({
-    title,
-    description,
-    children,
-}: {
-    title: string
-    description: string
-    children: ReactNode
-}): JSX.Element {
-    return (
-        <section className="space-y-3">
-            <div>
-                <h2 className="mb-1">{title}</h2>
-                <p className="mb-0 text-muted">{description}</p>
-            </div>
-            {children}
-        </section>
     )
 }
 

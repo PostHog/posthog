@@ -14,6 +14,7 @@ import type {
     DataModelingEdgesListParams,
     DataModelingNodesLineageRetrieveParams,
     DataModelingNodesListParams,
+    DataModelingNodesRetrieveParams,
     EdgeApi,
     LineageResponseApi,
     NodeApi,
@@ -281,16 +282,33 @@ export const dataModelingNodesCreate = async (
     })
 }
 
-export const getDataModelingNodesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
+export const getDataModelingNodesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: DataModelingNodesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_modeling_nodes/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
 export const dataModelingNodesRetrieve = async (
     projectId: string,
     id: string,
+    params?: DataModelingNodesRetrieveParams,
     options?: RequestInit
 ): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesRetrieveUrl(projectId, id), {
+    return apiMutator<NodeApi>(getDataModelingNodesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
