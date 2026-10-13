@@ -6,10 +6,6 @@ import { LazyLoader, LoadOptions, LoaderRetryOptions } from './lazy-loader'
 import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'available_features'> & {
-    available_product_features: { key: string; name: string }[]
-}
-
 export interface TeamManagerOptions {
     /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
     loaderRetry?: LoaderRetryOptions
@@ -130,7 +126,7 @@ export class TeamManager {
             [[] as number[], [] as string[]]
         )
 
-        const result = await this.postgres.query<RawTeam>(
+        const result = await this.postgres.query<Team>(
             PostgresUse.COMMON_READ,
             `SELECT
                 t.id,
@@ -153,7 +149,10 @@ export class TeamManager {
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 COALESCE(cfg.minimal_flag_called_events, false) AS minimal_flag_called_events,
                 COALESCE(ocfg.flag_evaluations_mode, 0) AS flag_evaluations_mode,
-                o.available_product_features
+                -- Only the keys: the full feature objects are large and nothing reads the rest.
+                ARRAY(
+                    SELECT f->>'key' FROM unnest(o.available_product_features) AS f WHERE f->>'key' IS NOT NULL
+                ) AS available_features
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
@@ -172,17 +171,13 @@ export class TeamManager {
 
         // Fill in actual teams where they exist
         result.rows.forEach((row) => {
-            const { available_product_features, ...teamPartial } = row
             const team: Team = {
-                ...teamPartial,
+                ...row,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
-                project_id: Number(teamPartial.project_id) as ProjectId,
+                project_id: Number(row.project_id) as ProjectId,
                 // NOTE: extract('epoch' from interval) returns a numeric which can be parsed as string by postgres driver
                 drop_events_older_than_seconds:
-                    teamPartial.drop_events_older_than_seconds !== null
-                        ? Number(teamPartial.drop_events_older_than_seconds)
-                        : null,
-                available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
+                    row.drop_events_older_than_seconds !== null ? Number(row.drop_events_older_than_seconds) : null,
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team
