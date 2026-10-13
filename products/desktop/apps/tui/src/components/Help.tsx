@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import type { ReactElement } from "react";
-import { HELP } from "../help";
+import { COMMANDS, HELP } from "../help";
 
 const KEY_WIDTH = 16;
 
@@ -8,9 +8,6 @@ export function Help(): ReactElement {
   return (
     <Box flexGrow={1} flexDirection="column" paddingX={1} paddingBottom={1}>
       <Text bold>Keyboard shortcuts</Text>
-      <Text dimColor>
-        Cmd works in place of Ctrl where the terminal passes it on.
-      </Text>
       {HELP.map((group) => (
         <Box key={group.title} flexDirection="column">
           <Text> </Text>
@@ -27,6 +24,12 @@ export function Help(): ReactElement {
           ))}
         </Box>
       ))}
+      <Text> </Text>
+      <Text bold>
+        Slash commands{" "}
+        <Text dimColor>(type / in the composer for what each does)</Text>
+      </Text>
+      <Text wrap="wrap">{COMMANDS}</Text>
       <Box flexGrow={1} />
       <Text dimColor>Esc close</Text>
     </Box>
