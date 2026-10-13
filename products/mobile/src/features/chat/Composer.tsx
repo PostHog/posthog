@@ -2,6 +2,7 @@ import { forwardRef, type ReactElement, type ReactNode } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
+import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { ExpandIcon } from '@/ui/icons/ExpandIcon'
 import { PaperclipIcon } from '@/ui/icons/PaperclipIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -13,6 +14,10 @@ interface ComposerProps {
     chips?: ReactNode
     mentionOpen: boolean
     onToggleMention: () => void
+    modeLabel: string
+    modeOpen: boolean
+    modeDisabled: boolean
+    onToggleMode: () => void
     onSend: () => void
     canSend: boolean
     isStreaming: boolean
@@ -20,7 +25,21 @@ interface ComposerProps {
 }
 
 export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
-    { text, onChangeText, chips, mentionOpen, onToggleMention, onSend, canSend, isStreaming, onStop },
+    {
+        text,
+        onChangeText,
+        chips,
+        mentionOpen,
+        onToggleMention,
+        modeLabel,
+        modeOpen,
+        modeDisabled,
+        onToggleMode,
+        onSend,
+        canSend,
+        isStreaming,
+        onStop,
+    },
     ref
 ): ReactElement {
     return (
@@ -43,7 +62,11 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 testID="chat-input"
             />
             <View style={styles.toolbar}>
-                <Pressable44 disabled accessibilityLabel="Attach a file" style={[styles.tool, styles.toolDisabled]}>
+                <Pressable44
+                    disabled
+                    accessibilityLabel="Attach a file"
+                    style={[styles.tool, styles.placeholder, styles.toolDisabled]}
+                >
                     <PaperclipIcon size={20} />
                 </Pressable44>
                 <Pressable44
@@ -56,7 +79,25 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 >
                     <Text style={styles.at}>@</Text>
                 </Pressable44>
-                <Pressable44 disabled accessibilityLabel="Expand" style={[styles.tool, styles.toolDisabled]}>
+                <Pressable44
+                    onPress={onToggleMode}
+                    disabled={modeDisabled}
+                    accessibilityLabel={`Mode: ${modeLabel}`}
+                    accessibilityState={{ expanded: modeOpen, disabled: modeDisabled }}
+                    pressedBackground={colors.background}
+                    style={[styles.mode, modeOpen && styles.toolActive, modeDisabled && styles.toolDisabled]}
+                    testID="chat-mode"
+                >
+                    <Text style={styles.modeLabel} numberOfLines={1}>
+                        {modeLabel}
+                    </Text>
+                    <ChevronDownIcon size={12} color={colors.muted} />
+                </Pressable44>
+                <Pressable44
+                    disabled
+                    accessibilityLabel="Expand"
+                    style={[styles.tool, styles.placeholder, styles.toolDisabled]}
+                >
                     <ExpandIcon size={18} />
                 </Pressable44>
                 <View style={styles.spacer} />
@@ -125,6 +166,30 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    // The default 6pt hit slop keeps the disabled placeholders at a 44pt target, so they can give the mode chip room.
+    placeholder: {
+        width: 32,
+    },
+    mode: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        flexShrink: 1,
+        minWidth: 0,
+        height: 32,
+        paddingLeft: 10,
+        paddingRight: 8,
+        borderRadius: radii.pill,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+    },
+    modeLabel: {
+        flexShrink: 1,
+        fontSize: 14,
+        lineHeight: 18,
+        fontWeight: '600',
+        color: colors.ink,
     },
     toolActive: {
         backgroundColor: colors.background,

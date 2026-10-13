@@ -100,5 +100,7 @@ export function demoConversationDetail(conversationId: string): ConversationDeta
         status: 'idle',
         title: thread.title,
         messages: thread.turns.map((content, index) => messageFor(thread.id, content, index)),
+        // The server reports its default mode for a chat that never picked one.
+        agent_mode: 'product_analytics',
     }
 }

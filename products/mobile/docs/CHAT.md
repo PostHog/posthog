@@ -10,11 +10,13 @@ The chat sheet talks to PostHog AI about one or more inbox reports, or about the
 | `src/features/chat/conversation.ts` | Pure reducer that folds stream events into the thread |
 | `src/features/chat/contextPrompt.ts` | The prompt template, a port of the web's Today Ask prompt |
 | `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to thread copy |
+| `src/features/chat/agentModes.ts` | The mode picker's options: labels and descriptions copied from the web |
+| `src/features/chat/modeChoice.ts` | Pure reducer for the chip label and the pick still to send |
 | `src/features/chat/hooks.ts` | `useConversation({ initialConversationId? })`: send, stream, reconnect, stop, retry, reset, resume a stored chat, demo replies |
 | `src/demo/chatThreads.ts` | Stored demo conversations, keyed by the ids in `src/demo/chats.ts` |
 | `src/features/chats/` | The Chats screen: list, search, day groups and the `useChatList()` hook (see [DESIGN.md](DESIGN.md)) |
 | `src/features/chat/webLinks.ts` | Web app URLs for reports, the conversation, insights and reply links |
-| `src/features/chat/*.tsx` | `ChatSheet`, `Composer`, `ContextChip`, `MentionPopover`, `Thread`, `ChatMarkdown`, `ChatErrorBubble`, `ChatLinkCard`, `ChatProgressLine`, `ChatEmptyState` |
+| `src/features/chat/*.tsx` | `ChatSheet`, `Composer`, `ContextChip`, `MentionPopover`, `ModePopover`, `Thread`, `ChatMarkdown`, `ChatErrorBubble`, `ChatLinkCard`, `ChatProgressLine`, `ChatEmptyState` |
 
 ## Endpoint
 
@@ -23,10 +25,12 @@ The chat sheet talks to PostHog AI about one or more inbox reports, or about the
 - Scope `conversation:write`. The sign-in scope list in `src/auth/oauth.ts` includes it.
 - This is the LangGraph runtime. The sandbox runtime opens through `/conversations/:id/open/`,
   which declares no OAuth scopes, so an app token gets 403 there.
-- Body: `{ conversation, trace_id, content }`.
+- Body: `{ conversation, trace_id, content, agent_mode? }`.
   - `conversation` is a UUID the app generates once per sheet session. The server creates the row on the first message.
   - `trace_id` is a new UUID per request. The server echoes it on the human message.
   - `content` is the prompt (the typed question plus a context block), or `null` to reattach to a running turn.
+  - `agent_mode` goes only with the first prompt after the person picks a mode (see [Modes](#modes)).
+    Auto leaves the key out. `MessageSerializer.agent_mode` is a choice field that does not allow null, so sending null gets a 400.
   - The app sends no `ui_context`: `MaxUIContext` has no report key and rejects unknown keys.
 
 ## Framing
@@ -75,7 +79,63 @@ A turn that produced no reply at all ends with "No reply came back. Try again."
 - **Try again** removes the error entry and resends the last prompt with a new `trace_id`.
   After a mid-stream failure the stored conversation then holds the message twice, as on the web.
 - **New chat** (the compose button in the header) aborts any stream and starts a new conversation id.
-- `mobile_chat_sent` is captured on each send with `report_count`.
+- `mobile_chat_sent` is captured on each send with `report_count` and `mode`: the `agent_mode` that message sent,
+  or `auto` when it sent none. A later message in the same mode reports `auto`.
+
+## Modes
+
+The mode chip sits in the composer toolbar next to `@`. It shows the current mode's label, "Auto" by default.
+Tapping it opens `ModePopover` above the composer, the same anchored shape as `MentionPopover`,
+because the chat route is a transparent native modal and a root-level overlay cannot reach it on Android.
+The chip is disabled while a reply streams and while a stored chat loads, and an open popover closes when either starts.
+Picking a mode captures `mobile_chat_mode_changed` with `mode`.
+The keyboard stays up while the popover is open, as with `MentionPopover`.
+So the popover's height is capped to the space between the sheet header and the composer:
+sheet height minus header height minus composer height minus the keyboard height (or the home indicator inset
+when the keyboard is down) minus 16pt of gaps, at most 340pt and at least 160pt. All of these are measured.
+
+| Label | `agent_mode` |
+| --- | --- |
+| Auto | left out |
+| Product analytics | `product_analytics` |
+| SQL | `sql` |
+| Session replay | `session_replay` |
+| Error tracking | `error_tracking` |
+| Surveys | `survey` |
+| Flags | `flags` |
+| AI observability | `llm_analytics` |
+
+- **Auto** lets the agent pick. With no mode on a new conversation the server starts in product analytics;
+  on a later message it keeps the mode the last turn ended in. In every mode the agent can switch modes on its own.
+- **Sent once.** A pick goes out with the next message only. Later messages leave `agent_mode` out,
+  so the server keeps the mode the last turn ended in.
+  The server overwrites the checkpointed mode whenever a message carries `agent_mode`
+  (`get_initial_state` in `ee/hogai/chat_agent/runner.py`), so sending it every time would undo a switch the agent made
+  on its own, and the server would record `is_initial_mode: true` on every message. The web gets the same effect differently:
+  it refetches `agent_mode` after each turn and sends that.
+  Picking Auto sends nothing, so the agent goes on in the mode the last turn ended in.
+- **State.** `modeChoiceReducer` (`src/features/chat/modeChoice.ts`) in `ChatSheet` keeps two values:
+  `shown`, the chip label (the stored chat's mode or the last pick), and `pending`, the pick still to send.
+  Sending clears `pending` and keeps `shown`. Both last for that sheet only, as on the web. New chat resets both to Auto.
+- **The chip can lag.** The chip does not follow a mode the agent switched to mid-chat,
+  because the streaming `conversation` event carries no `agent_mode`. It shows the stored mode or the last pick
+  until the chat is opened again.
+- **Resume.** `GET conversations/:id/` returns `agent_mode`, the mode the last turn ran in (`agent_mode_or_default`,
+  so a stored chat always reports a mode, product analytics when none was picked). The chip starts from it,
+  as the web's `syncAgentModeFromConversation` does, but the stored mode is never sent.
+  The stored mode does not replace a pick made in this sheet, also when Try again loads the chat again.
+  The retired `user_interview` reads as product analytics; a mode the app does not offer reads as Auto.
+- **Retries keep the mode.** Try again and the resend after a 409 reattach reuse the mode the message was first sent with
+  (`lastPrompt.agentMode`). A reattach (`content: null`) sends no mode, because it starts no turn.
+- **Left out.** The app has no feature flag plumbing, so it offers only the modes the chat agent accepts without a flag
+  (`DEFAULT_CHAT_AGENT_MODE_REGISTRY` in `ee/hogai/chat_agent/mode_manager.py`):
+  - Plan: the web gates it on `phai-plan-mode`, and its plan approval flow has no mobile UI.
+  - Research: the web gates it on `max-deep-research`. It runs the deep research workflow, which has its own throttle,
+    and its planning and notebook events are ignored by the app.
+  - Customer analytics: the server drops it to product analytics unless `customer-analytics-csp` is on.
+  - Sandbox: this endpoint answers 400.
+- **Copy.** Labels and descriptions come from `MODE_DEFINITIONS` and `SPECIAL_MODES` in
+  `frontend/src/scenes/max/max-constants.tsx`. Auto drops the web's second sentence, which points at a tool list the app does not show.
 
 ## Context template
 
@@ -169,3 +229,5 @@ Regaining focus (closing the sheet) invalidates the list, so a chat that got its
 
 The demo plays a scripted reply through the same reducer: a tool step with a progress line,
 streamed snapshots, then the final message. Stop and New chat work the same way.
+The reply is the same whatever mode is picked, and no request goes out.
+Stored demo chats report `product_analytics`, as the server does for a chat that never picked a mode.

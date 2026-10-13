@@ -3,6 +3,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { ApiError } from '@/api/client'
 import {
+    type ChatAgentMode,
     type ConversationDetail,
     type ConversationEvent,
     fetchConversation,
@@ -14,6 +15,7 @@ import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { sleep } from '@/lib/sleep'
 
+import { agentModeKey } from './agentModes'
 import { isNetworkError, toChatError } from './chatErrors'
 import { chatPrompt } from './contextPrompt'
 import { type ChatThreadAction, chatThreadReducer, initialChatThread } from './conversation'
@@ -60,7 +62,9 @@ export interface Conversation {
     phase: ChatPhase
     error: ChatError | null
     history: ConversationHistory
-    send: (text: string, context: ChatContext) => Promise<void>
+    storedAgentMode: ChatAgentMode | null
+    /** `agentMode` is the person's new pick, sent with this message only. Null sends no mode. */
+    send: (text: string, context: ChatContext, agentMode: ChatAgentMode | null) => Promise<void>
     retry: () => Promise<void>
     /** Stops reading the reply. The server has no cancel for app tokens, so the run finishes there. */
     stop: () => void
@@ -82,6 +86,14 @@ interface TurnRequest {
     conversationId: string
     content: string | null
     traceId: string
+    agentMode: ChatAgentMode | null
+}
+
+interface Prompt {
+    text: string
+    content: string
+    hasContext: boolean
+    agentMode: ChatAgentMode | null
 }
 
 function now(): string {
@@ -110,8 +122,14 @@ async function streamTurn(
             dispatch({ type: 'resuming' })
         }
         try {
+            // A reattach starts no turn, so the mode only goes with a prompt.
             const response = await openConversationStream(
-                { conversationId: request.conversationId, traceId, content },
+                {
+                    conversationId: request.conversationId,
+                    traceId,
+                    content,
+                    agentMode: content === null ? null : request.agentMode,
+                },
                 signal
             )
             opened = true
@@ -215,6 +233,7 @@ export function useConversation(options: ConversationOptions = {}): Conversation
     const [history, setHistory] = useState<ConversationHistory>(() =>
         initialConversationId ? { status: 'loading', error: null } : NO_HISTORY
     )
+    const [storedAgentMode, setStoredAgentMode] = useState<ChatAgentMode | null>(null)
     const [conversationId, setConversationId] = useState<string>(() => initialConversationId ?? randomUUID())
     const conversationIdRef = useRef(conversationId)
     /** The stored conversation to load. `reset` clears it, so a new chat never reloads the old one. */
@@ -223,7 +242,7 @@ export function useConversation(options: ConversationOptions = {}): Conversation
     /** Increments per run, so a run that `reset` or unmount abandoned cannot touch newer state. */
     const runId = useRef(0)
     const inFlight = useRef(false)
-    const lastPrompt = useRef<{ text: string; content: string; hasContext: boolean } | null>(null)
+    const lastPrompt = useRef<Prompt | null>(null)
 
     useEffect(
         () => () => {
@@ -272,7 +291,7 @@ export function useConversation(options: ConversationOptions = {}): Conversation
     }, [])
 
     const execute = useCallback(
-        (prompt: { text: string; content: string; hasContext: boolean }, traceId: string): Promise<void> =>
+        (prompt: Prompt, traceId: string): Promise<void> =>
             runTurn(async (signal, guarded, guardedPhase): Promise<TurnOutcome> => {
                 if (demo) {
                     return playDemoReply(
@@ -282,7 +301,12 @@ export function useConversation(options: ConversationOptions = {}): Conversation
                         prompt.hasContext
                     )
                 }
-                const request = { conversationId: conversationIdRef.current, content: prompt.content, traceId }
+                const request = {
+                    conversationId: conversationIdRef.current,
+                    content: prompt.content,
+                    traceId,
+                    agentMode: prompt.agentMode,
+                }
                 const outcome = await streamTurn(request, signal, guarded, guardedPhase)
                 if (outcome.kind !== 'busy') {
                     return outcome
@@ -340,12 +364,18 @@ export function useConversation(options: ConversationOptions = {}): Conversation
         }
         controller.current = null
         dispatch({ type: 'hydrated', title: detail.title, messages: detail.messages, at: now() })
+        setStoredAgentMode(detail.agent_mode)
         setHistory(NO_HISTORY)
         track('mobile_chat_resumed')
         if (detail.status === 'in_progress' && !demo) {
             // The stored copy stops mid-turn. Reattaching makes the server replay that turn, so the person sees it finish.
             await runTurn((signal, guarded, guardedPhase) =>
-                streamTurn({ conversationId: id, content: null, traceId: randomUUID() }, signal, guarded, guardedPhase)
+                streamTurn(
+                    { conversationId: id, content: null, traceId: randomUUID(), agentMode: null },
+                    signal,
+                    guarded,
+                    guardedPhase
+                )
             )
         }
     }, [demo, runTurn])
@@ -355,18 +385,22 @@ export function useConversation(options: ConversationOptions = {}): Conversation
     }, [reloadHistory])
 
     const send = useCallback(
-        async (text: string, context: ChatContext): Promise<void> => {
+        async (text: string, context: ChatContext, agentMode: ChatAgentMode | null): Promise<void> => {
             const trimmed = text.trim()
             if (!trimmed || inFlight.current) {
                 return
             }
-            const prompt = {
+            const prompt: Prompt = {
                 text: trimmed,
                 content: chatPrompt(trimmed, context),
                 hasContext: context.kind === 'reports' && context.reports.length > 0,
+                agentMode,
             }
             lastPrompt.current = prompt
-            track('mobile_chat_sent', { report_count: context.kind === 'reports' ? context.reports.length : 0 })
+            track('mobile_chat_sent', {
+                report_count: context.kind === 'reports' ? context.reports.length : 0,
+                mode: agentModeKey(agentMode),
+            })
             const traceId = randomUUID()
             dispatch({ type: 'sent', text: trimmed, traceId, at: now() })
             await execute(prompt, traceId)
@@ -400,6 +434,7 @@ export function useConversation(options: ConversationOptions = {}): Conversation
         inFlight.current = false
         lastPrompt.current = null
         storedId.current = null
+        setStoredAgentMode(null)
         const next = randomUUID()
         conversationIdRef.current = next
         setConversationId(next)
@@ -417,6 +452,7 @@ export function useConversation(options: ConversationOptions = {}): Conversation
         phase,
         error,
         history,
+        storedAgentMode,
         send,
         retry,
         stop,

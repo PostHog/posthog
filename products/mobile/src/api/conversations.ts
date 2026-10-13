@@ -84,6 +84,22 @@ export type ConversationEvent =
     | { type: 'generation_error' }
     | { type: 'approval'; approval: ConversationApproval }
 
+/**
+ * The `AgentMode` values (`posthog/schema_enums.py`) that the LangGraph chat agent accepts without a feature flag.
+ * `plan`, `research` and `customer_analytics` are flagged on the web, and `sandbox` gets a 400 on this endpoint.
+ */
+export const CHAT_AGENT_MODES = [
+    'product_analytics',
+    'sql',
+    'session_replay',
+    'error_tracking',
+    'survey',
+    'flags',
+    'llm_analytics',
+] as const
+
+export type ChatAgentMode = (typeof CHAT_AGENT_MODES)[number]
+
 export interface ConversationRequest {
     /** Client-generated UUID. The server creates the conversation on the first message. */
     conversationId: string
@@ -91,6 +107,8 @@ export interface ConversationRequest {
     traceId: string
     /** The prompt, or null to reattach to a turn that is still running. */
     content: string | null
+    /** Null sends no mode: the server keeps the mode the last turn ended in, or starts in its default. */
+    agentMode?: ChatAgentMode | null
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -202,7 +220,13 @@ export function parseConversationEvent(event: SseEvent): ConversationEvent | nul
 export async function openConversationStream(request: ConversationRequest, signal: AbortSignal): Promise<Response> {
     return apiStream(projectPath('conversations/'), {
         method: 'POST',
-        json: { conversation: request.conversationId, trace_id: request.traceId, content: request.content },
+        json: {
+            conversation: request.conversationId,
+            trace_id: request.traceId,
+            content: request.content,
+            // `agent_mode` is a non-nullable choice field, so Auto leaves it out instead of sending null.
+            ...(request.agentMode ? { agent_mode: request.agentMode } : {}),
+        },
         signal,
     })
 }
@@ -228,6 +252,15 @@ export async function readConversationStream(
 
 export interface ConversationDetail extends ConversationMeta {
     messages: ConversationMessage[]
+    agent_mode: ChatAgentMode | null
+}
+
+function parseAgentMode(value: unknown): ChatAgentMode | null {
+    // Stored chats can hold the retired user interview mode. The server runs those in its default mode, as the web does.
+    if (value === 'user_interview') {
+        return 'product_analytics'
+    }
+    return CHAT_AGENT_MODES.find((mode) => mode === value) ?? null
 }
 
 /** The server returns 404 until the conversation has a title, so a brand-new conversation cannot be loaded this way. */
@@ -242,7 +275,7 @@ export async function fetchConversation(conversationId: string, signal?: AbortSi
               .map(parseConversationMessage)
               .filter((message): message is ConversationMessage => message !== null)
         : []
-    return { ...meta, messages }
+    return { ...meta, messages, agent_mode: parseAgentMode(body.agent_mode) }
 }
 
 /** `ConversationMinimalSerializer` in `ee/hogai/api/serializers.py`, keeping the fields the app reads. */

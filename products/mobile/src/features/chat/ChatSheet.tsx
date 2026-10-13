@@ -1,11 +1,13 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { StyleSheet, Text, type TextInput, useWindowDimensions, View } from 'react-native'
+import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { type LayoutChangeEvent, StyleSheet, Text, type TextInput, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
-import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
+import type { ChatAgentMode } from '@/api/conversations'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
+import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
 import { reportWebUrl } from '@/model/adapters/report'
@@ -22,12 +24,15 @@ import { useScreenInsets } from '@/ui/useScreenInsets'
 import { useSheetDrag } from '@/ui/useSheetDrag'
 
 import { useInboxItems } from '../inbox/hooks'
+import { agentModeKey, agentModeLabel } from './agentModes'
 import { ChatEmptyState } from './ChatEmptyState'
 import { Composer } from './Composer'
 import { ContextChip } from './ContextChip'
 import { inboxContextItem, reportContextFromItem, reportContextFromView } from './contextPrompt'
 import { useConversation } from './hooks'
 import { MentionPopover } from './MentionPopover'
+import { ModePopover, modePopoverMaxHeight } from './ModePopover'
+import { initialModeChoice, modeChoiceReducer } from './modeChoice'
 import { Thread } from './Thread'
 import type { ChatContext, ChatLinkTarget } from './types'
 import { chatLinkUrl } from './webLinks'
@@ -51,6 +56,7 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
+    const keyboardHeight = useKeyboardState((state) => state.height)
     const [visible, setVisible] = useState(true)
     const { progress } = usePresence(visible, motion.sheet)
     const close = useCallback((): void => setVisible(false), [])
@@ -61,7 +67,28 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
     )
     const [reports, setReports] = useState<Record<string, ReportView>>({})
     const [mentionOpen, setMentionOpen] = useState(false)
+    const [modeChoice, dispatchModeChoice] = useReducer(modeChoiceReducer, initialModeChoice)
+    const [modeOpen, setModeOpen] = useState(false)
+    const [sheetHeight, setSheetHeight] = useState(0)
+    const [headerHeight, setHeaderHeight] = useState(0)
+    const [composerHeight, setComposerHeight] = useState(0)
     const input = useRef<TextInput>(null)
+    const storedAgentMode = conversation.storedAgentMode
+    const historyStatus = conversation.history.status
+    // The chip waits for a stored chat, so the person picks against the mode the chat really has.
+    const modeDisabled = conversation.isStreaming || historyStatus !== 'idle'
+
+    // A resumed chat shows the mode it last ran in, as the web's `syncAgentModeFromConversation` does.
+    useEffect(() => {
+        dispatchModeChoice({ type: 'seeded', mode: storedAgentMode })
+    }, [storedAgentMode])
+
+    // Without this the popover comes back when the reply ends.
+    useEffect(() => {
+        if (modeDisabled) {
+            setModeOpen(false)
+        }
+    }, [modeDisabled])
 
     useEffect(() => {
         if (visible) {
@@ -82,7 +109,6 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
     // the keyboard. `height` is negative while the keyboard is open, and the keyboard covers the home indicator.
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
-    const historyStatus = conversation.history.status
     // A message sent before the stored conversation loads would land in a thread the person cannot see yet.
     const canSend = text.trim().length > 0 && !conversation.isStreaming && historyStatus === 'idle'
     const webUrl = (reportId: string): string | undefined => (scope ? reportWebUrl(scope, reportId) : undefined)
@@ -120,6 +146,24 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
     const changeText = (value: string): void => {
         setText(value)
         setMentionOpen((open) => (value.endsWith('@') ? canMention : open && value.includes('@')))
+        if (value.endsWith('@') && canMention) {
+            setModeOpen(false)
+        }
+    }
+    const toggleMention = (): void => {
+        setModeOpen(false)
+        setMentionOpen((open) => !open && canMention)
+    }
+    const toggleMode = (): void => {
+        setMentionOpen(false)
+        setModeOpen((open) => !open && !modeDisabled)
+    }
+    const pickMode = (mode: ChatAgentMode | null): void => {
+        setModeOpen(false)
+        if (mode !== modeChoice.shown) {
+            track('mobile_chat_mode_changed', { mode: agentModeKey(mode) })
+        }
+        dispatchModeChoice({ type: 'picked', mode })
     }
     const pickMention = (item: InboxItem): void => {
         setAttached((previous) =>
@@ -139,12 +183,16 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
         }
         setText('')
         setMentionOpen(false)
-        conversation.send(message, buildContext()).catch(() => undefined)
+        setModeOpen(false)
+        conversation.send(message, buildContext(), modeChoice.pending).catch(() => undefined)
+        dispatchModeChoice({ type: 'sent' })
     }
     const startNewChat = (): void => {
         conversation.reset()
         setText('')
         setMentionOpen(false)
+        setModeOpen(false)
+        dispatchModeChoice({ type: 'reset' })
         input.current?.focus()
     }
     const linkUrl = (target: ChatLinkTarget): string | undefined => chatLinkUrl(target, conversation.conversationId)
@@ -166,11 +214,15 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
     return (
         <GestureHandlerRootView style={styles.overlay} testID="chat-sheet">
             <Scrim color={colors.scrimChat} progress={progress} />
-            <Animated.View style={[styles.sheet, shadows.bottomSheet, sheetStyle]} accessibilityViewIsModal>
+            <Animated.View
+                style={[styles.sheet, shadows.bottomSheet, sheetStyle]}
+                onLayout={measure(setSheetHeight)}
+                accessibilityViewIsModal
+            >
                 <Animated.View style={[styles.keyboard, keyboardStyle]}>
                     {/* The thread scrolls, so only the header takes the drag; a drag there never competes with a scroll. */}
                     <GestureDetector gesture={pan}>
-                        <View style={styles.header} testID="chat-header">
+                        <View style={styles.header} onLayout={measure(setHeaderHeight)} testID="chat-header">
                             <View style={styles.grabber} />
                             <View style={styles.headerRow}>
                                 <Pressable44
@@ -230,15 +282,31 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
                             linkUrl={linkUrl}
                         />
                     )}
-                    <View style={styles.composerArea}>
+                    <View style={styles.composerArea} onLayout={measure(setComposerHeight)}>
                         {mentionOpen ? <MentionPopover items={mentionItems} now={now} onPick={pickMention} /> : null}
+                        {modeOpen && !modeDisabled ? (
+                            <ModePopover
+                                selected={modeChoice.shown}
+                                onPick={pickMode}
+                                maxHeight={modePopoverMaxHeight({
+                                    sheetHeight,
+                                    headerHeight,
+                                    composerHeight,
+                                    bottomInset: Math.max(keyboardHeight, insets.bottom),
+                                })}
+                            />
+                        ) : null}
                         <Composer
                             ref={input}
                             text={text}
                             onChangeText={changeText}
                             chips={chips}
                             mentionOpen={mentionOpen}
-                            onToggleMention={() => setMentionOpen((open) => !open && canMention)}
+                            onToggleMention={toggleMention}
+                            modeLabel={agentModeLabel(modeChoice.shown)}
+                            modeOpen={modeOpen}
+                            modeDisabled={modeDisabled}
+                            onToggleMode={toggleMode}
                             onSend={send}
                             canSend={canSend}
                             isStreaming={conversation.isStreaming}
@@ -249,6 +317,10 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
             </Animated.View>
         </GestureHandlerRootView>
     )
+}
+
+function measure(set: (height: number) => void): (event: LayoutChangeEvent) => void {
+    return (event) => set(event.nativeEvent.layout.height)
 }
 
 const styles = StyleSheet.create({
