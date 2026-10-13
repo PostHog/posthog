@@ -203,6 +203,7 @@ from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCoun
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.stamphog.backend.facade.tasks import request_rereview_after_external_review
 from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.facade.run_config import ReasoningEffort
@@ -594,6 +595,8 @@ class RecordTurnMarkerInput:
     flash_reasoning_effort: str
     review_design: str = REVIEW_DESIGN_PIPELINE
     coordinator: bool = False
+    # None in payloads from before the field existed.
+    publishes: bool | None = None
 
 
 @frozen
@@ -663,6 +666,15 @@ class ReviewReactionInput:
     repository: str
     pr_number: int
     reaction_id: int | None = None
+
+
+@frozen
+class TurnEndedInput:
+    """A review turn on a PR head that reached completed or failed, for the stamphog nudge."""
+
+    repository: str
+    pr_number: int
+    head_sha: str
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -776,7 +788,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     if pr_number is not None:
         fetched = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
-        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=single_agent)
+        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=True)
         if fetched.pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
@@ -845,6 +857,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_files=fetched.pr_files,
         review_design=design_choice.design,
         merge_base_sha=fetched.merge_base_sha,
+        skipped_paths=fetched.skipped_paths,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
     # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
@@ -1084,6 +1097,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             flash_reasoning_effort=input.flash_reasoning_effort,
             review_design=input.review_design,
             coordinator=input.coordinator,
+            publishes=input.publishes,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -2516,7 +2530,8 @@ def _remove_eyes_reaction(input: ReviewReactionInput) -> None:
 async def add_review_reaction_activity(input: ReviewReactionInput) -> int | None:
     """Put a 👀 on the PR while the turn runs, the way other review bots do. Returns the reaction id.
 
-    Stamphog waits while a trusted review bot has a fresh 👀 on the PR. Fail-open: never raises.
+    The 👀 is a cue for people. Stamphog reads the review state from `head_review_status.py`.
+    Fail-open: never raises.
     """
     return await database_sync_to_async(_add_eyes_reaction, thread_sensitive=False)(input)
 
@@ -2527,6 +2542,25 @@ async def add_review_reaction_activity(input: ReviewReactionInput) -> int | None
 async def remove_review_reaction_activity(input: ReviewReactionInput) -> None:
     """Remove the turn's 👀 by the id the add returned. Raises only on a transient GitHub error, so Temporal retries it."""
     await database_sync_to_async(_remove_eyes_reaction, thread_sensitive=False)(input)
+
+
+def _nudge_stamphog(input: TurnEndedInput) -> None:
+    request_rereview_after_external_review(
+        repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def nudge_stamphog_activity(input: TurnEndedInput) -> None:
+    """Tell stamphog that the turn on this head ended, so a stamphog WAIT for it can run again.
+
+    Stamphog waits only a few minutes for a running review, and a Deep review takes longer.
+    Stamphog decides whether to act. A dispatch error raises, so Temporal retries it. The workflow
+    catches the final failure, because a lost nudge must never fail the review.
+    """
+    await database_sync_to_async(_nudge_stamphog, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

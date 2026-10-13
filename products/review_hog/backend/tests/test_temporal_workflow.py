@@ -10,6 +10,7 @@ from datetime import timedelta
 from typing import ClassVar
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
 import temporalio.workflow
@@ -63,9 +64,11 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
     TrackReviewStartedInput,
+    TurnEndedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
+    _nudge_stamphog,
 )
 from products.review_hog.backend.temporal.resolution import (
     FailResolutionInput,
@@ -163,6 +166,8 @@ async def _run_full_review_pr_workflow(
     gate_skips: bool = False,
     fail_gate: bool = False,
     workflow_max_attempts: int | None = None,
+    publish_posts: bool = True,
+    fail_nudge: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -382,7 +387,7 @@ async def _run_full_review_pr_workflow(
         _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
         threshold_calls.append(("publish", input.urgency_threshold))
-        return PublishResult(posted=True, review_url=_REVIEW_URL)
+        return PublishResult(posted=publish_posts, review_url=_REVIEW_URL if publish_posts else None)
 
     @activity.defn(name="remove_trigger_label_activity")
     async def remove_label(input: RemoveTriggerLabelInput) -> None:
@@ -427,6 +432,15 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="remove_review_reaction_activity")
     async def remove_reaction(input: ReviewReactionInput) -> None:
         reaction_calls.append(("remove", input.reaction_id))
+
+    # Each stamphog nudge as (repository, pr_number, head_sha).
+    nudge_calls: list[tuple[str, int, str]] = []
+
+    @activity.defn(name="nudge_stamphog_activity")
+    async def nudge(input: TurnEndedInput) -> None:
+        nudge_calls.append((input.repository, input.pr_number, input.head_sha))
+        if fail_nudge:
+            raise ApplicationError("stamphog unavailable", non_retryable=True)
 
     # Records the analytics events' run_index and the turn's trigger — the completion-rate
     # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
@@ -501,6 +515,7 @@ async def _run_full_review_pr_workflow(
                 fail_status,
                 add_reaction,
                 remove_reaction,
+                nudge,
                 track_failed,
                 track_completed,
                 track_started,
@@ -575,6 +590,7 @@ async def _run_full_review_pr_workflow(
         "status_posts": status_posts,
         "fail_status": fail_status_calls,
         "reactions": reaction_calls,
+        "nudges": nudge_calls,
     }
 
 
@@ -584,6 +600,7 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     assert recorded["result"] == "rep-1"
     # An eval / CLI run keeps zero GitHub footprint.
     assert recorded["reactions"] == []
+    assert recorded["nudges"] == []
     # Review fans out per (perspective × chunk), then the always-on blind-spot check adds one unit
     # per chunk; validate fans out one warm session per chunk.
     wave = [c for c in recorded["review"] if not c[2]]
@@ -668,6 +685,36 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # A Deep turn keeps its status comment and also shows 👀 until it ends, removed by the id it got.
     assert recorded["status_posts"] == ["rep-1"]
     assert recorded["reactions"] == [("add",), ("remove", 42)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fail_dedup, publish_posts, fail_nudge",
+    [
+        pytest.param(False, True, False, id="completed"),
+        pytest.param(False, False, False, id="clean"),
+        pytest.param(True, True, False, id="failed"),
+        pytest.param(False, True, True, id="raising-nudge-keeps-the-turn"),
+    ],
+)
+async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
+    fail_dedup: bool, publish_posts: bool, fail_nudge: bool
+):
+    # Stamphog stops waiting before a Deep turn ends, so only this nudge re-runs a stamphog WAIT.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, fail_dedup=fail_dedup, publish_posts=publish_posts, fail_nudge=fail_nudge
+    )
+    assert recorded["failed"] is fail_dedup
+    assert recorded["nudges"] == [("o/r", 7, "sha1")]
+
+
+def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():
+    with patch(
+        "products.review_hog.backend.temporal.activities.request_rereview_after_external_review",
+        side_effect=ConnectionError("broker down"),
+    ):
+        with pytest.raises(ConnectionError):
+            _nudge_stamphog(TurnEndedInput(repository="o/r", pr_number=7, head_sha="sha1"))
 
 
 @pytest.mark.asyncio
