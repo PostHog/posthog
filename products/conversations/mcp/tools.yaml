@@ -15,8 +15,8 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: true
-        title: Start an email ticket with a customer
+            idempotent: false
+        title: Start a support ticket by email
         description: >
             Create a new outbound email ticket and send its first message to the recipient. The message IS EMAILED to
             the customer in full, from a support email channel with a verified domain. Omit email_config_id to send from
