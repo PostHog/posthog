@@ -257,6 +257,7 @@ the row lists both.
 | courier                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
+| crisp                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | criteo                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cronitor                         | HTTP                        | requests                                                        | ✅                          |
 | crossref                         | HTTP                        | requests                                                        | ✅                          |
@@ -1092,7 +1093,6 @@ doesn't conflict with concurrent PRs.
 - copper
 - cosmosdb
 - couchbase
-- crisp
 - crowdstrike_falcon
 - cube_cloud
 - curve
