@@ -23,7 +23,7 @@ bar), so switching the flag switches the whole ranking, not one component of it.
 
 import json
 import math
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any, Literal
@@ -100,6 +100,38 @@ _SCANNER_SPREAD_FLOOR = 3
 # state was larger than the decision service admits in flight on one host, so while it ran that host
 # refused every other product's requests.
 WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST // 2
+# About how many estimated prompt tokens one request may carry. A decision-service host admits
+# 12,000 prompt tokens in flight and refuses callers past that, so a ~10k request fills most of a
+# host by itself and the refusals land on whichever product calls next. Half the admission budget
+# leaves room beside our request. Estimated at ~4 JSON characters per token; the judged event's
+# input_tokens carries the measured sizes to calibrate against.
+REQUEST_TOKEN_TARGET = 5_000
+
+
+def _entry_tokens(entry: dict[str, Any]) -> int:
+    """Estimated prompt tokens one state entry adds to a request."""
+    return max(1, len(json.dumps(entry, separators=(",", ":"))) // 4)
+
+
+def _pack_chunks(entries: list[tuple[str, dict[str, Any]]]) -> list[list[tuple[str, dict[str, Any]]]]:
+    """Entries packed into request-sized chunks: at most WINDOW_CHUNK_SIZE questions and about
+    REQUEST_TOKEN_TARGET estimated tokens each, so no request can fill a decision-service host by
+    itself however verbose the entries run. An entry over the target alone still ships, alone."""
+    chunks: list[list[tuple[str, dict[str, Any]]]] = []
+    current: list[tuple[str, dict[str, Any]]] = []
+    current_tokens = 0
+    for entry_id, entry in entries:
+        tokens = _entry_tokens(entry)
+        if current and (len(current) >= WINDOW_CHUNK_SIZE or current_tokens + tokens > REQUEST_TOKEN_TARGET):
+            chunks.append(current)
+            current, current_tokens = [], 0
+        current.append((entry_id, entry))
+        current_tokens += tokens
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 # Per-entry prose caps, so a chunk state stays small and per-chunk latency predictable
 # whatever the scanner's configured summary length.
 _MAX_TITLE_CHARS = 300
@@ -403,7 +435,11 @@ def _pick_watch_reasons(
 
 
 def judge_scanner_window(
-    team_id: int, scanner_id: UUID, rows: list[dict[str, Any]], context_rows: list[dict[str, Any]] | None = None
+    team_id: int,
+    scanner_id: UUID,
+    rows: list[dict[str, Any]],
+    context_rows: list[dict[str, Any]] | None = None,
+    pace: Callable[[int], None] | None = None,
 ) -> WindowJudgment:
     """Ask Jev which of these observations are worth watching, one probability per row.
 
@@ -411,13 +447,14 @@ def judge_scanner_window(
     rows enter the request state without questions, so a small batch of new rows is still judged
     against the scanner's routine. Fail-soft per chunk: a failed chunk loses its rows' judgments
     and counts as failed, and the other chunks still land, so one bad request never empties a
-    scanner's cache entry.
+    scanner's cache entry. `pace` is called with each request's estimated prompt tokens before it
+    is sent, so a caller can spread its requests at a steady token rate; it may block.
     """
     entries = [(str(row["id"]), entry) for row in rows if (entry := _window_entry(row)) is not None]
     entry_ids = {entry_id for entry_id, _ in entries}
     skipped_no_prose = tuple(str(row["id"]) for row in rows if str(row["id"]) not in entry_ids)
     context = [entry for row in context_rows or [] if (entry := _window_entry(row)) is not None]
-    chunks = [entries[start : start + WINDOW_CHUNK_SIZE] for start in range(0, len(entries), WINDOW_CHUNK_SIZE)]
+    chunks = _pack_chunks(entries)
     # One trace per window run, so a window's chunks group in AI observability without merging runs.
     trace_id = str(uuid4())
     probabilities: dict[str, float] = {}
@@ -440,8 +477,19 @@ def judge_scanner_window(
         _ESTIMATED_COST.inc(chunk_cost)
 
     for chunk in chunks:
-        # The state holds at most WINDOW_CHUNK_SIZE entries, so context only pads short chunks.
-        chunk_context = context[: WINDOW_CHUNK_SIZE - len(chunk)]
+        # Context pads only the room the chunk leaves, by question count and by token budget, so a
+        # padded request stays no larger than a full one.
+        budget = REQUEST_TOKEN_TARGET - sum(_entry_tokens(entry) for _, entry in chunk)
+        chunk_context: list[dict[str, Any]] = []
+        for context_entry in context:
+            tokens = _entry_tokens(context_entry)
+            if len(chunk) + len(chunk_context) >= WINDOW_CHUNK_SIZE or tokens > budget:
+                break
+            chunk_context.append(context_entry)
+            budget -= tokens
+        request_tokens = REQUEST_TOKEN_TARGET - budget
+        if pace is not None:
+            pace(request_tokens)
         started = perf_counter()
         try:
             chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk, chunk_context)
@@ -479,6 +527,9 @@ def judge_scanner_window(
         watchable_ids = {oid for oid, probability in chunk_probabilities.items() if probability >= JEV_WATCHABLE_MIN}
         if not watchable_ids:
             continue
+        if pace is not None:
+            # The reason pick resends the same state, so it pays the same pacing toll.
+            pace(request_tokens)
         started = perf_counter()
         try:
             chunk_reasons, reason_result = _pick_watch_reasons(team_id, trace_id, chunk, chunk_context, watchable_ids)

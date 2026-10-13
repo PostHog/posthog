@@ -27,7 +27,9 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.jev_watch_feed import (
+    REQUEST_TOKEN_TARGET,
     WINDOW_CHUNK_SIZE,
+    _entry_tokens,
     judge_scanner_window,
     load_judged_state,
     load_scanner_watch_ranks,
@@ -43,7 +45,11 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.temporal.jev_watch_rank.activities import _judge_watch_ranks, _teams_with_scanners
+from products.replay_vision.backend.temporal.jev_watch_rank.activities import (
+    _judge_watch_ranks,
+    _teams_with_scanners,
+    _TokenPacer,
+)
 from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     MAX_JUDGE_ATTEMPTS,
     RATE_LIMIT_GIVE_UP_AFTER,
@@ -279,6 +285,32 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert judgment.rate_limited
         assert judgment.batch_failed_ids == ()
 
+    def test_requests_pack_to_the_token_target(self) -> None:
+        # A full-count chunk of verbose entries was still a host-filling request, so chunks are also
+        # bounded by estimated tokens: every request stays small beside the host's admission budget.
+        rows = [_prose_row(uuid4(), f"entry {index} " + "x" * 1400) for index in range(WINDOW_CHUNK_SIZE)]
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = _answer_every_question(0.1)
+            judgment = judge_scanner_window(1, uuid4(), rows)
+        assert judgment.failed_chunks == 0
+        assert len(judgment.probabilities) == WINDOW_CHUNK_SIZE
+        requests = [call.args[0] for call in api.decide_when_available.call_args_list]
+        # Count-only chunking would fit all of these into one request.
+        assert len(requests) > 1
+        for request in requests:
+            assert sum(_entry_tokens(entry) for entry in request.state["observations"]) <= REQUEST_TOKEN_TARGET
+
+    def test_each_request_pays_the_pacing_toll_before_it_sends(self) -> None:
+        rows = [_prose_row(uuid4(), f"summary {index}") for index in range(3)]
+        paid: list[int] = []
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = _answer_every_question(0.7)
+            judge_scanner_window(1, uuid4(), rows, pace=paid.append)
+        # One judgment request plus one reason request (the rows are watchable), each paced.
+        assert api.decide_when_available.call_count == 2
+        assert len(paid) == 2
+        assert all(tokens > 0 for tokens in paid)
+
     def test_an_empty_window_makes_no_request(self) -> None:
         with patch(_API) as api:
             judgment = judge_scanner_window(1, uuid4(), [])
@@ -304,6 +336,24 @@ def _feed_row(
     if notability is not None:
         row["scanner_result"] = {"model_output": {"notability_reason": notability, "notability": notability_score}}
     return row
+
+
+class TestTokenPacer(SimpleTestCase):
+    def test_a_request_waits_for_the_slot_the_one_before_it_reserved(self) -> None:
+        pacer = _TokenPacer(tokens_per_second=10_000)
+        started = monotonic()
+        pacer.wait(2_000)  # sends at once and reserves the next 0.2 s
+        pacer.wait(1)
+        assert monotonic() - started >= 0.2
+        # The recorded wait is the slot minus the instants between the calls, so just under 0.2 s.
+        assert pacer.waited_seconds > 0.1
+
+    def test_the_first_request_of_an_idle_run_never_waits(self) -> None:
+        pacer = _TokenPacer(tokens_per_second=1)  # any backlog at this rate would show instantly
+        started = monotonic()
+        pacer.wait(10)
+        assert monotonic() - started < 0.5
+        assert pacer.waited_seconds == 0.0
 
 
 class TestRankWatchFeedByJev(SimpleTestCase):
