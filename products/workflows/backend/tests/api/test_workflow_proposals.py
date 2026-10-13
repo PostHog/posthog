@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -15,6 +16,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notifications.backend.facade.testing import stored_notification_for_resource
@@ -921,22 +923,27 @@ class TestWorkflowProposals(APIBaseTest):
 
     def test_repeat_source_id_returns_the_same_proposal(self, _mock_flag):
         flow_id = self._create_active_flow()
-        first = self._propose(flow_id, source_id="run:1:finding:webhook-url")
+        with patch(
+            "products.workflows.backend.services.proposal_notifications.create_notification",
+            side_effect=RuntimeError("notification store unavailable"),
+        ):
+            first = self._propose(flow_id, source_id="run:1:finding:webhook-url")
 
-        again = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
-            {
-                "title": "Retry of the same finding",
-                "rationale": "A retried agent run must not queue a second copy for the human.",
-                "content": {"actions": [_trigger_action(), _webhook_action()]},
-                "base_version": 1,
-                "source_id": "run:1:finding:webhook-url",
-            },
-            format="json",
-            headers={"authorization": f"Bearer {self.producer_key}"},
-        )
-        assert again.status_code == 200, again.json()
-        assert again.json()["id"] == first["id"]
+        for _ in range(2):
+            again = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+                {
+                    "title": "Retry of the same finding",
+                    "rationale": "A retried agent run must not queue a second copy for the human.",
+                    "content": {"actions": [_trigger_action(), _webhook_action()]},
+                    "base_version": 1,
+                    "source_id": "run:1:finding:webhook-url",
+                },
+                format="json",
+                headers={"authorization": f"Bearer {self.producer_key}"},
+            )
+            assert again.status_code == 200, again.json()
+            assert again.json()["id"] == first["id"]
         assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
         assert stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id).resolved_user_ids == [
             self.user.id
@@ -954,6 +961,7 @@ class TestWorkflowProposals(APIBaseTest):
             ("the person who turned suggestions on", None, "opted-in@example.com"),
             ("the creator once that person is deactivated", "deactivate", None),
             ("the creator once that person leaves the organization", "remove", None),
+            ("the creator when that person can see only this workflow", "object_grant_only", None),
         ]
     )
     @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
@@ -968,14 +976,29 @@ class TestWorkflowProposals(APIBaseTest):
             member.save()
         elif change == "remove":
             OrganizationMembership.objects.filter(user=member).delete()
+        elif change == "object_grant_only":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+            AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=None, access_level="none")
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=flow_id,
+                access_level="viewer",
+                organization_member=OrganizationMembership.objects.get(user=member),
+            )
         recipient = User.objects.get(email=expected_email) if expected_email else self.user
 
-        self._propose(flow_id)
+        self._propose(flow_id, rationale="The open rate on https://evil.example.com/landing dropped.")
 
         notification = stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id)
         assert notification.resolved_user_ids == [recipient.id]
         assert notification.source_url == f"/project/{self.team.id}/workflows/{flow_id}/self-driving"
         mock_email.return_value.add_user_recipient.assert_called_once_with(recipient)
+        assert "https://evil.example.com" not in mock_email.call_args.kwargs["template_context"]["suggestion_rationale"]
 
     @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
     @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
