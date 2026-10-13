@@ -995,6 +995,11 @@ export interface PatchedHogFlowActionEmailUpdateApi {
     email_patch?: unknown
 }
 
+export interface HogFlowActivationHistoryApi {
+    /** True when the workflow is active now or the activity log records it being enabled or disabled before. */
+    has_been_active: boolean
+}
+
 export interface MessageAssetApi {
     /** The workflow run this email was sent in. */
     invocation_id: string

@@ -2,8 +2,7 @@ import { MakeLogicType, actions, afterMount, kea, key, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
-import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ApiConfig } from 'lib/api'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
 
+import { hogFlowsActivationHistoryRetrieve } from '../generated/api'
 import { metricsRangeFromSearchParams } from './metricsDrillParams'
 
 export const WorkflowTabs = [
@@ -104,7 +104,6 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
         hasBeenActive: [
             false,
             {
-                // The activity log is the only record of past status changes on a workflow.
                 loadHasBeenActive: async () => {
                     if (!props.id || props.id === 'new') {
                         return false
@@ -112,15 +111,11 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                     if (values.hasBeenActive) {
                         return true
                     }
-                    const response = await api.activity
-                        .listRequest({ scope: ActivityScope.HOG_FLOW, item_id: props.id, page_size: 1000 })
-                        .get()
-                    return (response.results as ActivityLogItem[]).some((item) =>
-                        item.detail?.changes?.some(
-                            (change) =>
-                                change.field === 'status' && (change.after === 'active' || change.before === 'active')
-                        )
+                    const response = await hogFlowsActivationHistoryRetrieve(
+                        String(ApiConfig.getCurrentTeamId()),
+                        props.id
                     )
+                    return response.has_been_active
                 },
                 markHasBeenActive: () => true,
             },

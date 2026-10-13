@@ -5237,6 +5237,43 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
+    @parameterized.expand(
+        [
+            ("never_enabled", [], False),
+            ("active_now", ["active"], True),
+            ("enabled_then_disabled", ["active", "draft"], True),
+        ]
+    )
+    def test_activation_history(self, _name: str, status_changes: list[str], expected: bool):
+        flow_id = self._create_flow()
+        other_flow_id = self._create_flow(name="Other flow")
+        for new_status in status_changes:
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": new_status})
+            assert response.status_code == 200, response.json()
+        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{other_flow_id}", {"status": "active"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/activation_history")
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"has_been_active": expected}
+
+    @parameterized.expand([("in_flight",), ("activation_history",)])
+    def test_overview_reads_allowed_with_hog_flow_read_key(self, path: str):
+        flow_id = self._create_flow()
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow read", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            return_value=MagicMock(status_code=200, json=lambda: {"count": 3, "by_action": {"action_1": 3}}),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/{path}",
+                headers={"authorization": f"Bearer {key}"},
+            )
+        assert response.status_code == 200, response.json()
+
     def test_bulk_delete_archived_workflows(self):
         ids = [self._create_flow(name=f"Flow {i}") for i in range(3)]
         for fid in ids:

@@ -16,6 +16,7 @@ import type {
     EmailDraftApi,
     EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
+    HogFlowActivationHistoryApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
@@ -370,6 +371,21 @@ export const hogFlowsActionsEmailPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedHogFlowActionEmailUpdateApi),
+    })
+}
+
+export const getHogFlowsActivationHistoryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/activation_history/`
+}
+
+export const hogFlowsActivationHistoryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowActivationHistoryApi> => {
+    return apiMutator<HogFlowActivationHistoryApi>(getHogFlowsActivationHistoryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

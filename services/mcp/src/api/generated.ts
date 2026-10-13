@@ -54938,6 +54938,11 @@ export namespace Schemas {
       readonly last_run: HogFlowLastRun | null;
     }
 
+    export interface HogFlowActivationHistory {
+      /** True when the workflow is active now or the activity log records it being enabled or disabled before. */
+      has_been_active: boolean;
+    }
+
     /**
      * * `waiting` - Waiting
      * * `queued` - Queued
