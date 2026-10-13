@@ -108,7 +108,7 @@ describe('extractModalityTokens()', () => {
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
-        it('extracts image and text tokens from candidatesTokensDetails object format (fallback)', () => {
+        it('extracts audio, image and text tokens from candidatesTokensDetails object format (fallback)', () => {
             const event = createAIEvent({
                 $ai_usage: {
                     promptTokenCount: 100,
@@ -116,6 +116,7 @@ describe('extractModalityTokens()', () => {
                     candidatesTokensDetails: {
                         textTokens: 10,
                         imageTokens: 1290,
+                        audioTokens: 800,
                     },
                 },
             })
@@ -124,6 +125,7 @@ describe('extractModalityTokens()', () => {
 
             expect(result.properties['$ai_image_output_tokens']).toBe(1290)
             expect(result.properties['$ai_text_output_tokens']).toBe(10)
+            expect(result.properties['$ai_audio_output_tokens']).toBe(800)
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
@@ -134,11 +136,11 @@ describe('extractModalityTokens()', () => {
             { tokens: Number.POSITIVE_INFINITY, expected: undefined },
             { tokens: Number.NaN, expected: undefined },
             { tokens: 0, expected: 0 },
-        ])('accepts only nonnegative safe integer object-form text tokens ($tokens)', ({ tokens, expected }) => {
+        ])('accepts only nonnegative safe integer object-form tokens ($tokens)', ({ tokens, expected }) => {
             const event = createAIEvent({
                 $ai_usage: {
                     promptTokensDetails: { textTokens: tokens },
-                    candidatesTokensDetails: { textTokens: tokens },
+                    candidatesTokensDetails: { textTokens: tokens, audioTokens: tokens },
                 },
             })
 
@@ -146,6 +148,7 @@ describe('extractModalityTokens()', () => {
 
             expect(result.properties['$ai_text_input_tokens']).toBe(expected)
             expect(result.properties['$ai_text_output_tokens']).toBe(expected)
+            expect(result.properties['$ai_audio_output_tokens']).toBe(expected === 0 ? undefined : expected)
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
@@ -168,7 +171,7 @@ describe('extractModalityTokens()', () => {
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
-        it('extracts image and text tokens from outputTokenDetails object format (fallback)', () => {
+        it('extracts audio, image and text tokens from outputTokenDetails object format (fallback)', () => {
             const event = createAIEvent({
                 $ai_usage: {
                     promptTokenCount: 100,
@@ -176,6 +179,7 @@ describe('extractModalityTokens()', () => {
                     outputTokenDetails: {
                         textTokens: 10,
                         imageTokens: 1290,
+                        audioTokens: 800,
                     },
                 },
             })
@@ -184,6 +188,7 @@ describe('extractModalityTokens()', () => {
 
             expect(result.properties['$ai_image_output_tokens']).toBe(1290)
             expect(result.properties['$ai_text_output_tokens']).toBe(10)
+            expect(result.properties['$ai_audio_output_tokens']).toBe(800)
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
@@ -305,6 +310,7 @@ describe('extractModalityTokens()', () => {
                             candidatesTokensDetails: {
                                 textTokens: 10,
                                 imageTokens: 1290,
+                                audioTokens: 800,
                             },
                         },
                     },
@@ -315,6 +321,7 @@ describe('extractModalityTokens()', () => {
 
             expect(result.properties['$ai_image_output_tokens']).toBe(1290)
             expect(result.properties['$ai_text_output_tokens']).toBe(10)
+            expect(result.properties['$ai_audio_output_tokens']).toBe(800)
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
@@ -355,6 +362,7 @@ describe('extractModalityTokens()', () => {
                             outputTokenDetails: {
                                 textTokens: 10,
                                 imageTokens: 1290,
+                                audioTokens: 800,
                             },
                         },
                     },
@@ -365,6 +373,7 @@ describe('extractModalityTokens()', () => {
 
             expect(result.properties['$ai_image_output_tokens']).toBe(1290)
             expect(result.properties['$ai_text_output_tokens']).toBe(10)
+            expect(result.properties['$ai_audio_output_tokens']).toBe(800)
         })
 
         it('handles non-google provider metadata', () => {
@@ -1042,18 +1051,21 @@ describe('extractModalityTokens()', () => {
             expect(labelsSpy).toHaveBeenCalledWith({ status: 'no_details', source: 'none' })
         })
 
-        it('emits source=gemini_output for output-only extractions', () => {
-            extractModalityTokens(
-                createAIEvent({
-                    $ai_usage: {
-                        candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1290 }],
-                    },
-                })
-            )
+        it.each([[{ modality: 'IMAGE', tokenCount: 1290 }], { audioTokens: 800 }])(
+            'emits source=gemini_output for output-only extractions (%j)',
+            (candidatesTokensDetails) => {
+                extractModalityTokens(
+                    createAIEvent({
+                        $ai_usage: {
+                            candidatesTokensDetails,
+                        },
+                    })
+                )
 
-            expect(labelsSpy).toHaveBeenCalledTimes(1)
-            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'gemini_output' })
-        })
+                expect(labelsSpy).toHaveBeenCalledTimes(1)
+                expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'gemini_output' })
+            }
+        )
 
         it('emits source=gemini_cache for cache-only Gemini extractions', () => {
             extractModalityTokens(

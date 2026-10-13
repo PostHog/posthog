@@ -143,6 +143,10 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     }
                 }
             } else if (isObject(tokenDetails)) {
+                if (isValidTokenCount(tokenDetails['audioTokens']) && tokenDetails['audioTokens'] > 0) {
+                    event.properties['$ai_audio_output_tokens'] = tokenDetails['audioTokens']
+                    extractedSources.add('gemini_output')
+                }
                 if (isValidTokenCount(tokenDetails['imageTokens']) && tokenDetails['imageTokens'] > 0) {
                     event.properties['$ai_image_output_tokens'] = tokenDetails['imageTokens']
                     extractedSources.add('gemini_output')
