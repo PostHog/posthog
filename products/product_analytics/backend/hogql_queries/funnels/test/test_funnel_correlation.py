@@ -2568,15 +2568,16 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         elif kind == "InsightActorsQueryOptions":
             query = InsightActorsQueryOptions(source=actors)
         elif kind == "EventsQuery":
-            from posthog.schema import EventsQuery, TrendsQuery
+            from posthog.schema import EventsQuery
 
             from posthog.hogql_queries.query_runner import query_node_modifiers
 
-            events_source = TrendsQuery(
-                series=[EventsNode(event="example")],
-                modifiers=modifiers.model_copy(update={"convertToProjectTimezone": True})
-                if source_choice is not None
-                else None,
+            events_source = source.model_copy(
+                update={
+                    "modifiers": modifiers.model_copy(update={"convertToProjectTimezone": True})
+                    if source_choice is not None
+                    else None
+                }
             )
             self.team.timezone = "Europe/Amsterdam"
             query = EventsQuery(
