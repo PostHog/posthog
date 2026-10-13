@@ -1404,6 +1404,7 @@ describe('runStreamLogic', () => {
                             kind: 'read',
                             status: 'pending',
                             rawInput: { path: 'a.ts' },
+                            _meta: { posthog: { toolName: 'Read' } },
                         },
                     },
                     'b-4'
@@ -1710,8 +1711,7 @@ describe('runStreamLogic', () => {
                 ])
             })
 
-            it('reads the attachments of a Pi prompt, naming the artifact and the run that logged it', () => {
-                const artifactId = '0b1e3f2a-4c5d-4e6f-8a9b-0c1d2e3f4a5b'
+            it('reads the attachments of a Pi prompt from the links the Pi server writes', () => {
                 const items = foldReplay([
                     {
                         ...(translatePiWireEntry({
@@ -1720,11 +1720,18 @@ describe('runStreamLogic', () => {
                                 type: 'user_message',
                                 id: 'u1',
                                 content: [
+                                    { type: 'text', text: 'Look here' },
                                     {
-                                        type: 'text',
-                                        text: `Look here\n\nAttached files:\n- /tmp/workspace/.posthog/attachments/${artifactId}-report.csv`,
+                                        type: 'resource_link',
+                                        uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-1/report.csv',
+                                        name: 'report.csv',
                                     },
-                                    { type: 'image', data: 'aGk=', mimeType: 'image/png', fileName: 'shot.png' },
+                                    {
+                                        type: 'resource_link',
+                                        uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-2/shot.png',
+                                        name: 'shot.png',
+                                        mimeType: 'image/png',
+                                    },
                                 ],
                             },
                         }) as StoredLogEntry),
@@ -1736,8 +1743,8 @@ describe('runStreamLogic', () => {
                     expect.objectContaining({
                         text: 'Look here',
                         attachments: [
-                            { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId },
-                            { name: 'shot.png' },
+                            { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-1' },
+                            { name: 'shot.png', taskId: 'task-3', runId: 'run-7', artifactId: 'art-2' },
                         ],
                     }),
                 ])
@@ -5367,7 +5374,7 @@ describe('runStreamLogic', () => {
             expect.objectContaining({
                 type: 'status',
                 status: 'extension_notice',
-                errorMessage: 'lint.ts failed during tool_call: crashed',
+                message: 'lint.ts failed during tool_call: crashed',
             }),
         ])
     })

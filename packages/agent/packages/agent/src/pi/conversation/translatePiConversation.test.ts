@@ -886,6 +886,7 @@ describe("createPiConversationTranslator", () => {
             kind: "execute",
             status: "pending",
             rawInput: { command: "pwd" },
+            _meta: { posthog: { toolName: "Bash" } },
           },
         },
       ],
