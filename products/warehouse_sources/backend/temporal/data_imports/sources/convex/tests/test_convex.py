@@ -19,6 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
     _CONVEX_RETRY,
@@ -107,32 +111,24 @@ class TestValidateDeployUrl:
             ("blank_key", "https://swift-lemur-123.convex.cloud", "   "),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_validate_credentials_rejects_bad_input_without_network_call(self, _name, url, deploy_key, mock_get):
-        ok, err = validate_credentials(url, deploy_key)
+    def test_validate_credentials_rejects_bad_input_without_network_call(self, _name, url, deploy_key):
+        with scripted_network([]) as network:
+            ok, err = validate_credentials(url, deploy_key)
         assert not ok
         assert err is not None
         assert urlparse(url).hostname not in err
-        mock_get.assert_not_called()
+        assert network.requests_log == []
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_validate_credentials_accepts_valid_url(self, mock_get):
-        mock_response = Mock(status_code=200)
-        mock_response.json.return_value = {}
-        mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
-
-        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+    def test_validate_credentials_accepts_valid_url(self):
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
         assert ok
         assert err is None
-        called_url = mock_get.return_value.get.call_args.args[0]
-        assert called_url.startswith("https://swift-lemur-123.convex.cloud/api/")
+        assert network.requests_log[0].url.startswith("https://swift-lemur-123.convex.cloud/api/")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_validate_credentials_surfaces_streaming_export_message(self, mock_get):
-        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
-
-        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+    def test_validate_credentials_surfaces_streaming_export_message(self):
+        with scripted_network([ScriptedResponse(status=400, json={"code": "StreamingExportNotEnabled"})]):
+            ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
 
         assert not ok
         assert err == (
@@ -145,15 +141,9 @@ class TestValidateDeployUrl:
             ("unknown_deployment", 404, "PostHog couldn't find this Convex deployment."),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_validate_credentials_does_not_leak_url_on_http_error(self, _name, status_code, expected, mock_get):
-        err_response = Mock(status_code=status_code)
-        err_response.json.return_value = {"code": "SomethingUnexpected"}
-        response = Mock()
-        response.raise_for_status.side_effect = HTTPError(response=err_response)
-        mock_get.return_value.get.return_value = response
-
-        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+    def test_validate_credentials_does_not_leak_url_on_http_error(self, _name, status_code, expected):
+        with scripted_network([ScriptedResponse(status=status_code, json={"code": "SomethingUnexpected"})]):
+            ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
         assert not ok
         assert err is not None
         assert err.startswith(expected)
@@ -169,13 +159,9 @@ class TestValidateDeployUrl:
             ("key_for_other_project", "prod:quiet-otter-456|abc", "belongs to a different Convex deployment"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_validate_credentials_explains_a_rejected_deploy_key(self, _name, deploy_key, expected, mock_get):
-        response = Mock()
-        response.raise_for_status.side_effect = HTTPError(response=Mock(status_code=401))
-        mock_get.return_value.get.return_value = response
-
-        ok, err = validate_credentials("https://swift-lemur-123.eu-west-1.convex.cloud", deploy_key)
+    def test_validate_credentials_explains_a_rejected_deploy_key(self, _name, deploy_key, expected):
+        with scripted_network([ScriptedResponse(status=401)]):
+            ok, err = validate_credentials("https://swift-lemur-123.eu-west-1.convex.cloud", deploy_key)
 
         assert not ok
         assert err is not None
@@ -293,32 +279,26 @@ class TestConvexRetryPolicy:
 
 
 class TestConvexNonRetryableErrors:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_streaming_export_not_enabled_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
+    def test_streaming_export_not_enabled_message_is_recognised_as_non_retryable(self) -> None:
         # get_schemas (schema discovery) calls get_json_schemas directly, unlike
         # validate_credentials which already inspected the response body for this code. Without
         # get_json_schemas surfacing the code itself, discovery only ever saw a bare HTTPError
         # whose message never matches the "StreamingExportNotEnabled" non-retryable entry below.
-        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
-
-        with pytest.raises(StreamingExportNotEnabledError) as exc_info:
+        with (
+            scripted_network([ScriptedResponse(status=400, json={"code": "StreamingExportNotEnabled"})]),
+            pytest.raises(StreamingExportNotEnabledError) as exc_info,
+        ):
             get_json_schemas("https://x.convex.cloud", "key")
 
         error_msg = str(exc_info.value)
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in error_msg for key in non_retryable_errors), error_msg
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_get_json_schemas_400_with_unparseable_body_falls_through_to_http_error(self, mock_get: Mock) -> None:
+    def test_get_json_schemas_400_with_unparseable_body_falls_through_to_http_error(self) -> None:
         # A 400 whose body isn't JSON (e.g. a proxy/edge error page) must not crash the
         # body-parsing added for StreamingExportNotEnabled detection - it should fall through
         # to the normal raise_for_status() error instead of raising an unhandled ValueError.
-        response = _make_response({}, status_code=400)
-        response.json.side_effect = ValueError("not JSON")
-        response.raise_for_status.side_effect = HTTPError(response=response)
-        mock_get.return_value.get.return_value = response
-
-        with pytest.raises(HTTPError):
+        with scripted_network([ScriptedResponse(status=400, body=b"not JSON")]), pytest.raises(HTTPError):
             get_json_schemas("https://x.convex.cloud", "key")
 
     @parameterized.expand(
@@ -367,6 +347,12 @@ class TestConvexRetryableErrors:
             ("504", "504 Server Error: Gateway Timeout for url: https://x.convex.cloud/api/v1/data/sync"),
             ("cloudflare_520", "520 Server Error: Unknown Error for url: https://x.convex.cloud/api/v1/data/sync"),
             ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/v1/data/sync"),
+            (
+                "read_timeout_exhausted",
+                "HTTPSConnectionPool(host='x.convex.cloud', port=443): Max retries exceeded with url: "
+                "/api/v1/data/sync (Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='x.convex.cloud', "
+                'port=443): Read timed out. (read timeout=60)"))',
+            ),
         ]
     )
     def test_transient_errors_are_recognized_as_retryable(self, _name: str, observed_error: str) -> None:

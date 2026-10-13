@@ -1097,18 +1097,38 @@ def get_rows(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
                 )
         else:
-            stripe_objects = _call_stripe(
-                resource.method, params={**default_params, **resource.params, **resume_params}
-            )
-            for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(_scrub_client_secrets(obj))
 
-                while batcher.should_yield():
-                    py_table = batcher.get_table()
-                    # Staged before the yield, so the commit that follows this table's write covers it.
-                    last_cur = py_table.column("id")[-1].as_py()
-                    resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
-                    yield py_table
+            def _list_resource(params: dict[str, Any]) -> Any:
+                return _call_stripe(resource.method, params=params).auto_paging_iter()
+
+            list_params = {**default_params, **resource.params, **resume_params}
+            cursor_restarted = False
+            while True:
+                try:
+                    for obj in _list_resource(list_params):
+                        batcher.batch(_scrub_client_secrets(obj))
+
+                        while batcher.should_yield():
+                            py_table = batcher.get_table()
+                            # Staged before the yield, so the commit that follows this table's write covers it.
+                            last_cur = py_table.column("id")[-1].as_py()
+                            resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                            yield py_table
+                    break
+                except stripe_lib.InvalidRequestError as e:
+                    # A cursor saved by a previous run (or the auto-paging cursor mid-run) can
+                    # outlive the object it names, e.g. the invoice_payment it pointed at was
+                    # voided between runs. Stripe can't resume pagination from a cursor it no
+                    # longer has, so every retry of this job would 404 identically forever. Drop
+                    # the cursor and restart the listing once instead of getting stuck.
+                    if cursor_restarted or not (resume_params and _is_stripe_resource_missing_error(e)):
+                        raise
+                    logger.debug(
+                        f"Stripe: resume cursor {resume_params['starting_after']} no longer exists, restarting {endpoint} from the beginning"
+                    )
+                    resume_params = {}
+                    cursor_restarted = True
+                    list_params = {**default_params, **resource.params}
 
         def trailing_state(py_table: pa.Table) -> StripeResumeConfig:
             if isinstance(resource, StripeNestedResource):

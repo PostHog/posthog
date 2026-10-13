@@ -32,6 +32,7 @@ from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     NEW_TABLE_NOT_READY_MESSAGE,
     _transient_error_message,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core imp
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     SimpleSource,
@@ -65,7 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     _resolve_reset_pipeline,
     import_data_activity_sync,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import DataWarehouseTableFormat, IncrementalFieldType
 
 
 class _FakeAsyncCM:
@@ -166,6 +169,108 @@ class TestGetModelsPrefetchesSource(BaseTest):
 
         with self.assertNumQueries(0):
             models.job.folder_path()
+
+
+_INCREMENTAL = ExternalDataSchema.SyncType.INCREMENTAL
+_CDC = ExternalDataSchema.SyncType.CDC
+_PIPELINE_V3 = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+
+
+class TestGetModelsRelinksAnOrphanedTable(BaseTest):
+    def _first_ever_sync_stamp(self, models: module.ImportJobModels, *, reset_pipeline: bool) -> bool:
+        # The flag the producer stamps on every queued batch: True makes the loader overwrite on batch 0.
+        resource = mock.MagicMock(
+            primary_keys=["id"],
+            partition_count=None,
+            partition_size=None,
+            partition_keys=None,
+            partition_format=None,
+            partition_mode=None,
+            cdc_write_mode=None,
+            lanes=None,
+            webhook_only=False,
+            chunk_size=None,
+            chunk_size_bytes=None,
+        )
+        resource.name = "orders"
+        with (
+            mock.patch(f"{_PIPELINE_V3}.current_import_attempt", return_value=1),
+            mock.patch(f"{_PIPELINE_V3}.current_workflow_id", return_value="wf-1"),
+            mock.patch(f"{_PIPELINE_V3}.current_workflow_run_id", return_value="wfrun-1"),
+            mock.patch(f"{_PIPELINE_V3}.S3BatchWriter"),
+            mock.patch(f"{_PIPELINE_V3}.DeltaTableRef"),
+            mock.patch(f"{_PIPELINE_V3}.build_pipeline_sinks"),
+            mock.patch(f"{_PIPELINE_V3}.PostgresProducer") as producer_cls,
+        ):
+            PipelineV3(
+                source_response=resource,
+                logger=mock.MagicMock(),
+                job_id=str(models.job.id),
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=mock.MagicMock(),
+                resumable_source_manager=None,
+                models=models,
+            )
+        return producer_cls.call_args.kwargs["is_first_ever_sync"]
+
+    @parameterized.expand(
+        [
+            # (case, sync_type, sync_type_config, reset_pipeline, expected_table, expected_first_ever_sync)
+            ("linked_table_is_kept", _INCREMENTAL, {}, False, "linked", False),
+            ("orphan_is_relinked", _INCREMENTAL, {}, False, "orphan", False),
+            ("no_table_is_a_first_sync", _INCREMENTAL, {}, False, None, True),
+            # A cdc_only schema writes its `_cdc` companion, so the consolidated table is not its own.
+            ("cdc_only_schema_is_not_relinked", _CDC, {"cdc_table_mode": "cdc_only"}, False, None, True),
+            # A reset of a relinked schema is a reset of a linked table: the Delta delete in
+            # `handle_reset_or_full_refresh` makes the run rebuild (see TestTableRebuildAcrossAttempts).
+            ("reset_relinks_and_leaves_the_rebuild_to_the_delete", _INCREMENTAL, {}, True, "orphan", False),
+        ]
+    )
+    def test_relinks_an_orphan_before_the_pipeline_decides_on_a_first_sync(
+        self,
+        case: str,
+        sync_type: str,
+        sync_type_config: dict[str, Any],
+        reset_pipeline: bool,
+        expected_table: str | None,
+        expected_first_ever_sync: bool,
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type=sync_type,
+            sync_type_config={"incremental_field": "updated_at", **sync_type_config},
+        )
+        tables: dict[str, DataWarehouseTable] = {}
+        if case != "no_table_is_a_first_sync":
+            tables["orphan"] = DataWarehouseTable.objects.create(
+                name=build_table_name(source, "orders"),
+                format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                url_pattern="s3://bucket/orders/*.parquet",
+                team=self.team,
+                external_data_source=source,
+                row_count=1000,
+            )
+        if case == "linked_table_is_kept":
+            tables["linked"] = tables.pop("orphan")
+            schema.table = tables["linked"]
+            schema.save()
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+
+        models = cast(Any, module._get_models).func(str(job.id))
+
+        expected = tables[expected_table] if expected_table else None
+        assert models.table == expected
+        assert models.schema.table == expected
+        schema.refresh_from_db()
+        assert schema.table == expected
+        assert self._first_ever_sync_stamp(models, reset_pipeline=reset_pipeline) is expected_first_ever_sync
 
 
 class TestSchemaSyncHistory(BaseTest):

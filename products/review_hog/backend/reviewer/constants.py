@@ -210,6 +210,10 @@ FLASH_LENSES: dict[str, FlashLens] = {
     ),
 }
 
+# One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
+# at once by default, so a larger PR would lose the lenses past that.
+COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
+
 
 def is_single_agent_pass(pass_number: int) -> bool:
     """Whether a persisted review result came from a single-agent session, the main one or a lens.

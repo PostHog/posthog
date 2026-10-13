@@ -31,6 +31,13 @@
         }
     }
 
+    &__viz--custom {
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        padding-top: 2rem;
+    }
+
     &__chart {
         // The quill chart root stretches via flex-1, so it needs a flex column parent
         display: flex;

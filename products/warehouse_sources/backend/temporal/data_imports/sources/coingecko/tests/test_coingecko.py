@@ -1,13 +1,9 @@
 import json
-from datetime import UTC, datetime, time, timedelta
-from typing import Any
-
-import pytest
-from unittest import mock
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Any, Literal, cast
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.coingecko import (
     DEMO_BASE_URL,
@@ -16,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     PLAN_PRO,
     PRO_BASE_URL,
     CoinGeckoResumeConfig,
-    coingecko_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
@@ -25,165 +20,98 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     MAX_COINS,
     TICKERS_PAGE_SIZE,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the coingecko module.
-COINGECKO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.coingecko.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source import CoinGeckoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
-# Neuter tenacity's backoff so retry tests don't actually sleep.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
+    CoinGeckoSourceConfig,
+)
 
 
-def _response(body: Any, *, status: int = 200, compact: bool = False) -> Response:
-    resp = Response()
-    resp.status_code = status
-    separators = (",", ":") if compact else None
-    resp._content = json.dumps(body, separators=separators).encode()
-    resp.url = "https://api.coingecko.com/api/v3/x"
-    return resp
-
-
-def _rate_limit_body(*, compact: bool) -> Response:
-    # CoinGecko's keyless/demo tier reports rate limiting inside a 200 body.
-    return _response({"status": {"error_code": 429, "error_message": "rate limited"}}, compact=compact)
-
-
-def _manager(resume_state: CoinGeckoResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's URL/params/auth AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy per request.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        auth = request.auth
-        snapshots.append(
-            {
-                "url": request.url,
-                "params": dict(request.params or {}),
-                "auth_name": getattr(auth, "name", None),
-                "auth_key": getattr(auth, "api_key", None),
-            }
-        )
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(
-    plan: str,
-    api_key: str,
-    endpoint: str,
-    manager: mock.MagicMock,
+def _driver(
+    plan: str = PLAN_DEMO,
+    api_key: str = "key",
     coin_ids: str | None = None,
     start_date: str | None = None,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-):
-    return coingecko_source(
-        plan=plan,
-        api_key=api_key,
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        logger=mock.MagicMock(),
-        resumable_source_manager=manager,
-        coin_ids=coin_ids,
-        start_date=start_date,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
+) -> SourceDriver:
+    return SourceDriver(
+        CoinGeckoSource(),
+        CoinGeckoSourceConfig(
+            plan=cast(Literal["demo", "pro"], plan), api_key=api_key, coin_ids=coin_ids, start_date=start_date
+        ),
     )
 
 
-def _today() -> Any:
+def _today() -> date:
     return datetime.now(UTC).date()
 
 
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
 class TestReferenceEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_fails_loud(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_non_list_body_fails_loud(self) -> None:
         # A 200 that isn't a bare array is an unexpected/changed shape — fail loud, not a garbage row.
-        _wire(session, [_response({"unexpected": "object"})])
+        result = _driver().run("coins_list", [ScriptedResponse(json={"unexpected": "object"})])
 
-        with pytest.raises(ValueError, match="list response body"):
-            _rows(_source(PLAN_DEMO, "key", "coins_list", _manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reference_endpoint_never_checkpoints(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "eth"}])])
+    def test_reference_endpoint_never_checkpoints(self) -> None:
+        result = _driver().run("asset_platforms", [ScriptedResponse(json=[{"id": "eth"}])])
 
-        manager = _manager()
-        _rows(_source(PLAN_DEMO, "key", "asset_platforms", manager))
-        manager.save_state.assert_not_called()
+        assert result.rows == [{"id": "eth"}]
+        assert result.saved_states == []
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"id": "x"}])])
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "coins_markets",
+            [ScriptedResponse(json=[{"id": "x"}])],
+            resume_state=CoinGeckoResumeConfig(page=3),
+        )
 
-        manager = _manager(CoinGeckoResumeConfig(page=3))
-        _rows(_source(PLAN_DEMO, "key", "coins_markets", manager))
+        assert result.rows == [{"id": "x"}]
+        assert result.params("page") == ["3"]
 
-        assert snaps[0]["params"]["page"] == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_insights_stops_at_max_page_cap(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_insights_stops_at_max_page_cap(self) -> None:
         # 20 full pages back to back would normally trigger a 21st request, but CoinGecko rejects
         # page > 20 for /insights, so the cap must stop paging without that doomed request.
         full_page = [{"title": f"t{i}", "posted_at": "2026-01-01T00:00:00Z"} for i in range(20)]
-        _wire(session, [_response(full_page) for _ in range(20)])
+        result = _driver(plan=PLAN_PRO).run("insights", [ScriptedResponse(json=full_page) for _ in range(20)])
 
-        _rows(_source(PLAN_PRO, "key", "insights", _manager()))
-        assert session.send.call_count == 20
+        assert result.raised is None
+        assert len(result.requests) == 20
+        assert result.params("page") == [str(page) for page in range(1, 21)]
 
 
 class TestRateLimitAndErrors:
     @parameterized.expand([("compact", True), ("spaced", False)])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_in_body_rate_limit_is_retried(self, _name: str, compact: bool, MockSession, _sleep) -> None:
-        session = MockSession.return_value
+    def test_in_body_rate_limit_is_retried(self, _name: str, compact: bool) -> None:
         good = [{"id": "btc"}]
         # A 200 body carrying the rate-limit envelope must be retried, then the retry succeeds —
         # regardless of the server's JSON whitespace.
-        _wire(session, [_rate_limit_body(compact=compact), _response(good)])
+        body = {"status": {"error_code": 429, "error_message": "rate limited"}}
+        separators = (",", ":") if compact else None
+        result = _driver().run(
+            "coins_list",
+            [ScriptedResponse(body=json.dumps(body, separators=separators).encode()), ScriptedResponse(json=good)],
+        )
 
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_list", _manager()))
-        assert rows == good
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert result.rows == good
+        assert len(result.requests) == 2
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_401_surfaces_as_http_error(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_401_surfaces_as_http_error(self) -> None:
         # 401 is a genuine, non-retryable auth error — it must surface (get_non_retryable_errors
         # matches on the "401 ... for url: <host>" message).
-        resp = _response({"status": {"error_code": 10011, "error_message": "invalid key"}}, status=401)
-        _wire(session, [resp])
+        body = {"status": {"error_code": 10011, "error_message": "invalid key"}}
+        result = _driver().run("coins_list", [ScriptedResponse(status=401, json=body)])
 
-        with pytest.raises(requests.HTTPError, match="401"):
-            _rows(_source(PLAN_DEMO, "key", "coins_list", _manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401" in str(result.raised)
+        assert len(result.requests) == 1
 
 
 class TestHostHeaderAndRedaction:
@@ -193,43 +121,36 @@ class TestHostHeaderAndRedaction:
             (PLAN_PRO, PRO_BASE_URL, "x-cg-pro-api-key"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_plan_selects_host_and_key_header(self, plan: str, base_url: str, header_name: str, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"id": "btc"}])])
+    def test_plan_selects_host_and_key_header(self, plan: str, base_url: str, header_name: str) -> None:
+        result = _driver(plan=plan, api_key="secret").run("coins_list", [ScriptedResponse(json=[{"id": "btc"}])])
 
-        _rows(_source(plan, "secret", "coins_list", _manager()))
-        assert snaps[0]["url"].startswith(base_url)
+        assert result.raised is None
+        assert result.urls[0].startswith(base_url)
         # The key rides in the plan-specific header via framework auth (redacted by value).
-        assert snaps[0]["auth_name"] == header_name
-        assert snaps[0]["auth_key"] == "secret"
+        assert result.requests[0].headers[header_name] == "secret"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_registered_for_redaction(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "btc"}])])
+    def test_api_key_registered_for_redaction(self) -> None:
+        result = _driver(api_key="secret").run("coins_list", [ScriptedResponse(json=[{"id": "btc"}])])
 
-        _rows(_source(PLAN_DEMO, "secret", "coins_list", _manager()))
         # RESTClient builds its tracked session with the auth secret in redact_values.
-        assert MockSession.call_args.kwargs["redact_values"] == ("secret",)
+        assert result.session_options[0]["redact_values"] == ("secret",)
 
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
-    @mock.patch(COINGECKO_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials(PLAN_DEMO, "key") is expected
+    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            assert validate_credentials(PLAN_DEMO, "key") is expected
 
-    @mock.patch(COINGECKO_SESSION_PATCH)
-    def test_pings_plan_host_with_key_and_redaction(self, mock_session: mock.MagicMock) -> None:
-        get = mock_session.return_value.get
-        get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials(PLAN_PRO, "secret")
+        assert len(network.requests_log) == 1
 
-        assert get.call_args.args[0] == f"{PRO_BASE_URL}/ping"
-        assert get.call_args.kwargs["headers"]["x-cg-pro-api-key"] == "secret"
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
+    def test_pings_plan_host_with_key_and_redaction(self) -> None:
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials(PLAN_PRO, "secret") is True
+
+        assert network.requests_log[0].url == f"{PRO_BASE_URL}/ping"
+        assert network.requests_log[0].headers["x-cg-pro-api-key"] == "secret"
+        assert network.session_options[0]["redact_values"] == ("secret",)
 
 
 class TestSourceResponse:
@@ -245,30 +166,31 @@ class TestSourceResponse:
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = _source(PLAN_DEMO, "key", endpoint, _manager())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_keys
 
 
 class TestCoinTickers:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pages_one_coin_then_moves_to_the_next(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_pages_one_coin_then_moves_to_the_next(self) -> None:
         full_page = [
             {"base": f"B{i}", "target": "USDT", "market": {"identifier": "binance"}} for i in range(TICKERS_PAGE_SIZE)
         ]
-        snaps = _wire(
-            session,
+        result = _driver(coin_ids="bitcoin,ethereum").run(
+            "coins_tickers",
             [
-                _response({"name": "Bitcoin", "tickers": full_page}),
-                _response(
-                    {
+                ScriptedResponse(json={"name": "Bitcoin", "tickers": full_page}),
+                ScriptedResponse(
+                    json={
                         "name": "Bitcoin",
                         "tickers": [{"base": "last", "target": "USDT", "market": {"identifier": "binance"}}],
                     }
                 ),
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "name": "Ethereum",
                         "tickers": [{"base": "ETH", "target": "USDT", "market": {"identifier": "kraken"}}],
                     }
@@ -276,191 +198,157 @@ class TestCoinTickers:
             ],
         )
 
-        manager = _manager()
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_tickers", manager, coin_ids="bitcoin,ethereum"))
-
-        assert len(rows) == TICKERS_PAGE_SIZE + 2
-        assert [snap["params"].get("page") for snap in snaps] == [1, 2, 1]
+        assert result.raised is None
+        assert len(result.rows) == TICKERS_PAGE_SIZE + 2
+        assert result.params("page") == ["1", "2", "1"]
         # The endpoint has no per_page parameter, so sending one would be rejected.
-        assert all("per_page" not in snap["params"] for snap in snaps)
-        assert manager.save_state.call_args_list == [
-            mock.call(CoinGeckoResumeConfig(page=2, coin_index=0)),
-            mock.call(CoinGeckoResumeConfig(coin_index=1)),
-            mock.call(CoinGeckoResumeConfig(coin_index=2)),
+        assert result.params("per_page") == [None, None, None]
+        assert result.saved_states == [
+            CoinGeckoResumeConfig(page=2, coin_index=0),
+            CoinGeckoResumeConfig(coin_index=1),
+            CoinGeckoResumeConfig(coin_index=2),
         ]
 
     @parameterized.expand([("blank", ""), ("unset", None), ("separators only", " , ")])
     def test_no_coins_fails_with_the_curated_error(self, _name: str, coin_ids: str | None) -> None:
-        with pytest.raises(ValueError, match=NO_COINS_ERROR):
-            _rows(_source(PLAN_DEMO, "key", "coins_tickers", _manager(), coin_ids=coin_ids))
+        result = _driver(coin_ids=coin_ids).run("coins_tickers", [])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_coin_list_is_capped(self, MockSession) -> None:
-        session = MockSession.return_value
+        assert isinstance(result.raised, ValueError)
+        assert NO_COINS_ERROR in str(result.raised)
+
+    def test_coin_list_is_capped(self) -> None:
         # A stored configuration can carry more coins than the cap, and each one costs a request.
-        _wire(session, [_response({"name": "c", "tickers": []}) for _ in range(MAX_COINS + 5)])
-
         coin_ids = ",".join(f"coin-{i}" for i in range(MAX_COINS + 5))
-        _rows(_source(PLAN_DEMO, "key", "coins_tickers", _manager(), coin_ids=coin_ids))
-        assert session.send.call_count == MAX_COINS
+        result = _driver(coin_ids=coin_ids).run(
+            "coins_tickers", [ScriptedResponse(json={"name": "c", "tickers": []}) for _ in range(MAX_COINS + 5)]
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == MAX_COINS
 
 
 class TestMarketChart:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_series_of_unequal_length_still_line_up(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_series_of_unequal_length_still_line_up(self) -> None:
         first, second = 1764547200000, 1764633600000
         # CoinGecko can return a volume point the price series has not caught up with yet.
-        _wire(session, [_response({"prices": [[first, 1.0]], "market_caps": [], "total_volumes": [[second, 2.0]]})])
-
         start = (_today() - timedelta(days=5)).isoformat()
-        rows = _rows(_source(PLAN_PRO, "key", "coins_market_chart", _manager(), coin_ids="bitcoin", start_date=start))
+        result = _driver(plan=PLAN_PRO, coin_ids="bitcoin", start_date=start).run(
+            "coins_market_chart",
+            [ScriptedResponse(json={"prices": [[first, 1.0]], "market_caps": [], "total_volumes": [[second, 2.0]]})],
+        )
 
-        assert [sorted(row.keys()) for row in rows] == [
+        assert result.raised is None
+        assert [sorted(row.keys()) for row in result.rows] == [
             ["coin_id", "price", "timestamp"],
             ["coin_id", "timestamp", "total_volume"],
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_object_body_fails_loud(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("unexpected")])
-
+    def test_non_object_body_fails_loud(self) -> None:
         start = (_today() - timedelta(days=5)).isoformat()
-        with pytest.raises(ValueError, match="market chart object"):
-            _rows(_source(PLAN_PRO, "key", "coins_market_chart", _manager(), coin_ids="bitcoin", start_date=start))
+        result = _driver(plan=PLAN_PRO, coin_ids="bitcoin", start_date=start).run(
+            "coins_market_chart", [ScriptedResponse(json="unexpected")]
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "market chart object" in str(result.raised)
 
 
 class TestOhlc:
     @parameterized.expand(
         [("short candle", [[1764547200000, 1.0, 2.0]]), ("unparseable timestamp", [["nope", 1.0, 2.0, 3.0, 4.0]])]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unusable_candles_are_dropped(self, _name: str, body: list[Any], MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
-
+    def test_unusable_candles_are_dropped(self, _name: str, body: list[Any]) -> None:
         start = (_today() - timedelta(days=5)).isoformat()
-        assert _rows(_source(PLAN_PRO, "key", "coins_ohlc", _manager(), coin_ids="bitcoin", start_date=start)) == []
+        result = _driver(plan=PLAN_PRO, coin_ids="bitcoin", start_date=start).run(
+            "coins_ohlc", [ScriptedResponse(json=body)]
+        )
+
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestChartWindows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_one_batch_holds_every_coin_for_a_window(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_one_batch_holds_every_coin_for_a_window(self) -> None:
         today = _today()
         start = today - timedelta(days=CHART_WINDOW_DAYS + 10)
         first_candle, second_candle = 1764547200000, 1764633600000
-        snaps = _wire(
-            session,
+        result = _driver(plan=PLAN_PRO, coin_ids="bitcoin,ethereum", start_date=start.isoformat()).run(
+            "coins_ohlc",
             [
-                _response([[first_candle, 1.0, 2.0, 3.0, 4.0]]),
-                _response([[first_candle, 5.0, 6.0, 7.0, 8.0]]),
-                _response([[second_candle, 1.0, 2.0, 3.0, 4.0]]),
-                _response([[second_candle, 5.0, 6.0, 7.0, 8.0]]),
+                ScriptedResponse(json=[[first_candle, 1.0, 2.0, 3.0, 4.0]]),
+                ScriptedResponse(json=[[first_candle, 5.0, 6.0, 7.0, 8.0]]),
+                ScriptedResponse(json=[[second_candle, 1.0, 2.0, 3.0, 4.0]]),
+                ScriptedResponse(json=[[second_candle, 5.0, 6.0, 7.0, 8.0]]),
             ],
         )
-
-        manager = _manager()
-        source = _source(
-            PLAN_PRO, "key", "coins_ohlc", manager, coin_ids="bitcoin,ethereum", start_date=start.isoformat()
-        )
-        batches = list(source.items())
 
         # The pipeline commits the incremental watermark to the highest timestamp in each batch, so
         # a batch carrying one coin past a window the other has not been fetched for would let the
         # next job start beyond the coin left behind and skip it for good.
-        assert [[row["coin_id"] for row in batch] for batch in batches] == [
+        assert result.raised is None
+        assert [[row["coin_id"] for row in batch] for batch in result.items] == [
             ["bitcoin", "ethereum"],
             ["bitcoin", "ethereum"],
         ]
         # Both coins are fetched for one window before either moves on to the next.
-        windows = [snap["params"]["from"] for snap in snaps]
+        windows = result.params("from")
         assert windows[0] == windows[1] and windows[2] == windows[3] and windows[0] != windows[2]
-        assert manager.save_state.call_args_list[-1] == mock.call(
-            CoinGeckoResumeConfig(next_start=(today + timedelta(days=1)).isoformat())
-        )
+        assert result.saved_states[-1] == CoinGeckoResumeConfig(next_start=(today + timedelta(days=1)).isoformat())
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_starts_at_the_default_history_window(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([]) for _ in range(4)])
-
+    def test_full_refresh_starts_at_the_default_history_window(self) -> None:
         # No configured start date and no watermark: the first window must start at the furthest
         # back every plan serves, not at the API's own earliest data.
-        _rows(
-            _source(
-                PLAN_PRO,
-                "key",
-                "coins_ohlc",
-                _manager(),
-                coin_ids="bitcoin",
-                should_use_incremental_field=False,
-                db_incremental_field_last_value="2020-01-01",
-            )
+        result = _driver(plan=PLAN_PRO, coin_ids="bitcoin").run(
+            "coins_ohlc", [ScriptedResponse(json=[]) for _ in range(4)], db_incremental_field_last_value="2020-01-01"
         )
-        assert snaps[0]["params"]["from"] == (_today() - timedelta(days=DEFAULT_HISTORY_DAYS)).isoformat()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_starts_at_the_last_synced_day(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([]) for _ in range(4)])
+        assert result.raised is None
+        assert result.params("from")[0] == (_today() - timedelta(days=DEFAULT_HISTORY_DAYS)).isoformat()
 
+    def test_incremental_starts_at_the_last_synced_day(self) -> None:
         # Relative to today, so the number of windows between the watermark and now stays fixed
         # however far the real clock moves past this test.
         last_synced_day = _today() - timedelta(days=10)
-        _rows(
-            _source(
-                PLAN_PRO,
-                "key",
-                "coins_ohlc",
-                _manager(),
-                coin_ids="bitcoin",
-                start_date=(last_synced_day - timedelta(days=400)).isoformat(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.combine(last_synced_day, time(9, 30), tzinfo=UTC),
-            )
+        result = _driver(
+            plan=PLAN_PRO, coin_ids="bitcoin", start_date=(last_synced_day - timedelta(days=400)).isoformat()
+        ).run(
+            "coins_ohlc",
+            [ScriptedResponse(json=[]) for _ in range(4)],
+            incremental_field="timestamp",
+            db_incremental_field_last_value=datetime.combine(last_synced_day, time(9, 30), tzinfo=UTC),
         )
+
         # Re-reads the last synced day rather than starting after it: that day was still moving
         # when it first landed, and merge dedupes the overlap.
-        assert snaps[0]["params"]["from"] == last_synced_day.isoformat()
+        assert result.raised is None
+        assert result.params("from")[0] == last_synced_day.isoformat()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_at_the_saved_window(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([]) for _ in range(4)])
-
+    def test_resumes_at_the_saved_window(self) -> None:
         resumed_from = (_today() - timedelta(days=3)).isoformat()
-        manager = _manager(CoinGeckoResumeConfig(next_start=resumed_from))
-        _rows(
-            _source(
-                PLAN_PRO,
-                "key",
-                "coins_ohlc",
-                manager,
-                coin_ids="bitcoin,ethereum",
-                start_date=(_today() - timedelta(days=300)).isoformat(),
-            )
+        result = _driver(
+            plan=PLAN_PRO, coin_ids="bitcoin,ethereum", start_date=(_today() - timedelta(days=300)).isoformat()
+        ).run(
+            "coins_ohlc",
+            [ScriptedResponse(json=[]) for _ in range(4)],
+            resume_state=CoinGeckoResumeConfig(next_start=resumed_from),
         )
 
         # The saved window is re-fetched for every coin, so resuming cannot drop one of them.
-        assert session.send.call_count == 2
-        assert [snap["params"]["from"] for snap in snaps[:2]] == [resumed_from, resumed_from]
-        assert snaps[0]["url"].endswith("/coins/bitcoin/ohlc/range")
-        assert snaps[1]["url"].endswith("/coins/ethereum/ohlc/range")
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert result.params("from") == [resumed_from, resumed_from]
+        assert result.paths == ["/api/v3/coins/bitcoin/ohlc/range", "/api/v3/coins/ethereum/ohlc/range"]
 
 
 class TestExchangeRates:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_flattens_the_rates_object_into_a_row_per_currency(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_flattens_the_rates_object_into_a_row_per_currency(self) -> None:
         # The body is keyed by currency code rather than being a row list, so without the flattening
         # the whole object would land as one unusable row.
-        _wire(
-            session,
+        result = _driver().run(
+            "exchange_rates",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "rates": {
                             "btc": {"name": "Bitcoin", "unit": "BTC", "value": 1.0, "type": "crypto"},
                             "usd": {"name": "US Dollar", "unit": "$", "value": 80443.4, "type": "fiat"},
@@ -470,13 +358,12 @@ class TestExchangeRates:
             ],
         )
 
-        rows = _rows(_source(PLAN_DEMO, "key", "exchange_rates", _manager()))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": "btc", "name": "Bitcoin", "unit": "BTC", "value": 1.0, "type": "crypto"},
             {"id": "usd", "name": "US Dollar", "unit": "$", "value": 80443.4, "type": "fiat"},
         ]
-        assert session.send.call_count == 1
+        assert len(result.requests) == 1
 
 
 class TestGlobalMarketCapChart:
@@ -491,26 +378,20 @@ class TestGlobalMarketCapChart:
             ("beyond the largest window", 400, "max"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_narrows_the_window_to_the_watermark(
-        self, _name: str, days_behind: int, expected_days: str, MockSession
+        self, _name: str, days_behind: int, expected_days: str
     ) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"market_cap_chart": {"market_cap": [], "volume": []}})])
-
-        _rows(
-            _source(
-                PLAN_PRO,
-                "key",
-                "global_market_cap_chart",
-                _manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.combine(
-                    _today() - timedelta(days=days_behind), time(9, 30), tzinfo=UTC
-                ),
-            )
+        result = _driver(plan=PLAN_PRO).run(
+            "global_market_cap_chart",
+            [ScriptedResponse(json={"market_cap_chart": {"market_cap": [], "volume": []}})],
+            incremental_field="timestamp",
+            db_incremental_field_last_value=datetime.combine(
+                _today() - timedelta(days=days_behind), time(9, 30), tzinfo=UTC
+            ),
         )
-        assert snaps[0]["params"]["days"] == expected_days
+
+        assert result.raised is None
+        assert result.params("days") == [expected_days]
 
 
 class TestReshapedEndpointsFailLoud:
@@ -527,14 +408,10 @@ class TestReshapedEndpointsFailLoud:
             ),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_shape_fails_loud(
-        self, _name: str, endpoint: str, body: Any, expected_message: str, MockSession
-    ) -> None:
-        session = MockSession.return_value
+    def test_unexpected_shape_fails_loud(self, _name: str, endpoint: str, body: Any, expected_message: str) -> None:
         # These bodies are reshaped rather than yielded as rows, so a changed shape must fail rather
         # than silently syncing zero rows or one garbage row.
-        _wire(session, [_response(body)])
+        result = _driver(plan=PLAN_PRO).run(endpoint, [ScriptedResponse(json=body)])
 
-        with pytest.raises(ValueError, match=expected_message):
-            _rows(_source(PLAN_PRO, "key", endpoint, _manager()))
+        assert isinstance(result.raised, ValueError)
+        assert expected_message in str(result.raised)
