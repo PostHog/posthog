@@ -1,39 +1,8 @@
-import { Fragment, ReactNode, useCallback, useMemo } from 'react'
-
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Fragment, ReactNode, useMemo } from 'react'
 
 import { ChartPlacements } from '../../utils/chartPlacement'
 import { parseReportSummary } from '../../utils/reportSummary'
-import { ReportChart } from './ReportChart'
-
-const PROSE_CLASS =
-    'text-[15px] text-secondary leading-relaxed break-words [&>*+*]:mt-3.5 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-8 [&_h1]:text-lg [&_h2]:mt-8 [&_h2]:text-lg [&_h3]:mt-6 [&_h3]:text-base'
-
-interface SummaryMarkdownProps {
-    markdown: string
-    /** Where `markdown` starts in the full summary; chart placements are keyed on the full summary. */
-    sourceOffset: number
-    chartPlacements: ChartPlacements
-    className?: string
-}
-
-/** One slice of the summary. Owns its chart-ref callback so `LemonMarkdown` keeps its anchor component. */
-function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }: SummaryMarkdownProps): JSX.Element {
-    // Depends on placement alone. `LemonMarkdown` memoizes its anchor component on this callback, so
-    // anything else in here would rebuild that component as the report polls and unmount every chart.
-    const renderChartRef = useCallback(
-        (chartId: string, offset?: number): ReactNode =>
-            offset !== undefined && chartPlacements.inlineByOffset.get(sourceOffset + offset) === chartId ? (
-                <ReportChart chartId={chartId} />
-            ) : null,
-        [chartPlacements, sourceOffset]
-    )
-    return (
-        <LemonMarkdown className={className ?? PROSE_CLASS} disableImages renderChartRef={renderChartRef}>
-            {markdown}
-        </LemonMarkdown>
-    )
-}
+import { ReportSummaryMarkdown } from './ReportSummaryMarkdown'
 
 interface ReportSummaryBodyProps {
     summary: string
@@ -86,7 +55,7 @@ export function ReportSummaryBody({
     if (parsed.sections.length === 0) {
         return (
             <div className="flex flex-col gap-6">
-                <SummaryMarkdown
+                <ReportSummaryMarkdown
                     markdown={parsed.lead}
                     sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
@@ -101,7 +70,7 @@ export function ReportSummaryBody({
     return (
         <div className="flex flex-col gap-6">
             {parsed.lead && (
-                <SummaryMarkdown
+                <ReportSummaryMarkdown
                     markdown={parsed.lead}
                     sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
@@ -115,7 +84,7 @@ export function ReportSummaryBody({
                     <section className="flex flex-col gap-2">
                         <h2 className="m-0 text-lg font-semibold">{section.heading}</h2>
                         {section.kind === 'impact' && impactMetrics && <div className="mb-1">{impactMetrics}</div>}
-                        <SummaryMarkdown
+                        <ReportSummaryMarkdown
                             markdown={section.body}
                             sourceOffset={section.bodyOffset}
                             chartPlacements={chartPlacements}

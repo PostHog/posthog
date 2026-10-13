@@ -55,6 +55,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportOverviewSummary } from './ReportOverviewSummary'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -112,6 +113,11 @@ function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
 
 /** Column classes shared by the frame and its skeleton, so the two can't drift apart. */
 const DETAIL_PAGE_CLASS = '@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 pb-4 text-sm'
+const OVERVIEW_CONTAINER_CLASS = 'flex flex-col rounded-lg border border-primary bg-surface-primary'
+const OVERVIEW_MAIN_CLASS = 'order-1 min-w-0 w-full px-5 py-6 @3xl:px-8'
+const OVERVIEW_ASIDE_CLASS =
+    'order-2 grid min-w-0 grid-cols-1 gap-6 border-t border-primary p-5 @3xl:grid-cols-2 @3xl:p-8'
+
 const DETAIL_CONTAINER_CLASS =
     'flex flex-col rounded-lg border border-primary bg-surface-primary @5xl:flex-row @5xl:items-start'
 // The evidence rail: first in the DOM so it leads on wide layouts, ordered after the summary when
@@ -131,6 +137,7 @@ const DETAIL_ASIDE_COLLAPSED_CLASS =
  * reads as "this view, populating" rather than a bare centered spinner.
  */
 export function ReportDetailSkeleton(): JSX.Element {
+    const overviewEnabled = useFeatureFlag('INBOX_REPORT_OVERVIEW')
     return (
         <div className={DETAIL_PAGE_CLASS} aria-hidden>
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -140,8 +147,8 @@ export function ReportDetailSkeleton(): JSX.Element {
                     <div className="h-8 w-20 rounded bg-fill-highlight-50 animate-pulse" />
                 </div>
             </div>
-            <div className={DETAIL_CONTAINER_CLASS}>
-                <div className={DETAIL_ASIDE_CLASS}>
+            <div className={overviewEnabled ? OVERVIEW_CONTAINER_CLASS : DETAIL_CONTAINER_CLASS}>
+                <div className={overviewEnabled ? OVERVIEW_ASIDE_CLASS : DETAIL_ASIDE_CLASS}>
                     {Array.from({ length: 2 }).map((_, i) => (
                         <div key={i} className="flex flex-col gap-2.5">
                             <div className="h-4 w-24 rounded bg-fill-highlight-100 animate-pulse" />
@@ -149,7 +156,7 @@ export function ReportDetailSkeleton(): JSX.Element {
                         </div>
                     ))}
                 </div>
-                <div className={DETAIL_MAIN_CLASS}>
+                <div className={overviewEnabled ? OVERVIEW_MAIN_CLASS : DETAIL_MAIN_CLASS}>
                     <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-primary">
                         <div className="h-3.5 w-28 rounded bg-fill-highlight-100 animate-pulse" />
                         <div className="h-4 w-20 rounded bg-fill-highlight-50 animate-pulse" />
@@ -192,16 +199,7 @@ interface InboxDetailFrameProps {
     children?: ReactNode
 }
 
-/**
- * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
- * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
- * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The status section collects the report and pull request state. The
- * summary's title stands alone; the priority, the size of the change, and the created/updated times
- * head the "Files changed" tab, where a reviewer weighs the change. The rail can be hidden (a
- * persisted preference) so the report column, and above all the diff, takes the full width.
- * AgentRunDetail keeps its own layout.
- */
+/** Report actions and PR review stay on the same logic in both reading layouts. */
 export function InboxDetailFrame({
     report,
     asideFooter,
@@ -212,6 +210,7 @@ export function InboxDetailFrame({
     pullRequestNote,
     children,
 }: InboxDetailFrameProps): JSX.Element {
+    const overviewEnabled = useFeatureFlag('INBOX_REPORT_OVERVIEW')
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
     // feed) redirects the back button there instead of the inbox list tab.
@@ -229,6 +228,7 @@ export function InboxDetailFrame({
         reportSignalsLoading,
         evidenceExpanded,
         priorityExplanation,
+        actionabilityExplanation,
         chartPlacements,
         chartsById,
         trailingCharts,
@@ -348,12 +348,57 @@ export function InboxDetailFrame({
         ) : null
 
     const summaryColumn = (
-        <div className="flex flex-1 flex-col gap-6">
+        <div
+            className={
+                overviewEnabled ? 'mx-auto flex w-full max-w-[88ch] flex-col gap-6' : 'flex flex-1 flex-col gap-6'
+            }
+        >
             {titleHeading}
+            {overviewEnabled && (
+                <>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ReportDetailBadges
+                            report={currentReport ?? report}
+                            priorityExplanation={priorityExplanation}
+                            actionabilityExplanation={actionabilityExplanation}
+                        />
+                        <span className="text-xs text-secondary">{`${evidenceCount} ${evidenceCount === 1 ? 'signal' : 'signals'}`}</span>
+                        {generatedAt}
+                    </div>
+                    {(currentReport ?? report).assignee?.kind === 'agent' && (
+                        <span className="text-sm text-secondary">
+                            {`In progress by ${(currentReport ?? report).assignee?.agent?.trim() || 'External agent'}`}
+                        </span>
+                    )}
+                    {children}
+                </>
+            )}
 
             <ReportChartsContext.Provider value={chartsById}>
                 <div>
-                    {report.summary ? (
+                    {overviewEnabled && report.summary ? (
+                        <ReportOverviewSummary
+                            key={report.id}
+                            summary={report.summary}
+                            chartPlacements={chartPlacements}
+                            observation={
+                                primaryMetric && <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+                            }
+                            impactMetrics={impactMetrics}
+                            expectedImpact={expectedImpact}
+                            nextAction={
+                                pullRequestNote || implementButton ? (
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        {pullRequestNote}
+                                        {implementButton}
+                                    </div>
+                                ) : (
+                                    <DiscussReportButton report={report} reportUrl={reportUrl} />
+                                )
+                            }
+                            onToggleAnalysis={captureSectionToggle('full_analysis')}
+                        />
+                    ) : report.summary ? (
                         <ReportSummaryBody
                             summary={report.summary}
                             chartPlacements={chartPlacements}
@@ -365,8 +410,13 @@ export function InboxDetailFrame({
                     ) : (
                         <div className="flex flex-col gap-6">
                             <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet. An agent is still investigating.
+                                {overviewEnabled && !summaryPending
+                                    ? 'No summary is available. Open the evidence or discuss this report to investigate.'
+                                    : 'No summary yet. An agent is still investigating.'}
                             </p>
+                            {overviewEnabled && primaryMetric && (
+                                <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+                            )}
                             {pullRequestNote}
                             {impactMetrics}
                             {expectedImpact}
@@ -421,79 +471,77 @@ export function InboxDetailFrame({
         </header>
     )
 
+    const supportingDetails =
+        !overviewEnabled && evidenceRailCollapsed ? (
+            <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
+        ) : (
+            <aside className={overviewEnabled ? OVERVIEW_ASIDE_CLASS : DETAIL_ASIDE_CLASS}>
+                <ReportStatusSection
+                    report={currentReport ?? report}
+                    rightSlot={overviewEnabled ? undefined : hideRailButton}
+                    onPriorityChange={updatePriority}
+                    prioritySaving={prioritySaving}
+                />
+                {/* The observation leads, then the evidence its claims rest on. */}
+                {!overviewEnabled && primaryMetric && (
+                    <DetailSection
+                        icon={<IconTrends />}
+                        title="Observation"
+                        collapsible
+                        onToggleCollapsed={captureSectionToggle('observation')}
+                    >
+                        <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+                    </DetailSection>
+                )}
+                {hasEvidence && (
+                    <DetailSection
+                        icon={<IconSearch />}
+                        title="Evidence"
+                        collapsible
+                        onToggleCollapsed={captureSectionToggle('evidence')}
+                    >
+                        {reportSignalsLoading && reportSignals === null ? (
+                            <EvidenceSkeleton count={evidenceCount} />
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                {(evidenceExpanded ? signals : signals.slice(0, 2)).map((signal: SignalNode) => (
+                                    <SignalCard key={signal.signal_id} signal={signal} />
+                                ))}
+                                {signals.length > 2 && (
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="small"
+                                        onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                    >
+                                        {evidenceExpanded ? 'Show less' : 'Show more'}
+                                    </LemonButton>
+                                )}
+                                {report.source_suggestion && (
+                                    <ReportSourceSuggestion report={report} suggestion={report.source_suggestion} />
+                                )}
+                            </div>
+                        )}
+                    </DetailSection>
+                )}
+                {/* Pull request checks (when present), then reviewers, runs, and activity. */}
+                {!overviewEnabled && children}
+                <SuggestedReviewersSection report={report} />
+                <ReportTasksSection report={report} />
+                <ReportChecksSection report={report} />
+                <ReportActivitySection report={report} />
+                {asideFooter}
+            </aside>
+        )
+
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
     // change on the mounted instance.
     const overviewBody = (
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
-            <div className={DETAIL_CONTAINER_CLASS}>
-                {evidenceRailCollapsed ? (
-                    <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
-                ) : (
-                    <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection
-                            report={currentReport ?? report}
-                            rightSlot={hideRailButton}
-                            onPriorityChange={updatePriority}
-                            prioritySaving={prioritySaving}
-                        />
-                        {/* The observation leads, then the evidence its claims rest on. */}
-                        {primaryMetric && (
-                            <DetailSection
-                                icon={<IconTrends />}
-                                title="Observation"
-                                collapsible
-                                onToggleCollapsed={captureSectionToggle('observation')}
-                            >
-                                <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
-                            </DetailSection>
-                        )}
-                        {hasEvidence && (
-                            <DetailSection
-                                icon={<IconSearch />}
-                                title="Evidence"
-                                collapsible
-                                onToggleCollapsed={captureSectionToggle('evidence')}
-                            >
-                                {reportSignalsLoading && reportSignals === null ? (
-                                    <EvidenceSkeleton count={evidenceCount} />
-                                ) : (
-                                    <div className="flex flex-col gap-3">
-                                        {(evidenceExpanded ? signals : signals.slice(0, 2)).map(
-                                            (signal: SignalNode) => (
-                                                <SignalCard key={signal.signal_id} signal={signal} />
-                                            )
-                                        )}
-                                        {signals.length > 2 && (
-                                            <LemonButton
-                                                type="tertiary"
-                                                size="small"
-                                                onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
-                                            >
-                                                {evidenceExpanded ? 'Show less' : 'Show more'}
-                                            </LemonButton>
-                                        )}
-                                        {report.source_suggestion && (
-                                            <ReportSourceSuggestion
-                                                report={report}
-                                                suggestion={report.source_suggestion}
-                                            />
-                                        )}
-                                    </div>
-                                )}
-                            </DetailSection>
-                        )}
-                        {/* Pull request checks (when present), then reviewers, runs, and activity. */}
-                        {children}
-                        <SuggestedReviewersSection report={report} />
-                        <ReportTasksSection report={report} />
-                        <ReportChecksSection report={report} />
-                        <ReportActivitySection report={report} />
-                        {asideFooter}
-                    </aside>
-                )}
+            <div className={overviewEnabled ? OVERVIEW_CONTAINER_CLASS : DETAIL_CONTAINER_CLASS}>
+                {!overviewEnabled && supportingDetails}
 
-                <main className={DETAIL_MAIN_CLASS}>
+                <main className={overviewEnabled ? OVERVIEW_MAIN_CLASS : DETAIL_MAIN_CLASS}>
                     {showFilesTab ? (
                         <LemonTabs
                             activeKey={detailTab}
@@ -504,10 +552,12 @@ export function InboxDetailFrame({
                             className="-mt-3"
                             rightSlotClassName="bg-surface-primary"
                             rightSlot={
-                                <span className="flex items-center gap-2.5">
-                                    <SignalReportBillingBadge report={report} />
-                                    {generatedAt}
-                                </span>
+                                !overviewEnabled && (
+                                    <span className="flex items-center gap-2.5">
+                                        <SignalReportBillingBadge report={report} />
+                                        {generatedAt}
+                                    </span>
+                                )
                             }
                             tabs={[
                                 { key: 'summary', label: 'Summary', content: summaryColumn },
@@ -525,6 +575,7 @@ export function InboxDetailFrame({
                                     content: (
                                         <div className="flex flex-col gap-5">
                                             {filesHeader}
+                                            {overviewEnabled && children}
                                             {diffSection}
                                             <ReportFeedbackFooter report={report} align="end" />
                                         </div>
@@ -534,16 +585,19 @@ export function InboxDetailFrame({
                         />
                     ) : (
                         <>
-                            <div className="mb-4 flex flex-wrap items-center gap-2.5 border-b border-primary pb-3">
-                                <span className="text-sm font-semibold">Report summary</span>
-                                <SignalReportBillingBadge report={report} />
-                                <span className="flex-1" />
-                                {generatedAt}
-                            </div>
+                            {!overviewEnabled && (
+                                <div className="mb-4 flex flex-wrap items-center gap-2.5 border-b border-primary pb-3">
+                                    <span className="text-sm font-semibold">Report summary</span>
+                                    <SignalReportBillingBadge report={report} />
+                                    <span className="flex-1" />
+                                    {generatedAt}
+                                </div>
+                            )}
                             {summaryColumn}
                         </>
                     )}
                 </main>
+                {overviewEnabled && supportingDetails}
             </div>
         </BindLogic>
     )
@@ -561,9 +615,9 @@ export function InboxDetailFrame({
                 >
                     {backLabel}
                 </LemonButton>
-                <div className="flex items-center gap-2">
+                <div className={overviewEnabled ? 'flex flex-wrap items-center gap-2' : 'flex items-center gap-2'}>
                     {primaryAction}
-                    {!summaryHasSolution && implementButton}
+                    {(overviewEnabled || !summaryHasSolution) && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}

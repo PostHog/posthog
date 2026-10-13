@@ -543,3 +543,86 @@ export const PullRequestLegacy: Story = {
         </Frame>
     ),
 }
+
+const overviewParameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        [FEATURE_FLAGS.INBOX_REPORT_OVERVIEW]: true,
+        [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+        [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+    },
+}
+
+export const ReportOverview: Story = {
+    ...ReportReadyToImplement,
+    parameters: overviewParameters,
+}
+
+export const ReportOverviewWithMetrics: Story = {
+    ...ReportWithMetrics,
+    parameters: overviewParameters,
+}
+
+export const ReportOverviewWithAnalysis: Story = {
+    parameters: overviewParameters,
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    summary: [
+                        'A failed form submission does not explain how to correct the input.',
+                        '## Problem',
+                        'The validation response contains a field error, but the form does not display it.',
+                        '## Investigation',
+                        'The response reaches the form handler. The handler returns before it updates the error state.',
+                        '## Impact',
+                        'People cannot complete setup until they find the invalid field.',
+                        '## Solution',
+                        'Display the field error and keep the entered values.',
+                        '## Limits',
+                        'The evidence covers validation failures. Other response types need a separate check.',
+                    ].join('\n\n'),
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportOverviewNarrow: Story = {
+    ...ReportOverviewWithAnalysis,
+    decorators: [
+        readyToImplementMocks,
+        (Story) => (
+            <div className="w-[520px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+export const ReportOverviewPending: Story = {
+    ...ReportMinimal,
+    parameters: overviewParameters,
+}
+
+export const ReportOverviewRunningTask: Story = {
+    ...Report,
+    parameters: overviewParameters,
+}
+
+export const PullRequestOverview: Story = {
+    ...PullRequest,
+    parameters: overviewParameters,
+}
+
+export const PullRequestOverviewStack: Story = {
+    ...PullRequestStack,
+    parameters: overviewParameters,
+}
+
+export const PullRequestOverviewFilesChanged: Story = {
+    ...PullRequestFilesChanged,
+    parameters: overviewParameters,
+}
