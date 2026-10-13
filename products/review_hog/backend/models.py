@@ -223,7 +223,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     # db_constraint=False keeps the migration lock-free on hot posthog_team.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
+    # db_index=False: the (report, type) composite indexes below lead with report_id, so they serve
+    # lookups and cascade deletes. A separate single-column index would be redundant.
+    report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts", db_index=False)
     type = models.CharField(max_length=100, choices=review_report_artefact_type_choices)
     content = models.TextField()
     # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
@@ -242,7 +244,6 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     class Meta:
         indexes = [
-            models.Index(fields=["report"], name="reviewhog_art_report_idx"),
             models.Index(fields=["report", "type"], name="reviewhog_art_rpt_type_idx"),
             # Latest-wins seeks: WHERE report=? AND type=? ORDER BY created_at DESC.
             models.Index(fields=["report", "type", "-created_at"], name="reviewhog_art_rpt_type_ct_idx"),

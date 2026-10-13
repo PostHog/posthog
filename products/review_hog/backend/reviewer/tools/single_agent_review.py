@@ -594,14 +594,14 @@ class ChangedSinceReview:
 
 
 def _old_code_findings(issues: list[Issue], changed_since: ChangedSinceReview | None) -> list[Issue]:
-    """A follow-up turn's P2 and P3 findings on code that did not change since the last reviewed head.
+    """A follow-up turn's P3 findings on code that did not change since the last reviewed head.
 
-    Authors act on these about half as often as on first-turn findings, because the first review already
-    covered that code. A P0 or P1 still posts, since a new commit can break code it did not touch.
+    A P2 or higher on old code still goes through dedup: the earlier review may have missed it, and dedup
+    against earlier turns' findings already removes one that a turn posted before.
     """
     if changed_since is None:
         return []
-    return [issue for issue in issues if issue.priority != IssuePriority.MUST_FIX and not changed_since.touches(issue)]
+    return [issue for issue in issues if issue.priority == IssuePriority.CONSIDER and not changed_since.touches(issue)]
 
 
 async def dedupe_flash_findings(
@@ -627,7 +627,7 @@ async def dedupe_flash_findings(
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
-    On a follow-up turn, `changed_since` drops the P2 and P3 findings on unchanged code before dedup.
+    On a follow-up turn, `changed_since` drops the P3 findings on unchanged code before dedup.
     """
     old_code = _old_code_findings(issues, changed_since)
     old_code_ids = {issue.id for issue in old_code}

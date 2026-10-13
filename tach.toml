@@ -550,6 +550,8 @@ depends_on = [
     "products.dashboards",
     "products.exports",
     "products.workflows", "products.access_control",
+    # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -1480,7 +1482,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.annotations"
-depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking"]
 layer = "modules"
 
 [[modules]]

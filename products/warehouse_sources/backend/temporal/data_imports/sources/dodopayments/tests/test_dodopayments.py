@@ -1,15 +1,15 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.dodopayments import (
     DodoPaymentsResumeConfig,
-    dodopayments_source,
     to_iso8601,
     validate_credentials,
 )
@@ -17,62 +17,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
     DODOPAYMENTS_ENDPOINTS,
     PAGE_SIZE,
 )
-
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.dodopayments.make_tracked_session"
-)
-REST_RESOURCE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.dodopayments.rest_api_resource"
+from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.source import DodoPaymentsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dodopayments import (
+    DodoPaymentsSourceConfig,
 )
 
 
-def _response(items: list[dict[str, Any]]) -> Response:
-    response = Response()
-    response.status_code = 200
-    response._content = json.dumps({"items": items}).encode()
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(DodoPaymentsSource(), DodoPaymentsSourceConfig(api_key="test-api-key", mode="live"))
 
 
-def _page(size: int, start: int = 0) -> Response:
+def _response(items: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"items": items})
+
+
+def _page(size: int, start: int = 0) -> ScriptedResponse:
     return _response([{"payment_id": f"pay_{start + i}", "created_at": "2024-05-01T00:00:00Z"} for i in range(size)])
-
-
-def _make_manager(resume_state: DodoPaymentsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock | None = None, mode: str = "live", **kwargs: Any):
-    return dodopayments_source(
-        "test-api-key",
-        mode,
-        endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
 
 
 class TestToIso8601:
@@ -106,37 +66,30 @@ class TestValidateCredentials:
             ("test", "https://test.dodopayments.com/customers?page_size=1"),
         ],
     )
-    @mock.patch(SESSION_PATCH)
-    def test_probe_targets_the_host_for_the_mode(self, mock_session, mode, expected_url):
+    def test_probe_targets_the_host_for_the_mode(self, mode: str, expected_url: str) -> None:
         # A live key probed against the test host (or vice versa) always 401s, so the mode has to
         # reach the probe URL.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials("key", mode) == (True, 200)
 
-        validate_credentials("key", mode)
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == expected_url
-        assert call.kwargs["headers"]["Authorization"] == "Bearer key"
+        assert network.requests_log[0].url == expected_url
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
 
 class TestPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_full_page_then_empty_page_terminates(self, MockSession):
-        requests_seen = _wire(MockSession.return_value, [_page(PAGE_SIZE), _page(0)])
+    def test_full_page_then_empty_page_terminates(self) -> None:
+        result = _driver().run("payments", [_page(PAGE_SIZE), _page(0)])
 
-        rows = _rows(_source("payments"))
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE
+        assert result.params("page_number") == ["0", "1"]
 
-        assert len(rows) == PAGE_SIZE
-        assert len(requests_seen) == 2
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run("payments", [_page(2, start=400)], resume_state=DodoPaymentsResumeConfig(page_number=4))
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession):
-        requests_seen = _wire(MockSession.return_value, [_page(2, start=400)])
-
-        rows = _rows(_source("payments", _make_manager(DodoPaymentsResumeConfig(page_number=4))))
-
-        assert [row["payment_id"] for row in rows] == ["pay_400", "pay_401"]
-        assert requests_seen[0]["params"]["page_number"] == 4
+        assert result.raised is None
+        assert [row["payment_id"] for row in result.rows] == ["pay_400", "pay_401"]
+        assert result.params("page_number") == ["4"]
 
 
 class TestRequestParams:
@@ -150,57 +103,52 @@ class TestRequestParams:
             ("events", "start"),
         ],
     )
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_sync_sends_the_endpoints_date_filter(self, MockSession, endpoint, expected_param):
-        requests_seen = _wire(MockSession.return_value, [_page(1)])
-
-        _rows(
-            _source(
-                endpoint,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 5, 1, 10, tzinfo=UTC),
-            )
+    def test_incremental_sync_sends_the_endpoints_date_filter(self, endpoint: str, expected_param: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page(1)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 5, 1, 10, tzinfo=UTC),
         )
 
-        assert requests_seen[0]["params"][expected_param] == "2024-05-01T10:00:00Z"
+        assert result.raised is None
+        assert result.requests[0].param(expected_param) == "2024-05-01T10:00:00Z"
 
-    @mock.patch(SESSION_PATCH)
-    def test_unparseable_watermark_drops_the_filter(self, MockSession):
+    def test_unparseable_watermark_drops_the_filter(self) -> None:
         # Sending a value the API rejects would fail the whole sync; a full walk is the safe fallback.
-        requests_seen = _wire(MockSession.return_value, [_page(1)])
-
-        _rows(_source("payments", should_use_incremental_field=True, db_incremental_field_last_value="garbage"))
-
-        assert "created_at_gte" not in requests_seen[0]["params"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_catalog_endpoint_never_gets_a_date_filter(self, MockSession):
-        # `/products` exposes no date filter; sending one would be rejected.
-        requests_seen = _wire(MockSession.return_value, [_response([{"product_id": "prod_1"}])])
-
-        _rows(
-            _source(
-                "products",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
-            )
+        result = _driver().run(
+            "payments", [_page(1)], should_use_incremental_field=True, db_incremental_field_last_value="garbage"
         )
 
-        assert set(requests_seen[0]["params"]) == {"page_size", "page_number"}
+        assert result.raised is None
+        assert result.requests[0].param("created_at_gte") is None
 
-
-class TestSourceResponseMetadata:
-    @mock.patch(REST_RESOURCE_PATCH)
-    def test_framework_incremental_injection_is_not_used(self, mock_rest_api_resource):
-        # The date filter is baked into the request params, so letting the framework inject its own
-        # incremental param too would send a second, differently named filter.
-        _source(
-            "payments",
+    def test_catalog_endpoint_never_gets_a_date_filter(self) -> None:
+        # `/products` exposes no date filter; sending one would be rejected.
+        result = _driver().run(
+            "products",
+            [_response([{"product_id": "prod_1"}])],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert set(result.requests[0].query) == {"page_size", "page_number"}
+
+
+class TestSourceResponseMetadata:
+    def test_framework_incremental_injection_is_not_used(self) -> None:
+        # The date filter is baked into the request params, so letting the framework inject its own
+        # incremental param too would send a second, differently named filter.
+        result = _driver().run(
+            "payments",
+            [_page(1)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert set(result.requests[0].query) == {"page_size", "page_number", "created_at_gte"}
 
 
 class TestEndpointCatalog:
