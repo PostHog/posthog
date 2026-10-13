@@ -25,9 +25,8 @@ function experimentFix(issue: HealthIssue): ExperimentFix | null {
                 ? null
                 : { label: 'Open feature flag', to: urls.featureFlag(feature_flag_id) }
         case 'edit_release_conditions':
-            return feature_flag_id == null
-                ? null
-                : { label: 'Edit release conditions', to: urls.featureFlag(feature_flag_id) }
+            // The flag page locks release conditions for flags linked to an experiment.
+            return { label: 'Edit variants', to: urls.experiment(experiment_id, null, { tab: 'variants' }) }
         case 'add_primary_metric':
         case 'add_secondary_metric':
             return { label: 'Add metric', to: urls.experiment(experiment_id) }
@@ -111,6 +110,7 @@ export function ExperimentsHealthTable({
         <LemonTable
             dataSource={issues}
             columns={columns}
+            rowKey="id"
             embedded
             defaultSorting={{
                 columnKey: 'last_seen',
