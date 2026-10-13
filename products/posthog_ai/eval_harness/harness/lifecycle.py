@@ -223,7 +223,7 @@ class SandboxedEvalHarness:
         return exit_code
 
     def _exit_code(self, results: Sequence[SuiteRunResult], reporter: ProgressReporter) -> int:
-        if any(result.status == "crashed" for result in results):
+        if any(result.status == "crashed" for result in results) or reporter.has_case_errors():
             return 1
         if self.options.fail_under is None:
             return 0

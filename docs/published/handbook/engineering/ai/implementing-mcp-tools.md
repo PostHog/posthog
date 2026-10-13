@@ -105,6 +105,10 @@ Do not trim endpoint serializers or generated tool schemas to meet the budget; t
 
 The eval runner's `--skill-delivery exec` mode removes bundled skills and defaults cases without an explicit interaction origin to the `eval` MCP consumer, which supports skill `learn`. Explicit case origins take precedence in both delivery modes. Bundled mode leaves unspecified origins unchanged.
 The runner applies the selected delivery mode to both Python's sandbox-provisioning flag override and MCP's flag override. Bundled mode preserves native skills unless a case explicitly disables them; exec mode removes them. Compare the `expected_skill_loaded` and `skill_loaded_before_tool` scores: a completed eval run can report `PASS` despite zero scores unless `--fail-under` sets a score threshold.
+The runner reports `FAIL` and exits with status 1 if a suite crashes or a case has an infrastructure error.
+This rule applies even without a score threshold.
+Infrastructure errors do not contribute to score averages.
+Case timeouts and low scores affect the exit status only through `--fail-under`.
 Bundled-mode evals explicitly disable `mcp-exec-skills` through the dev/test process override, which skips skill-catalog warmup and polling. Exec-mode evals allow 120 seconds for MCP startup, covering the 60-second warmup budget plus an in-flight download and development build; bundled mode keeps the 30-second startup limit. Production feature-flag evaluation does not control this process lifecycle.
 
 ## Rolling out MCP skill discovery

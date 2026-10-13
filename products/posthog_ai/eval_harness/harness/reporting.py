@@ -186,6 +186,9 @@ class ProgressReporter:
             )
         )
 
+    def has_case_errors(self) -> bool:
+        return self._combined_case_statuses()["error"] > 0
+
     def mean_score(self) -> float | None:
         scores = [
             score.score

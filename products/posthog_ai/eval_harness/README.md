@@ -82,6 +82,10 @@ python -m products.posthog_ai.eval_harness.harness --list
 
 Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
+The run exits with status 1 if a suite crashes or a case has an infrastructure error, even without `--fail-under`.
+Infrastructure errors remain separate from score averages.
+Case timeouts and low scores affect the exit status only through `--fail-under`.
+
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
 
