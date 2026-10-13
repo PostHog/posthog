@@ -36,8 +36,15 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
         script_hosts=("js.mollie.com",),
         npm=("@mollie/api-client",),
         pypi=("mollie-api-python",),
-        composer=("mollie/mollie-api-php", "mollie/laravel-mollie"),
-        rubygems=("mollie-api-ruby",),
+        composer=(
+            "mollie/mollie-api-php",
+            "mollie/laravel-mollie",
+            "mollie/laravel-cashier-mollie",
+            "mollie/mollie-oxid",
+            "mollie/mollie-oxid7",
+            "mollie/oauth2-mollie-php",
+        ),
+        rubygems=("mollie-api-ruby", "mollie", "spree_mollie_gateway"),
     )
 
     supported_versions = ("v2",)

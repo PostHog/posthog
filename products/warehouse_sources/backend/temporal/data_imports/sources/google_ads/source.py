@@ -100,12 +100,24 @@ class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
     codebase_detection = detect(
-        env=("^GOOGLE_ADS_",),
-        npm=("google-ads-api",),
-        pypi=("google-ads",),
+        env=("^GOOGLE_ADS_", "^GAARF_"),
+        script_hosts=("www.googleadservices.com", "googleads.g.doubleclick.net"),
+        npm=("google-ads-api", "google-ads-node", "google-ads-api-report-fetcher", "@types/google-ads-scripts"),
+        pypi=("google-ads", "google-ads-mcp", "google-ads-api-report-fetcher", "google-ads-stubs"),
+        cargo=("googleads-rs",),
+        cocoapods=("GoogleAdsOnDeviceConversion",),
         composer=("googleads/google-ads-php",),
-        maven=("com.google.api-ads:google-ads",),
-        rubygems=("google-ads-googleads",),
+        go=("github.com/shenzhencenter/google-ads-pb",),
+        maven=(
+            "com.google.api-ads:google-ads",
+            "com.google.api-ads:google-ads-bom",
+            "com.google.api-ads:google-ads-shadowjar",
+            "com.google.api-ads:google-ads-stubs-lib",
+            "com.google.api-ads:adwords-axis",
+            "com.google.api-ads:adwords-lib",
+        ),
+        rubygems=("google-ads-googleads", "google-adwords-api"),
+        swiftpm=("github.com/googleads/google-ads-on-device-conversion-ios-sdk",),
     )
 
     supported_versions = ("v23", "v24", "v25")

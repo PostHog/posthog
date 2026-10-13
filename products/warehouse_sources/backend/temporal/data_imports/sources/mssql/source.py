@@ -95,8 +95,8 @@ class MSSQLSource(
         cargo=("tiberius",),
         go=("github.com/microsoft/go-mssqldb", "github.com/denisenkom/go-mssqldb"),
         hex=("tds",),
-        maven=("com.microsoft.sqlserver:mssql-jdbc",),
-        rubygems=("tiny_tds", "activerecord-sqlserver-adapter"),
+        maven=("com.microsoft.sqlserver:mssql-jdbc", "com.microsoft.sqlserver:mssql-jdbc_auth"),
+        rubygems=("tiny_tds", "activerecord-sqlserver-adapter", "activerecord-aurora-serverless-adapter"),
     )
 
     @property

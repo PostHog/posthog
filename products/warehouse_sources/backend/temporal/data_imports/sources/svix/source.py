@@ -32,7 +32,7 @@ class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
         env=("^SVIX_",),
         npm=("svix",),
         pypi=("svix",),
-        cargo=("svix",),
+        cargo=("svix", "svix-ksuid"),
         composer=("svix/svix",),
         go=("github.com/svix/svix-webhooks",),
         maven=("com.svix:svix", "com.svix.kotlin:svix-kotlin"),

@@ -40,7 +40,7 @@ class CronitorSource(ResumableSource[CronitorSourceConfig, CronitorResumeConfig]
         npm=("cronitor", "@cronitorio/cronitor-rum", "@cronitorio/cronitor-rum-nextjs"),
         pypi=("cronitor",),
         composer=("cronitor/cronitor-php",),
-        rubygems=("cronitor",),
+        rubygems=("cronitor", "cronitor_activejob", "sidekiq-cronitor"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

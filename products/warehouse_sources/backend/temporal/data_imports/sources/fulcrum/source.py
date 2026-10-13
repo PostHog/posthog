@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FulcrumSource(ResumableSource[FulcrumSourceConfig, FulcrumResumeConfig]):
-    codebase_detection = detect(npm=("fulcrum-app",), pypi=("fulcrum",), rubygems=("fulcrum",))
+    codebase_detection = detect(npm=("fulcrum-app",), pypi=("fulcrum",), rubygems=("fulcrum", "tofulcrum"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

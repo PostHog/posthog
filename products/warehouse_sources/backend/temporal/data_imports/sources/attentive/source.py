@@ -74,7 +74,7 @@ class AttentiveSource(
     codebase_detection = detect(
         script_hosts=("cdn.attn.tv",),
         npm=("@attentive-mobile/attentive-react-native-sdk",),
-        cocoapods=("ATTNSDKFramework",),
+        cocoapods=("ATTNSDKFramework", "attentive-ios-sdk"),
         maven=("com.attentive:attentive-android-sdk",),
         swiftpm=("github.com/attentive-mobile/attentive-ios-sdk",),
     )

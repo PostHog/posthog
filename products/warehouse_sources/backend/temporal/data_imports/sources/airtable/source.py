@@ -31,7 +31,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirtableSource(SimpleSource[AirtableSourceConfig]):
-    codebase_detection = detect(env=("^AIRTABLE_",), npm=("airtable",), pypi=("pyairtable",))
+    codebase_detection = detect(
+        env=("^AIRTABLE_",),
+        script_hosts=("static.airtable.com",),
+        npm=("airtable", "@airtable/blocks", "@airtable/blocks-cli", "@airtable/mcp-cli"),
+        pypi=("pyairtable", "airtable-python-wrapper", "airtable"),
+        composer=("sleiman/airtable-php", "tapp/laravel-airtable"),
+        go=("github.com/mehanizm/airtable",),
+        rubygems=("airtable", "airrecord"),
+    )
 
     supported_versions = ("v0",)
     default_version = "v0"

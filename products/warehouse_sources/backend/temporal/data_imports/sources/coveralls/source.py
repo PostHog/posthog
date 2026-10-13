@@ -43,7 +43,7 @@ class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConf
         composer=("php-coveralls/php-coveralls",),
         go=("github.com/mattn/goveralls",),
         hex=("excoveralls",),
-        rubygems=("coveralls", "coveralls_reborn"),
+        rubygems=("coveralls", "coveralls_reborn", "ajax-datatables-rails-coveralls"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

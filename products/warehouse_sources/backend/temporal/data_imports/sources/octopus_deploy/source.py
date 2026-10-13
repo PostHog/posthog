@@ -37,7 +37,7 @@ class OctopusDeploySource(ResumableSource[OctopusDeploySourceConfig, OctopusDepl
     codebase_detection = detect(
         env=("^OCTOPUS_URL$", "^OCTOPUS_API_KEY$", "^OCTOPUS_ACCESS_TOKEN$", "^OCTOPUS_SPACE$"),
         npm=("@octopusdeploy/api-client",),
-        go=("github.com/OctopusDeploy/go-octopusdeploy",),
+        go=("github.com/OctopusDeploy/go-octopusdeploy", "github.com/octopusdeploy/octopus-permissions-controller"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

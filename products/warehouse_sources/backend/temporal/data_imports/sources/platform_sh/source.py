@@ -52,8 +52,8 @@ class PlatformShSource(ResumableSource[PlatformShSourceConfig, PlatformShResumeC
         ),
         npm=("platformsh-config",),
         pypi=("platformshconfig",),
-        composer=("platformsh/config-reader",),
-        go=("github.com/platformsh/config-reader-go",),
+        composer=("platformsh/config-reader", "platformsh/api-platform"),
+        go=("github.com/platformsh/config-reader-go", "github.com/platformsh/platformify"),
         hex=("platformshconfig",),
         maven=("sh.platform:config",),
     )

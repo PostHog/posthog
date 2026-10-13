@@ -43,7 +43,7 @@ class ThousandeyesSource(ResumableSource[ThousandeyesSourceConfig, ThousandeyesR
     codebase_detection = detect(
         env=("^THOUSANDEYES_", "^TE_TOKEN$"),
         pypi=("thousandeyes-sdk-core",),
-        go=("github.com/thousandeyes/thousandeyes-sdk-go",),
+        go=("github.com/thousandeyes/thousandeyes-sdk-go", "github.com/thousandeyes/thousandeyes-cli"),
     )
 
     lists_tables_without_credentials = True

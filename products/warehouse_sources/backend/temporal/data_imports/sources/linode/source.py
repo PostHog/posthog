@@ -32,7 +32,18 @@ class LinodeSource(ResumableSource[LinodeSourceConfig, LinodeResumeConfig]):
         env=("^LINODE_",),
         npm=("@linode/api-v4",),
         pypi=("linode-api4", "linode-cli"),
-        go=("github.com/linode/linodego",),
+        go=(
+            "github.com/linode/linodego",
+            "github.com/linode/docker-machine-driver-linode",
+            "github.com/linode/docker-volume-linode",
+            "github.com/linode/karpenter-provider-linode",
+            "github.com/linode/linode-blockstorage-csi-driver",
+            "github.com/linode/linode-cloud-controller-manager",
+            "github.com/linode/linode-cosi-driver",
+            "github.com/linode/linode-filestorage-csi-driver",
+            "github.com/linode/packer-plugin-linode",
+            "github.com/linode/provider-linode",
+        ),
     )
 
     # get_schemas iterates the static ENDPOINTS catalog with no I/O, so the table list is safe to

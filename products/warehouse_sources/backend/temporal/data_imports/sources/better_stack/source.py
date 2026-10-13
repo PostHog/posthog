@@ -43,12 +43,33 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResumeConfig]):
     # Logtail is Better Stack's log product - same account, same source.
     codebase_detection = detect(
-        env=("^BETTERSTACK_", "^BETTER_STACK_", "^LOGTAIL_", "^NEXT_PUBLIC_BETTER_STACK_", "^BETTERUPTIME_API_TOKEN$"),
-        npm=("@logtail/node", "@logtail/js", "@logtail/browser", "@logtail/next", "@logtail/winston", "@logtail/pino"),
+        env=(
+            "^BETTERSTACK_",
+            "^BETTER_STACK_",
+            "^LOGTAIL_",
+            "^NEXT_PUBLIC_BETTER_STACK_",
+            "^BETTERUPTIME_API_TOKEN$",
+            "^NEXT_PUBLIC_LOGTAIL_SOURCE_TOKEN$",
+            "^NEXT_PUBLIC_LOGTAIL_URL$",
+        ),
+        script_hosts=("betterstack.net", "uptime.betterstack.com", "betteruptime.com"),
+        npm=(
+            "@logtail/node",
+            "@logtail/js",
+            "@logtail/browser",
+            "@logtail/next",
+            "@logtail/winston",
+            "@logtail/pino",
+            "@logtail/bunyan",
+            "@logtail/edge",
+            "@logtail/koa",
+            "@logtail/core",
+        ),
         pypi=("logtail-python",),
         composer=("logtail/monolog-logtail",),
+        go=("github.com/BetterStackHQ/slog-betterstack",),
         maven=("com.logtail:logback-logtail",),
-        rubygems=("logtail", "logtail-rails"),
+        rubygems=("logtail", "logtail-rails", "logtail-rack", "logtail-ruby", "fluent-plugin-logtail"),
         competes_with=(ProductKey.LOGS,),
     )
 

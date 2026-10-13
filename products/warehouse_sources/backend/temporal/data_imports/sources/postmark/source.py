@@ -55,7 +55,7 @@ class PostmarkSource(
         env=("^POSTMARK_",),
         npm=("postmark",),
         pypi=("postmarker", "postmark-python"),
-        composer=("wildbit/postmark-php",),
+        composer=("wildbit/postmark-php", "wildbit/laravel-postmark-provider", "wildbit/swiftmailer-postmark"),
         maven=("com.postmarkapp:postmark",),
         rubygems=("postmark", "postmark-rails"),
     )

@@ -40,7 +40,7 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
         pypi=("python-gitlab",),
         composer=("m4tthumphrey/php-gitlab-api",),
         go=("gitlab.com/gitlab-org/api/client-go", "github.com/xanzy/go-gitlab"),
-        maven=("org.gitlab4j:gitlab4j-api",),
+        maven=("org.gitlab4j:gitlab4j-api", "org.gitlab4j:gitlab4j-models"),
         rubygems=("gitlab",),
     )
 

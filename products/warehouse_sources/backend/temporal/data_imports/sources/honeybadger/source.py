@@ -37,7 +37,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResumeConfig]):
     codebase_detection = detect(
-        env=("^HONEYBADGER_",),
+        env=(
+            "^HONEYBADGER_",
+            "^NEXT_PUBLIC_HONEYBADGER_API_KEY$",
+            "^NEXT_PUBLIC_HONEYBADGER_ASSETS_URL$",
+            "^NEXT_PUBLIC_HONEYBADGER_REVISION$",
+            "^NEXT_PUBLIC_HONEYBADGER_SERVICE_NAME$",
+            "^REACT_APP_HONEYBADGER_API_KEY$",
+        ),
         script_hosts=("js.honeybadger.io",),
         npm=(
             "@honeybadger-io/js",
@@ -46,14 +53,27 @@ class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResu
             "@honeybadger-io/react-native",
             "@honeybadger-io/nextjs",
             "@honeybadger-io/webpack",
+            "@honeybadger-io/core",
+            "@honeybadger-io/cloudflare",
+            "@honeybadger-io/esbuild-plugin",
+            "@honeybadger-io/rollup-plugin",
+            "@honeybadger-io/plugin-core",
+            "@honeybadger-io/gatsby-plugin-honeybadger",
+            "honeybadger-js",
+            "honeybadger",
         ),
         pypi=("honeybadger",),
+        cargo=("honeybadger",),
         cocoapods=("Honeybadger",),
-        composer=("honeybadger-io/honeybadger-php", "honeybadger-io/honeybadger-laravel"),
-        go=("github.com/honeybadger-io/honeybadger-go",),
+        composer=(
+            "honeybadger-io/honeybadger-php",
+            "honeybadger-io/honeybadger-laravel",
+            "honeybadger-io/nova-honeybadger",
+        ),
+        go=("github.com/honeybadger-io/honeybadger-go", "github.com/honeybadger-io/api-go"),
         hex=("honeybadger",),
-        maven=("io.honeybadger:honeybadger-java",),
-        rubygems=("honeybadger",),
+        maven=("io.honeybadger:honeybadger-java", "io.honeybadger:honeybadger-java-shaded"),
+        rubygems=("honeybadger", "yabeda-honeybadger_insights", "resque-honeybadger", "delayed_job_honeybadger"),
         swiftpm=("github.com/honeybadger-io/honeybadger-cocoa",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )

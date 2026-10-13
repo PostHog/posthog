@@ -45,8 +45,22 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
         npm=("@zohocrm/nodejs-sdk-8.0", "@zohocrm/typescript-sdk-8.0", "@zohocrm/nodejs-sdk-2.0"),
         pypi=("zohocrmsdk8-0", "zohocrmsdk2-1"),
         composer=("zohocrm/php-sdk-8.0", "zohocrm/php-sdk"),
-        maven=("com.zoho.crm:zohocrmsdk-8-0",),
-        rubygems=("ZOHOCRMSDK8_0",),
+        maven=(
+            "com.zoho.crm:zohocrmsdk-8-0",
+            "com.zoho.crm:zohocrmsdk-2-0",
+            "com.zoho.crm:zohocrmsdk-2-1",
+            "com.zoho.crm:zohocrmsdk-6-0",
+            "com.zoho.crm:zohocrmsdk-7-0",
+        ),
+        rubygems=(
+            "ZOHOCRMSDK8_0",
+            "ZOHOCRMSDK2_0",
+            "ZOHOCRMSDK2_1",
+            "ZOHOCRMSDK5_0",
+            "ZOHOCRMSDK6_0",
+            "ZOHOCRMSDK7_0",
+            "ZohoCRM_Client",
+        ),
     )
 
     lists_tables_without_credentials = True  # static module catalog — safe for public docs

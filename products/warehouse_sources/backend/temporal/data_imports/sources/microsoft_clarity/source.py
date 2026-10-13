@@ -54,7 +54,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
         script_hosts=("www.clarity.ms",),
         npm=("@microsoft/clarity", "@microsoft/react-native-clarity", "react-native-clarity"),
         cocoapods=("Clarity",),
-        maven=("com.microsoft.clarity:clarity",),
+        maven=("com.microsoft.clarity:clarity", "com.microsoft.clarity:clarity-compose"),
         pub=("clarity_flutter",),
         swiftpm=("github.com/microsoft/clarity-apps",),
     )

@@ -41,10 +41,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
     codebase_detection = detect(
         env=("^KESTRA_",),
-        npm=("@kestra-io/kestra-sdk",),
+        npm=("@kestra-io/kestra-sdk", "@kestra-io/libs", "@kestra-io/ui-libs"),
         pypi=("kestrapy", "kestra"),
-        go=("github.com/kestra-io/client-sdk/go-sdk",),
-        maven=("io.kestra:kestra-api-client",),
+        go=(
+            "github.com/kestra-io/client-sdk/go-sdk",
+            "github.com/kestra-io/kestra2-flow-migration",
+            "github.com/kestra-io/kestractl",
+        ),
+        maven=("io.kestra:kestra-api-client", "io.kestra:kestra"),
     )
 
     lists_tables_without_credentials = True

@@ -43,7 +43,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConfig]):
     codebase_detection = detect(
-        env=("^BUILDKITE_",), npm=("@buildkite/buildkite-sdk",), go=("github.com/buildkite/go-buildkite",)
+        env=("^BUILDKITE_",),
+        npm=("@buildkite/buildkite-sdk",),
+        go=(
+            "github.com/buildkite/go-buildkite",
+            "github.com/buildkite/buildkite-agent-metrics",
+            "github.com/buildkite/buildkite-agent-scaler",
+            "github.com/buildkite/buildkite-gha",
+            "github.com/buildkite/buildkite-logs",
+            "github.com/buildkite/buildkite-mcp-server",
+            "github.com/buildkite/git-credential-helper-buildkite-oidc",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

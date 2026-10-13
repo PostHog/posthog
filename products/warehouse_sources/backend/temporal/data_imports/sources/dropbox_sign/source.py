@@ -38,7 +38,7 @@ class DropboxSignSource(ResumableSource[DropboxSignSourceConfig, DropboxSignResu
         env=("^(DROPBOX_SIGN|DROPBOXSIGN)_",),
         npm=("@dropbox/sign", "hellosign-embedded", "hellosign-sdk"),
         pypi=("dropbox-sign", "hellosign-python-sdk"),
-        composer=("dropbox/sign",),
+        composer=("dropbox/sign", "dropbox/dropbox-sdk"),
         maven=("com.dropbox.sign:dropbox-sign",),
         rubygems=("dropbox-sign",),
     )

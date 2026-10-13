@@ -64,7 +64,7 @@ class MailerLiteSource(
         script_hosts=("assets.mailerlite.com", "static.mailerlite.com"),
         npm=("@mailerlite/mailerlite-nodejs",),
         pypi=("mailerlite",),
-        composer=("mailerlite/mailerlite-php",),
+        composer=("mailerlite/mailerlite-php", "mailerlite/mailerlite-api-v2-php-sdk", "mailerlite/mailerlite_rest_v1"),
         go=("github.com/mailerlite/mailerlite-go",),
         rubygems=("mailerlite-ruby",),
     )

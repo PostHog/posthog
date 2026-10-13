@@ -40,8 +40,16 @@ class BraintrustSource(ResumableSource[BraintrustSourceConfig, BraintrustResumeC
         env=("^BRAINTRUST_",),
         npm=("braintrust", "autoevals"),
         pypi=("braintrust", "autoevals"),
-        go=("github.com/braintrustdata/braintrust-sdk-go", "github.com/braintrustdata/braintrust-go"),
-        maven=("dev.braintrust:braintrust-sdk-java",),
+        go=(
+            "github.com/braintrustdata/braintrust-sdk-go",
+            "github.com/braintrustdata/braintrust-go",
+            "github.com/braintrustdata/braintrust-x-go",
+        ),
+        maven=(
+            "dev.braintrust:braintrust-sdk-java",
+            "dev.braintrust:braintrust-java-agent",
+            "dev.braintrust:braintrust-otel-extension",
+        ),
         rubygems=("braintrust",),
     )
 

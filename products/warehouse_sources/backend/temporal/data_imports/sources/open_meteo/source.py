@@ -52,7 +52,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
         env=("^(OPEN_METEO|OPENMETEO)_",),
         npm=("openmeteo",),
         pypi=("openmeteo-requests", "openmeteo-sdk"),
-        swiftpm=("github.com/open-meteo/sdk",),
+        swiftpm=("github.com/open-meteo/sdk", "github.com/open-meteo/open-meteo"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs

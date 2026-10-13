@@ -44,7 +44,7 @@ class JenkinsSource(ResumableSource[JenkinsSourceConfig, JenkinsResumeConfig], V
         pypi=("python-jenkins", "api4jenkins"),
         go=("github.com/bndr/gojenkins",),
         maven=("com.offbytwo.jenkins:jenkins-client",),
-        rubygems=("jenkins_api_client",),
+        rubygems=("jenkins_api_client", "jenkins_launcher"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

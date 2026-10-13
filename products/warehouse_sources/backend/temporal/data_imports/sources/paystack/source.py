@@ -38,7 +38,7 @@ class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]
         script_hosts=("js.paystack.co",),
         npm=("@paystack/inline-js", "@paystack/paystack-sdk"),
         pypi=("paystackapi", "paystack-sdk"),
-        cocoapods=("Paystack",),
+        cocoapods=("Paystack", "PaystackCheckout"),
         composer=("yabacon/paystack-php",),
         maven=("co.paystack.android:paystack",),
         rubygems=("paystack-ruby",),

@@ -32,7 +32,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
-    codebase_detection = detect(env=("^KOYEB_",), pypi=("koyeb-sdk",), go=("github.com/koyeb/koyeb-api-client-go",))
+    codebase_detection = detect(
+        env=("^KOYEB_",),
+        pypi=("koyeb-sdk",),
+        go=(
+            "github.com/koyeb/koyeb-api-client-go",
+            "github.com/koyeb/koyeb-cli",
+            "github.com/koyeb/koyeb-github-runner-scheduler",
+        ),
+    )
 
     api_docs_url = "https://www.koyeb.com/docs/reference/api"
 

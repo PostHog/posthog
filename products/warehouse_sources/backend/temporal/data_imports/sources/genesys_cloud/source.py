@@ -51,8 +51,22 @@ class GenesysCloudSource(ResumableSource[GenesysCloudSourceConfig, GenesysCloudR
         pypi=("purecloudplatformclientv2",),
         cocoapods=("GenesysCloudMessengerTransport",),
         go=("github.com/mypurecloud/platform-client-sdk-go",),
-        maven=("com.mypurecloud:platform-client-v2", "cloud.genesys:messenger-transport-mobile-sdk"),
-        rubygems=("purecloudplatformclientv2",),
+        maven=(
+            "com.mypurecloud:platform-client-v2",
+            "cloud.genesys:messenger-transport-mobile-sdk",
+            "com.mypurecloud:purecloud-guest-chat-client",
+        ),
+        rubygems=("purecloudplatformclientv2", "purecloud"),
+        swiftpm=(
+            "github.com/mypurecloud/mm-genesyscloudmessenger-spm-dev",
+            "github.com/mypurecloud/mm-genesyscloudmessengertransport-spm",
+            "github.com/mypurecloud/mm-genesyscloudmessengertransport-spm-dev",
+            "github.com/mypurecloud/mobile-messenger-genesyscloud-spm",
+            "github.com/mypurecloud/mobile-messenger-genesyscloud-spm-dev",
+            "github.com/mypurecloud/mobile-messenger-genesyscloudcore-spm",
+            "github.com/mypurecloud/mobile-messenger-genesyscloudcore-spm-dev",
+            "github.com/mypurecloud/mobile-messenger-genesyscloudmessenger-spm",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

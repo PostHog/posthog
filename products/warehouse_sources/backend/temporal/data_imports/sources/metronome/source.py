@@ -46,7 +46,11 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
         npm=("@metronome/sdk",),
         pypi=("metronome-sdk",),
         go=("github.com/Metronome-Industries/metronome-go",),
-        maven=("com.metronome.api:metronome-java",),
+        maven=(
+            "com.metronome.api:metronome-java",
+            "com.metronome.api:metronome-java-client-okhttp",
+            "com.metronome.api:metronome-java-core",
+        ),
         rubygems=("metronome-sdk",),
     )
 

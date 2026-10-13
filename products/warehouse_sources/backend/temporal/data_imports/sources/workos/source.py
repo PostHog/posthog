@@ -68,8 +68,9 @@ class WorkOSSource(
         composer=("workos/workos-php", "workos/workos-php-laravel"),
         go=("github.com/workos/workos-go",),
         hex=("workos",),
-        maven=("com.workos:workos",),
+        maven=("com.workos:workos", "com.workos:workos-android"),
         rubygems=("workos",),
+        swiftpm=("github.com/workos/workos-ios",),
     )
 
     api_docs_url = "https://workos.com/docs/reference"

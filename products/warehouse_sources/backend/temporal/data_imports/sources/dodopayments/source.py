@@ -49,8 +49,16 @@ class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsR
         pypi=("dodopayments",),
         composer=("dodopayments/client",),
         go=("github.com/dodopayments/dodopayments-go",),
-        maven=("com.dodopayments.api:dodo-payments-java", "com.dodopayments.api:dodo-payments-kotlin"),
+        maven=(
+            "com.dodopayments.api:dodo-payments-java",
+            "com.dodopayments.api:dodo-payments-kotlin",
+            "com.dodopayments.api:dodo-payments-java-client-okhttp",
+            "com.dodopayments.api:dodo-payments-java-core",
+            "com.dodopayments.api:dodo-payments-kotlin-client-okhttp",
+            "com.dodopayments.api:dodo-payments-kotlin-core",
+        ),
         rubygems=("dodopayments",),
+        swiftpm=("github.com/dodopayments/dodopayments-mobile-sdk-ios",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

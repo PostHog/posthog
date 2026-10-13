@@ -48,7 +48,12 @@ class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]
         npm=("@aws-sdk/client-macie2",),
         cargo=("aws-sdk-macie2",),
         go=("github.com/aws/aws-sdk-go-v2/service/macie2",),
-        maven=("software.amazon.awssdk:macie2", "com.amazonaws:aws-java-sdk-macie2"),
+        maven=(
+            "software.amazon.awssdk:macie2",
+            "com.amazonaws:aws-java-sdk-macie2",
+            "com.amazonaws:aws-java-sdk-macie",
+            "software.amazon.awssdk:macie",
+        ),
         rubygems=("aws-sdk-macie2",),
     )
 

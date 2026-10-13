@@ -63,7 +63,7 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
         pypi=("atproto",),
         cargo=("atrium-api", "bsky-sdk"),
         go=("github.com/bluesky-social/indigo",),
-        pub=("bluesky",),
+        pub=("bluesky", "bluesky_cli", "bluesky_text", "bluesky_text_flutter"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

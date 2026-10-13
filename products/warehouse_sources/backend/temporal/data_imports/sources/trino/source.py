@@ -47,8 +47,8 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         npm=("trino-client",),
         pypi=("trino",),
         go=("github.com/trinodb/trino-go-client",),
-        maven=("io.trino:trino-jdbc",),
-        rubygems=("trino-client",),
+        maven=("io.trino:trino-jdbc", "io.trino:trino-cli", "io.trino:trino-clickhouse", "io.trino:trino-client"),
+        rubygems=("trino-client", "trino-client-ruby"),
     )
 
     api_docs_url = "https://trino.io/docs/current/client/python.html"

@@ -32,7 +32,13 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
     codebase_detection = detect(
         env=("^PLAIN_API_KEY$", "^PLAIN_WEBHOOK_SECRET$"),
         script_hosts=("chat.cdn-plain.com",),
-        npm=("@team-plain/typescript-sdk", "@team-plain/graphql", "@team-plain/webhooks", "@team-plain/ui-components"),
+        npm=(
+            "@team-plain/typescript-sdk",
+            "@team-plain/graphql",
+            "@team-plain/webhooks",
+            "@team-plain/ui-components",
+            "@team-plain/cli",
+        ),
     )
 
     supported_versions = ("v1",)

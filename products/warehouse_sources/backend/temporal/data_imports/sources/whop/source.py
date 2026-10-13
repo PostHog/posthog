@@ -66,6 +66,11 @@ class WhopSource(
         ),
         pypi=("whop-sdk", "whop"),
         go=("github.com/whopio/whopsdk-go",),
+        swiftpm=(
+            "github.com/whopio/whop-ios-react-native-kit",
+            "github.com/whopio/whopsdk-checkout-swift",
+            "github.com/whopio/whopsdk-elements-swift",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

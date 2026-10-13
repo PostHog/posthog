@@ -43,10 +43,10 @@ class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeC
         script_hosts=("pay.gocardless.com",),
         npm=("gocardless-nodejs", "@gocardless/react-dropin"),
         pypi=("gocardless-pro",),
-        composer=("gocardless/gocardless-pro",),
+        composer=("gocardless/gocardless-pro", "gocardless/gocardless", "gocardless/gocardless-pro-php"),
         go=("github.com/gocardless/gocardless-pro-go",),
-        maven=("com.gocardless:gocardless-pro",),
-        rubygems=("gocardless_pro",),
+        maven=("com.gocardless:gocardless-pro", "com.gocardless:gocardless-java", "com.gocardless:gocardlesssdk"),
+        rubygems=("gocardless_pro", "gocardless"),
     )
 
     supported_versions = ("2015-07-06",)

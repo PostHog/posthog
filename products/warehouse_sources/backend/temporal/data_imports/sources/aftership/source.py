@@ -43,10 +43,10 @@ class AftershipSource(ResumableSource[AftershipSourceConfig, AftershipResumeConf
         env=("^AFTERSHIP_",),
         npm=("@aftership/tracking-sdk", "aftership"),
         pypi=("aftership",),
-        composer=("aftership/tracking-sdk", "aftership/aftership-php-sdk"),
+        composer=("aftership/tracking-sdk", "aftership/aftership-php-sdk", "aftership/aftership-apps-magento2"),
         go=("github.com/aftership/tracking-sdk-go", "github.com/aftership/aftership-sdk-go"),
-        maven=("com.aftership:tracking-sdk",),
-        rubygems=("aftership",),
+        maven=("com.aftership:tracking-sdk", "com.aftership:aftership-sdk"),
+        rubygems=("aftership", "aftership-tracking-sdk"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

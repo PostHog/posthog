@@ -39,9 +39,15 @@ class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
         env=("^STIGG_",),
         npm=("@stigg/node-server-sdk", "@stigg/js-client-sdk", "@stigg/react-sdk", "@stigg/typescript"),
         pypi=("stigg", "stigg-api-client"),
-        go=("github.com/stiggio/api-client-go",),
-        maven=("io.stigg:stigg-api-client",),
-        rubygems=("stigg-api-client",),
+        go=("github.com/stiggio/api-client-go", "github.com/stiggio/stigg-cli", "github.com/stiggio/stigg-go"),
+        maven=(
+            "io.stigg:stigg-api-client",
+            "io.stigg:stigg-java",
+            "io.stigg:stigg-java-client-okhttp",
+            "io.stigg:stigg-java-core",
+            "io.stigg:stigg-sidecar-sdk",
+        ),
+        rubygems=("stigg-api-client", "stigg", "stigg-sidecar-sdk"),
     )
 
     supported_versions = ("v1",)

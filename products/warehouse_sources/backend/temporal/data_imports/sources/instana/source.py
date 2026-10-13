@@ -46,10 +46,21 @@ class InstanaSource(ResumableSource[InstanaSourceConfig, InstanaResumeConfig]):
         npm=("@instana/collector", "@instana/aws-lambda", "@instana/react-native-agent"),
         pypi=("instana",),
         cocoapods=("InstanaAgent",),
-        go=("github.com/instana/go-sensor",),
-        maven=("com.instana:instana-java-sdk", "com.instana:android-agent-runtime"),
+        go=(
+            "github.com/instana/go-sensor",
+            "github.com/instana/instana-agent-operator",
+            "github.com/instana/instana-go-client",
+            "github.com/instana/instana-otel-collector",
+            "github.com/instana/rollouts-plugin-metric-instana",
+        ),
+        maven=(
+            "com.instana:instana-java-sdk",
+            "com.instana:android-agent-runtime",
+            "com.instana:instana-java-opentracing",
+            "com.instana:instana-javaagent",
+        ),
         pub=("instana_agent",),
-        rubygems=("instana",),
+        rubygems=("instana", "mina-instana"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

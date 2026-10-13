@@ -43,9 +43,20 @@ class CoralogixSource(ResumableSource[CoralogixSourceConfig, CoralogixResumeConf
         npm=("coralogix-logger", "@coralogix/browser", "@coralogix/react-native-plugin"),
         pypi=("coralogix-logger",),
         cocoapods=("Coralogix",),
-        maven=("com.coralogix.sdk:coralogix-sdk", "com.coralogix:android-sdk"),
+        go=(
+            "github.com/coralogix/coralogix-management-sdk",
+            "github.com/coralogix/coralogix-opentelemetry-go",
+            "github.com/coralogix/coralogix-operator",
+        ),
+        maven=("com.coralogix.sdk:coralogix-sdk", "com.coralogix:android-sdk", "com.coralogix:coralogix-jdbc"),
         pub=("cx_flutter_plugin",),
-        rubygems=("coralogix_logger",),
+        rubygems=(
+            "coralogix_logger",
+            "coralogix_fluentd_logger",
+            "fluent-plugin-coralogix",
+            "logstash-output-coralogix",
+            "logstash-output-coralogix_logger",
+        ),
         swiftpm=("github.com/coralogix/cx-ios-sdk",),
     )
 

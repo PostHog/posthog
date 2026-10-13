@@ -39,7 +39,14 @@ class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConf
         npm=("@appsignal/nodejs", "@appsignal/javascript"),
         pypi=("appsignal",),
         hex=("appsignal", "appsignal_phoenix"),
-        rubygems=("appsignal",),
+        rubygems=(
+            "appsignal",
+            "appsignal-mongo",
+            "appsignal-moped",
+            "appsignal-opentelemetry",
+            "appsignal-redis",
+            "appsignal-tire",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

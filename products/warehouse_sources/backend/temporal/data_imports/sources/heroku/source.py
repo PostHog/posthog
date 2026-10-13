@@ -33,7 +33,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HerokuSource(ResumableSource[HerokuSourceConfig, HerokuResumeConfig]):
     codebase_detection = detect(
-        env=("^HEROKU_",), npm=("heroku-client",), go=("github.com/heroku/heroku-go",), rubygems=("platform-api",)
+        env=("^HEROKU_",),
+        npm=("heroku-client",),
+        go=("github.com/heroku/heroku-go", "github.com/heroku/heroku-http-adapter"),
+        rubygems=(
+            "platform-api",
+            "heroku-bouncer",
+            "heroku-runtime-api",
+            "heroku_hatchet",
+            "omniauth-heroku",
+            "puma-heroku",
+            "rails_on_heroku",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

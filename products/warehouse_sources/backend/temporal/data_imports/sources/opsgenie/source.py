@@ -39,7 +39,7 @@ class OpsgenieSource(ResumableSource[OpsgenieSourceConfig, OpsgenieResumeConfig]
         env=("^OPSGENIE_",),
         npm=("opsgenie-sdk",),
         pypi=("opsgenie-sdk",),
-        go=("github.com/opsgenie/opsgenie-go-sdk-v2",),
+        go=("github.com/opsgenie/opsgenie-go-sdk-v2", "github.com/opsgenie/opsgenie-lamp"),
         maven=("com.opsgenie.integration:sdk",),
     )
 

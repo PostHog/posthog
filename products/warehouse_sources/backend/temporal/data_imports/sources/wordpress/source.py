@@ -40,7 +40,18 @@ class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConf
     codebase_detection = detect(
         env=("^WORDPRESS_",),
         npm=("wpapi", "@wordpress/api-fetch", "@wordpress/scripts"),
-        composer=("johnpbloch/wordpress", "roots/wordpress"),
+        composer=(
+            "johnpbloch/wordpress",
+            "roots/wordpress",
+            "johnpbloch/wordpress-core",
+            "johnpbloch/wordpress-core-installer",
+            "johnpbloch/wordpress-dev",
+            "johnpbloch/wordpress-project",
+            "roots/wordpress-core-installer",
+            "roots/wordpress-full",
+            "roots/wordpress-no-content",
+            "roots/wordpress-packager",
+        ),
     )
 
     supported_versions = ("v2",)

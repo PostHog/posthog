@@ -36,7 +36,39 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DiscourseSource(ResumableSource[DiscourseSourceConfig, DiscourseResumeConfig]):
-    codebase_detection = detect(env=("^DISCOURSE_",), rubygems=("discourse_api",))
+    codebase_detection = detect(
+        env=("^DISCOURSE_",),
+        rubygems=(
+            "discourse_api",
+            "discourse-ember-source",
+            "discourse-emojis",
+            "discourse-fonts",
+            "discourse-omniauth-jwt",
+            "discourse-qunit-rails",
+            "discourse-seed-fu",
+            "discourse-systray",
+            "discourse_ai-tokenizers",
+            "discourse_dev",
+            "discourse_dev_assets",
+            "discourse_image_optim",
+            "discourse_mail_receiver",
+            "discourse_math_bundle",
+            "discourse_theme",
+            "discourse_voice_assets",
+            "discourse_zendesk_api",
+            "email_reply_parser-discourse",
+            "fastimage_discourse",
+            "omniauth-browserid-discourse",
+            "omniauth-github-discourse",
+            "rails_multisite_discourse",
+            "rubocop-discourse",
+            "rubocop-discourse-base",
+            "ruby-readability-discourse",
+            "seed-fu-discourse",
+            "sidekiq-failures-discourse",
+            "therubyracer-discourse",
+        ),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

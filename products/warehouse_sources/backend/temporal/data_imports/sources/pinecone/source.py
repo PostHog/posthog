@@ -49,7 +49,7 @@ class PineconeSource(ResumableSource[PineconeSourceConfig, PineconeResumeConfig]
         pypi=("pinecone", "pinecone-client"),
         cargo=("pinecone-sdk",),
         go=("github.com/pinecone-io/go-pinecone",),
-        maven=("io.pinecone:pinecone-client",),
+        maven=("io.pinecone:pinecone-client", "io.pinecone:spark-pinecone_2.12", "io.pinecone:spark-pinecone_2.13"),
     )
 
     lists_tables_without_credentials = True

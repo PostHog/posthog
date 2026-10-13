@@ -46,7 +46,11 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
         npm=("@aws-sdk/client-compute-optimizer",),
         cargo=("aws-sdk-computeoptimizer",),
         go=("github.com/aws/aws-sdk-go-v2/service/computeoptimizer",),
-        maven=("software.amazon.awssdk:computeoptimizer", "com.amazonaws:aws-java-sdk-computeoptimizer"),
+        maven=(
+            "software.amazon.awssdk:computeoptimizer",
+            "com.amazonaws:aws-java-sdk-computeoptimizer",
+            "software.amazon.awssdk:computeoptimizerautomation",
+        ),
         rubygems=("aws-sdk-computeoptimizer",),
     )
 

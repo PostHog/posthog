@@ -34,8 +34,27 @@ class TursoSource(ResumableSource[TursoSourceConfig, TursoResumeConfig]):
         env=("^TURSO_",),
         npm=("@libsql/client", "@tursodatabase/serverless", "@tursodatabase/api"),
         pypi=("libsql",),
-        cargo=("libsql",),
-        go=("github.com/tursodatabase/libsql-client-go", "github.com/tursodatabase/go-libsql"),
+        cargo=(
+            "libsql",
+            "turso",
+            "turso_core",
+            "turso_ext",
+            "turso_macros",
+            "turso_parser",
+            "turso_pg_parser",
+            "turso_sdk_kit",
+            "turso_sdk_kit_macros",
+            "turso_serverless",
+            "turso_sqlite3_parser",
+            "turso_sync_engine",
+            "turso_sync_sdk_kit",
+        ),
+        go=(
+            "github.com/tursodatabase/libsql-client-go",
+            "github.com/tursodatabase/go-libsql",
+            "github.com/tursodatabase/turso-cli",
+            "github.com/tursodatabase/turso-go-platform-libs",
+        ),
     )
 
     lists_tables_without_credentials = True

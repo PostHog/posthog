@@ -45,7 +45,11 @@ class TenjinSource(ResumableSource[TenjinSourceConfig, TenjinResumeConfig]):
         cocoapods=("TenjinSDK",),
         maven=("com.tenjin:android-sdk",),
         pub=("tenjin_plugin",),
-        swiftpm=("github.com/tenjin/tenjin-ios-sdk",),
+        swiftpm=(
+            "github.com/tenjin/tenjin-ios-sdk",
+            "github.com/tenjin/tenjin-ionic-sdk",
+            "github.com/tenjin/tenjin-ios-spm",
+        ),
     )
 
     lists_tables_without_credentials = True  # static report catalog — safe for public docs

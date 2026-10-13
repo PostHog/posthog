@@ -39,7 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HookdeckSource(ResumableSource[HookdeckSourceConfig, HookdeckResumeConfig]):
     codebase_detection = detect(
-        env=("^HOOKDECK_",), npm=("@hookdeck/sdk", "hookdeck-cli"), go=("github.com/hookdeck/hookdeck-go-sdk",)
+        env=("^HOOKDECK_",),
+        npm=("@hookdeck/sdk", "hookdeck-cli"),
+        go=("github.com/hookdeck/hookdeck-go-sdk", "github.com/hookdeck/hookdeck-cli"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

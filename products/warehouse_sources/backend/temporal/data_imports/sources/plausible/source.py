@@ -39,9 +39,26 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        env=("^PLAUSIBLE_",),
+        env=("^PLAUSIBLE_", "^NUXT_PUBLIC_PLAUSIBLE_"),
         script_hosts=("plausible.io",),
-        npm=("plausible-tracker", "@plausible-analytics/tracker"),
+        npm=(
+            "plausible-tracker",
+            "@plausible-analytics/tracker",
+            "next-plausible",
+            "@nuxtjs/plausible",
+            "vue-plausible",
+            "v-plausible",
+            "gatsby-plugin-plausible",
+            "vuepress-plugin-plausible",
+            "gridsome-plugin-plausible-analytics",
+        ),
+        pypi=("django-plausible", "django-plausible-proxy", "sphinx-plausible"),
+        composer=("vincentbean/laravel-plausible", "njoguamos/laravel-plausible"),
+        go=("github.com/andrerfcsantos/go-plausible",),
+        hex=("plausible",),
+        pub=("plausible_analytics", "plausible"),
+        rubygems=("plausible_api", "bridgetown-plausible"),
+        swiftpm=("github.com/nickoneill/plausibleswift", "github.com/brightdigit/aviaryinsights"),
         competes_with=(ProductKey.WEB_ANALYTICS,),
     )
 

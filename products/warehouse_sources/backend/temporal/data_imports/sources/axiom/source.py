@@ -51,8 +51,18 @@ class AxiomSource(ResumableSource[AxiomSourceConfig, AxiomResumeConfig]):
             "@axiomhq/ai",
         ),
         pypi=("axiom-py",),
-        cargo=("axiom-rs",),
-        go=("github.com/axiomhq/axiom-go",),
+        cargo=("axiom-rs", "tracing-axiom"),
+        go=(
+            "github.com/axiomhq/axiom-go",
+            "github.com/axiomhq/axiom-fs",
+            "github.com/axiomhq/axiom-grafana",
+            "github.com/axiomhq/axiom-honeycomb-proxy",
+            "github.com/axiomhq/axiom-hostmetrics",
+            "github.com/axiomhq/axiom-lambda-extension",
+            "github.com/axiomhq/axiom-loki-multiplexer",
+            "github.com/axiomhq/axiom-segment-webhook",
+            "github.com/axiomhq/axiom-syslog-proxy",
+        ),
     )
 
     lists_tables_without_credentials = True

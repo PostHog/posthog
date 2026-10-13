@@ -43,9 +43,15 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
     codebase_detection = detect(
         env=("^(AWS_CLOUD_TRAIL|AWSCLOUDTRAIL)_",),
         npm=("@aws-sdk/client-cloudtrail",),
-        cargo=("aws-sdk-cloudtrail",),
+        cargo=("aws-sdk-cloudtrail", "aws-sdk-cloudtraildata"),
         go=("github.com/aws/aws-sdk-go-v2/service/cloudtrail",),
-        maven=("software.amazon.awssdk:cloudtrail", "com.amazonaws:aws-java-sdk-cloudtrail"),
+        maven=(
+            "software.amazon.awssdk:cloudtrail",
+            "com.amazonaws:aws-java-sdk-cloudtrail",
+            "com.amazonaws:aws-cloudtrail-processing-library",
+            "com.amazonaws:aws-java-sdk-cloudtraildata",
+            "software.amazon.awssdk:cloudtraildata",
+        ),
         rubygems=("aws-sdk-cloudtrail",),
     )
 

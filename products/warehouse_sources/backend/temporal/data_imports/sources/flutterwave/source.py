@@ -41,7 +41,11 @@ class FlutterwaveSource(ResumableSource[FlutterwaveSourceConfig, FlutterwaveResu
         script_hosts=("checkout.flutterwave.com",),
         npm=("flutterwave-node-v3", "flutterwave-react-v3", "flutterwave-angular-v3"),
         pypi=("flutterwave", "rave-python"),
-        composer=("flutterwavedev/flutterwave-v3",),
+        composer=(
+            "flutterwavedev/flutterwave-v3",
+            "flutterwavedev/flutterwave-php",
+            "flutterwavedev/flutterwavelaravel",
+        ),
         pub=("flutterwave_standard",),
         rubygems=("flutterwave_sdk",),
     )

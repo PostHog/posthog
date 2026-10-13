@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CleverSource(ResumableSource[CleverSourceConfig, CleverResumeConfig]):
-    codebase_detection = detect(npm=("clever",), pypi=("clever",), rubygems=("clever-ruby",))
+    codebase_detection = detect(npm=("clever",), pypi=("clever",), rubygems=("clever-ruby", "omniauth-clever"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_1)

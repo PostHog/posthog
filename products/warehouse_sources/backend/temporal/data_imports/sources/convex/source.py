@@ -34,9 +34,9 @@ class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig], Curs
         env=("^CONVEX_", "^NEXT_PUBLIC_CONVEX_URL$", "^VITE_CONVEX_URL$"),
         npm=("convex",),
         pypi=("convex",),
-        cargo=("convex",),
-        maven=("dev.convex:android-convexmobile",),
-        swiftpm=("github.com/get-convex/convex-swift",),
+        cargo=("convex", "convex_sync_types"),
+        maven=("dev.convex:android-convexmobile", "dev.convex:android-convex-auth0"),
+        swiftpm=("github.com/get-convex/convex-swift", "github.com/get-convex/convex-swift-auth0"),
     )
 
     api_docs_url = "https://docs.convex.dev/"
