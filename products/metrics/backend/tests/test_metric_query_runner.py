@@ -2,9 +2,11 @@ import datetime as dt
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -31,7 +33,8 @@ from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
-class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
+@pytest.mark.usefixtures("clickhouse_database")
+class TestAlignToInterval(ClickhouseTestMixin, SimpleTestCase):
     @parameterized.expand(
         [
             (project_timezone, interval)
