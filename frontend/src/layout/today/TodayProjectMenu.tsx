@@ -41,7 +41,7 @@ interface ProjectGroup {
 /** The project switcher shortcut opens this menu too. */
 export function TodayProjectMenu(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganizationProjectCount, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -76,7 +76,7 @@ export function TodayProjectMenu(): JSX.Element {
                         closeProjectSwitcher()
                         showCreateProjectModal()
                     },
-                    { currentUsage: currentOrganization?.teams?.length }
+                    { currentUsage: currentOrganizationProjectCount }
                 )
             }
             data-attr="today-top-bar-new-project"
