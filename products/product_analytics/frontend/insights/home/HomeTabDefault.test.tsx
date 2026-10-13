@@ -4,18 +4,23 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
+import { ensureJsdom } from '@posthog/quill-charts/testing'
+
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { performQuery } from '~/queries/query'
-import { isInsightQueryNode } from '~/queries/utils'
+import { isInsightQueryNode, isTrendsQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
+import { ChartDisplayType } from '~/types'
 
 import { HomeTabDefault } from './HomeTabDefault'
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
+import { getHomeTabStatQueries } from './homeTabDefaultTiles'
 import { homeTabDataCollectionId } from './homeTabQueryKeys'
+import { HomeTabStatTile } from './HomeTabStatTile'
 
 jest.mock('~/queries/query', () => ({
     ...jest.requireActual('~/queries/query'),
@@ -50,7 +55,7 @@ describe('HomeTabDefault query reuse', () => {
         const { rerender } = render(<HomeTabDefault />)
         const collection = dataNodeCollectionLogic({ key: homeTabDataCollectionId(teamLogic.values.currentTeamId) })
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(15))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
         await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
         expect(
             within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
@@ -60,18 +65,18 @@ describe('HomeTabDefault query reuse', () => {
         expect(savedInsightsLogic.isMounted()).toBe(true)
         await act(async () => rerender(<HomeTabDefault />))
 
-        expect(mockedQuery).toHaveBeenCalledTimes(15)
+        expect(mockedQuery).toHaveBeenCalledTimes(14)
         expect(
             within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
         ).toBeInTheDocument()
 
         await act(async () => homeTabDefaultLogic.actions.setDates('-30d', null))
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(30))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(28))
         await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
 
         expect(
             mockedQuery.mock.calls
-                .slice(15)
+                .slice(14)
                 .every(([query]) => isInsightQueryNode(query) && query.dateRange?.date_from === '-30d')
         ).toBe(true)
         expect(
@@ -79,18 +84,60 @@ describe('HomeTabDefault query reuse', () => {
         ).toBeInTheDocument()
     })
 
+    it('hides old trend values when the new total loads before the new trend', async () => {
+        ensureJsdom()
+        const trendResponse = {
+            results: [
+                {
+                    ...trendsNumber.result[0],
+                    data: [2, 3, 5],
+                    days: ['2026-06-01', '2026-06-02', '2026-06-03'],
+                    aggregated_value: 10,
+                },
+            ],
+        }
+        let finishTrend!: (response: typeof trendResponse) => void
+        const pendingTrend = new Promise<typeof trendResponse>((resolve) => {
+            finishTrend = resolve
+        })
+        mockedQuery.mockImplementation(async (query) => {
+            if (isTrendsQuery(query) && query.dateRange?.date_from === '-30d') {
+                if (query.trendsFilter?.display !== ChartDisplayType.BoldNumber) {
+                    return pendingTrend
+                }
+                return { results: [{ ...trendResponse.results[0], aggregated_value: 20 }] }
+            }
+            return trendResponse
+        })
+        const tile = (dateFrom: string): JSX.Element => (
+            <HomeTabStatTile
+                stat={getHomeTabStatQueries({ date_from: dateFrom }, false).find(({ key }) => key === 'sessions')!}
+                compare={false}
+                selected={false}
+                onSelect={() => {}}
+            />
+        )
+        const { container, rerender } = render(tile('-7d'))
+        await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
+        await act(async () => rerender(tile('-30d')))
+        await waitFor(() => expect(screen.getByText('20')).toBeInTheDocument())
+        expect(container.querySelector('[data-attr="metric-card-sparkline"]')).toBeNull()
+        await act(async () => finishTrend(trendResponse))
+        await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
+    })
+
     it('replaces sample charts with live queries when the project starts receiving events', async () => {
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
         const { container } = render(<HomeTabDefault />)
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(10))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(9))
         expect(container.querySelectorAll('[data-attr="insight-sample-data-state"]')).toHaveLength(5)
 
         await act(async () => {
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: true, is_demo: false })
         })
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(15))
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
         expect(container.querySelector('[data-attr="insight-sample-data-state"]')).toBeNull()
     })
 })

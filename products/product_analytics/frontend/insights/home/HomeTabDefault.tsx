@@ -24,7 +24,7 @@ import {
 } from './homeTabDefaultTiles'
 import { HomeTabExplore } from './HomeTabExplore'
 import { homeTabLoadTimeLogic } from './homeTabLoadTimeLogic'
-import { homeTabChartInsightId, homeTabStatKey } from './homeTabQueryKeys'
+import { homeTabChartInsightId, homeTabStatKey, homeTabStatTrendKey } from './homeTabQueryKeys'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
@@ -49,10 +49,12 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
         homeTabLoadTimeLogic({
             teamId: currentTeamId,
             tileIds: [
-                ...getHomeTabStatQueries(dateRange, compare).flatMap((stat) => [
-                    homeTabStatKey(currentTeamId, stat.key),
-                    ...(stat.trendQuery ? [homeTabStatKey(currentTeamId, `${stat.key}.trend`)] : []),
-                ]),
+                ...new Set(
+                    getHomeTabStatQueries(dateRange, compare).flatMap((stat) => [
+                        homeTabStatKey(currentTeamId, stat.key),
+                        homeTabStatTrendKey(currentTeamId, stat),
+                    ])
+                ),
                 ...[primaryChart, contentChart, eventsChart, ...audienceCharts, retentionChart].map((chart) =>
                     insightVizDataNodeKey({ dashboardItemId: homeTabChartInsightId(currentTeamId, chart.key) })
                 ),
