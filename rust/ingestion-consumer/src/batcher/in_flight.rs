@@ -38,9 +38,9 @@ pub struct SentRun {
 pub struct RunSplit {
     pub routing_key: Arc<str>,
     pub accepted: Vec<SentMessage>,
-    /// How many of `accepted` come before the run's first timed-out message.
+    /// How many of `accepted` come before the run's first unfinished message.
     pub accepted_prefix: usize,
-    pub timed_out: Vec<SerializedKafkaMessage>,
+    pub unfinished: Vec<SerializedKafkaMessage>,
 }
 
 pub struct InFlightRequest {
@@ -128,22 +128,22 @@ impl InFlightRequest {
             .collect())
     }
 
-    /// The transport hands back the timed-out messages in send order. They
+    /// The transport hands back the unfinished messages in send order. They
     /// need not be the last messages of a run, because a worker may process
     /// one key's messages in independent groups.
     pub fn split(
         self,
         accepted: u32,
-        timed_out: Vec<SerializedKafkaMessage>,
+        unfinished: Vec<SerializedKafkaMessage>,
     ) -> Result<Vec<RunSplit>, String> {
-        if timed_out.is_empty() || accepted as usize + timed_out.len() != self.message_count {
+        if unfinished.is_empty() || accepted as usize + unfinished.len() != self.message_count {
             return Err(format!(
-                "partial ack accepted {accepted} and timed out {} of {} messages",
-                timed_out.len(),
+                "partial ack accepted {accepted} and left {} of {} messages unfinished",
+                unfinished.len(),
                 self.message_count
             ));
         }
-        let mut timed_out = timed_out.into_iter().peekable();
+        let mut unfinished = unfinished.into_iter().peekable();
         let splits = self
             .runs
             .into_iter()
@@ -152,16 +152,16 @@ impl InFlightRequest {
                     routing_key: run.routing_key,
                     accepted: Vec::new(),
                     accepted_prefix: 0,
-                    timed_out: Vec::new(),
+                    unfinished: Vec::new(),
                 };
                 for sent in run.messages {
-                    let next = timed_out.next_if(|message| {
+                    let next = unfinished.next_if(|message| {
                         message.partition == sent.partition && message.offset == sent.offset
                     });
                     match next {
-                        Some(message) => split.timed_out.push(message),
+                        Some(message) => split.unfinished.push(message),
                         None => {
-                            if split.timed_out.is_empty() {
+                            if split.unfinished.is_empty() {
                                 split.accepted_prefix += 1;
                             }
                             split.accepted.push(sent);
@@ -171,9 +171,9 @@ impl InFlightRequest {
                 split
             })
             .collect();
-        if let Some(message) = timed_out.next() {
+        if let Some(message) = unfinished.next() {
             return Err(format!(
-                "partial ack timed out {}:{}, which the request does not carry at that point",
+                "partial ack lists {}:{} as unfinished, which the request does not carry at that point",
                 message.partition, message.offset
             ));
         }
@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_splits_each_run_into_accepted_and_timed_out_in_send_order() {
+    fn a_partial_splits_each_run_into_accepted_and_unfinished_in_send_order() {
         let splits = request()
             .split(2, vec![message("a", 0, 2), message("b", 0, 10)])
             .expect("matches the request");
@@ -251,7 +251,7 @@ mod tests {
                         .map(|sent| sent.offset)
                         .collect::<Vec<i64>>(),
                     split.accepted_prefix,
-                    offsets(&split.timed_out),
+                    offsets(&split.unfinished),
                 )
             })
             .collect();
@@ -269,8 +269,8 @@ mod tests {
     #[case::count_mismatch(1, vec![message("a", 0, 2)])]
     fn a_partial_that_does_not_match_the_request_is_an_error(
         #[case] accepted: u32,
-        #[case] timed_out: Vec<SerializedKafkaMessage>,
+        #[case] unfinished: Vec<SerializedKafkaMessage>,
     ) {
-        assert!(request().split(accepted, timed_out).is_err());
+        assert!(request().split(accepted, unfinished).is_err());
     }
 }

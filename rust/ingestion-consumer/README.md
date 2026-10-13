@@ -56,7 +56,7 @@ Under `key_table`:
 - The packer builds a request only for a free worker slot, from ready keys up to a target size. Keys stay unclaimed until then, so a key's run keeps growing while every slot is busy, up to the run cap. A key's backlog past the run cap leaves in consecutive requests, one in flight at a time. The run cap is the target unless `INGESTION_RUN_CAP_*` sets it apart. A request never mixes assignment epochs or fresh and replayed messages.
 - A request is placed on a worker when it is sent, against the load at that moment. Each worker takes at most `INGESTION_WORKER_CONCURRENT_BATCHES` requests at a time.
 - A failed send returns its messages to the front of their keys' queues. They retry through the packer as replay after the retry delay.
-- A partial ack completes the messages the worker finished. Its timed-out messages return to the front of their keys' queues and go out again at once as replay. They need not be the last messages of their key.
+- A partial ack completes the messages the worker finished. Its unfinished messages return to the front of their keys' queues and go out again at once as replay. They need not be the last messages of their key.
 - A revoke drops the pending messages of the revoked partitions, because the new owner replays them.
 - Pending work with nothing in flight and nothing accepted for `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` fails the consumer, which restarts and replays.
 
@@ -75,7 +75,7 @@ Metrics:
 - `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent. They show whether requests reach the pack target.
 - `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited, including the pack budget.
 - `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|replay|shutdown}` counts why the packer built each request: at the target, at the budget deadline, as a replay, or at shutdown.
-- `ingestion_consumer_request_budget_partials_total` counts partial acks, and `ingestion_consumer_request_budget_timed_out_messages_total` counts the messages they timed out.
+- `ingestion_consumer_request_budget_partials_total` counts partial acks, and `ingestion_consumer_request_budget_unfinished_messages_total` counts the messages they left unfinished.
 - The `ingestion_consumer_batcher_*` gauges report keys, queued messages and bytes, claimed and waiting keys, unplaced work, and in-flight requests.
 
 ## Debug API

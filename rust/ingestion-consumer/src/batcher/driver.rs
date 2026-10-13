@@ -268,14 +268,14 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 request,
                 Ok(SendOutcome::Partial {
                     accepted,
-                    timed_out,
+                    unfinished,
                 }),
             ) => state.on_request_partial(
                 now,
                 &self.workers.candidates(),
                 request,
                 accepted,
-                timed_out,
+                unfinished,
             ),
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, not a worker fault.
@@ -628,7 +628,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_partial_response_resends_its_timed_out_messages_at_once_as_replay() {
+    async fn a_partial_response_resends_its_unfinished_messages_at_once_as_replay() {
         let budget = Duration::from_millis(250);
         let mut h = Harness::budgeted(&["w"], 4, Some(budget));
         h.submit(vec![run("a", &[1])]);
@@ -639,7 +639,7 @@ mod tests {
         send.reply
             .send(Ok(SendOutcome::Partial {
                 accepted: 0,
-                timed_out: vec![message("a", 0, 1)],
+                unfinished: vec![message("a", 0, 1)],
             }))
             .unwrap();
         settle().await;

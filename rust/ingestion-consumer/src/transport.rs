@@ -54,11 +54,11 @@ pub(crate) fn split_by_size(
 #[derive(Debug)]
 pub enum SendOutcome {
     Accepted(u32),
-    /// The worker finished every message except `timed_out`, which come back
+    /// The worker finished every message except `unfinished`, which come back
     /// in send order.
     Partial {
         accepted: u32,
-        timed_out: Vec<SerializedKafkaMessage>,
+        unfinished: Vec<SerializedKafkaMessage>,
     },
 }
 

@@ -155,7 +155,7 @@ impl BatcherStateMachine {
         })
     }
 
-    /// The worker finished every message except `timed_out`. Those go back to
+    /// The worker finished every message except `unfinished`. Those go back to
     /// the front of their keys' queues and are sent again at once as replay.
     pub fn on_request_partial(
         self,
@@ -163,10 +163,10 @@ impl BatcherStateMachine {
         workers: &[WorkerId],
         request: RequestId,
         accepted: u32,
-        timed_out: Vec<SerializedKafkaMessage>,
+        unfinished: Vec<SerializedKafkaMessage>,
     ) -> (Self, Effects) {
         self.act(|active, draining| {
-            active.on_request_partial(now, workers, draining, request, accepted, timed_out)
+            active.on_request_partial(now, workers, draining, request, accepted, unfinished)
         })
     }
 
@@ -370,7 +370,7 @@ impl ActiveState {
         draining: bool,
         request: RequestId,
         accepted: u32,
-        timed_out: Vec<SerializedKafkaMessage>,
+        unfinished: Vec<SerializedKafkaMessage>,
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
@@ -382,16 +382,16 @@ impl ActiveState {
             self.last_progress = now;
         }
         let assignment_epoch = sent.class.assignment_epoch;
-        let timed_out_count = timed_out.len();
-        let splits = sent.split(accepted, timed_out)?;
+        let unfinished_count = unfinished.len();
+        let splits = sent.split(accepted, unfinished)?;
         counter!("ingestion_consumer_request_budget_partials_total").increment(1);
-        counter!("ingestion_consumer_request_budget_timed_out_messages_total")
-            .increment(timed_out_count as u64);
+        counter!("ingestion_consumer_request_budget_unfinished_messages_total")
+            .increment(unfinished_count as u64);
         effects.completions = completions(
             assignment_epoch,
             splits.iter().flat_map(|split| &split.accepted),
         );
-        // The order sentinel's ACK mark stops at a run's first timed-out
+        // The order sentinel's ACK mark stops at a run's first unfinished
         // message, so resending that message stays legal.
         effects.key_acks = key_acks(
             splits
@@ -399,7 +399,13 @@ impl ActiveState {
                 .map(|split| (&split.routing_key, &split.accepted[..split.accepted_prefix])),
         );
         for split in splits {
-            self.settle_key(&split.routing_key, split.timed_out, None, now, &mut effects)?;
+            self.settle_key(
+                &split.routing_key,
+                split.unfinished,
+                None,
+                now,
+                &mut effects,
+            )?;
         }
         self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
@@ -1553,7 +1559,7 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_completes_the_accepted_offsets_and_requeues_the_timed_out_ones_at_the_front() {
+    fn a_partial_completes_the_accepted_offsets_and_requeues_the_unfinished_ones_at_the_front() {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let (batcher, effects) = packing_batcher(4, Duration::ZERO, 4, now).on_groups(

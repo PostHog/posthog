@@ -253,9 +253,9 @@ struct FakeWorker {
     /// ingesting anything — a poison batch this worker will never accept.
     pub reject_4xx: Arc<AtomicBool>,
     /// When set, the first sub-batch with a soft budget that carries this
-    /// distinct_id times out all of that id's messages. They are not recorded,
-    /// and the ack is PARTIAL.
-    pub time_out_once: Arc<Mutex<Option<String>>>,
+    /// distinct_id leaves all of that id's messages unfinished. They are not
+    /// recorded, and the ack is PARTIAL.
+    pub leave_unfinished_once: Arc<Mutex<Option<String>>>,
     /// (distinct_id, seq) pairs that arrived in a sub-batch marked as replay.
     pub replayed: Arc<Mutex<Vec<(String, usize)>>>,
     /// When true, a replay sub-batch is dropped without an ack, as a worker
@@ -299,7 +299,7 @@ impl FakeWorker {
         let ack_lost_once = Arc::new(AtomicBool::new(false));
         let reject_4xx = Arc::new(AtomicBool::new(false));
         let underreport_once = Arc::new(AtomicBool::new(false));
-        let time_out_once = Arc::new(Mutex::new(None));
+        let leave_unfinished_once = Arc::new(Mutex::new(None));
         let replayed = Arc::new(Mutex::new(Vec::new()));
         let hold_replays = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(AtomicUsize::new(0));
@@ -347,7 +347,7 @@ impl FakeWorker {
             ack_lost_once: Arc::clone(&ack_lost_once),
             reject_4xx: Arc::clone(&reject_4xx),
             underreport_once: Arc::clone(&underreport_once),
-            time_out_once: Arc::clone(&time_out_once),
+            leave_unfinished_once: Arc::clone(&leave_unfinished_once),
             replayed: Arc::clone(&replayed),
             hold_replays: Arc::clone(&hold_replays),
             arrived: Arc::clone(&arrived),
@@ -377,7 +377,7 @@ impl FakeWorker {
             ack_lost_once,
             reject_4xx,
             underreport_once,
-            time_out_once,
+            leave_unfinished_once,
             replayed,
             hold_replays,
             arrived,
@@ -427,7 +427,7 @@ struct FakeWorkerGrpc {
     ack_lost_once: Arc<AtomicBool>,
     reject_4xx: Arc<AtomicBool>,
     underreport_once: Arc<AtomicBool>,
-    time_out_once: Arc<Mutex<Option<String>>>,
+    leave_unfinished_once: Arc<Mutex<Option<String>>>,
     replayed: Arc<Mutex<Vec<(String, usize)>>>,
     hold_replays: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
@@ -454,7 +454,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let ack_lost_once = Arc::clone(&self.ack_lost_once);
         let reject_4xx = Arc::clone(&self.reject_4xx);
         let underreport_once = Arc::clone(&self.underreport_once);
-        let time_out_once = Arc::clone(&self.time_out_once);
+        let leave_unfinished_once = Arc::clone(&self.leave_unfinished_once);
         let replayed = Arc::clone(&self.replayed);
         let hold_replays = Arc::clone(&self.hold_replays);
         let arrived = Arc::clone(&self.arrived);
@@ -514,16 +514,16 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         (did, seq)
                     })
                     .collect();
-                let timed_out_id = if sub_batch.soft_budget_ms > 0 {
-                    time_out_once.lock().unwrap().clone()
+                let unfinished_id = if sub_batch.soft_budget_ms > 0 {
+                    leave_unfinished_once.lock().unwrap().clone()
                 } else {
                     None
                 };
                 let mut done = Vec::new();
-                let mut timed_out = Vec::new();
+                let mut unfinished = Vec::new();
                 for (message, entry) in sub_batch.messages.iter().zip(entries) {
-                    if timed_out_id.as_deref() == Some(entry.0.as_str()) {
-                        timed_out.push(MessageRef {
+                    if unfinished_id.as_deref() == Some(entry.0.as_str()) {
+                        unfinished.push(MessageRef {
                             partition: message.partition,
                             offset: message.offset,
                         });
@@ -539,15 +539,15 @@ impl WorkerIngestService for FakeWorkerGrpc {
                 if let Some(log) = &delivery_log {
                     log.lock().unwrap().extend(done.iter().cloned());
                 }
-                if !timed_out.is_empty() {
-                    *time_out_once.lock().unwrap() = None;
+                if !unfinished.is_empty() {
+                    *leave_unfinished_once.lock().unwrap() = None;
                     let _ = tx.send(Ok(IngestStreamResponse {
                         msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
                             seq: sub_batch.seq,
                             status: SubBatchStatus::Partial as i32,
                             accepted: done.len() as u32,
                             error: String::new(),
-                            timed_out,
+                            unfinished,
                         })),
                     }));
                     continue;
@@ -1145,15 +1145,15 @@ async fn messages_per_distinct_id_arrive_in_order(
     harness.stop().await;
 }
 
-/// A partial ack redelivers only the messages the worker timed out. One Kafka
-/// key carries two distinct ids, as a cookieless `token:ip` key does, and the
-/// worker times out one distinct id's messages while it finishes the other's,
-/// so the timed-out messages are not the last of their key.
+/// A partial ack redelivers only the messages the worker left unfinished. One
+/// Kafka key carries two distinct ids, as a cookieless `token:ip` key does, and
+/// the worker leaves one distinct id's messages unfinished while it finishes
+/// the other's, so the unfinished messages are not the last of their key.
 #[tokio::test]
-async fn a_partial_ack_redelivers_only_the_timed_out_messages() {
+async fn a_partial_ack_redelivers_only_the_unfinished_messages() {
     let topic = format!("e2e-partial-{}", Uuid::new_v4());
     let harness = Harness::start_budgeted(&topic, 1).await;
-    *harness.workers[0].time_out_once.lock().unwrap() = Some("visitor-a".to_string());
+    *harness.workers[0].leave_unfinished_once.lock().unwrap() = Some("visitor-a".to_string());
 
     produce_keyed_in_one_transaction(
         &topic,
@@ -1181,20 +1181,20 @@ async fn a_partial_ack_redelivers_only_the_timed_out_messages() {
     assert_eq!(
         *worker.replayed.lock().unwrap(),
         vec![("visitor-a".to_string(), 0), ("visitor-a".to_string(), 2)],
-        "only the timed-out messages are redelivered, marked as replay"
+        "only the unfinished messages are redelivered, marked as replay"
     );
 
     harness.stop().await;
 }
 
 /// A consumer crash after a partial ack, while its resend is unacked, loses
-/// none of the timed-out messages. The partial ack completed the poll's other
-/// messages, so a commit past a timed-out offset would skip it on restart.
+/// none of the unfinished messages. The partial ack completed the poll's other
+/// messages, so a commit past an unfinished offset would skip it on restart.
 #[tokio::test]
 async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
     let topic = format!("e2e-partial-crash-{}", Uuid::new_v4());
     let mut harness = Harness::start_budgeted(&topic, 1).await;
-    *harness.workers[0].time_out_once.lock().unwrap() = Some("visitor-a".to_string());
+    *harness.workers[0].leave_unfinished_once.lock().unwrap() = Some("visitor-a".to_string());
     // The resend never settles, so it is still in flight at the crash.
     harness.workers[0]
         .hold_replays
@@ -1214,7 +1214,7 @@ async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
     .await;
     assert!(
         harness.workers[0].seqs_for("visitor-a").is_empty(),
-        "visitor A's messages timed out"
+        "visitor A's messages are unfinished"
     );
 
     // The consumer commits asynchronously, so a wrong commit can land after
@@ -1223,7 +1223,7 @@ async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
     assert_eq!(
         harness.committed_offset(0),
         None,
-        "nothing commits while a timed-out message waits for its resend"
+        "nothing commits while an unfinished message waits for its resend"
     );
 
     harness.crash_consumer();
@@ -1242,7 +1242,7 @@ async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
     assert_eq!(
         harness.workers[0].seqs_for("visitor-a"),
         vec![0, 2],
-        "the restarted consumer delivers the timed-out messages"
+        "the restarted consumer delivers the unfinished messages"
     );
 
     harness.stop().await;
@@ -1250,12 +1250,12 @@ async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
 
 /// A partial ack that arrives after its partition was revoked resends nothing.
 /// The new owner replays the partition from its committed offset, so a resend
-/// by the old owner would deliver the timed-out messages twice.
+/// by the old owner would deliver the unfinished messages twice.
 #[tokio::test]
 async fn a_partial_ack_after_a_revoke_resends_nothing() {
     let topic = format!("e2e-partial-revoke-{}", Uuid::new_v4());
     let harness = Harness::start_budgeted(&topic, 2).await;
-    *harness.workers[0].time_out_once.lock().unwrap() = Some("visitor-a".to_string());
+    *harness.workers[0].leave_unfinished_once.lock().unwrap() = Some("visitor-a".to_string());
     let partitions = [
         TopicPartition::new(topic.clone(), 0),
         TopicPartition::new(topic.clone(), 1),
@@ -1379,7 +1379,11 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
     )
     .await;
     assert!(
-        harness.workers[0].time_out_once.lock().unwrap().is_none(),
+        harness.workers[0]
+            .leave_unfinished_once
+            .lock()
+            .unwrap()
+            .is_none(),
         "the held request was acked as partial"
     );
     assert_eq!(
