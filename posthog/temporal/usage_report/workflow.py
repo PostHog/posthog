@@ -45,12 +45,18 @@ from posthog.temporal.usage_report.types import (
 QUERY_CONCURRENCY = 4
 SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+METRICS_SERIES_QUERY_PATCH_ID = "usage-report-metrics-series-query-2026-10"
+METRICS_SERIES_QUERY_NAME = "teams_with_metrics_series_in_period"
 
 
-def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
-    if patch_applied:
-        return QUERIES
-    return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
+def _queries_for_patches(*, sandbox_compute_patch: bool, metrics_series_patch: bool) -> list[QuerySpec]:
+    # A history recorded before a query was added must replay without scheduling that query.
+    excluded: set[str] = set()
+    if not sandbox_compute_patch:
+        excluded.add(SANDBOX_COMPUTE_QUERY_NAME)
+    if not metrics_series_patch:
+        excluded.add(METRICS_SERIES_QUERY_NAME)
+    return [spec for spec in QUERIES if spec.name not in excluded]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -98,7 +104,10 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         status = "FAILED"
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
-            queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_patches(
+                sandbox_compute_patch=workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID),
+                metrics_series_patch=workflow.patched(METRICS_SERIES_QUERY_PATCH_ID),
+            )
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={

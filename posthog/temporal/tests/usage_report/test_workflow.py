@@ -29,16 +29,33 @@ from posthog.temporal.usage_report.types import (
     RunUsageReportsInputs,
 )
 from posthog.temporal.usage_report.workflow import (
+    METRICS_SERIES_QUERY_NAME,
     SANDBOX_COMPUTE_QUERY_NAME,
     RunUsageReportsWorkflow,
-    _queries_for_sandbox_compute_patch,
+    _queries_for_patches,
     build_context,
 )
 
 
-def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
-    assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
-    assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
+@parameterized.expand(
+    [
+        (False, False, set()),
+        (True, False, {SANDBOX_COMPUTE_QUERY_NAME}),
+        (True, True, {SANDBOX_COMPUTE_QUERY_NAME, METRICS_SERIES_QUERY_NAME}),
+    ]
+)
+def test_patched_queries_are_versioned_for_existing_histories(
+    sandbox_compute_patch: bool, metrics_series_patch: bool, expected_patched: set[str]
+) -> None:
+    names = {
+        spec.name
+        for spec in _queries_for_patches(
+            sandbox_compute_patch=sandbox_compute_patch, metrics_series_patch=metrics_series_patch
+        )
+    }
+
+    assert names & {SANDBOX_COMPUTE_QUERY_NAME, METRICS_SERIES_QUERY_NAME} == expected_patched
+    assert names | {SANDBOX_COMPUTE_QUERY_NAME, METRICS_SERIES_QUERY_NAME} == {spec.name for spec in QUERIES}
 
 
 @parameterized.expand(

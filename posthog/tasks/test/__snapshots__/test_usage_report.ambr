@@ -641,7 +641,7 @@
   
   SELECT team_id,
          uniq(series_fingerprint) AS series
-  FROM metrics4_series
+  FROM metrics4_samples
   WHERE time_bucket >= '2022-01-10 00:00:00'
     AND time_bucket < '2022-01-10 23:59:59'
   GROUP BY team_id
