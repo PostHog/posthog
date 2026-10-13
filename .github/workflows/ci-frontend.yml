@@ -297,7 +297,6 @@ jobs:
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             selected_file_count: ${{ steps.classify.outputs.selected_file_count }}
             related_test_count: ${{ steps.classify.outputs.related_test_count }}
-            estimated_seconds: ${{ steps.classify.outputs.estimated_seconds }}
             shard_count: ${{ steps.classify.outputs.shard_count }}
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
@@ -306,24 +305,6 @@ jobs:
               with:
                   fetch-depth: 1000
                   filter: blob:none
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
-            - name: Install pnpm dependencies
-              # A failed install makes the script below fail, and that falls back.
-              continue-on-error: true
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Compute changed files
               id: diff
@@ -338,8 +319,8 @@ jobs:
                   git diff --name-only "origin/$BASE_REF...HEAD" > /tmp/changed.txt
                   wc -l < /tmp/changed.txt
 
-            - name: Build narrowed matrix
-              id: classify
+            - name: Classify changed files
+              id: prepare
               env:
                   DIFF_OUTCOME: ${{ steps.diff.outcome }}
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
@@ -377,7 +358,7 @@ jobs:
                           echo "shard_count=$shards"
                           echo "full_run_reason_category=$1"
                           echo "full_run_reason_detail=$2"
-                      } >> "$GITHUB_OUTPUT"
+                      } > /tmp/jest-selection-fallback
                   }
 
                   if [[ "$DIFF_OUTCOME" != "success" ]] || [[ ! -s /tmp/changed.txt ]]; then
@@ -433,11 +414,46 @@ jobs:
                       ' /tmp/changed.txt | tr '\n' ' ' | sed 's/ $//'
                   )
 
-                  # The script counts the tests --findRelatedTests will run and sizes the
-                  # matrix so the slowest shard meets its wall target. An empty list means
-                  # no changed file reaches the jest module graph, and jest is skipped.
-                  CHANGED_FILES="$CHANGED_FILES" CHANGED_FILE_COUNT="$changed_count" \
-                      node .github/scripts/jest-select.js || fall_back selector_crash "jest-select.js exited $?"
+                  # Preserve the same fallback if dependency installation or test listing fails.
+                  fall_back selector_crash "jest-select.js failed" > /dev/null
+                  {
+                      echo "selective=true"
+                      echo "changed_files=$CHANGED_FILES"
+                      echo "changed_file_count=$changed_count"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: steps.prepare.outputs.selective == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Install pnpm dependencies
+              id: selector-install
+              if: steps.prepare.outputs.selective == 'true'
+              # A failed install makes the script below fail, and that falls back.
+              continue-on-error: true
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Build narrowed matrix
+              id: classify
+              env:
+                  SELECTIVE: ${{ steps.prepare.outputs.selective }}
+                  CHANGED_FILES: ${{ steps.prepare.outputs.changed_files }}
+                  CHANGED_FILE_COUNT: ${{ steps.prepare.outputs.changed_file_count }}
+              run: |
+                  if [[ "$SELECTIVE" == "true" ]]; then
+                      node .github/scripts/jest-select.js && exit 0
+                      echo "::notice::Test selection failed; using the prepared fallback"
+                  fi
+                  cat /tmp/jest-selection-fallback >> "$GITHUB_OUTPUT"
 
     frontend-format:
         name: Frontend formatting
@@ -862,7 +878,7 @@ jobs:
     jest:
         runs-on: ubuntu-24.04
         # PRs run as many selective shards as the tests reachable from the changed
-        # files need to meet the wall target in .github/scripts/jest-select.js. The
+        # files need under the file limit in .github/scripts/jest-select.js. The
         # merge queue runs the full four-shard fanout.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
@@ -1235,7 +1251,6 @@ jobs:
                         "changed_file_count": ${{ needs.select-jest-tests.outputs.changed_file_count || 'null' }},
                         "selected_file_count": ${{ needs.select-jest-tests.outputs.selected_file_count || 'null' }},
                         "related_test_count": ${{ needs.select-jest-tests.outputs.related_test_count || 'null' }},
-                        "estimated_seconds": ${{ needs.select-jest-tests.outputs.estimated_seconds || 'null' }},
                         "shard_count": ${{ needs.select-jest-tests.outputs.shard_count || 'null' }},
                         "full_run_reason_category": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_category || '') }},
                         "full_run_reason_detail": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_detail || '') }},

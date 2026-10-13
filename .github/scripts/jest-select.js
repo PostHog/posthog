@@ -10,24 +10,11 @@ const path = require('node:path')
 
 const FRONTEND_DIR = path.resolve(__dirname, '../../frontend')
 
-// The slowest shard job of a PR run should finish within this wall on the slowest
-// ubuntu-24.04 CPU (EPYC 7763). The jest job times out at twice this.
-const TARGET_WALL_SECONDS = 10 * 60
-// Checkout, pnpm install, build:products and jest startup, before the first test runs.
-const JOB_OVERHEAD_SECONDS = 120
-// Mean worker seconds per test file on the fastest ubuntu-24.04 CPU (EPYC 9V45), from the
-// hourly run's JUnit.
-const SECONDS_PER_TEST_FILE = 3
-// The slowest ubuntu-24.04 CPU runs the same shard 1.4x slower than the fastest one.
-const SLOW_CPU_FACTOR = 1.4
-// Jest's default worker count on a 4 vCPU runner is cores minus one.
-const WORKERS = 3
+// Initial limit from the probes documented in docs/internal/ci-things-already-tried.md.
+// File counts approximate runtime; tune this from observed shard durations.
+const TEST_FILES_PER_SHARD = 342
 const MAX_SHARDS = 8
 const SEGMENT = 'app'
-
-const TEST_FILES_PER_SHARD = Math.floor(
-    ((TARGET_WALL_SECONDS - JOB_OVERHEAD_SECONDS) * WORKERS) / (SECONDS_PER_TEST_FILE * SLOW_CPU_FACTOR)
-)
 
 function listRelatedTests(changedFiles) {
     if (changedFiles.length === 0) {
@@ -45,19 +32,11 @@ function listRelatedTests(changedFiles) {
 }
 
 function planShards(testCount) {
-    const shardCount = Math.min(MAX_SHARDS, Math.ceil(testCount / TEST_FILES_PER_SHARD))
-    if (shardCount === 0) {
-        return { shardCount, estimatedSeconds: 0 }
-    }
-    const filesOnSlowestShard = Math.ceil(testCount / shardCount)
-    const estimatedSeconds = Math.round(
-        JOB_OVERHEAD_SECONDS + (filesOnSlowestShard * SECONDS_PER_TEST_FILE * SLOW_CPU_FACTOR) / WORKERS
-    )
-    return { shardCount, estimatedSeconds }
+    return Math.min(MAX_SHARDS, Math.ceil(testCount / TEST_FILES_PER_SHARD))
 }
 
 function planOutputs({ changedFiles, changedFileCount, testCount }) {
-    const { shardCount, estimatedSeconds } = planShards(testCount)
+    const shardCount = planShards(testCount)
     return {
         mode: 'selective',
         matrix: JSON.stringify({
@@ -72,7 +51,6 @@ function planOutputs({ changedFiles, changedFileCount, testCount }) {
         changed_file_count: String(changedFileCount),
         selected_file_count: String(changedFiles.length),
         related_test_count: String(testCount),
-        estimated_seconds: String(estimatedSeconds),
         shard_count: String(shardCount),
         full_run_reason_category: '',
         full_run_reason_detail: '',
@@ -86,8 +64,7 @@ function main() {
     const lines = Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`)
     fs.appendFileSync(process.env.GITHUB_OUTPUT ?? '/dev/stdout', lines.join(''))
     console.log(
-        `Selective mode: ${changedFiles.length} changed files, ${testCount} related tests, ` +
-            `${outputs.shard_count} shards, slowest estimated at ${outputs.estimated_seconds}s`
+        `Selective mode: ${changedFiles.length} changed files, ${testCount} related tests, ${outputs.shard_count} shards`
     )
 }
 
@@ -95,4 +72,4 @@ if (require.main === module) {
     main()
 }
 
-module.exports = { planShards, planOutputs, TARGET_WALL_SECONDS, TEST_FILES_PER_SHARD, MAX_SHARDS }
+module.exports = { planShards, planOutputs, TEST_FILES_PER_SHARD, MAX_SHARDS }

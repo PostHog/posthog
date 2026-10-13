@@ -3,21 +3,16 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { planShards, planOutputs, TARGET_WALL_SECONDS, TEST_FILES_PER_SHARD, MAX_SHARDS } = require('./jest-select.js')
+const { planShards, planOutputs, TEST_FILES_PER_SHARD, MAX_SHARDS } = require('./jest-select.js')
 
-test('planShards adds a shard as soon as one would exceed the target', () => {
-    const full = planShards(TEST_FILES_PER_SHARD)
-    assert.equal(full.shardCount, 1)
-    assert.ok(full.estimatedSeconds <= TARGET_WALL_SECONDS, `${full.estimatedSeconds}s`)
-    assert.equal(planShards(TEST_FILES_PER_SHARD + 1).shardCount, 2)
-
-    const plan = planShards(2000)
-    assert.ok(plan.shardCount > 1 && plan.shardCount < MAX_SHARDS, `${plan.shardCount} shards`)
-    assert.ok(plan.estimatedSeconds <= TARGET_WALL_SECONDS, `${plan.estimatedSeconds}s`)
+test('planShards adds a shard when the file limit is exceeded', () => {
+    assert.equal(planShards(TEST_FILES_PER_SHARD), 1)
+    assert.equal(planShards(TEST_FILES_PER_SHARD + 1), 2)
+    assert.equal(planShards(2000), 6)
 })
 
 test('planShards caps the count at MAX_SHARDS', () => {
-    assert.equal(planShards(100000).shardCount, MAX_SHARDS)
+    assert.equal(planShards(100000), MAX_SHARDS)
 })
 
 test('planOutputs skips the jest job when no test is related', () => {
@@ -25,7 +20,6 @@ test('planOutputs skips the jest job when no test is related', () => {
 
     assert.equal(outputs.should_run, 'false')
     assert.equal(outputs.shard_count, '0')
-    assert.equal(outputs.estimated_seconds, '0')
     assert.deepEqual(JSON.parse(outputs.matrix), { include: [] })
 })
 

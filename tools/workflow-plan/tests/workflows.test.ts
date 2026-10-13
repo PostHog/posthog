@@ -498,6 +498,26 @@ const E2E_DISPATCH: Scenario = {
 }
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'known fallback', selective: '', fork: false },
+        { name: 'selective PR', selective: 'true', fork: false },
+        { name: 'selective fork PR', selective: 'true', fork: true },
+    ].flatMap(({ name, selective, fork }) =>
+        ['setup-gh-token', 'selector-install'].map((step) => ({
+            file: 'ci-frontend.yml',
+            job: 'select-jest-tests',
+            step,
+            scenario: {
+                name,
+                github: pullRequest({ fork }),
+                steps: {
+                    ...allFiltersChanged(workflow('ci-frontend.yml')),
+                    'select-jest-tests': { prepare: { outputs: { selective } } },
+                },
+            },
+            runs: selective === 'true' && (step === 'selector-install' || !fork),
+        }))
+    ),
     {
         file: 'ci-frontend.yml',
         job: 'changes',
