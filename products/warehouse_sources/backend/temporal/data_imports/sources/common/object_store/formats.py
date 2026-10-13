@@ -1,0 +1,240 @@
+import io
+import csv
+import gzip
+import json
+import zlib
+from collections.abc import Iterator
+from typing import IO, Any, cast
+
+import pyarrow as pa
+import pyarrow.csv as pa_csv
+import pyarrow.parquet as pq
+from structlog.types import FilteringBoundLogger
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
+    FILE_MODIFIED_AT_COLUMN,
+    FILE_PATH_COLUMN,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
+    CsvOptions,
+    FileFormat,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import is_compressed
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    FILE_PARSE_ERROR,
+    ObjectStorageError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import StoredObject
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
+    CSV_BLOCK_SIZE_BYTES,
+    JSONL_CHUNK_BYTES,
+    JSONL_CHUNK_ROWS,
+    PARQUET_BATCH_ROWS,
+)
+
+TSV_SUFFIXES = (".tsv", ".tsv.gz")
+UTF8_BOM = b"\xef\xbb\xbf"
+
+
+class _PrefixedStream(io.RawIOBase):
+    """Replays bytes already read from a stream before the rest of it.
+
+    The first CSV line is read ahead to name the columns. A headerless file still needs that line
+    parsed as data, so it goes back in front of the stream.
+    """
+
+    def __init__(self, prefix: bytes, rest: IO[bytes]) -> None:
+        self._prefix = prefix
+        self._rest = rest
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        view = memoryview(buffer)
+        if self._prefix:
+            count = min(len(view), len(self._prefix))
+            view[:count] = self._prefix[:count]
+            self._prefix = self._prefix[count:]
+            return count
+        data = self._rest.read(len(view))
+        view[: len(data)] = data
+        return len(data)
+
+
+def csv_column_names(cells: list[str], has_header: bool) -> list[str]:
+    """Header names as written, made unique. A headerless file gets ClickHouse's `c1`, `c2`, ... names."""
+    if not has_header:
+        return [f"c{index}" for index in range(1, len(cells) + 1)]
+    names: list[str] = []
+    seen: set[str] = set()
+    for index, cell in enumerate(cells, start=1):
+        base = cell.strip() or f"c{index}"
+        name = base
+        suffix = 2
+        while name in seen:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        seen.add(name)
+        names.append(name)
+    return names
+
+
+def _parse_csv_line(line: bytes, delimiter: str, allow_double_quotes: bool) -> list[str]:
+    text = line.decode("utf-8", errors="replace")
+    if allow_double_quotes:
+        reader = csv.reader([text], delimiter=delimiter)
+    else:
+        reader = csv.reader([text], delimiter=delimiter, quoting=csv.QUOTE_NONE)
+    return next(reader, [])
+
+
+def iter_csv_tables(
+    stream: IO[bytes],
+    options: CsvOptions,
+    delimiter: str = ",",
+    file_path: str = "",
+    logger: FilteringBoundLogger | None = None,
+) -> Iterator[pa.Table]:
+    """Stream a CSV file as string columns.
+
+    Every column is read as text: Arrow fixes a column's type from the first block it sees, so a
+    later value that does not fit would fail the whole file mid-stream, and two files of one table
+    could disagree on a type. Empty unquoted fields are null.
+    """
+    first_line = stream.readline()
+    while first_line and not first_line.strip():
+        first_line = stream.readline()
+    if not first_line:
+        return
+    first_line = first_line.removeprefix(UTF8_BOM)
+    names = csv_column_names(
+        _parse_csv_line(first_line.rstrip(b"\r\n"), delimiter, options.allow_double_quotes), options.has_header
+    )
+    body: IO[bytes] = stream if options.has_header else cast(IO[bytes], _PrefixedStream(first_line, stream))
+
+    skipped_rows = 0
+
+    def skip_invalid_row(_row: Any) -> str:
+        nonlocal skipped_rows
+        skipped_rows += 1
+        return "skip"
+
+    try:
+        reader = pa_csv.open_csv(
+            body,
+            read_options=pa_csv.ReadOptions(column_names=names, block_size=CSV_BLOCK_SIZE_BYTES, use_threads=False),
+            parse_options=pa_csv.ParseOptions(
+                delimiter=delimiter,
+                quote_char='"' if options.allow_double_quotes else False,
+                newlines_in_values=options.allow_double_quotes,
+                ignore_empty_lines=True,
+                invalid_row_handler=skip_invalid_row,
+            ),
+            convert_options=pa_csv.ConvertOptions(
+                column_types=dict.fromkeys(names, pa.string()),
+                null_values=[""],
+                strings_can_be_null=True,
+                quoted_strings_can_be_null=False,
+            ),
+        )
+        for batch in reader:
+            if batch.num_rows:
+                yield pa.Table.from_batches([batch])
+    except pa.ArrowInvalid as e:
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as CSV: {e}") from e
+
+    if skipped_rows and logger is not None:
+        # A row whose field count differs from the header is malformed, or the file uses another
+        # delimiter. Skipping it keeps its values out of the wrong columns.
+        logger.warning(
+            "Skipped CSV rows whose field count differs from the header",
+            file=file_path,
+            skipped_rows=skipped_rows,
+            expected=len(names),
+        )
+
+
+def _as_rows(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, list):
+        return [item if isinstance(item, dict) else {"value": item} for item in value]
+    return [{"value": value}]
+
+
+def iter_jsonl_tables(
+    stream: IO[bytes],
+    file_path: str = "",
+    max_rows: int = JSONL_CHUNK_ROWS,
+    max_bytes: int = JSONL_CHUNK_BYTES,
+) -> Iterator[pa.Table]:
+    rows: list[dict[str, Any]] = []
+    pending_bytes = 0
+    for line_number, line in enumerate(stream, start=1):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except ValueError as e:
+            raise ObjectStorageError(
+                f"{FILE_PARSE_ERROR} '{file_path}' as JSON Lines: line {line_number} isn't valid JSON ({e})."
+            ) from e
+        rows.extend(_as_rows(parsed))
+        pending_bytes += len(line)
+        if len(rows) >= max_rows or pending_bytes >= max_bytes:
+            yield table_from_py_list(rows)
+            rows = []
+            pending_bytes = 0
+    if rows:
+        yield table_from_py_list(rows)
+
+
+def iter_parquet_tables(
+    stream: IO[bytes], file_path: str = "", batch_rows: int = PARQUET_BATCH_ROWS
+) -> Iterator[pa.Table]:
+    try:
+        parquet_file = pq.ParquetFile(stream)
+        for batch in parquet_file.iter_batches(batch_size=batch_rows, use_threads=False):
+            if batch.num_rows:
+                yield pa.Table.from_batches([batch])
+    except pa.ArrowInvalid as e:
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
+
+
+def with_file_columns(table: pa.Table, stored: StoredObject) -> pa.Table:
+    """Tag every row with the file it came from, so a table built from many files stays traceable."""
+    for column in (FILE_PATH_COLUMN, FILE_MODIFIED_AT_COLUMN):
+        if column in table.column_names:
+            table = table.drop_columns([column])
+    rows = table.num_rows
+    table = table.append_column(FILE_PATH_COLUMN, pa.repeat(pa.scalar(stored.path, pa.string()), rows))
+    return table.append_column(
+        FILE_MODIFIED_AT_COLUMN,
+        pa.repeat(pa.scalar(stored.modified_at, pa.timestamp("us", tz="UTC")), rows),
+    )
+
+
+def iter_file_tables(
+    stream: IO[bytes],
+    stored: StoredObject,
+    file_format: FileFormat,
+    csv_options: CsvOptions,
+    logger: FilteringBoundLogger | None = None,
+) -> Iterator[pa.Table]:
+    """Read one file as Arrow tables of bounded size, each carrying the `_file_*` columns."""
+    if file_format == "parquet":
+        tables = iter_parquet_tables(stream, stored.path)
+    else:
+        binary = cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if is_compressed(stored.path) else stream
+        if file_format == "csv":
+            delimiter = "\t" if stored.path.lower().endswith(TSV_SUFFIXES) else ","
+            tables = iter_csv_tables(binary, csv_options, delimiter, stored.path, logger)
+        else:
+            tables = iter_jsonl_tables(binary, stored.path)
+    try:
+        for table in tables:
+            yield with_file_columns(table, stored)
+    except (gzip.BadGzipFile, zlib.error, EOFError) as e:
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{stored.path}' as gzip: {e}") from e
