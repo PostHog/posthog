@@ -44,10 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-    from products.warehouse_sources.backend.models.external_data_schema import (
-        ExternalDataSchema,
-        ProcessedIncrementalValue,
-    )
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -832,8 +829,8 @@ async def update_incremental_field_values(
 
             if staging_run_uuid is not None:
                 # The high-water mark is staged with every checkpoint so a resumed attempt can inherit it
-                # (see seed_desc_sort_incremental_value). Staging is not promotion: the watermark still
-                # lands only when the run's final batch is durable.
+                # (see `staged_run_last_value`). Staging is not promotion: the loader promotes the
+                # watermark only when the final batch of the run completes the job.
                 if last_advanced or earliest_advanced:
                     await database_sync_to_async_pool(schema.stage_incremental_field_value)(
                         staging_run_uuid,
@@ -848,30 +845,6 @@ async def update_incremental_field_values(
     return IncrementalFieldValues(
         last_value=last_incremental_field_value, earliest_value=earliest_incremental_field_value
     )
-
-
-async def seed_desc_sort_incremental_value(
-    resource: SourceResponse,
-    schema: "ExternalDataSchema",
-    workflow_run_id: str | None,
-    should_resume: bool,
-    logger: FilteringBoundLogger,
-    log_prefix: str = "",
-) -> "ProcessedIncrementalValue | None":
-    """Return the high-water mark an earlier attempt of this run staged, for a resumed desc extract.
-
-    A resumed attempt continues from the previous attempt's checkpoint, so every row it reads is older
-    than the rows that attempt already yielded. Without the seed the run would finish with the resume
-    point as its watermark, and the next run would re-read everything newer than it.
-    """
-    if not should_resume or resource.sort_mode != "desc" or workflow_run_id is None:
-        return None
-
-    await database_sync_to_async_pool(schema.refresh_from_db)()
-    seed = await database_sync_to_async_pool(schema.staged_incremental_last_value_for_run)(workflow_run_id)
-    if seed is not None:
-        await logger.adebug(f"{log_prefix}Resumed desc extract inherits incremental_field_last_value {seed}")
-    return seed
 
 
 async def update_row_tracking_after_batch(

@@ -14,7 +14,11 @@ from redis import exceptions as redis_exceptions
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    attempt_run_uuid,
+    staged_run_last_value,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
@@ -31,7 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     reset_rows_synced_if_needed,
     resets_table_before_extraction,
     resolve_primary_keys,
-    seed_desc_sort_incremental_value,
     should_check_shutdown,
     trim_source_job_inputs,
     update_incremental_field_values,
@@ -416,13 +419,20 @@ class TestDescSortIncrementalHandoff:
         resume_point = datetime(2026, 1, 1, tzinfo=UTC)
 
         values = async_to_sync(update_incremental_field_values)(
-            schema, self._batch(newest, resume_point), resource, None, None, logger, staging_run_uuid="wf-1-a1"
+            schema,
+            self._batch(newest, resume_point),
+            resource,
+            None,
+            None,
+            logger,
+            staging_run_uuid=attempt_run_uuid("wf-1", 1),
         )
         assert values.last_value == newest
         schema.refresh_from_db()
         assert schema.sync_type_config["incremental_staged"]["last_value"] == newest.isoformat()
+        assert "incremental_field_last_value" not in schema.sync_type_config
 
-        seed = async_to_sync(seed_desc_sort_incremental_value)(resource, schema, "wf-1", True, logger)
+        seed = staged_run_last_value(schema.sync_type_config, "wf-1")
         assert seed == newest
 
         values = async_to_sync(update_incremental_field_values)(
@@ -432,12 +442,15 @@ class TestDescSortIncrementalHandoff:
             seed,
             None,
             logger,
-            staging_run_uuid="wf-1-a2",
+            staging_run_uuid=attempt_run_uuid("wf-1", 2),
         )
         async_to_sync(finalize_desc_sort_incremental_value)(
-            resource, schema, values.last_value, logger, staging_run_uuid="wf-1-a2"
+            resource, schema, values.last_value, logger, staging_run_uuid=attempt_run_uuid("wf-1", 2)
         )
-        assert schema.promote_staged_incremental_values("wf-1-a2") is True
+        schema.refresh_from_db()
+        assert "incremental_field_last_value" not in schema.sync_type_config
+
+        assert schema.promote_staged_incremental_values(attempt_run_uuid("wf-1", 2)) is True
         assert schema.sync_type_config["incremental_field_last_value"] == newest.isoformat()
 
 

@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    attempt_run_uuid,
     process_incremental_value,
+    staged_run_last_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -41,7 +43,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     reset_rows_synced_if_needed,
     resets_table_before_extraction,
     resolve_primary_keys,
-    seed_desc_sort_incremental_value,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     update_incremental_field_values,
@@ -232,7 +233,7 @@ class PipelineV3(Generic[ResumableData]):
 
         attempt = current_import_attempt()
         self._attempt = attempt
-        self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
+        self._run_uuid = attempt_run_uuid(self._job.workflow_run_id, attempt) if self._job.workflow_run_id else None
         self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
         sync_type: SyncTypeLiteral = "full_refresh"
@@ -357,6 +358,19 @@ class PipelineV3(Generic[ResumableData]):
         self._shutdown_monitor = shutdown_monitor
         self._shutdown_stopwatch = ShutdownStopwatch(shutdown_monitor)
         self._last_incremental_field_value: Any = None
+        if is_resume and source_response.sort_mode == "desc":
+            # A resumed descending attempt reads only rows older than the rows that the earlier attempts
+            # of this run read. Without their newest value, the run promotes the resume point as its
+            # watermark, and the next run reads every newer row again. `models.schema` is loaded when
+            # this attempt starts, so it holds what the earlier attempts staged.
+            self._last_incremental_field_value = staged_run_last_value(
+                models.schema.sync_type_config or {}, self._job.workflow_run_id
+            )
+            if self._last_incremental_field_value is None:
+                self._logger.warning(
+                    "V3 Pipeline: Resumed desc extract found no staged last value of this run",
+                    workflow_run_id=self._job.workflow_run_id,
+                )
         self._earliest_incremental_field_value: Any = process_incremental_value(
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
@@ -664,15 +678,6 @@ class PipelineV3(Generic[ResumableData]):
             )
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
-
-            self._last_incremental_field_value = await seed_desc_sort_incremental_value(
-                self._resource,
-                self._schema,
-                self._job.workflow_run_id,
-                should_resume,
-                self._logger,
-                log_prefix="V3 Pipeline: ",
-            )
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,

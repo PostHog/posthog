@@ -1187,31 +1187,6 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             lambda: update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         )
 
-    def staged_incremental_last_value_for_run(self, workflow_run_id: str) -> ProcessedIncrementalValue | None:
-        """Return the highest `last_value` any attempt of `workflow_run_id` has staged, or None.
-
-        Each attempt stages under `{workflow_run_id}-a{attempt}`. A newer attempt displaces the live
-        slot, and an older attempt's cursor may sit in the parked list, so both are read.
-        """
-        entries = [
-            self.sync_type_config.get("incremental_staged"),
-            *self.sync_type_config.get("incremental_staged_pending", []),
-        ]
-        values: list[ProcessedIncrementalValue] = []
-        for entry in entries:
-            if not entry or "last_value" not in entry:
-                continue
-            run_uuid = str(entry.get("run_uuid", ""))
-            if run_uuid != workflow_run_id and not run_uuid.startswith(f"{workflow_run_id}-a"):
-                continue
-            value = process_incremental_value(entry["last_value"], self.incremental_field_type)
-            if value is not None:
-                values.append(value)
-        try:
-            return max(values) if values else None
-        except TypeError:
-            return None
-
     def promote_staged_incremental_values(
         self,
         run_uuid: str,
@@ -1529,6 +1504,30 @@ def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
 
 
+def attempt_run_uuid(workflow_run_id: str, attempt: int) -> str:
+    """The run id that one import attempt stages its cursor and queues its batches under."""
+    return f"{workflow_run_id}-a{attempt}"
+
+
+def attempt_of(run_uuid: str) -> tuple[str, int] | None:
+    """Split a run id from `attempt_run_uuid` into its workflow run id and attempt, or None."""
+    workflow_run_id, separator, attempt = run_uuid.rpartition("-a")
+    if not separator or not workflow_run_id or not attempt.isdigit():
+        return None
+    return workflow_run_id, int(attempt)
+
+
+def _staged_attempts_of_run(config: dict[str, Any], workflow_run_id: str) -> list[tuple[dict[str, Any], int]]:
+    """Each staged cursor, live or parked, that an attempt of `workflow_run_id` wrote, with its attempt."""
+    attempts: list[tuple[dict[str, Any], int]] = []
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        run_uuid = staged.get("run_uuid")
+        parsed = attempt_of(run_uuid) if isinstance(run_uuid, str) else None
+        if parsed is not None and parsed[0] == workflow_run_id:
+            attempts.append((staged, parsed[1]))
+    return attempts
+
+
 def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
     """Remove the parked cursor of `run_uuid` and return it, or None when the run has none."""
     pending = config.get("incremental_staged_pending", [])
@@ -1555,16 +1554,11 @@ def staged_handoff_resume_point(config: dict[str, Any], workflow_run_id: str | N
     """
     if not workflow_run_id:
         return None
-    prefix = f"{workflow_run_id}-a"
     newest: dict[str, Any] | None = None
     newest_attempt = 0
-    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
-        run_uuid = staged.get("run_uuid")
-        if not isinstance(run_uuid, str) or not run_uuid.startswith(prefix):
-            continue
-        attempt = run_uuid.removeprefix(prefix)
-        if attempt.isdigit() and int(attempt) > newest_attempt:
-            newest, newest_attempt = staged, int(attempt)
+    for staged, attempt in _staged_attempts_of_run(config, workflow_run_id):
+        if attempt > newest_attempt:
+            newest, newest_attempt = staged, attempt
     if newest is None:
         return None
     owner_run_uuid = newest.get(STAGED_RESUME_OWNER_KEY) or newest["run_uuid"]
@@ -1580,6 +1574,54 @@ def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | N
     """
     point = staged_handoff_resume_point(config, workflow_run_id)
     return None if point is None else point[1]
+
+
+def staged_run_last_value(config: dict[str, Any], workflow_run_id: str | None) -> ProcessedIncrementalValue | None:
+    """The newest `last_value` that any attempt of `workflow_run_id` staged, or None.
+
+    A resumed attempt of a descending source reads only rows older than the rows that the earlier
+    attempts read, so it must start from their newest value. Each attempt stages the newest value
+    of the whole run so far, so the value survives when the parked list drops the attempt that read
+    the newest row.
+    """
+    if not workflow_run_id:
+        return None
+    field_type = config.get("incremental_field_type")
+    newest: ProcessedIncrementalValue | None = None
+    # Newest attempt first: for a pair the comparator cannot order, the newest attempt wins, the same
+    # rule that `_advance_promoted_cursor` applies.
+    for staged, attempt in sorted(_staged_attempts_of_run(config, workflow_run_id), key=lambda item: -item[1]):
+        if staged.get("last_value") is None:
+            continue
+        try:
+            candidate = process_incremental_value(staged["last_value"], field_type)
+        except Exception:
+            # A value that does not parse must not fail the attempt at startup. The attempt then
+            # starts from an older value, which can only make the next run read rows again.
+            logger.warning(
+                "staged_run_last_value_unparseable",
+                run_uuid=staged.get("run_uuid"),
+                attempt=attempt,
+                incremental_field_type=field_type,
+                exc_info=True,
+            )
+            continue
+        if candidate is None:
+            continue
+        if newest is None:
+            newest = candidate
+            continue
+        comparison = _compare_incremental_values(newest, candidate, field_type)
+        if comparison is None:
+            logger.warning(
+                "staged_run_last_value_unordered",
+                run_uuid=staged.get("run_uuid"),
+                attempt=attempt,
+                incremental_field_type=field_type,
+            )
+        elif comparison < 0:
+            newest = candidate
+    return newest
 
 
 def _advance_promoted_cursor(
