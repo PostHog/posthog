@@ -193,6 +193,8 @@ def test_eval_run_exit_status(
     score: float | None,
     expected_exit_code: int,
 ) -> None:
+    monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
+
     async def suite(ctx: EvalContext) -> None:
         if outcome == "crash":
             raise RuntimeError("Synthetic suite failure")
