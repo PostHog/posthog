@@ -415,7 +415,7 @@ jobs:
                   )
 
                   # Preserve the same fallback if dependency installation or test listing fails.
-                  fall_back selector_crash "jest-select.js failed" > /dev/null
+                  fall_back selector_crash "Jest selection unavailable" > /dev/null
                   {
                       echo "selective=true"
                       echo "changed_files=$CHANGED_FILES"
@@ -436,7 +436,7 @@ jobs:
               id: selector-install
               if: steps.prepare.outputs.selective == 'true' && steps.prepare.outputs.changed_files != ''
               timeout-minutes: 5
-              # A failed install makes the script below fail, and that falls back.
+              # Allow the final step to publish the prepared fallback if setup fails.
               continue-on-error: true
               uses: ./.github/actions/pnpm-install
               with:
@@ -447,10 +447,11 @@ jobs:
               id: classify
               env:
                   SELECTIVE: ${{ steps.prepare.outputs.selective }}
+                  INSTALL_OUTCOME: ${{ steps.selector-install.outcome }}
                   CHANGED_FILES: ${{ steps.prepare.outputs.changed_files }}
                   CHANGED_FILE_COUNT: ${{ steps.prepare.outputs.changed_file_count }}
               run: |
-                  if [[ "$SELECTIVE" == "true" ]]; then
+                  if [[ "$SELECTIVE" == "true" ]] && [[ -z "$CHANGED_FILES" || "$INSTALL_OUTCOME" == "success" ]]; then
                       node .github/scripts/jest-select.js && exit 0
                       echo "::notice::Test selection failed; using the prepared fallback"
                   fi
