@@ -1,10 +1,8 @@
 import re
 import math
 from collections.abc import Callable
-from typing import Literal
 
-# pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
-LifecycleStage = Literal["signup", "onboarding", "trial", "purchase", "churn_risk", "failure", "support", "other"]
+from products.workflows.backend.facade.contracts import LifecycleStage
 
 # For a team with no workflows yet, welcome and onboarding flows convert best, but their events fire far less
 # often than product usage events. These weights let a quiet sign-up event outrank a busy usage event, while

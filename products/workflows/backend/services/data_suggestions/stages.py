@@ -12,7 +12,8 @@ from posthog.llm.managed_decision_model import ManagedDecisionModel
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 
-from products.workflows.backend.services.data_suggestions.ranking import LifecycleStage, guess_stage
+from products.workflows.backend.facade.contracts import LifecycleStage
+from products.workflows.backend.services.data_suggestions.ranking import guess_stage
 
 logger = structlog.get_logger(__name__)
 

@@ -1,17 +1,16 @@
-from typing import Any, Literal, TypeVar
+from typing import Literal
 
-import structlog
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from products.workflows.backend.services.data_suggestions.ranking import LifecycleStage
+from products.messaging.backend.facade.api import EmailTemplateContent
+from products.workflows.backend.facade.contracts import LifecycleStage, OutlineKind
+from products.workflows.backend.services.data_suggestions.llm import invoke_structured
+from products.workflows.backend.services.hog_flow_templates import StepTemplate
 
-from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.untrusted import as_untrusted_data
-
-logger = structlog.get_logger(__name__)
 
 MAX_PLANNED_STEPS = 20
 
@@ -19,11 +18,7 @@ MAX_PLANNED_STEPS = 20
 # which needs the stronger model. It runs once per click, so its cost stays small.
 IDEAS_MODEL = "claude-sonnet-5-5"
 PLANNER_MODEL = "claude-opus-5-5"
-_TIMEOUT_SECONDS = 120
-_MAX_OUTPUT_TOKENS = 16000
 
-# The step chips a suggestion card shows.
-OutlineKind = Literal["email", "sms", "push", "slack", "webhook", "delay", "wait_until", "branch", "split", "action"]
 # The planner's step types. "function" covers every other step from the template catalog.
 StepType = Literal[
     "email",
@@ -48,12 +43,6 @@ class WorkflowIdea(BaseModel):
     description: str = Field(description="One sentence on what the workflow does, at most 90 characters.")
     reason: str = Field(description="One sentence on why it fits this project, naming the trigger event.")
     trigger_event: str = Field(description="Exactly one event name from the project's event list.")
-    stage: LifecycleStage = Field(
-        description="The customer lifecycle stage the trigger event marks: signup (an account or user is created), "
-        "onboarding (first steps, setup, activation, invites), trial, purchase (paid, upgraded, ordered), "
-        "churn_risk (cancelled, downgraded, inactive), failure (an error the user hit), support (tickets, "
-        "surveys), or other."
-    )
     step_outline: list[OutlineKind] = Field(
         description="The main steps after the trigger, in order, at most 20. webhook is a call to an external "
         "endpoint, action is any other step such as updating a person or sending to a CRM."
@@ -126,8 +115,8 @@ class IdeaContext:
 @frozen
 class StepsContext:
     idea: WorkflowIdea
-    email_templates: tuple[tuple[str, str, str], ...]
-    step_templates: tuple[tuple[str, str, str], ...]
+    email_templates: tuple[EmailTemplateContent, ...]
+    step_templates: tuple[StepTemplate, ...]
     events: tuple[str, ...]
     channels: frozenset[Channel]
     has_slack: bool
@@ -197,7 +186,7 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext) -> list[Workf
         else f"{name} ({count} in the last 7 days)"
         for name, count in context.events
     ]
-    result = _invoke(
+    result = invoke_structured(
         team=team,
         user=user,
         model=IDEAS_MODEL,
@@ -253,8 +242,8 @@ def plan_steps(*, team: Team, user: User, context: StepsContext) -> PlannedWorkf
     human += "\n\n" + as_untrusted_data(
         "step_catalog",
         [
-            f"template_id={template_id} name={name} description={description[:120]}"
-            for template_id, name, description in context.step_templates
+            f"template_id={template.template_id} name={template.name} description={template.description[:120]}"
+            for template in context.step_templates
         ],
         source="the function templates a workflow step can use",
     )
@@ -262,12 +251,12 @@ def plan_steps(*, team: Team, user: User, context: StepsContext) -> PlannedWorkf
         human += "\n\n" + as_untrusted_data(
             "saved_email_templates",
             [
-                f"id={template_id} name={name} subject={subject}"
-                for template_id, name, subject in context.email_templates
+                f"id={template.id} name={template.name} subject={template.email.get('subject', '')}"
+                for template in context.email_templates
             ],
             source="email templates this team saved in PostHog",
         )
-    result = _invoke(
+    return invoke_structured(
         team=team,
         user=user,
         model=PLANNER_MODEL,
@@ -282,83 +271,4 @@ def plan_steps(*, team: Team, user: User, context: StepsContext) -> PlannedWorkf
         ),
         excluded_values=_missing_channels(context.channels),
         human=human,
-    )
-    return result
-
-
-_Schema = TypeVar("_Schema", bound=BaseModel)
-
-
-def _invoke(
-    *,
-    team: Team,
-    user: User,
-    model: str,
-    effort: Literal["low", "medium", "high"],
-    feature: str,
-    schema: type[_Schema],
-    system: str,
-    human: str,
-    excluded_values: frozenset[str],
-) -> _Schema | None:
-    try:
-        llm = MaxChatAnthropic(
-            model=model,
-            user=user,
-            team=team,
-            # PostHog covers these calls, so suggestions never draw on the customer's AI credits.
-            billable=False,
-            inject_context=False,
-            streaming=False,
-            disable_streaming=True,
-            stream_usage=False,
-            max_tokens=_MAX_OUTPUT_TOKENS,
-            # Current Claude models only think adaptively, and a forced tool call (langchain's structured output)
-            # does not work with thinking. The API's own JSON schema output does.
-            thinking={"type": "adaptive"},
-            model_kwargs={
-                "output_config": {
-                    "effort": effort,
-                    "format": {"type": "json_schema", "schema": _strict_schema(schema, excluded_values)},
-                }
-            },
-            default_request_timeout=_TIMEOUT_SECONDS,
-            posthog_properties={"ai_product": "workflows", "ai_feature": feature},
-        )
-        response = llm.invoke([("system", system), ("human", human)])
-        return schema.model_validate_json(_response_text(response.content))
-    except ValidationError:
-        logger.warning("workflows.data_suggestions.llm_malformed", team_id=team.id, feature=feature, exc_info=True)
-        return None
-    except Exception:
-        logger.warning("workflows.data_suggestions.llm_failed", team_id=team.id, feature=feature, exc_info=True)
-        return None
-
-
-def _strict_schema(schema: type[BaseModel], excluded_values: frozenset[str]) -> dict[str, Any]:
-    # The API's JSON schema output requires every object to forbid properties the schema does not list.
-    # Removing a value from every enum means the model cannot pick a channel the team has not connected.
-    def close_objects(node: Any) -> None:
-        if isinstance(node, dict):
-            if node.get("type") == "object":
-                node["additionalProperties"] = False
-            if isinstance(node.get("enum"), list):
-                node["enum"] = [value for value in node["enum"] if value not in excluded_values]
-            for value in node.values():
-                close_objects(value)
-        elif isinstance(node, list):
-            for value in node:
-                close_objects(value)
-
-    json_schema = schema.model_json_schema()
-    close_objects(json_schema)
-    return json_schema
-
-
-def _response_text(content: str | list[Any]) -> str:
-    # With thinking on, the answer is the text blocks after the thinking blocks.
-    if isinstance(content, str):
-        return content
-    return "".join(
-        block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
     )

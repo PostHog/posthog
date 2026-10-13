@@ -9,40 +9,43 @@ from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.errors import InternalCHQueryError
+from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition
 
+from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
+from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
+from products.workflows.backend.services.data_suggestions.event_volume import FULL_SCAN_MAX_WEEKLY_EVENTS, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
     PlannedWorkflow,
     WorkflowIdea,
 )
-from products.workflows.backend.services.data_suggestions.ranking import LifecycleStage
 from products.workflows.backend.services.data_suggestions.service import (
-    _FULL_SCAN_MAX_WEEKLY_EVENTS,
     FAILURE_CACHE_TTL_SECONDS,
-    DataSuggestionsResult,
     _cache_key,
     _generation_lock_key,
-    _weekly_counts,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
+from products.workflows.backend.services.data_suggestions.team_context import recent_event_names
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
+EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
+TEAM_CONTEXT = "products.workflows.backend.services.data_suggestions.team_context"
 VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
 FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
 
 
-def _idea(trigger_event: str, stage: LifecycleStage = "trial") -> WorkflowIdea:
+def _idea(trigger_event: str) -> WorkflowIdea:
     return WorkflowIdea(
         name=f"Follow up on {trigger_event}",
         description="Send a short email after the event.",
         reason=f"{trigger_event} happens often.",
         trigger_event=trigger_event,
-        stage=stage,
         step_outline=["email", "delay", "email"],
     )
 
@@ -85,7 +88,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         for audience in ("new", "existing"):
-            cache.delete(f"workflows:data_suggestions:v3:{self.team.id}:{audience}")
+            cache.delete(f"workflows:data_suggestions:v4:{self.team.id}:{audience}")
         self.jev_configured = patch(f"{SERVICE}.system_one_configured", return_value=True).start()
         patch(f"{SERVICE}.classify_event_stages", return_value={}).start()
         self.addCleanup(patch.stopall)
@@ -144,9 +147,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         }
         self._add_sign_up_workflow()
         suggest_ideas.return_value = [
-            _idea("trial_started", stage="trial"),
-            _idea("user_registered", stage="signup"),
-            _idea("query executed", stage="other"),
+            _idea("trial_started"),
+            _idea("user_registered"),
+            _idea("query executed"),
         ]
 
         body = self._list()
@@ -190,9 +193,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         classify.return_value = {"query executed": "other", "trial_started": "trial", "user_registered": "signup"}
         suggest_ideas.return_value = [
-            _idea("query executed", stage="other"),
-            _idea("trial_started", stage="trial"),
-            _idea("user_registered", stage="signup"),
+            _idea("query executed"),
+            _idea("trial_started"),
+            _idea("user_registered"),
         ]
 
         body = self._list()
@@ -208,9 +211,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def test_keeps_only_the_best_idea_per_stage(self, suggest_ideas: MagicMock, classify: MagicMock, _flag) -> None:
         classify.return_value = {"user_registered": "signup", "query executed": "signup", "trial_started": "trial"}
         suggest_ideas.return_value = [
-            _idea("user_registered", stage="signup"),
-            _idea("query executed", stage="signup"),
-            _idea("trial_started", stage="trial"),
+            _idea("user_registered"),
+            _idea("query executed"),
+            _idea("trial_started"),
         ]
 
         body = self._list()
@@ -226,7 +229,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         self, suggest_ideas: MagicMock, classify: MagicMock, _flag
     ) -> None:
         classify.return_value = {"query executed": "onboarding", "trial_started": "other"}
-        suggest_ideas.return_value = [_idea("trial_started", stage="trial"), _idea("query executed", stage="other")]
+        suggest_ideas.return_value = [_idea("trial_started"), _idea("query executed")]
 
         body = self._list()
 
@@ -261,15 +264,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list() == {"status": "unavailable", "suggestions": []}
         assert classify.call_count == 1
 
-    @patch(f"{SERVICE}.classify_event_stages", return_value={})
-    @patch(f"{SERVICE}.suggest_ideas")
-    def test_the_llm_label_never_gives_an_unclassified_event_a_high_weight(
-        self, suggest_ideas: MagicMock, _classify: MagicMock, _flag
-    ) -> None:
-        suggest_ideas.return_value = [_idea("query executed", stage="signup")]
-
-        assert [s["stage"] for s in self._list()["suggestions"]] == ["other"]
-
     @patch(f"{SERVICE}.suggest_ideas")
     def test_an_empty_answer_is_retried_soon(self, suggest_ideas: MagicMock, _flag) -> None:
         suggest_ideas.return_value = [_idea("made_up_event")]
@@ -281,22 +275,22 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert suggest_ideas.call_count == 2
 
-    @patch(f"{SERVICE}._estimated_weekly_events", return_value=2 * _FULL_SCAN_MAX_WEEKLY_EVENTS)
+    @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=2 * FULL_SCAN_MAX_WEEKLY_EVENTS)
     def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock, _flag) -> None:
-        counts = _weekly_counts(self.team, exclude=set())
+        counts = weekly_counts(self.team, recent_event_names(self.team, exclude=set()))
 
         assert counts["query executed"] % 2 == 0
 
-    @patch(f"{SERVICE}._estimated_weekly_events", return_value=10**9 * _FULL_SCAN_MAX_WEEKLY_EVENTS)
+    @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=10**9 * FULL_SCAN_MAX_WEEKLY_EVENTS)
     def test_events_a_sample_misses_are_counted_exactly(self, _estimate: MagicMock, _flag) -> None:
-        assert _weekly_counts(self.team, exclude=set()) == {
+        assert weekly_counts(self.team, recent_event_names(self.team, exclude=set())) == {
             "trial_started": 3,
             "signed_up": 2,
             "user_registered": 3,
             "query executed": 30,
         }
 
-    @patch(f"{SERVICE}._EVENT_DEFINITIONS_LIMIT", 2)
+    @patch(f"{TEAM_CONTEXT}.EVENT_DEFINITIONS_LIMIT", 2)
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
     def test_recently_seen_events_win_over_definitions_never_seen(self, suggest_ideas: MagicMock, _flag) -> None:
         EventDefinition.objects.filter(team=self.team, name__in=["trial_started", "user_registered"]).update(
@@ -327,7 +321,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("query error", InternalCHQueryError("boom")),
         ]
     )
-    @patch(f"{SERVICE}.execute_hogql_query")
+    @patch(f"{EVENT_VOLUME}.execute_hogql_query")
     def test_a_failed_count_query_shows_nothing_and_is_not_retried_on_every_visit(
         self, _name: str, error: Exception, execute: MagicMock, _flag
     ) -> None:
@@ -446,7 +440,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             "function_email",
             "exit",
         ]
-        catalog = {template_id for template_id, _, _ in plan_steps.call_args.kwargs["context"].step_templates}
+        catalog = {template.template_id for template in plan_steps.call_args.kwargs["context"].step_templates}
         assert "template-webhook" in catalog
         assert "template-email" not in catalog
 
@@ -455,6 +449,38 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
+
+    def test_a_built_branch_cannot_be_enabled_before_its_conditions_are_set(self, _flag) -> None:
+        built = build_workflow(
+            _idea("trial_started"),
+            PlannedWorkflow(
+                first_step="check",
+                steps=[
+                    _step(
+                        "check",
+                        "conditional_branch",
+                        branches=[PlannedBranch(label="Is on a paid plan", percentage=None, next=None)],
+                    )
+                ],
+            ),
+            BuildContext(
+                allowed_events=frozenset({"trial_started"}),
+                step_template_ids=frozenset(),
+                channels=frozenset(),
+                email_templates={},
+                sender=None,
+                slack_integration_id=None,
+            ),
+        )
+        assert built is not None
+
+        enabled = HogFlowSerializer(
+            data={**built.workflow, "status": "active"},
+            context={"team_id": self.team.id, "get_team": lambda: self.team, "event_source": EventSource.API},
+        )
+
+        assert not enabled.is_valid()
+        assert "conditional_branch condition must wrap its filters" in str(enabled.errors)
 
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
     def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
