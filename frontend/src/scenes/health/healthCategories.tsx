@@ -105,7 +105,8 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
         description: 'Experiment setup and configuration',
         healthyDescription: 'Setup looks good',
         icon: <IconFlask className="size-5" />,
-        showInSummary: true,
+        // The checks run only for the teams a feature flag enables, so other teams never see an empty card.
+        showInSummary: false,
     },
     other: {
         label: 'Other',
