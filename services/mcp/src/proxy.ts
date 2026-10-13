@@ -20,9 +20,13 @@ async function resolveRegion(
     kv: KVNamespace | undefined
 ): Promise<CloudRegion | undefined> {
     if (kv) {
-        const region = await kv.get(`${userHash}:region`)
-        if (region) {
-            return region as CloudRegion
+        try {
+            const region = await kv.get(`${userHash}:region`)
+            if (region) {
+                return region as CloudRegion
+            }
+        } catch (err) {
+            console.error('[MCP proxy] error reading cached region:', err)
         }
     }
 
@@ -52,7 +56,12 @@ async function resolveRegion(
     }
 
     if (region && kv) {
-        await kv.put(`${userHash}:region`, region, { expirationTtl: KV_TTL_SECONDS })
+        // A failed cache write must not discard the region the probes resolved.
+        try {
+            await kv.put(`${userHash}:region`, region, { expirationTtl: KV_TTL_SECONDS })
+        } catch (err) {
+            console.error('[MCP proxy] error caching region:', err)
+        }
     }
 
     return region

@@ -29,6 +29,7 @@ function stubRegions(us: ProbeResponse, eu: ProbeResponse): void {
 describe('resolveProxyRegion', () => {
     afterEach(() => {
         vi.unstubAllGlobals()
+        vi.restoreAllMocks()
     })
 
     it.each([
@@ -42,5 +43,21 @@ describe('resolveProxyRegion', () => {
 
         expect(await resolveProxyRegion('pha_test', 'hash', kv as unknown as KVNamespace)).toBe(expected)
         expect(kv.put).toHaveBeenCalledWith('hash:region', expected, expect.anything())
+    })
+
+    it.each([
+        [
+            'the cache read fails',
+            { get: vi.fn(async () => Promise.reject(new Error('kv down'))), put: vi.fn(async () => undefined) },
+        ],
+        [
+            'the cache write fails',
+            { get: vi.fn(async () => null), put: vi.fn(async () => Promise.reject(new Error('kv down'))) },
+        ],
+    ])('still routes an EU token without user:read to EU when %s', async (_, kv) => {
+        stubRegions(UNAUTHORIZED, MISSING_SCOPE)
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+
+        expect(await resolveProxyRegion('pha_test', 'hash', kv as unknown as KVNamespace)).toBe('eu')
     })
 })
