@@ -48,7 +48,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     },
     {
         title: 'New ticket → first response SLA',
-        description: 'Set how soon your team should reply, based on the customer's plan, within your working hours.',
+        description: "Set how soon your team should reply, based on the customer's plan, within your working hours.",
         trigger: '$conversation_ticket_created',
         templateId: '01a1352a-0c41-0000-5b93-e08a4c1f7d26',
     },
