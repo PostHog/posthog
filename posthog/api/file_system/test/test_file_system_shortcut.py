@@ -203,6 +203,17 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.json()[0]["id"], str(kept.id))
         self.assertFalse(FileSystemShortcut.objects.filter(id=removed.id).exists())
 
+    def test_starring_the_same_item_twice_keeps_one_shortcut(self):
+        payload = {"path": "Dashboards", "type": "dashboard", "ref": "42", "href": "/dashboard/42"}
+
+        first = self.client.post(f"/api/projects/{self.team.id}/file_system_shortcut/", payload, format="json")
+        second = self.client.post(f"/api/projects/{self.team.id}/file_system_shortcut/", payload, format="json")
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.json())
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED, second.json())
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.assertEqual(FileSystemShortcut.objects.filter(team=self.team, user=self.user).count(), 1)
+
     def test_reorder_response_excludes_retired_shortcuts(self):
         retired = FileSystemShortcut.objects.create(
             team=self.team, path="Old link", type="link", user=self.user, order=0

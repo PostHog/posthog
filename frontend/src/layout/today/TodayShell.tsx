@@ -184,21 +184,20 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <TodaySidebarFooter />
                         </aside>
                     </>
                 ) : (
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative"
+                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-[var(--scene-layout-background)]"
                             aria-label={paneTitle}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <TodaySidebarFooter />
-                            <Resizer {...resizerLogicProps} className="z-2" offset={0} />
+                            {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
+                            <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
                         </aside>
                     )
                 )}

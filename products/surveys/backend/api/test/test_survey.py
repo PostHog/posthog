@@ -556,7 +556,10 @@ class TestSurvey(APIBaseTest):
             ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
             translations={
-                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+                "es": {
+                    "thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">',
+                    "introScreenDescription": '<strong>Bienvenido</strong><img src="invalid" onerror="void 0">',
+                }
             },
         )
 
@@ -568,6 +571,7 @@ class TestSurvey(APIBaseTest):
         assert "link" not in serialized_survey["questions"][0]
         assert "<strong>Detalles</strong>" in serialized_survey["questions"][0]["translations"]["es"]["description"]
         assert "<strong>Gracias</strong>" in serialized_survey["translations"]["es"]["thankYouMessageDescription"]
+        assert "<strong>Bienvenido</strong>" in serialized_survey["translations"]["es"]["introScreenDescription"]
         assert "onerror" not in json.dumps(serialized_survey)
 
     def test_detail_payload_sanitizes_stored_survey_html(self) -> None:
@@ -586,7 +590,10 @@ class TestSurvey(APIBaseTest):
             ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
             translations={
-                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+                "es": {
+                    "thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">',
+                    "introScreenDescription": '<strong>Bienvenido</strong><img src="invalid" onerror="void 0">',
+                }
             },
         )
 
@@ -596,6 +603,7 @@ class TestSurvey(APIBaseTest):
         assert "<strong>Welcome</strong>" in response.json()["appearance"]["introScreenDescription"]
         assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
         assert "<strong>Gracias</strong>" in response.json()["translations"]["es"]["thankYouMessageDescription"]
+        assert "<strong>Bienvenido</strong>" in response.json()["translations"]["es"]["introScreenDescription"]
         assert "onerror" not in json.dumps(response.json())
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
@@ -660,6 +668,17 @@ class TestSurvey(APIBaseTest):
         assert "en-us" in result
         assert "default" not in result
         assert "en" not in result
+
+    def test_sdk_payload_keeps_intro_screen_translation_fields(self) -> None:
+        intro_fields = {
+            "introScreenHeader": "Bienvenido",
+            "introScreenDescription": "Dos preguntas rápidas",
+            "introScreenButtonText": "Comenzar",
+        }
+
+        result = get_survey_api_translations({"es": {**intro_fields, "unknownField": "dropped"}}, base_language="en")
+
+        assert result == {"es": intro_fields}
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
@@ -910,6 +929,25 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in survey.translations["es"]["thankYouMessageDescription"]
         assert "<strong>Cerrar</strong>" in survey.translations["es"]["thankYouMessageCloseButtonText"]
         assert "<script>" not in survey.translations["es"]["thankYouMessageCloseButtonText"]
+
+    @parameterized.expand([("introScreenHeader",), ("introScreenDescription",), ("introScreenButtonText",)])
+    def test_intro_screen_translations_are_persisted_and_sanitized(self, field: str):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Question?"}],
+                "translations": {"es": {field: "<em>Bienvenido</em><script>xss()</script>"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.translations is not None
+        assert "<em>Bienvenido</em>" in survey.translations["es"][field]
+        assert "<script>" not in survey.translations["es"][field]
 
     def test_inline_question_translations_sanitize_all_fields(self):
         response = self.client.post(
@@ -4598,24 +4636,21 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "text"
 
-    def test_validate_thank_you_description_content_type(self):
+    @parameterized.expand([("thankYouMessageDescriptionContentType",), ("introScreenDescriptionContentType",)])
+    def test_validate_description_content_type(self, content_type_field: str):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": "Notebooks beta release survey",
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
-                "appearance": {
-                    "thankYouMessageHeader": "Thanks for your feedback!",
-                    "thankYouMessageDescription": "This is a thank you message",
-                    "thankYouMessageDescriptionContentType": "text/html",
-                },
+                "appearance": {content_type_field: "text/html"},
             },
             format="json",
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert response_data["detail"] == "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
+        assert response_data["detail"] == f"{content_type_field} must be one of ['text', 'html']"
 
     def test_create_survey_with_survey_popup_delay(self):
         response = self.client.post(
