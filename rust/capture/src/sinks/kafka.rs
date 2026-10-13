@@ -2885,7 +2885,8 @@ mod tests {
         #[test]
         fn publish_events_one_event_feeds_the_phase_histograms() {
             // The one-event path skips prepare_batch and PublishPayloads::publish, which
-            // own these two histograms.
+            // own these two histograms, so it records them itself. Otherwise single-event
+            // endpoints drop out of the distribution and the quantiles shift.
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

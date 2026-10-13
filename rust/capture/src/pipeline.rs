@@ -92,7 +92,9 @@ impl AddressDecision {
 }
 
 /// Decide an event's address from its metadata. DLQ and custom-topic
-/// redirects take priority over per-datatype and overflow routing. Consulted
+/// redirects take priority over per-datatype and overflow routing, and a
+/// restriction's `force_overflow` takes priority over a stamped
+/// `overflow_reason`. Consulted
 /// by the sink, which resolves the address to a topic string and the ordering
 /// guarantee to a partition key, and applies the address-implied side
 /// effects. A replay event with no session id is rejected here, so every
