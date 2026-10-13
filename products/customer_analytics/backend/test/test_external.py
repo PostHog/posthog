@@ -181,6 +181,25 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.refresh_from_db()
         self.assertIsNotNone(self.account.churned_at)
 
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_migrated_token_lacks_account_scopes(self) -> None:
+        # Flip semantics (#66179): the mirror rows carry only flag/ticket read scopes, so on
+        # this surface a migrated legacy token resolves as a PSAK and fails the scope check.
+        # Legacy traffic here was confirmed at zero before shipping the switch.
+        create_project_secret_api_key(
+            self.team,
+            label="Migrated legacy secret API key",
+            scopes=["feature_flag:read", "support_ticket:read"],
+            value=self.team.secret_api_token,
+        )
+        response = self._get()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_rejects_legacy_token_without_mirror_row(self) -> None:
+        response = self._get()
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_post_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
         token = self._create_psak_token(scopes=["account:write"])
 
@@ -192,6 +211,28 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(repeated.json()["id"], created.json()["id"])
         accounts = Account.objects.for_team(self.team.id).filter(external_id="acme-2")
         self.assertEqual([account.name for account in accounts], ["Acme Two"])
+
+    @parameterized.expand(
+        [
+            (f"{credential}_{name}", credential, changes)
+            for credential in ("psak", "legacy_token")
+            for name, changes in [
+                ("organization_deactivated", {"is_active": False}),
+                ("organization_active_null", {"is_active": None}),
+                ("organization_pending_deletion", {"is_pending_deletion": True}),
+            ]
+        ]
+    )
+    def test_credentials_are_rejected_when_the_organization_is_blocked(
+        self, _name: str, credential: str, changes: dict
+    ) -> None:
+        token = self._create_psak_token(scopes=["account:read"]) if credential == "psak" else None
+        for field, value in changes.items():
+            setattr(self.organization, field, value)
+        self.organization.save()
+
+        response = self._get(token=token)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_project_secret_api_keys_share_a_team_rate_limit(self):
         cache.clear()
@@ -747,6 +788,42 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
     def test_requires_auth(self):
         response = self.client.patch(self.url, data={"external_id": "acme-1", "properties": {}}, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @parameterized.expand(
+        [
+            ("write_scope", ["account:write"], status.HTTP_200_OK),
+            ("read_scope", ["account:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_project_secret_api_key_needs_account_write(self, _name: str, scopes: list[str], expected: int) -> None:
+        _, token = create_project_secret_api_key(self.team, label="props", scopes=scopes)
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}}, token=token)
+        self.assertEqual(response.status_code, expected)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_account_write_key_still_sets_values(self) -> None:
+        _, token = create_project_secret_api_key(self.team, label="props", scopes=["account:write"])
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}}, token=token)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_project_secret_api_keys_share_a_team_rate_limit(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        first_token = create_project_secret_api_key(self.team, label="first", scopes=["account:write"])[1]
+        second_token = create_project_secret_api_key(self.team, label="second", scopes=["account:write"])[1]
+
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch(
+                "products.customer_analytics.backend.presentation.views.external.ExternalAccountTeamBurstThrottle.rate",
+                "1/minute",
+            ),
+        ):
+            first = self._patch({"external_id": "acme-1", "properties": {}}, token=first_token)
+            second = self._patch({"external_id": "acme-1", "properties": {}}, token=second_token)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_sets_values_by_definition_id(self):
         response = self._patch(
