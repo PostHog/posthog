@@ -2,32 +2,29 @@
 
 The evaluation itself lives in `products/metrics/backend/alert_source_cycle.py`, so it stays a
 plain function a test can call without Temporal. The shape copies the logs source: one sync
-activity that reads and decides, the platform's own activity that records, and one abandoned
-delivery child per notification.
+activity that reads and decides, the platform's own activity that records, and the platform's
+delivery children for whatever the evaluation asks to deliver.
 """
 
-import asyncio
 import datetime as dt
 from collections.abc import Callable
 from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from django.conf import settings
-
     from posthog.temporal.common.utils import close_db_connections
 
-    from products.alerts.backend.facade.contracts import (
+    from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
         SourceBatchEvaluation,
         SourceEvaluationInputs,
         SourceOutcomeInputs,
     )
+    from products.alerts_platform.backend.facade.temporal import start_deliveries
 
 WORKFLOW_NAME = "metrics-alert-evaluate"
 
@@ -41,7 +38,7 @@ EVALUATE_QUEUE_TOLERANCE = dt.timedelta(seconds=20)
 EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
-# What this source needs from the platform's `SOURCE_EVALUATION_TIMEOUT`.
+# What this source needs from its binding's `evaluation_timeout`.
 EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
 
 
@@ -60,8 +57,8 @@ def evaluate_metrics_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBa
 
 @workflow.defn(name=WORKFLOW_NAME)
 class MetricsAlertEvaluateWorkflow(PostHogWorkflow):
-    """Evaluates one batch key, records what it decided, then previews one delivery per
-    notification. Writes only the shared platform's own rows."""
+    """Evaluates one batch key, records what it decided, then starts its deliveries. Writes only
+    the shared platform's own rows."""
 
     inputs_cls = SourceEvaluationInputs
 
@@ -88,30 +85,7 @@ class MetricsAlertEvaluateWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        # The evaluation key names the alert and its window, so a re-run of the same occasion
-        # reuses these ids and one already-started preview must not stop the rest.
-        results = await asyncio.gather(
-            *(
-                workflow.start_child_workflow(
-                    "alerts-platform-deliver-preview",
-                    preview,
-                    id=f"alerts-deliver-preview-{preview.evaluation_key}",
-                    task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=1),
-                )
-                for preview in evaluation.previews
-            ),
-            return_exceptions=True,
-        )
-        started = 0
-        for result in results:
-            if isinstance(result, WorkflowAlreadyStartedError):
-                continue
-            if isinstance(result, BaseException):
-                raise result
-            started += 1
-        return started
+        return await start_deliveries(evaluation.deliveries)
 
 
 SOURCE_EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [MetricsAlertEvaluateWorkflow]

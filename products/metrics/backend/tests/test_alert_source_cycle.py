@@ -1,13 +1,21 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import SourceBatchEvaluation
-from products.alerts.backend.facade.platform_alerts import record_outcomes
-from products.alerts.backend.models import AlertConfiguration, PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import record_outcomes
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    PlatformAlertSnapshot,
+    PlatformConfigurationSnapshot,
+    SourceBatchEvaluation,
+    SourceKind,
+)
+from products.alerts_platform.backend.facade.lifecycle import AlertState
 from products.metrics.backend.alert_checkpoint import CHECKPOINT_MAX_STALENESS
 from products.metrics.backend.alert_source_cycle import (
     BATCH_QUERY_BUDGET_SECONDS,
@@ -34,28 +42,35 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         # Aligned to the five-minute bucket grid the default configuration evaluates on.
         self.due_at = self.cutoff - timedelta(minutes=5)
 
-    def _configuration(self, **overrides) -> PlatformAlertConfiguration:
-        defaults = {
-            "team": self.team,
-            "name": "API p95 latency",
-            "source_kind": PlatformAlertConfiguration.SourceKind.METRICS,
-            "source_config": {
+    def _configuration(self, *, condition: dict[str, Any] | None = None, **overrides) -> PlatformConfigurationSnapshot:
+        source_config: dict[str, Any] = overrides.pop(
+            "source_config",
+            {
                 "type": "MetricsAlertSource",
                 "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
             },
-            "threshold_count": 10,
-            "threshold_operator": "above",
-            "window_minutes": 5,
+        )
+        if "condition" not in source_config:
+            source_config = {
+                **source_config,
+                "condition": {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
+                | (condition or {}),
+            }
+        defaults = {
+            "team": self.team,
+            "name": "API p95 latency",
+            "source_kind": SourceKind.METRICS.value,
+            "source_config": source_config,
             "check_interval_minutes": 5,
             "next_check_at": self.due_at,
         }
         defaults.update(overrides)
         with team_scope(self.team.id):
-            return PlatformAlertConfiguration.objects.create(**defaults)
+            return platform_testing.create_configuration(**defaults)
 
     def _run(
         self,
-        *configurations: PlatformAlertConfiguration,
+        *configurations: PlatformConfigurationSnapshot,
         series: list[MetricSeries] | None = None,
         checkpoint: datetime | None = None,
         query_error: Exception | None = None,
@@ -76,9 +91,23 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def _record(self, evaluation: SourceBatchEvaluation) -> None:
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
-    def _alert(self, configuration: PlatformAlertConfiguration) -> PlatformAlert:
+    def _alert(self, configuration: PlatformConfigurationSnapshot) -> PlatformAlertSnapshot:
         with team_scope(self.team.id):
-            return PlatformAlert.objects.get(configuration=configuration, grouping_key="")
+            alert = platform_testing.alert_for(configuration.id)
+        assert alert is not None
+        return alert
+
+    def _reread(self, configuration: PlatformConfigurationSnapshot) -> PlatformConfigurationSnapshot:
+        with team_scope(self.team.id):
+            return platform_testing.configuration(configuration.id)
+
+    def _fire(self, configuration: PlatformConfigurationSnapshot) -> None:
+        """Puts the alert in FIRING through a real check, then makes it due again."""
+        evaluation, _ = self._run(configuration)
+        self._record(evaluation)
+        assert self._alert(configuration).state == AlertState.FIRING.value
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, self.due_at)
 
     def test_a_breaching_series_fires_and_records_its_own_state(self) -> None:
         configuration = self._configuration()
@@ -86,12 +115,14 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t.notification for preview in evaluation.previews for t in preview.transitions] == ["fire"]
+        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        # A metrics configuration owns no destinations yet, so nothing is delivered.
+        assert evaluation.deliveries == ()
         alert = self._alert(configuration)
-        with team_scope(self.team.id):
-            configuration.refresh_from_db()
-        assert alert.state == PlatformAlert.State.FIRING
+        configuration = self._reread(configuration)
+        assert alert.state == AlertState.FIRING.value
         assert alert.last_notified_at is not None
+        assert alert.firing_started_at == self.cutoff
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
@@ -100,7 +131,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration, series=[_series([3.0], end=self.due_at, step=timedelta(minutes=5))])
 
-        assert evaluation.previews == ()
+        assert evaluation.outcomes[0].kind == AlertEventKind.CHECK
         assert evaluation.outcomes[0].new_state == "not_firing"
 
     def test_the_evaluation_key_comes_from_the_due_slot_not_the_clock(self) -> None:
@@ -108,12 +139,16 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         evaluation, query = self._run(configuration)
 
-        assert evaluation.previews[0].evaluation_key == f"{configuration.id}:window:{self.due_at.isoformat()}"
+        assert (
+            evaluation.outcomes[0].evaluation_key == f"slot:{self.due_at.isoformat()}|window:{self.due_at.isoformat()}"
+        )
         assert query.call_args.kwargs["request"].date_to == self.due_at
 
     def test_the_window_is_anchored_on_the_due_slot_with_an_explicit_interval(self) -> None:
         due_at = self.cutoff - timedelta(minutes=15)
-        configuration = self._configuration(window_minutes=15, evaluation_periods=3, next_check_at=due_at)
+        configuration = self._configuration(
+            condition={"window_minutes": 15}, evaluation_periods=3, next_check_at=due_at
+        )
 
         _, query = self._run(
             configuration, series=[_series([50.0, 50.0, 50.0], end=due_at, step=timedelta(minutes=15))]
@@ -134,7 +169,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         )
 
         assert query.call_args.kwargs["request"].date_to == complete
-        assert evaluation.previews[0].evaluation_key == f"{configuration.id}:window:{complete.isoformat()}"
+        assert evaluation.outcomes[0].evaluation_key.endswith(f"|window:{complete.isoformat()}")
 
     def test_a_due_time_inside_a_bucket_evaluates_the_last_complete_bucket(self) -> None:
         configuration = self._configuration(next_check_at=self.due_at + timedelta(seconds=30))
@@ -145,15 +180,13 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
     def test_a_missing_current_bucket_is_not_read_from_an_older_point(self) -> None:
         configuration = self._configuration()
-        with team_scope(self.team.id):
-            PlatformAlert.objects.create(
-                team=self.team, configuration=configuration, grouping_key="", state=PlatformAlert.State.FIRING
-            )
+        self._fire(configuration)
         stale = [_series([500.0], end=self.due_at - timedelta(minutes=5), step=timedelta(minutes=5))]
 
         evaluation, _ = self._run(configuration, series=stale)
 
-        assert evaluation.previews == ()
+        assert evaluation.outcomes[0].kind == AlertEventKind.CHECK
+        assert evaluation.outcomes[0].value is None
         assert evaluation.outcomes[0].new_state == "firing"
 
     def test_the_query_cap_is_split_across_the_clauses(self) -> None:
@@ -192,37 +225,62 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
     def test_a_null_current_point_is_inconclusive_and_keeps_a_firing_alert_firing(self) -> None:
         configuration = self._configuration()
-        with team_scope(self.team.id):
-            PlatformAlert.objects.create(
-                team=self.team, configuration=configuration, grouping_key="", state=PlatformAlert.State.FIRING
-            )
+        self._fire(configuration)
 
         evaluation, _ = self._run(
             configuration, series=[_series([None, 500.0], end=self.due_at, step=timedelta(minutes=5))]
         )
         self._record(evaluation)
 
-        assert evaluation.previews == ()
+        assert evaluation.outcomes[0].kind == AlertEventKind.CHECK
         assert evaluation.outcomes[0].new_state == "firing"
         assert evaluation.outcomes[0].consecutive_failures == 0
 
     def test_no_points_is_inconclusive_for_any_operator(self) -> None:
         for operator in ("above", "below"):
-            configuration = self._configuration(threshold_operator=operator, next_check_at=self.due_at)
+            configuration = self._configuration(condition={"threshold_operator": operator}, next_check_at=self.due_at)
             empty = MetricSeries(labels={}, points=(), metric_name="m1", clause="a")
 
             evaluation, _ = self._run(configuration, series=[empty])
 
-            assert evaluation.previews == (), operator
+            assert evaluation.outcomes[0].kind == AlertEventKind.CHECK, operator
             assert evaluation.outcomes[0].new_state == "not_firing", operator
 
     def test_an_unsupported_window_is_a_broken_config(self) -> None:
-        configuration = self._configuration(window_minutes=7)
+        configuration = self._configuration(condition={"window_minutes": 7})
 
         evaluation, query = self._run(configuration)
 
         assert evaluation.outcomes[0].new_state == "broken"
-        assert evaluation.previews == ()
+        assert evaluation.outcomes[0].kind == AlertEventKind.BROKEN
+        assert evaluation.outcomes[0].error_message == "unsupported window of 7 minutes"
+        query.assert_not_called()
+
+    def test_a_missing_condition_is_a_broken_config(self) -> None:
+        configuration = self._configuration(
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "condition": {},
+            }
+        )
+
+        evaluation, query = self._run(configuration)
+
+        assert evaluation.outcomes[0].new_state == "broken"
+        query.assert_not_called()
+
+    def test_an_unaggregated_clause_is_a_broken_config(self) -> None:
+        configuration = self._configuration(
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "none"}],
+            }
+        )
+
+        evaluation, query = self._run(configuration)
+
+        assert evaluation.outcomes[0].new_state == "broken"
         query.assert_not_called()
 
     def test_an_invalid_source_config_is_a_broken_config(self) -> None:
@@ -252,8 +310,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         assert evaluation.outcomes[0].consecutive_failures == 1
-        with team_scope(self.team.id):
-            configuration.refresh_from_db()
+        configuration = self._reread(configuration)
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
@@ -264,8 +321,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         assert evaluation.outcomes[0].consecutive_failures == 0
-        with team_scope(self.team.id):
-            configuration.refresh_from_db()
+        configuration = self._reread(configuration)
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
@@ -279,12 +335,5 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert 0 < query_settings.max_execution_time <= MAX_QUERY_SECONDS
         assert query_settings.timeout_overflow_mode == "throw"
         assert MAX_QUERY_SECONDS < BATCH_QUERY_BUDGET_SECONDS
-
-    def test_the_insight_alert_rows_are_never_written(self) -> None:
-        configuration = self._configuration()
-
-        evaluation, _ = self._run(configuration)
-        self._record(evaluation)
-
-        with team_scope(self.team.id):
-            assert AlertConfiguration.objects.filter(team=self.team).count() == 0
+        # The unit lookup has its own cap, so the check skips it rather than run outside this one.
+        assert query.call_args.kwargs["include_units"] is False

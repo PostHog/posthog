@@ -12,6 +12,7 @@ checkpoint. Each clause is its own ClickHouse query, so there is no logs-style s
 and this module does not pretend to batch.
 """
 
+import math
 import time
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -19,7 +20,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
@@ -28,9 +29,10 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.models import Team
 
-from products.alerts.backend.facade.contracts import (
-    AlertDeliveryPreview,
-    GroupTransition,
+from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
+    AlertEventKind,
     MuteReason,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -38,7 +40,8 @@ from products.alerts.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts.backend.facade.lifecycle import (
+from products.alerts_platform.backend.facade.lifecycle import (
+    NOTIFICATION_EVENT_KINDS,
     PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertSnapshot,
@@ -46,21 +49,21 @@ from products.alerts.backend.facade.lifecycle import (
     CheckInput,
     ControlPlaneOutcome,
     NotificationAction,
+    Outcome,
     apply_broken_config,
+    decide_firing_episode,
     evaluate_alert_check,
 )
-from products.alerts.backend.facade.platform_alerts import due_checks
-from products.alerts.backend.facade.platform_metrics import (
+from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
-    increment_deliveries_deferred,
     increment_notifications_muted,
     increment_state_transition,
     record_batch_duration,
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.metrics.backend.alert_checkpoint import fetch_live_metrics_checkpoint, resolve_alert_date_to
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import (
@@ -80,8 +83,6 @@ from products.metrics.backend.metric_query_runner import _align_to_interval
 logger = structlog.get_logger(__name__)
 
 # The same bounds the logs source runs under, so both sources fit the same activity timeouts.
-# A fleet-wide burst would otherwise return one payload over Temporal's ~2 MiB limit.
-MAX_PREVIEWS_PER_CYCLE = 500
 # ClickHouse time for the batch. `EVALUATE_START_TO_CLOSE` in the workflow sits above it, so an
 # overrunning query is ended by ClickHouse rather than by the activity.
 BATCH_QUERY_BUDGET_SECONDS = 25
@@ -130,14 +131,35 @@ class MetricsAlertClause(BaseModel):
     metric_type: MetricType | None = None
 
 
+class MetricsAlertCondition(BaseModel):
+    """The metrics bound, which the platform keeps under `source_config["condition"]`.
+
+    The keys match the logs source's condition. The threshold is any finite number, because a
+    metric value is a float that can be negative, where a log count is a whole number.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    threshold_count: float
+    threshold_operator: Literal["above", "below"]
+    window_minutes: int
+
+    @field_validator("threshold_count")
+    @classmethod
+    def _finite(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("threshold must be a finite number")
+        return value
+
+
 class MetricsAlertSource(BaseModel):
     """The `source_config` of a `source_kind="metrics"` configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     type: Literal["MetricsAlertSource"] = "MetricsAlertSource"
     clauses: list[MetricsAlertClause] = Field(min_length=1, max_length=MAX_CLAUSES_PER_QUERY)
     formula: str | None = None
     value_clause: str | None = None
+    condition: MetricsAlertCondition = Field(alias=SOURCE_CONDITION_KEY)
 
     def evaluated_clause(self) -> str:
         return "formula" if self.formula is not None else (self.value_clause or self.clauses[0].name)
@@ -153,8 +175,13 @@ def _broken_reason(check: PlatformAlertCheckInput) -> str | None:
         source = parse_source(check.source_config)
     except ValidationError as error:
         return f"invalid source config: {error.errors()[0].get('msg', 'invalid')}"
-    if check.window_minutes not in WINDOW_TO_INTERVAL:
-        return f"unsupported window of {check.window_minutes} minutes"
+    if source.condition.window_minutes not in WINDOW_TO_INTERVAL:
+        return f"unsupported window of {source.condition.window_minutes} minutes"
+    for clause in source.clauses:
+        # An unaggregated clause returns one series per physical series and looks up each one's
+        # labels in a query of its own, which the check's query budget does not cover.
+        if clause.aggregation.is_raw:
+            return f"clause {clause.name!r} needs an aggregation"
     if source.formula is None and source.value_clause is not None:
         if source.value_clause not in {clause.name for clause in source.clauses}:
             return f"value clause {source.value_clause!r} is not one of the clauses"
@@ -164,7 +191,8 @@ def _broken_reason(check: PlatformAlertCheckInput) -> str | None:
 def _request(source: MetricsAlertSource, check: PlatformAlertCheckInput, date_to: datetime) -> MetricQueryRequest:
     # Contiguous windows: N-of-M reads the newest `evaluation_periods` buckets of one query, so no
     # history table is needed and a retry reads the same buckets.
-    lookback = timedelta(minutes=check.window_minutes * check.evaluation_periods)
+    window_minutes = source.condition.window_minutes
+    lookback = timedelta(minutes=window_minutes * check.evaluation_periods)
     clauses = tuple(
         MetricQueryClause(
             name=clause.name,
@@ -181,7 +209,7 @@ def _request(source: MetricsAlertSource, check: PlatformAlertCheckInput, date_to
         clauses=clauses,
         date_from=date_to - lookback,
         date_to=date_to,
-        interval=WINDOW_TO_INTERVAL[check.window_minutes],
+        interval=WINDOW_TO_INTERVAL[window_minutes],
         formula=source.formula,
     )
 
@@ -202,7 +230,7 @@ def _values_newest_first(
     return tuple(by_instant.get((window_end - window * (index + 1)).timestamp()) for index in range(evaluation_periods))
 
 
-def _breached(value: float | None, threshold_count: int, threshold_operator: str) -> bool | None:
+def _breached(value: float | None, threshold_count: float, threshold_operator: str) -> bool | None:
     if value is None:
         return None
     if threshold_operator == "above":
@@ -233,10 +261,13 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior_breached,
+        firing_started_at=check.firing_started_at,
     )
 
 
-Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
+# What one check decided. A metrics configuration owns no destinations yet, so a check records an
+# outcome and requests no delivery: `SourceBatchEvaluation.deliveries` stays empty.
+Decision = PlatformAlertOutcome
 
 
 @frozen
@@ -325,37 +356,66 @@ def _verdict(
     return outcome
 
 
+def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
+    """Names the scheduled check and the window it answered for, in the logs source's shape.
+
+    The slot is in the key because the window end is clamped to the ingestion checkpoint, so two
+    consecutive checks can reach the same window end. Both parts are read before anything is
+    written, so a retry recomputes the same key.
+    """
+    return f"slot:{slot_of(check.next_check_at, window_end)}|window:{window_end.isoformat()}"
+
+
 def _recorded(
-    check: PlatformAlertCheckInput, *, new_state: str, notified: bool, consecutive_failures: int, disable: bool = False
+    check: PlatformAlertCheckInput,
+    *,
+    outcome: Outcome,
+    evaluation_key: str,
+    kind: AlertEventKind,
+    notified: bool,
+    now: datetime,
+    value: float | None = None,
+    error_message: str | None = None,
+    muted_notification: str = "",
+    disable: bool = False,
 ) -> PlatformAlertOutcome:
+    """The one place a recorded outcome is built, so every path states the firing the same way."""
     return PlatformAlertOutcome(
         configuration_id=check.id,
-        new_state=new_state,
+        evaluation_key=evaluation_key,
+        kind=kind,
+        new_state=outcome.new_state.value,
         notified=notified,
-        consecutive_failures=consecutive_failures,
+        consecutive_failures=outcome.consecutive_failures,
+        firing_episode=decide_firing_episode(_snapshot(check, ()), outcome, now, policy=_POLICY),
+        value=value,
+        error_message=error_message,
+        muted_notification=muted_notification,
         disable=disable,
     )
 
 
-def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, window_end: datetime) -> Decision:
-    recorded = _recorded(
+def _decided(
+    check: PlatformAlertCheckInput,
+    outcome: AlertCheckOutcome,
+    *,
+    window_end: datetime,
+    now: datetime,
+    value: float | None = None,
+) -> Decision:
+    return _recorded(
         check,
-        new_state=outcome.new_state.value,
+        outcome=outcome,
+        evaluation_key=_evaluation_key(check, window_end),
+        kind=NOTIFICATION_EVENT_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
-        consecutive_failures=outcome.consecutive_failures,
+        now=now,
+        value=value,
+        error_message=outcome.error_message,
+        muted_notification=(
+            "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
+        ),
         disable=outcome.disable,
-    )
-    if outcome.notification == NotificationAction.NONE:
-        return recorded, None
-    return recorded, AlertDeliveryPreview(
-        source=SourceKind.METRICS,
-        alert_id=str(check.id),
-        alert_name=check.name,
-        evaluation_key=f"{check.id}:window:{window_end.isoformat()}",
-        # A metrics platform configuration owns no HogFunction destinations yet. Native delivery
-        # resolves destinations from the configuration when it lands.
-        destination_names=(),
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
     )
 
 
@@ -379,28 +439,32 @@ def _evaluate_one(
     now: datetime,
     muted: bool,
     window_end: datetime,
-) -> AlertCheckOutcome:
+) -> tuple[AlertCheckOutcome, float | None]:
+    """The verdict, and the current window's value for the history row."""
+    condition = source.condition
     values = _values_newest_first(
         _select_series(series, source),
         check.evaluation_periods,
         window_end=window_end,
-        window=timedelta(minutes=check.window_minutes),
+        window=timedelta(minutes=condition.window_minutes),
     )
-    flags = tuple(_breached(value, check.threshold_count, check.threshold_operator) for value in values)
+    flags = tuple(_breached(value, condition.threshold_count, condition.threshold_operator) for value in values)
     current, *prior = flags
     if current is None:
         # No value for the current window is not a clear window: the alert keeps its state and
         # its failure count, and announces nothing.
-        return _verdict(
+        outcome = _verdict(
             check, CheckInput(threshold_breached=False, is_inconclusive=True, muted=muted), (), now=now, skip=None
         )
-    return _verdict(
+        return outcome, None
+    outcome = _verdict(
         check,
         CheckInput(threshold_breached=current, muted=muted),
         tuple(bool(flag) for flag in prior),
         now=now,
         skip=None,
     )
+    return outcome, values[0]
 
 
 def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, muted: bool) -> AlertCheckOutcome:
@@ -419,14 +483,28 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
     )
 
 
-def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
-    recorded = _recorded(
-        check, new_state=outcome.new_state.value, notified=False, consecutive_failures=outcome.consecutive_failures
-    )
+def _held(
+    check: PlatformAlertCheckInput,
+    outcome: ControlPlaneOutcome,
+    *,
+    skip: SkipReason,
+    now: datetime,
+    error_message: str,
+) -> Decision:
+    """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
-    return recorded, None
+    return _recorded(
+        check,
+        outcome=outcome,
+        evaluation_key=_evaluation_key(check, now),
+        # The notification is NONE here only because the check machine never ran.
+        kind=AlertEventKind.BROKEN,
+        notified=False,
+        now=now,
+        error_message=error_message,
+    )
 
 
 def _evaluate_check(
@@ -438,15 +516,17 @@ def _evaluate_check(
     query_seconds: int,
     muted: bool,
 ) -> Decision:
+    # Triage already parsed it, so this cannot raise.
+    source = parse_source(check.source_config)
     # The last complete bucket at or before the due time, so a due time or a checkpoint inside a bucket
     # never evaluates a partial window.
     date_to = _align_to_interval(
         resolve_alert_date_to(check.next_check_at or now, checkpoint),
-        WINDOW_TO_INTERVAL[check.window_minutes],
+        WINDOW_TO_INTERVAL[source.condition.window_minutes],
         tzinfo=team.timezone_info,
     )
+    value: float | None = None
     try:
-        source = parse_source(check.source_config)
         series = run_metric_query(
             team=team,
             request=_request(source, check, date_to),
@@ -456,12 +536,14 @@ def _evaluate_check(
                 # A partial result could resolve an alert that is breaching, so a slow query fails.
                 timeout_overflow_mode="throw",
             ),
+            # Alerts read no unit, and the lookup would be one more query outside the split cap.
+            include_units=False,
         )
-        outcome = _evaluate_one(check, series, source, now=now, muted=muted, window_end=date_to)
+        outcome, value = _evaluate_one(check, series, source, now=now, muted=muted, window_end=date_to)
     except Exception as error:
         logger.exception("Failed to evaluate a metrics alert", check_id=str(check.id), error=str(error))
         outcome = _failed(check, error, now=now, muted=muted)
-    return _delivery(check, outcome, window_end=date_to)
+    return _decided(check, outcome, window_end=date_to, now=now, value=value)
 
 
 def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name: str) -> _Triage:
@@ -482,7 +564,13 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
                 reason=broken_reason,
             )
             decided.append(
-                _held(check, apply_broken_config(_snapshot(check, ())), skip=SkipReason.BROKEN_CONFIG, now=now)
+                _held(
+                    check,
+                    apply_broken_config(_snapshot(check, ())),
+                    skip=SkipReason.BROKEN_CONFIG,
+                    now=now,
+                    error_message=broken_reason,
+                )
             )
             continue
         if _is_in_quiet_hours(check, now, tz_name):
@@ -491,28 +579,9 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     return _Triage(decided=decided, evaluable=evaluable, muted_ids=frozenset(muted_ids))
 
 
-def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
-    outcomes: list[PlatformAlertOutcome] = []
-    previews: list[AlertDeliveryPreview] = []
-    omitted = 0
-    for outcome, preview in decided:
-        if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
-            omitted += 1
-            continue
-        outcomes.append(outcome)
-        if preview is not None:
-            previews.append(preview)
-    if omitted:
-        logger.warning(
-            "Deferred metrics alert deliveries over the batch payload bound",
-            team_id=team_id,
-            slot=slot,
-            delivered=len(previews),
-            deferred=omitted,
-        )
-        safe_record(increment_deliveries_deferred, SourceKind.METRICS.value, omitted)
+def _collect(decided: Sequence[Decision], started_at: float) -> SourceBatchEvaluation:
     safe_record(record_batch_duration, SourceKind.METRICS.value, int((time.monotonic() - started_at) * 1000))
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)
+    return SourceBatchEvaluation(outcomes=tuple(decided), deliveries=())
 
 
 def evaluate_metrics_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -524,15 +593,15 @@ def evaluate_metrics_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
     started_at = time.monotonic()
     checks = due_checks(team_id, SourceKind.METRICS.value, slot, cutoff)
     if not checks:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     team = Team.objects.filter(id=team_id).first()
     if team is None:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     triage = _triage(checks, now=cutoff, tz_name=team.timezone)
     if not triage.evaluable:
-        return _collect(triage.decided, team_id, slot, started_at)
+        return _collect(triage.decided, started_at)
     decided = list(triage.decided)
 
     try:
@@ -568,4 +637,4 @@ def evaluate_metrics_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
             unqueried=unqueried,
             budget_seconds=BATCH_QUERY_BUDGET_SECONDS,
         )
-    return _collect(decided, team_id, slot, started_at)
+    return _collect(decided, started_at)

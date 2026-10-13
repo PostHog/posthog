@@ -301,7 +301,11 @@ def _evaluate_formula(
 
 
 def run_metric_query(
-    *, team: Team, request: MetricQueryRequest, query_settings: HogQLGlobalSettings | None = None
+    *,
+    team: Team,
+    request: MetricQueryRequest,
+    query_settings: HogQLGlobalSettings | None = None,
+    include_units: bool = True,
 ) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
@@ -315,6 +319,10 @@ def run_metric_query(
     With `formula` set, only the formula result series are returned
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
+
+    `query_settings` overrides the data queries' settings. `include_units=False` skips the unit
+    lookup, for a caller such as an alert check that reads no unit and must keep every query
+    under its own execution cap.
     """
     formula_node_checked = (
         parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
@@ -353,7 +361,7 @@ def run_metric_query(
     # carry no unit and the unit lookup is skipped entirely.
     units_by_fingerprint = (
         {}
-        if formula_node_checked is not None
+        if formula_node_checked is not None or not include_units
         else _units_by_fingerprint(team, {clause.metric_name for clause in request.clauses})
     )
 
