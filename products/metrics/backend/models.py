@@ -4,7 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 # Define your models here
 # Important:
@@ -14,7 +14,7 @@ from posthog.models.utils import UUIDTModel
 # - If you make a ForeignKey to a common model, disallow reverse relations with related_name='+'
 
 
-class MetricsDashboardTemplate(UUIDTModel):
+class MetricsDashboardTemplate(UUIDModel):
     """A dashboard in the bank of metrics dashboards.
 
     The bank is instance-wide. A curated template comes from the code. A generated template comes from the
@@ -72,7 +72,7 @@ class MetricsDashboardTemplate(UUIDTModel):
         return f"{self.name} ({self.status})"
 
 
-class MetricsDashboardSuggestion(TeamScopedRootMixin, UUIDTModel):
+class MetricsDashboardSuggestion(TeamScopedRootMixin, UUIDModel):
     """A template that suits the metrics of a team. The suggested dashboards menu lists these."""
 
     # db_constraint=False keeps the migration off the locks on posthog_team.
@@ -93,7 +93,7 @@ class MetricsDashboardSuggestion(TeamScopedRootMixin, UUIDTModel):
         ]
 
 
-class MetricsDashboardDiscovery(TeamScopedRootMixin, UUIDTModel):
+class MetricsDashboardDiscovery(TeamScopedRootMixin, UUIDModel):
     """What the dashboard discovery last saw of the metric names of a team."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)

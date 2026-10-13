@@ -408,14 +408,23 @@ def _nanos(t: float) -> int:
     return int(t * 1e9)
 
 
-def _histogram_counts(histogram: Histogram, t: float) -> tuple[list[int], int, float]:
+@frozen
+class HistogramPoint:
+    bucket_counts: list[int]
+    count: int
+    total: float
+
+
+def _histogram_point(histogram: Histogram, t: float) -> HistogramPoint:
     total = histogram.wave.cumulative(t)
     incident = sum(incident.cumulative(t) for incident in histogram.wave.incidents)
     normal = total - incident
     counts = [int(normal * share + incident * slow) for share, slow in zip(histogram.shares, histogram.slow_shares)]
     edges = (0.0, *histogram.bounds)
     mids = [(edges[i] + edges[i + 1]) / 2 for i in range(len(histogram.bounds))] + [histogram.bounds[-1] * 1.5]
-    return counts, sum(counts), sum(count * mid for count, mid in zip(counts, mids))
+    return HistogramPoint(
+        bucket_counts=counts, count=sum(counts), total=sum(count * mid for count, mid in zip(counts, mids))
+    )
 
 
 def _metric(instrument: Instrument, times: Sequence[float]) -> metrics_pb2.Metric:
@@ -443,15 +452,15 @@ def _metric(instrument: Instrument, times: Sequence[float]) -> metrics_pb2.Metri
     else:
         metric.histogram.aggregation_temporality = CUMULATIVE
         for t in times:
-            counts, count, total = _histogram_counts(instrument, t)
+            point = _histogram_point(instrument, t)
             metric.histogram.data_points.append(
                 metrics_pb2.HistogramDataPoint(
                     attributes=attributes,
                     start_time_unix_nano=_nanos(EPOCH),
                     time_unix_nano=_nanos(t),
-                    count=count,
-                    sum=total,
-                    bucket_counts=counts,
+                    count=point.count,
+                    sum=point.total,
+                    bucket_counts=point.bucket_counts,
                     explicit_bounds=list(histogram_bounds(instrument)),
                 )
             )

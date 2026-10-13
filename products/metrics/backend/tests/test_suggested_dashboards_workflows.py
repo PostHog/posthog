@@ -16,7 +16,7 @@ from products.metrics.backend.temporal.inputs import FinishInputs, GenerateInput
 from products.metrics.backend.temporal.workflows import MetricsDashboardGenerateWorkflow
 
 
-@dataclass
+@dataclass(frozen=False)
 class Script:
     started: bool = True
     draft_fails: bool = False

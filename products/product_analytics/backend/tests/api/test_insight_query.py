@@ -35,6 +35,22 @@ class TestMCPInsightSerializer(SimpleTestCase):
         assert box_plot["xAxisColumn"] is None
         assert box_plot["seriesColumn"] is None
 
+    @parameterized.expand(
+        [
+            (
+                "metrics_query",
+                {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "http_requests_total", "aggregation": "rate"}],
+                    "display": {"type": "line", "unit": "{req}/s"},
+                },
+            ),
+            ("metrics_histogram_query", {"kind": "MetricsHistogramQuery", "metricName": "http_request_duration"}),
+        ]
+    )
+    def test_keeps_metrics_queries_bare(self, _name: str, query: dict[str, Any]) -> None:
+        assert MCPInsightSerializer().validate_query(query)["kind"] == query["kind"]
+
     def test_assistant_schema_accepts_sql_box_plots(self) -> None:
         query = schema.AssistantDataVisualizationNode.model_validate(
             {
@@ -431,22 +447,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
                 "DataVisualizationNode",
                 "HogQLQuery",
-            ),
-            (
-                "bare_metrics_query",
-                {
-                    "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "http_requests_total", "aggregation": "rate"}],
-                    "display": {"type": "line", "unit": "{req}/s"},
-                },
-                "MetricsQuery",
-                None,
-            ),
-            (
-                "bare_metrics_histogram_query",
-                {"kind": "MetricsHistogramQuery", "metricName": "http_request_duration_seconds"},
-                "MetricsHistogramQuery",
-                None,
             ),
         ]
     )
