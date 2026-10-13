@@ -60,7 +60,7 @@ VALID_CHANNEL_VALUES = frozenset(c.value for c in Channel)
 
 # Named choice sets for ChoiceFields below, registered in ENUM_NAME_OVERRIDES
 # (posthog/settings/web.py) so drf-spectacular doesn't mint generic globals like
-# ChannelEnum/SlaEnum/OrderEnum in the shared OpenAPI namespace.
+# ChannelEnum/SlaEnum in the shared OpenAPI namespace.
 TICKET_CHANNEL_FILTER_CHOICES = [*(c.value for c in Channel), "all"]
 TICKET_SLA_FILTER_CHOICES = [*SLA_FILTER_VALUES, "all"]
 
@@ -71,9 +71,11 @@ class TicketTagsMatch(models.TextChoices):
 
 
 TICKET_TAGS_MATCH_CHOICES = list(TicketTagsMatch.values)
-# Tuple pairs, not bare ints: drf-spectacular's override loader only accepts strings
-# in plain value lists and crashes on anything else.
-TICKET_SORT_ORDER_CHOICES = [(1, 1), (-1, -1)]
+
+
+class TicketSortOrder(models.IntegerChoices):
+    ASCENDING = 1, "1"
+    DESCENDING = -1, "-1"
 
 
 def _is_assignee_entry(value: Any) -> bool:
@@ -155,7 +157,7 @@ class TicketViewSortingSerializer(serializers.Serializer):
         help_text=f"Ticket column to sort by ({', '.join(ALLOWED_ORDER_COLUMNS)}). "
         "Unknown columns fall back to updated_at."
     )
-    order = serializers.ChoiceField(choices=TICKET_SORT_ORDER_CHOICES, help_text="1 for ascending, -1 for descending.")
+    order = serializers.ChoiceField(choices=TicketSortOrder.choices, help_text="1 for ascending, -1 for descending.")
 
 
 class TicketViewFiltersSerializer(serializers.Serializer):

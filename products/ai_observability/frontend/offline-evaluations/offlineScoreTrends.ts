@@ -9,6 +9,12 @@ import type {
     OfflineScorerSummaryApi,
     OfflineScorerVersionReadApi,
 } from '../generated/api.schemas'
+import {
+    offlineBooleanPolarity,
+    offlineCategoricalPassingRule,
+    offlineNumericPassingRule,
+    offlineScoreHasPassingRule,
+} from './offlineScoreInterpretation'
 
 export interface OfflineDateRange {
     dateFrom?: string
@@ -38,9 +44,13 @@ export interface OfflineTrendPanel {
     elapsed: boolean
     xDomain?: [number, number]
     yDomain?: [number, number]
+    passingRule: ReturnType<typeof offlineNumericPassingRule>
 }
 
-export type OfflineScoreSummary = Pick<OfflineScorerSummaryApi, 'scorer' | 'mean' | 'true_rate' | 'categories'> & {
+export type OfflineScoreSummary = Pick<
+    OfflineScorerSummaryApi,
+    'scorer' | 'mean' | 'true_rate' | 'categories' | 'pass_count' | 'fail_count' | 'pass_rate'
+> & {
     status_counts: Pick<OfflineScorerSummaryApi['status_counts'], 'ok'>
 }
 
@@ -100,7 +110,7 @@ export function offlineScoreMetricLabel(scorer: OfflineScorerVersionReadApi): st
         return 'Mean score'
     }
     if (scorer.kind === 'boolean') {
-        return `${'true_label' in scorer.config ? scorer.config.true_label || 'True' : 'True'} rate`
+        return 'Pass rate'
     }
     return 'Category rates'
 }
@@ -125,10 +135,18 @@ export function aggregateOfflineScoreHistory(points: OfflineHistoryPointApi[]): 
     }
     const successful = points.map(({ summary }) => summary).filter((summary) => summary.status_counts.ok > 0)
     const count = successful.reduce((total, summary) => total + summary.status_counts.ok, 0)
+    const graded = offlineScoreHasPassingRule(first.scorer)
+        ? successful.filter((summary) => summary.pass_count != null && summary.fail_count != null)
+        : []
+    const passCount = graded.reduce((total, summary) => total + (summary.pass_count ?? 0), 0)
+    const failCount = graded.reduce((total, summary) => total + (summary.fail_count ?? 0), 0)
     return {
         scorer: first.scorer,
         experimentCount: new Set(points.map(({ experiment }) => experiment.id)).size,
         status_counts: { ok: count },
+        pass_count: offlineScoreHasPassingRule(first.scorer) ? passCount : null,
+        fail_count: offlineScoreHasPassingRule(first.scorer) ? failCount : null,
+        pass_rate: passCount + failCount > 0 ? passCount / (passCount + failCount) : null,
         mean: first.scorer.kind === 'numeric' && count > 0 ? weightedOfflineNumericMean(successful, count) : null,
         true_rate:
             first.scorer.kind === 'boolean' && count > 0
@@ -149,34 +167,68 @@ export function formatOfflineScore(summary: OfflineScoreSummary): string {
         return 'No successful results'
     }
     if (summary.scorer.kind === 'numeric') {
-        return summary.mean === null ? 'No score' : formatOfflineNumericScore(summary.mean)
+        return summary.mean === null
+            ? 'No score'
+            : formatOfflineNumericScore(summary.mean, offlineNumericPassingRule(summary.scorer))
     }
     if (summary.scorer.kind === 'boolean') {
-        return summary.true_rate === null ? 'No score' : `${formatOfflineNumericScore(summary.true_rate * 100)}%`
+        return summary.pass_rate == null ? 'No score' : formatOfflinePercentage(summary.pass_rate)
     }
     return summary.categories
-        .map(
-            ({ label, rate }) => `${label}: ${rate === null ? 'No score' : `${formatOfflineNumericScore(rate * 100)}%`}`
-        )
+        .map(({ label, rate }) => `${label}: ${rate === null ? 'No score' : formatOfflinePercentage(rate)}`)
         .join(', ')
 }
 
-export function formatOfflineNumericScore(value: number): string {
-    return value.toLocaleString(undefined, { maximumSignificantDigits: 6 })
+export function formatOfflineNumericScore(
+    value: number,
+    rule: ReturnType<typeof offlineNumericPassingRule> = null
+): string {
+    let precision = 6
+    if (rule) {
+        const passes = (score: number): boolean =>
+            rule.operator === 'gte' ? score >= rule.threshold : score <= rule.threshold
+        while (precision < 17 && passes(Number(value.toPrecision(precision))) !== passes(value)) {
+            precision++
+        }
+    }
+    return value.toLocaleString(undefined, { maximumSignificantDigits: precision })
+}
+
+export function formatOfflinePercentage(rate: number): string {
+    return rate.toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 2 })
 }
 
 export function offlineScoreConfigurationLabel(scorer: Pick<OfflineScorerVersionReadApi, 'kind' | 'config'>): string {
     const { config } = scorer
+    const passingRule = offlineScorePassingRuleLabel(scorer)
     if (scorer.kind === 'numeric') {
-        return `Minimum: ${'min' in config && config.min !== null && config.min !== undefined ? formatOfflineNumericScore(config.min) : 'Unbounded'} · Maximum: ${'max' in config && config.max !== null && config.max !== undefined ? formatOfflineNumericScore(config.max) : 'Unbounded'}${'step' in config && config.step != null ? ` · Step: ${formatOfflineNumericScore(config.step)}` : ''}`
+        return `Minimum: ${'min' in config && config.min !== null && config.min !== undefined ? formatOfflineNumericScore(config.min) : 'Unbounded'} · Maximum: ${'max' in config && config.max !== null && config.max !== undefined ? formatOfflineNumericScore(config.max) : 'Unbounded'}${'step' in config && config.step != null ? ` · Step: ${formatOfflineNumericScore(config.step)}` : ''} · ${passingRule ?? 'No passing rule'}`
     }
     if (scorer.kind === 'boolean') {
-        return `True: ${'true_label' in config ? config.true_label || 'True' : 'True'} · False: ${'false_label' in config ? config.false_label || 'False' : 'False'}`
+        return `True: ${'true_label' in config ? config.true_label || 'True' : 'True'} · False: ${'false_label' in config ? config.false_label || 'False' : 'False'} · ${passingRule ?? 'No passing rule'}`
     }
     if ('options' in config) {
-        return `${config.selection_mode === 'multiple' ? 'Multiple selections' : 'Single selection'} · ${config.options.map(({ label, key }) => `${label} (${key})`).join(', ')}`
+        return `${config.selection_mode === 'multiple' ? 'Multiple selections' : 'Single selection'} · ${config.options.map(({ label, key }) => `${label} (${key})`).join(', ')}${passingRule ? ` · ${passingRule}` : ''}`
     }
     return ''
+}
+
+export function offlineScorePassingRuleLabel(
+    scorer: Pick<OfflineScorerVersionReadApi, 'kind' | 'config'>
+): string | null {
+    const polarity = offlineBooleanPolarity(scorer)
+    if (polarity !== null) {
+        return `${polarity ? 'False' : 'True'} counts as a pass`
+    }
+    const rule = offlineNumericPassingRule(scorer)
+    const categories = offlineCategoricalPassingRule(scorer)
+    if (categories !== null) {
+        const options = 'options' in scorer.config ? scorer.config.options : []
+        return categories.length
+            ? `Pass when every selected category is one of: ${categories.map((key) => options.find((option) => option.key === key)?.label || key).join(', ')}`
+            : 'No selected categories count as a pass'
+    }
+    return rule ? `Pass when score ${rule.operator === 'gte' ? '≥' : '≤'} ${rule.threshold}` : null
 }
 
 export function getOfflineHistoryCoverage(page: OfflineHistoryPageApi, timezone: string = 'UTC'): string {
@@ -210,6 +262,7 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
                     label: `${periods.length > 1 && !elapsed ? `${period.label} · ` : ''}${offlineScoreMetricLabel(scorer)}`,
                     series: [],
                     percentage: scorer.kind !== 'numeric',
+                    passingRule: offlineNumericPassingRule(scorer),
                     elapsed,
                     xDomain:
                         period.dateFrom && period.dateTo
@@ -231,7 +284,7 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
                           {
                               key: 'score',
                               label: offlineScoreMetricLabel(scorer),
-                              value: scorer.kind === 'numeric' ? summary.mean : summary.true_rate,
+                              value: scorer.kind === 'numeric' ? summary.mean : summary.pass_rate,
                           },
                       ]
             for (const metric of metrics) {
@@ -246,7 +299,7 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
                     }
                     panel.series.push(series)
                 }
-                if (metric.value === null || !Number.isFinite(metric.value)) {
+                if (metric.value == null || !Number.isFinite(metric.value)) {
                     continue
                 }
                 series.points.push({
@@ -269,7 +322,10 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
             }
         }
         const configuration = key.slice(0, key.lastIndexOf(':'))
-        const values = domains.get(configuration) || []
+        const values = [
+            ...(domains.get(configuration) || []),
+            ...(panel.passingRule ? [panel.passingRule.threshold] : []),
+        ]
         if (panel.percentage) {
             panel.yDomain = [0, 1]
         } else if (values.length) {

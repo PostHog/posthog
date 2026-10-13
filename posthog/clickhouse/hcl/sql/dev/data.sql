@@ -450,7 +450,7 @@ CREATE TABLE posthog.llma_metrics_daily (
   metric_name String,
   metric_value Float64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.llma_metrics_daily', '{replica}-{shard}') ORDER BY (team_id, date, metric_name) PARTITION BY toYYYYMM(date) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.log_entries_distributed (
+CREATE TABLE posthog.log_entries (
   team_id UInt64,
   log_source LowCardinality(String),
   log_source_id String,
@@ -641,6 +641,7 @@ CREATE TABLE posthog.platform_alert_events (
   consecutive_failures UInt32,
   muted_notification LowCardinality(String),
   occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
   expires_at Date DEFAULT today() + toIntervalDay(90)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.plugin_log_entries (
@@ -1111,7 +1112,10 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
   $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
   $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
@@ -1517,6 +1521,30 @@ CREATE TABLE posthog.usage_report_events_preagg (
   distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)),
   event_count AggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_usage_report_events_preagg', sipHash64(date));
+CREATE TABLE posthog.warehouse_object_reads_daily (
+  team_id Int64,
+  day Date,
+  read_kind Enum8('read'=1, 'refresh'=2),
+  subject_kind Enum8('saved_query'=1, 'table'=2),
+  subject_id String,
+  workflow_id String,
+  lc_kind LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_feature LowCardinality(String),
+  lc_access_method LowCardinality(String),
+  source LowCardinality(String),
+  scene LowCardinality(String),
+  has_user_id Bool,
+  read_alone Bool,
+  requests AggregateFunction(uniq, String),
+  users AggregateFunction(uniq, Int64),
+  read_count SimpleAggregateFunction(sum, UInt64),
+  duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  max_event_time SimpleAggregateFunction(max, DateTime)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_warehouse_object_reads_daily');
 CREATE TABLE posthog.web_bot_definition (
   id UInt64,
   parent_id UInt64,
@@ -2563,7 +2591,10 @@ CREATE TABLE posthog.flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String COMMENT 'column_materializer::$group_0',
   $group_1 String COMMENT 'column_materializer::$group_1',
   $group_2 String COMMENT 'column_materializer::$group_2',
@@ -2594,7 +2625,7 @@ CREATE TABLE posthog.heatmaps (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))));
-CREATE TABLE posthog.log_entries (
+CREATE TABLE posthog.log_entries_distributed (
   team_id UInt64,
   log_source LowCardinality(String),
   log_source_id String,

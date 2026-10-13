@@ -173,6 +173,17 @@ def post_message(
     )
 
 
+def update_message(
+    slack: SlackIntegration,
+    channel_id: str,
+    ts: str,
+    blocks: list[dict[str, Any]],
+    text: str,
+) -> SlackResponse:
+    """Replace a message the app posted. Slack keeps its place in the channel and marks it edited."""
+    return slack.client.chat_update(channel=channel_id, ts=ts, blocks=blocks, text=text)
+
+
 def join_channel(slack: SlackIntegration, channel_id: str) -> str | None:
     """Join the channel so the retried post lands. Returns Slack's error code when it refused.
 

@@ -158,6 +158,34 @@ def _iter_columns(
         yield columns
 
 
+def _iter_hierarchy(
+    session: requests.Session,
+    endpoint: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the project > database > grid > view hierarchy down to `endpoint`.
+
+    Only `projects` lists without a parent, so each lower level fans out over every row of the
+    level above it, one unpaginated request per parent.
+    """
+    endpoint_config = GRIDLY_ENDPOINTS[endpoint]
+    url = f"{GRIDLY_BASE_URL}/{endpoint}"
+
+    if endpoint_config.parent is None or endpoint_config.parent_id_param is None:
+        rows = _fetch(session, url, {}, headers, logger).json()
+        if rows:
+            yield rows
+        return
+
+    parent_id_param = endpoint_config.parent_id_param
+    for parents in _iter_hierarchy(session, endpoint_config.parent, headers, logger):
+        for parent in parents:
+            rows = _fetch(session, url, {parent_id_param: parent["id"]}, headers, logger).json()
+            if rows:
+                yield [{**row, parent_id_param: parent["id"]} for row in rows]
+
+
 def get_rows(
     api_key: str,
     view_id: str,
@@ -174,6 +202,8 @@ def get_rows(
         yield from _iter_columns(session, view_id, headers, logger)
     elif endpoint == "records":
         yield from _iter_records(session, view_id, headers, logger, resumable_source_manager)
+    elif endpoint in ("projects", "databases", "grids", "views"):
+        yield from _iter_hierarchy(session, endpoint, headers, logger)
     else:
         raise ValueError(f"Unknown Gridly endpoint: {endpoint!r}")
 

@@ -2,6 +2,7 @@ import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -11,6 +12,7 @@ from rest_framework import status
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import SessionRecording
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -125,6 +127,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             "end_time": "2022-12-31T12:00:00Z",
         }
 
+    @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key")
     @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_token_allows_snapshot_access(self) -> None:
         token = self._enable_sharing(self.session_id)
@@ -135,6 +138,12 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             f"/api/projects/{self.team.id}/session_recordings/{self.session_id}/snapshots?sharing_access_token={token}"
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
+        proxy_claims = decode_jwt(
+            response.json()["replay_proxy_token"],
+            PosthogJwtAudience.REPLAY_PROXY,
+            verification_keys=["replay-proxy-key"],
+        )
+        assert proxy_claims["team_id"] == self.team.id
 
 
 @pytest.mark.ee

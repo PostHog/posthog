@@ -35,6 +35,7 @@ import { useAutoplayMenuItems, useHideRecordingsMenuItems, useTimestampFormatMen
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    RecordingSort,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -65,8 +66,6 @@ function getLabel(filters: RecordingUniversalFilters): string {
     return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
 }
 
-type RecordingSort = { order: NonNullable<RecordingUniversalFilters['order']>; order_direction: 'ASC' | 'DESC' }
-
 /** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
 export function getSortChangedEvent(
     filters: RecordingUniversalFilters,
@@ -91,7 +90,8 @@ function useSortMenuItems(
     filters: RecordingUniversalFilters,
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): LemonMenuItem[] {
-    const showRelevanceSort = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
+    const { canSortByRelevance: showRelevanceSort, listSort } = useValues(sessionRecordingsPlaylistLogic)
+    filters = { ...filters, ...listSort }
 
     const changeSort = (sort: RecordingSort): void => {
         const sortChangedEvent = getSortChangedEvent(filters, sort)
@@ -207,7 +207,9 @@ function SortedBy({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     disabledReason?: string
 }): JSX.Element {
+    const { listSort } = useValues(sessionRecordingsPlaylistLogic)
     const items = useSortMenuItems(filters, setFilters)
+    filters = { ...filters, ...listSort }
 
     return (
         <SettingsMenu
@@ -236,7 +238,7 @@ function useRecommendedOnlyToggle(
     filters: RecordingUniversalFilters,
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): { enabled: boolean; checked: boolean; toggle: (checked: boolean) => void } {
-    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test')
+    const { canFilterByRelevance: enabled } = useValues(sessionRecordingsPlaylistLogic)
     const checked = !!filters.recommended_only
     const toggle = (checked: boolean): void => {
         posthog.capture('session recording recommended filter changed', { enabled: checked })

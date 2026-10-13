@@ -153,17 +153,41 @@ class TestSetupPlanFeatureFlag(APIBaseTest):
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/setup_plan"
         cache.clear()
 
-    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
-    def test_setup_availability(self, setup: bool, dashboard: bool) -> None:
-        flags = {"marketing-analytics-setup": setup, "new-marketing-analytics-dashboard": dashboard}
+    @parameterized.expand(
+        [
+            (False, False, False, False),
+            (False, False, False, True),
+            (False, False, True, False),
+            (False, True, False, False),
+            (True, False, False, False),
+            (True, True, True, True),
+        ]
+    )
+    def test_setup_availability(self, setup: bool, dashboard: bool, onboarding: bool, mcp: bool) -> None:
+        flags = {
+            "marketing-analytics-setup": setup,
+            "new-marketing-analytics-dashboard": dashboard,
+            "marketing-analytics-source-onboarding": onboarding,
+            "marketing-analytics-setup-plan-mcp": mcp,
+        }
         with (
             patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]),
             patch(_PLAN_TARGET, return_value=_plan()) as build,
         ):
             response = self.client.get(self.url)
 
-        assert response.status_code == (200 if setup or dashboard else 404)
-        assert build.call_count == int(setup or dashboard)
+        assert response.status_code == (200 if setup or dashboard or onboarding or mcp else 404)
+        assert build.call_count == int(setup or dashboard or onboarding or mcp)
+
+    def test_marketing_access_does_not_enable_source_onboarding(self) -> None:
+        with (
+            patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flag == "marketing-analytics"),
+            patch(_PLAN_TARGET) as build,
+        ):
+            response = self.client.get(self.url)
+
+        assert response.status_code == 404
+        build.assert_not_called()
 
     def test_the_flag_is_evaluated_once_per_request(self):
         # A second call in the same request would fire a redundant `$feature_flag_called`.
@@ -230,6 +254,7 @@ class TestSetupPlanCaching(APIBaseTest):
             self.client.get(f"{self.url}?refresh=true")
 
         assert build.call_count == 2
+        assert build.call_args.kwargs["refresh_source_scan"] is True
 
     def test_a_different_window_is_a_different_question(self):
         with patch(_PLAN_TARGET, return_value=_clean_plan()) as build:

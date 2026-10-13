@@ -1,10 +1,10 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { NodeStats } from '../types'
+import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
 import { statParts } from './formatStats'
 
 export interface NodeStatChipsProps {
-    stats: NodeStats
+    stats: TraceNodeStatsApi
 }
 
 export function NodeStatChips({ stats }: NodeStatChipsProps): JSX.Element {

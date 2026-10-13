@@ -80,7 +80,6 @@ import {
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
@@ -445,8 +444,6 @@ const SaveFiltersModal = ({
 
     const [savedFilterName, setSavedFilterName] = useState('')
 
-    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-
     const closeSaveFiltersModal = (): void => {
         setIsOpen(false)
         setSavedFilterName('')
@@ -454,10 +451,9 @@ const SaveFiltersModal = ({
 
     const addSavedFilter = async (): Promise<void> => {
         const f = await createPlaylist(
-            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
+            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters', creation_method: 'new' },
             false
         )
-        reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setIsOpen(false)
         setSavedFilterName('')
@@ -618,7 +614,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
     // clicking the pill from a closed state opens its menu AND focuses the input (which
     // opens the surrounding popover); the popover portal mounts last and ends up
     // visually on top of the menu.
-    const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} />
+    const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} joinedToInput />
 
     const closePopover = (): void => {
         setIsPopoverVisible(false)
@@ -640,11 +636,13 @@ export function RecordingsUniversalFilterAddFilterPopover({
             visible={isPopoverVisible}
             onClickOutside={closePopover}
         >
-            <div className="w-full max-w-[600px] shrink grow-0 @container">
+            <div className="w-full max-w-[600px] shrink grow-0">
                 <LemonInput
+                    className="TaxonomicFilter__search-input--with-category @container"
                     type="search"
                     size="small"
                     fullWidth
+                    suffixAfterClear
                     data-attr="replay-filters-add-filter-input"
                     inputRef={inputRef}
                     prefix={<IconSearch />}

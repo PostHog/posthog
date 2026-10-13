@@ -3,7 +3,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from math import ceil
 from time import perf_counter
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -110,6 +110,26 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     # SAMPLE clauses nor scale results.
     query: WebQueryNode
     query_type: type[WebQueryNode]
+    bypass_warehouse_access_control: bool = False
+
+    def __init__(self, *args: Any, bypass_warehouse_access_control: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.bypass_warehouse_access_control = bypass_warehouse_access_control
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # The base fingerprint does not see a warehouse table that a test-account filter reads through a join,
+        # so a bypass run and a user run would share one cache entry. The separate key stops a user who is
+        # denied that table from reading a result that a bypass run computed.
+        if self.bypass_warehouse_access_control:
+            payload["bypass_warehouse_access_control"] = True
+        return payload
+
+    def single_flight_variant(self) -> str:
+        variant = super().single_flight_variant()
+        if self.bypass_warehouse_access_control:
+            return f"{variant}:bypass_warehouse_access_control"
+        return variant
 
     def query_strategy(self) -> str | None:
         return None
@@ -326,6 +346,7 @@ WHERE and(
                 query=count_query,
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,

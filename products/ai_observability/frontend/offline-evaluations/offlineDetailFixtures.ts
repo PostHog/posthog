@@ -26,6 +26,9 @@ export function makeOfflineDetailSummaries(count: number): OfflineScorerSummaryA
             observed_item_count: 8,
             result_count: 8,
             status_counts: { ok: 7, error: 1, skipped: 0, not_applicable: 0 },
+            pass_count: 5,
+            fail_count: 2,
+            pass_rate: 5 / 7,
             missing_result_count: 0,
             scorer: {
                 ...base.scorer,
@@ -77,7 +80,9 @@ export function makeOfflineDetailCells(itemIds: string[], versionIds: string[]):
                         ? null
                         : scorer.kind === 'boolean'
                           ? itemIndex % 3 !== 0
-                          : 0.7 + itemIndex / 100,
+                          : 'max' in scorer.config && scorer.config.max! > 1
+                            ? 1400 + itemIndex * 150
+                            : 0.65 + itemIndex * 0.05,
                 error_code: itemIndex === 3 && scorer.id === detailSummaries[0].scorer.id ? 'evaluator_timeout' : null,
                 evaluator_trace_id: null,
                 evaluated_at: null,

@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataSchema,
     auto_enable_new_schemas,
     schema_name_matches_auto_sync_patterns,
@@ -149,6 +150,69 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert synced_removed.deleted is False
         assert unsynced_removed.deleted is True
         mock_pause.assert_called_once_with(str(synced_removed.id))
+
+    def _with_resource_id(self, schema: ExternalDataSchema, resource_id: str) -> ExternalDataSchema:
+        schema.sync_type_config = {"schema_metadata": {SCHEMA_RESOURCE_ID_METADATA_KEY: resource_id}}
+        schema.save(update_fields=["sync_type_config"])
+        return schema
+
+    def test_renamed_resource_keeps_its_stored_schema(self) -> None:
+        source = self._make_source()
+        stored = self._with_resource_id(self._make_synced_schema(source, "budget"), "7")
+
+        sync_result = sync_old_schemas_with_new_schemas(
+            {"budget_2025": "Budget 2025"},
+            source_id=str(source.pk),
+            team_id=self.team.pk,
+            schema_metadata_by_name={"budget_2025": {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}},
+        )
+
+        stored.refresh_from_db()
+        assert stored.should_sync is True
+        assert stored.label == "Budget 2025"
+        assert sync_result.created == []
+        assert not ExternalDataSchema.objects.filter(source_id=source.pk, name="budget_2025").exists()
+
+    def test_a_new_resource_that_takes_the_old_name_does_not_replace_the_stored_resource(self) -> None:
+        # Stable identity wins when a new resource takes the old name. The colliding new resource
+        # cannot get a second row with that name, but it must not silently replace the synced one.
+        source = self._make_source()
+        stored = self._with_resource_id(self._make_synced_schema(source, "budget"), "7")
+
+        sync_result = sync_old_schemas_with_new_schemas(
+            {"budget": "Budget", "budget_2025": "Budget 2025"},
+            source_id=str(source.pk),
+            team_id=self.team.pk,
+            schema_metadata_by_name={
+                "budget": {SCHEMA_RESOURCE_ID_METADATA_KEY: "9"},
+                "budget_2025": {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"},
+            },
+        )
+
+        stored.refresh_from_db()
+        assert stored.should_sync is True
+        assert stored.label == "Budget 2025"
+        assert stored.schema_metadata == {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}
+        assert sync_result.created == []
+
+    def test_a_schema_stored_without_a_resource_id_learns_it_and_keeps_other_metadata(self) -> None:
+        source = self._make_source()
+        stored = self._make_synced_schema(source, "budget")
+        stored.sync_type_config = {"schema_metadata": {"existing": "value"}, "incremental_field": "id"}
+        stored.save(update_fields=["sync_type_config"])
+
+        sync_old_schemas_with_new_schemas(
+            {"budget": "Budget"},
+            source_id=str(source.pk),
+            team_id=self.team.pk,
+            schema_metadata_by_name={"budget": {SCHEMA_RESOURCE_ID_METADATA_KEY: "7", "other": "ignored"}},
+        )
+
+        stored.refresh_from_db()
+        assert stored.sync_type_config == {
+            "schema_metadata": {"existing": "value", SCHEMA_RESOURCE_ID_METADATA_KEY: "7"},
+            "incremental_field": "id",
+        }
 
     def test_dropped_user_enabled_schema_is_disabled_not_deleted_before_first_sync(self) -> None:
         # A row the user enabled that never produced a table (every sync failed, then discovery

@@ -826,6 +826,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
     @parameterized.expand(
         [
             ("debug", {"debug": True}),
+            ("output_types", {"includeOutputTypes": True}),
             (
                 "expression",
                 {

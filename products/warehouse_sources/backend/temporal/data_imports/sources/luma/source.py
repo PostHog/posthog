@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.luma import LumaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.luma import (
     LumaResumeConfig,
+    check_access,
     luma_source,
     validate_credentials,
 )
@@ -77,6 +78,12 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
             "403 Client Error: Forbidden for url: https://public-api.luma.com": "Your Luma API key does not have access to this data. Check the key's calendar or organization scope, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried in-process by `_fetch_page`'s tenacity backoff (see luma.py);
+        # if that budget still exhausts, Temporal's activity retry picks it back up, so this is
+        # self-recovering rather than a tracked-exception-worthy failure.
+        return {"Luma API error (retryable): status=429", "Luma API error (retryable): status=5"}
+
     def get_schemas(
         self,
         config: LumaSourceConfig,
@@ -109,6 +116,23 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
         # The API key grants read access to every endpoint on its calendar/organization, so a
         # single probe validates access to every schema.
         return validate_credentials(config.api_key)
+
+    def get_endpoint_permissions(
+        self, config: LumaSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        permissions: dict[str, str | None] = {}
+        for endpoint in endpoints:
+            endpoint_config = LUMA_ENDPOINTS.get(endpoint)
+            if endpoint_config is None or not endpoint_config.requires_organization_key:
+                permissions[endpoint] = None
+                continue
+            status, _ = check_access(config.api_key, endpoint_config.path)
+            permissions[endpoint] = (
+                "Requires a Luma organization API key. Calendar API keys can't list organization calendars."
+                if status in (400, 401, 403)
+                else None
+            )
+        return permissions
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[LumaResumeConfig]:
         return ResumableSourceManager[LumaResumeConfig](inputs, LumaResumeConfig)

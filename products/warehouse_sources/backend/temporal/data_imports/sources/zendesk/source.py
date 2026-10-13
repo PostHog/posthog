@@ -68,7 +68,6 @@ class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
         schema_name: str | None = None,
     ) -> bool:
         endpoint = ZENDESK_ENDPOINTS.get(schema_name or "")

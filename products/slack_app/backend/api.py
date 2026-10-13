@@ -23,6 +23,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
 from posthog.models.integration import (
@@ -55,7 +56,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel
-from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
@@ -893,11 +894,6 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     return JsonResponse({"claimed": claimed})
 
 
-def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
-    """Build the unique key for a Slack thread."""
-    return f"{slack_workspace_id}:{channel}:{thread_ts}"
-
-
 def _strip_bot_mentions(text: str) -> str:
     """Remove all <@BOT_ID> mentions from text."""
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
@@ -1120,7 +1116,7 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
     all_repos: set[str] = set()
 
     for record in user_records:
-        github = UserGitHubIntegration(record)
+        github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
         repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
@@ -3847,11 +3843,19 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
         if integration_id and slack_team_id
         else None
     )
+    dismisser_slack_user_id = payload.get("user", {}).get("id")
     if dismissing_integration is not None:
         capture_slack_event(
             dismissing_integration,
             "slack app untagged followup dismissed",
-            slack_user_id=payload.get("user", {}).get("id"),
+            slack_user_id=dismisser_slack_user_id,
+            posthog_user=resolve_posthog_user_from_event(
+                slack_user_id=dismisser_slack_user_id,
+                probe_integration=dismissing_integration,
+                candidate_integrations=[dismissing_integration],
+            )
+            if dismisser_slack_user_id
+            else None,
         )
     return HttpResponse(status=200)
 
@@ -3905,7 +3909,7 @@ def _report_slack_mention_received(
         properties: dict[str, Any] = {
             "is_first_message_in_session": is_first_message_in_session,
             "session_message_count": session_message_count,
-            "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
+            "slack_session_id": slack_session_id(slack_team_id, channel, thread_ts) if channel and thread_ts else None,
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,
@@ -3980,7 +3984,7 @@ def _report_slack_mention_dropped(
             "drop_reason": reason,
             "replied": replied,
             "slack_event_type": event.get("type"),
-            "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
+            "slack_session_id": slack_session_id(slack_team_id, channel, thread_ts) if channel and thread_ts else None,
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,

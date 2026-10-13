@@ -7,6 +7,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from temporalio import activity
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -95,7 +96,7 @@ def merge_queue_push_would_eject(github_integration: GitHubIntegration | UserGit
 
 def get_github_integration(github_integration_id: int) -> GitHubIntegration:
     integration = Integration.objects.get(id=github_integration_id)
-    github_integration = GitHubIntegration(integration)
+    github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
@@ -104,7 +105,9 @@ def get_github_integration(github_integration_id: int) -> GitHubIntegration:
 
 
 def get_user_github_integration(github_user_integration_id: str) -> UserGitHubIntegration:
-    return UserGitHubIntegration(UserIntegration.objects.get(id=github_user_integration_id))
+    return UserGitHubIntegration(
+        UserIntegration.objects.get(id=github_user_integration_id), source="tasks_sandbox", priority=Priority.CRITICAL
+    )
 
 
 @activity.defn

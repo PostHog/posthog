@@ -1,3 +1,4 @@
+import re
 import json
 from collections import Counter
 from collections.abc import Callable, Mapping
@@ -45,6 +46,8 @@ class SourceEvent:
     age: timedelta
     properties: Mapping[str, object]
     event: str = FLAG_EVALUATIONS_SOURCE_EVENT
+    # The age of the row's Kafka create time (_timestamp), when that differs from the event's age.
+    kafka_time_age: timedelta | None = None
 
     @property
     def uuid(self) -> UUID:
@@ -91,14 +94,20 @@ def copied(event: SourceEvent) -> StoredRow:
 
 INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=12))
 INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
-INSIDE_OLD = flag_called("inside_old", TEAM_TWO, timedelta(days=60))
+# The default one-hour lag limit and the five-minute delivery timeout put the cutoff 65 minutes before the check.
+# A row that ingestion produced two hours ago is older than the cutoff, so the job copies it.
+INSIDE_OLD = replace(flag_called("inside_old", TEAM_TWO, timedelta(days=60)), kafka_time_age=timedelta(hours=2))
 ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
+# An import dated inside the window that ingestion produced just before the consumer-lag check. Its fork row
+# can still be in Kafka, so the job does not copy it.
+IMPORTED_JUST_NOW = replace(flag_called("imported_just_now", TEAM_ONE, timedelta(days=4)), kafka_time_age=timedelta(0))
 
 SOURCE_EVENTS = [
     INSIDE_RECENT,
     INSIDE_TEAM_THREE,
     INSIDE_OLD,
     ALREADY_FORKED,
+    IMPORTED_JUST_NOW,
     SourceEvent(
         label="numeric_flag_key",
         team_id=TEAM_ONE,
@@ -131,6 +140,12 @@ SOURCE_EVENTS = [
 # the job reads.
 KAFKA_PATH_ROW = SourceEvent(label="kafka_path_row", team_id=TEAM_ONE, age=timedelta(0), properties={})
 
+# A Kafka row whose inserted_at equals its timestamp, as on a copied row. This happens when the event
+# timestamp has no sub-second part and falls in the second that Kafka received the event.
+KAFKA_ROW_IN_ITS_EVENT_SECOND = SourceEvent(
+    label="kafka_row_in_its_event_second", team_id=TEAM_ONE, age=timedelta(0), properties={}
+)
+
 SAME_UUID_OTHER_TEAM = replace(INSIDE_RECENT, team_id=TEAM_TWO)
 
 
@@ -161,6 +176,7 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
             event.distinct_id,
             now - event.age,
             uuid5(NAMESPACE_URL, event.distinct_id),
+            now - (event.age if event.kafka_time_age is None else event.kafka_time_age),
         )
         for event in events
     ]
@@ -168,7 +184,7 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
     def insert(client: Client) -> None:
         client.execute(
             f"""INSERT INTO {EVENTS_DATA_TABLE()}
-            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp)
             VALUES""",
             rows,
         )
@@ -182,25 +198,34 @@ def seed_flag_evaluation(cluster: ClickhouseCluster, now: datetime, event: Sourc
 
 
 def seed_kafka_path_row(
-    cluster: ClickhouseCluster, now: datetime, age: timedelta = timedelta(0), partition: int = 0
+    cluster: ClickhouseCluster,
+    now: datetime,
+    event: SourceEvent = KAFKA_PATH_ROW,
+    partition: int = 0,
+    offset: int = 1,
+    delivery_delay: timedelta = timedelta(seconds=1),
+    consumer_delay: timedelta = timedelta(0),
 ) -> None:
     # The lag check skips rows whose inserted_at equals their timestamp, because the backfill copies
-    # rows that way. A Kafka row arrives after its event, so its inserted_at is later.
-    inserted_at = now - age
+    # rows that way. A Kafka row usually arrives after its event, so its inserted_at is later.
+    # The cleanup filter treats offset 0 in partition 0 as a copy, so the default offset is 1.
+    kafka_time = now - event.age
     row = (
-        KAFKA_PATH_ROW.team_id,
-        KAFKA_PATH_ROW.distinct_id,
-        uuid5(NAMESPACE_URL, KAFKA_PATH_ROW.distinct_id),
-        KAFKA_PATH_ROW.uuid,
-        inserted_at - timedelta(seconds=1),
-        inserted_at,
+        event.team_id,
+        event.distinct_id,
+        uuid5(NAMESPACE_URL, event.distinct_id),
+        event.uuid,
+        kafka_time - delivery_delay,
+        kafka_time + consumer_delay,
+        kafka_time,
         partition,
+        offset,
     )
 
     def insert(client: Client) -> None:
         client.execute(
             """INSERT INTO writable_flag_evaluations
-            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _partition)
+            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _timestamp, _partition, _offset)
             VALUES""",
             [row],
         )
@@ -209,7 +234,7 @@ def seed_kafka_path_row(
 
 
 def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
-    labels = {event.uuid: event.label for event in SOURCE_EVENTS}
+    labels = {event.uuid: event.label for event in [*SOURCE_EVENTS, KAFKA_ROW_IN_ITS_EVENT_SECOND]}
 
     def select(client: Client) -> list[tuple[UUID, str, str, str, UUID, int]]:
         return client.execute(
@@ -251,6 +276,10 @@ def run_backfill(
 
 def days_before(now: datetime, days: int) -> str:
     return (now - timedelta(days=days)).date().isoformat()
+
+
+def age_at_noon(now: datetime, days_ago: int) -> timedelta:
+    return now - datetime.combine(now.date() - timedelta(days=days_ago), time(12), tzinfo=UTC)
 
 
 def shard_backfill(
@@ -335,9 +364,7 @@ def test_backfill_waits_for_an_active_blocking_run_before_copying(
     run_config: dict[str, Any] | None,
 ) -> None:
     now = datetime.now(UTC)
-    on_first_copied_day = replace(
-        INSIDE_RECENT, age=now - datetime.combine(now.date() - timedelta(days=2), time(12), tzinfo=UTC)
-    )
+    on_first_copied_day = replace(INSIDE_RECENT, age=age_at_noon(now, days_ago=2))
     seed_source_events(cluster, now, [on_first_copied_day])
     seed_kafka_path_row(cluster, now)
     instance = dagster.DagsterInstance.ephemeral()
@@ -368,7 +395,8 @@ def test_backfill_waits_for_an_active_blocking_run_before_copying(
 
 
 REPAIR_DELETE = (
-    f"DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '2026-03-10' AND inserted_at = timestamp"
+    f"DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '2026-03-10' "
+    "AND _partition = 0 AND _offset = 0 AND inserted_at = timestamp"
 )
 
 
@@ -417,8 +445,12 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
     cluster: ClickhouseCluster, copy_fails: bool
 ) -> None:
     now = datetime.now(UTC)
-    seed_source_events(cluster, now, [INSIDE_RECENT])
+    on_first_copied_day = replace(INSIDE_RECENT, age=age_at_noon(now, days_ago=2))
+    kafka_row_on_first_copied_day = replace(KAFKA_ROW_IN_ITS_EVENT_SECOND, age=on_first_copied_day.age)
+    seed_source_events(cluster, now, [on_first_copied_day])
     seed_kafka_path_row(cluster, now)
+    for partition, offset in [(0, 1), (1, 0)]:
+        seed_kafka_path_row(cluster, now, kafka_row_on_first_copied_day, partition, offset, delivery_delay=timedelta(0))
     instance = dagster.DagsterInstance.ephemeral()
     copy_day = ShardBackfill.copy_day
 
@@ -430,11 +462,19 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
         return rows
 
     with patch.object(ShardBackfill, "copy_day", autospec=True, side_effect=copy_while_deletes_starts):
-        result = run_backfill(cluster, instance=instance, start_date=days_before(now, 3))
+        # An explicit end_date keeps on_first_copied_day the first day copied if UTC midnight passes.
+        result = run_backfill(cluster, instance=instance, start_date=days_before(now, 3), end_date=days_before(now, 1))
 
     [failure] = result.get_step_failure_events()
     assert failure.step_failure_data.error is not None
-    assert "started while" in failure.step_failure_data.error.message
+    message = failure.step_failure_data.error.message
+    assert "started while" in message
+    assert stored_rows(cluster) == Counter({copied(on_first_copied_day): 1, forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
+
+    [repair_delete] = re.findall(r"`(DELETE FROM [^`]+)`", message)
+    cluster.map_one_host_per_shard(lambda client: client.execute(repair_delete)).result()
+
+    assert stored_rows(cluster) == Counter({forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
 
 
 @pytest.mark.parametrize(
@@ -455,7 +495,7 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
 
     with (
         patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
-        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "consumer_cutoff"),
         patch.object(ShardBackfill, "copy_day", return_value=0) as copy_day,
     ):
         if stops:
@@ -489,7 +529,7 @@ def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
     with (
         patch.object(ShardBackfill, "wait_for_disk_headroom", side_effect=finish_a_deletes_run),
         patch.object(ShardBackfill, "_hosts_moving_parts", side_effect=rereads),
-        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "consumer_cutoff"),
         patch.object(ShardBackfill, "copy_day", return_value=5),
     ):
         totals = shard_backfill(instance=instance).run([datetime.now(UTC).date() - timedelta(days=1)])
@@ -542,7 +582,7 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
         with (
             patch.object(ShardBackfill, "wait_for_parts_to_merge", side_effect=patched("wait_for_parts_to_merge")),
             patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
-            patch.object(ShardBackfill, "check_consumer_lag"),
+            patch.object(ShardBackfill, "consumer_cutoff"),
             patch.object(ShardBackfill, "copy_day", side_effect=patched("copy_day")) as copy_day,
         ):
             totals = shard_backfill().run(days)
@@ -553,28 +593,55 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "overrides, kafka_path_row_ages",
+    "overrides, kafka_path_row_ages, consumer_delay",
     [
-        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], id="free_space_below_the_floor"),
+        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], timedelta(0), id="free_space_below_the_floor"),
         pytest.param(
-            {"max_consumer_lag_seconds": 3600}, [timedelta(hours=2)], id="kafka_path_behind_by_more_than_the_limit"
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(0),
+            id="kafka_path_behind_by_more_than_the_limit",
         ),
-        pytest.param({}, [timedelta(0), timedelta(days=2)], id="one_kafka_partition_silent_for_over_a_day"),
-        pytest.param({}, [timedelta(days=8)], id="kafka_path_silent_for_the_whole_lookback"),
+        pytest.param(
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(hours=2),
+            id="kafka_path_writing_a_backlog_older_than_the_limit",
+        ),
+        pytest.param(
+            {}, [timedelta(0), timedelta(days=2)], timedelta(0), id="one_kafka_partition_silent_for_over_a_day"
+        ),
+        pytest.param({}, [timedelta(days=8)], timedelta(0), id="kafka_path_silent_for_the_whole_lookback"),
     ],
 )
 def test_backfill_fails_without_copying_when_a_safety_check_fails(
-    cluster: ClickhouseCluster, overrides: dict[str, Any], kafka_path_row_ages: list[timedelta]
+    cluster: ClickhouseCluster,
+    overrides: dict[str, Any],
+    kafka_path_row_ages: list[timedelta],
+    consumer_delay: timedelta,
 ) -> None:
     now = datetime.now(UTC)
     seed_source_events(cluster, now, [INSIDE_RECENT])
     for partition, age in enumerate(kafka_path_row_ages):
-        seed_kafka_path_row(cluster, now, age=age, partition=partition)
+        seed_kafka_path_row(
+            cluster, now, replace(KAFKA_PATH_ROW, age=age), partition=partition, consumer_delay=consumer_delay
+        )
 
     result = run_backfill(cluster, **overrides)
 
     assert not result.success
     assert stored_rows(cluster) == Counter()
+
+
+def test_consumer_cutoff_sits_the_lag_limit_and_the_delivery_timeout_before_the_check() -> None:
+    cluster = MagicMock()
+    cluster.map_any_host_in_shards_by_role.return_value.result.return_value = {1: (2, 30)}
+    backfill = shard_backfill(FlagEvaluationsBackfillConfig(max_consumer_lag_seconds=600), cluster=cluster)
+
+    with time_machine.travel(datetime(2026, 3, 10, 12, tzinfo=UTC), tick=False):
+        created_before = backfill.consumer_cutoff()
+
+    assert created_before == datetime(2026, 3, 10, 11, 45, tzinfo=UTC)
 
 
 BELOW_MOVE_LINE = [
@@ -675,7 +742,7 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     with (
         patch("posthog.dags.flag_evaluations_backfill.time.monotonic", side_effect=lambda: clock[0]),
         patch("posthog.dags.flag_evaluations_backfill.time.sleep", side_effect=advance_clock) as sleep,
-        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "consumer_cutoff"),
         patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
     ):
         if failure is None:

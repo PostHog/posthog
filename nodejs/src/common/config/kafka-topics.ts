@@ -69,6 +69,7 @@ export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_even
 export const KAFKA_CLICKHOUSE_AI_EVENTS_JSON = `${prefix}clickhouse_ai_events_json${suffix}`
 // write flag evaluations ($feature_flag_called telemetry) to ClickHouse
 export const KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = `${prefix}clickhouse_flag_evaluations${suffix}`
+export const KAFKA_REALTIME_ONLY_EVENTS_JSON = `${prefix}realtime_only_events_json${suffix}`
 
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
@@ -82,6 +83,11 @@ export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
+// Dead-letter topic for the CDP events consumer. A record holds the original message bytes and
+// `dlq_*` headers naming the functions that could not be built, so a replay can rebuild exactly
+// those after a forward fix. One topic per consumer, so a replay never touches another consumer's
+// records. It carries full event payloads, so retention is bounded the way the source topic is.
+export const KAFKA_CDP_EVENTS_DLQ = `${prefix}cdp_events_dlq${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // One completion marker per processor partition, certifying that a reconcile run replayed a
@@ -114,7 +120,6 @@ export const KAFKA_TRACES_CLICKHOUSE = `${prefix}clickhouse_traces${suffix}`
 // Metrics ingestion topics
 export const KAFKA_METRICS_INGESTION = `${prefix}metrics_ingestion${suffix}`
 export const KAFKA_METRICS_INGESTION_DLQ = `${prefix}metrics_ingestion_dlq${suffix}`
-export const KAFKA_METRICS_INGESTION_OVERFLOW = `${prefix}metrics_ingestion_overflow${suffix}`
 export const KAFKA_METRICS_CLICKHOUSE = `${prefix}clickhouse_metrics${suffix}`
 
 // TopHog metrics

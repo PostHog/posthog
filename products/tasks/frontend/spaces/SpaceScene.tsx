@@ -9,7 +9,6 @@ import {
     EmptyDescription,
     EmptyHeader,
     EmptyTitle,
-    Skeleton,
     Tabs,
     TabsContent,
     TabsList,
@@ -29,27 +28,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
-import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
-
 import { SpaceCanvases } from './SpaceCanvases'
 import { SpaceFeed } from './SpaceFeed'
 import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
-
-const SPACE_COMPOSER_OVERRIDE = {
-    placeholder: 'What do you want to ship?',
-    hideSuggestions: true,
-    hideRecentTasks: true,
-    hideOnboardingReplay: true,
-}
-
-// The repository picker and the input frame at their loaded sizes, so the feed does not jump when the chunk lands.
-const COMPOSER_SKELETON = (
-    <div className="flex flex-col gap-2">
-        <Skeleton className="h-8 w-36" />
-        <Skeleton className="h-36 w-full rounded-lg" />
-    </div>
-)
+import { SpaceTaskComposer } from './SpaceTaskComposer'
 
 export const scene: SceneExport<SpaceSceneLogicProps> = {
     component: SpaceScene,
@@ -165,16 +148,12 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                             {/* Mounted once the space loads, so the composer starts on the space's repository. */}
                             {space && (
                                 <div className="mb-1 border-b border-border pb-4" data-attr="today-space-new-task">
-                                    <EmbeddedTaskComposer
-                                        key={space.id}
+                                    <SpaceTaskComposer
+                                        space={space}
                                         panelId={spaceComposerPanelId(id)}
-                                        channelId={space.id}
-                                        initialRepositoryConfig={composerRepositoryConfig}
-                                        composerOverride={SPACE_COMPOSER_OVERRIDE}
+                                        repositoryConfig={composerRepositoryConfig}
                                         onTaskCreated={sessionStarted}
                                         focusRequest={composerFocusRequest}
-                                        autoFocus={false}
-                                        fallback={COMPOSER_SKELETON}
                                     />
                                 </div>
                             )}

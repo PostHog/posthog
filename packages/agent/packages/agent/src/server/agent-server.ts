@@ -32,7 +32,10 @@ import {
   toAcpMcpServers,
 } from "@posthog/agent-contracts";
 import { prependProductEngineerPrompt } from "@posthog/agent-contracts/product-engineer-prompt";
-import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/agent-contracts/rich-output-prompt";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
@@ -179,6 +182,7 @@ const agentErrorClassificationSchema = z.enum([
   "turn_ended_without_response",
   "subscription_usage_limit",
   "task_spend_limit",
+  "upstream_request_rejected",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -235,6 +239,7 @@ export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
   interactionOrigin?: string | null,
+  projectUrl?: string | null,
 ): string | { append: string } {
   const prompt = [
     typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
@@ -245,6 +250,7 @@ export function buildCloudSessionSystemPrompt(
   const combinedPrompt = appendRichOutputPrompt(
     prependProductEngineerPrompt(prompt),
     interactionOrigin,
+    projectUrl,
   );
 
   return typeof userPrompt === "string"
@@ -1264,6 +1270,7 @@ export class AgentServer {
         {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
+          error_type: "agent_server_crash",
           state: { agent_version: this.agentVersion },
         },
       );
@@ -2347,6 +2354,14 @@ export class AgentServer {
                   ? this.config.reasoningEffort
                   : undefined,
               serviceTier: this.config.serviceTier,
+              // Codex runs at most 3 sub-agents per session at once by default; the main agent does
+              // not count. A run that starts more sub-agents at once sets its own limit.
+              ...(runState?.codex_max_subagents && {
+                configOverrides: {
+                  "agents.max_concurrent_threads_per_session":
+                    runState.codex_max_subagents,
+                },
+              }),
               developerInstructions: codexInstructions,
               httpHeaders: codexSubscriptionTokens
                 ? undefined
@@ -4385,6 +4400,7 @@ export class AgentServer {
       cloudAppend,
       userPrompt,
       this.isSlackReplyContext() ? "slack" : this.getCloudInteractionOrigin(),
+      getProjectWebUrl(this.config.apiUrl, this.config.projectId),
     );
     return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
@@ -4815,6 +4831,9 @@ export class AgentServer {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
         error_message: persistedErrorMessage,
+        ...(options?.errorCategory
+          ? { error_type: options.errorCategory }
+          : {}),
         state: { agent_version: this.agentVersion },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });

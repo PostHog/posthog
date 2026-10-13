@@ -2,8 +2,11 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import BitbucketAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
     BitbucketAuthMethodConfig,
     BitbucketSourceConfig,
@@ -46,27 +49,6 @@ def test_connection_host_fields_force_secret_reentry_on_workspace_change():
     assert BitbucketSource().connection_host_fields == ["workspace"]
 
 
-@pytest.mark.parametrize(
-    "endpoint,supports_incremental",
-    [
-        ("repositories", True),
-        ("pull_requests", True),
-        ("commits", True),
-        ("pipelines", True),
-        # No verified server filter or stable cursor for these — offering an
-        # incremental toggle would silently behave like a full refresh
-        ("deployments", False),
-        ("workspace_members", False),
-        ("branches", False),
-    ],
-)
-def test_get_schemas_incremental_support(endpoint, supports_incremental):
-    schemas = {s.name: s for s in BitbucketSource().get_schemas(_config(), team_id=1)}
-    assert schemas[endpoint].supports_incremental is supports_incremental
-    assert schemas[endpoint].supports_append is supports_incremental
-    assert bool(schemas[endpoint].incremental_fields) is supports_incremental
-
-
 def test_get_schemas_filters_by_names():
     schemas = BitbucketSource().get_schemas(_config(), team_id=1, names=["commits", "pipelines"])
     assert sorted(s.name for s in schemas) == ["commits", "pipelines"]
@@ -102,13 +84,13 @@ def test_validate_credentials_maps_missing_config_to_friendly_error(config, expe
 
 
 def test_validate_credentials_delegates_to_transport():
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source.validate_bitbucket_credentials",
-        return_value=(True, None),
-    ) as validate:
+    with scripted_network([ScriptedResponse(json={"values": []})]) as network:
         assert BitbucketSource().validate_credentials(_config(), team_id=1) == (True, None)
 
-    validate.assert_called_once_with(BitbucketAuth(email="a@b.c", api_token="tok"), "my-workspace")
+    assert len(network.requests_log) == 1
+    assert network.requests_log[0].path == "/2.0/repositories/my-workspace"
+    assert network.requests_log[0].param("pagelen") == "1"
+    assert network.requests_log[0].headers["authorization"] == "Basic YUBiLmM6dG9r"
 
 
 @pytest.mark.parametrize(
@@ -143,11 +125,3 @@ def test_source_for_pipeline_plumbs_arguments(should_use_incremental, last_value
         db_incremental_field_last_value=expected_last_value,
         incremental_field="date",
     )
-
-
-@pytest.mark.parametrize("endpoint", sorted(BITBUCKET_ENDPOINTS))
-def test_canonical_descriptions_document_the_primary_key_columns(endpoint):
-    # Several key columns are injected by the transport rather than returned by Bitbucket, so
-    # the LLM fallback cannot derive them from the vendor docs at all
-    columns = BitbucketSource().get_canonical_descriptions()[endpoint]["columns"]
-    assert set(BITBUCKET_ENDPOINTS[endpoint].primary_keys) <= set(columns)

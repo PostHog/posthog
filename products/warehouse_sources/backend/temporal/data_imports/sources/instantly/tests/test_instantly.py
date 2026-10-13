@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from unittest import mock
@@ -8,12 +8,15 @@ from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.instantly import (
+    SYNC_REQUEST_TIMEOUT_SECONDS,
     WEBHOOK_PLAN_ERROR,
     WEBHOOK_SECRET_HEADER,
     InstantlyCursorPaginator,
     InstantlyResumeConfig,
     InstantlyThrottledCursorPaginator,
+    _format_incremental_date,
     _format_incremental_timestamp,
+    _probe_endpoint,
     _webhook_events_table_transformer,
     create_webhook,
     delete_webhook,
@@ -22,8 +25,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.
     instantly_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.settings import (
+    ANALYTICS_HISTORY_START_DATE,
+    PROBE_CAMPAIGN_ID,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.instantly.instantly"
+
+
+class _FakeClient:
+    def __init__(self, pages_by_path: dict[str, list[list[dict]]]):
+        self.pages_by_path = pages_by_path
+        self.calls: list[tuple[str, dict]] = []
+
+    def paginate(self, *, path, params, paginator, data_selector):
+        self.calls.append((path, params))
+        yield from self.pages_by_path.get(path, [])
 
 
 def _response(body=None, status_code=200):
@@ -157,6 +174,133 @@ class TestInstantly:
         assert _format_incremental_timestamp(value) == expected
 
     @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (date(2026, 1, 2), "2026-01-02"),
+            (datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02"),
+            ("2026-01-02", "2026-01-02"),
+            ("2026-01-02T00:00:00", "2026-01-02"),
+        ],
+    )
+    def test_format_incremental_date(self, value, expected):
+        assert _format_incremental_date(value) == expected
+
+    @pytest.mark.parametrize(
+        "endpoint,child_path,child_page,expected_params,expected_rows",
+        [
+            (
+                "campaign_step_analytics",
+                "/api/v2/campaigns/analytics/steps",
+                [{"step": "1", "variant": "0", "sent": 5}],
+                {"include_opportunities_count": "true", "campaign_id": "c-1"},
+                # Step rows carry no campaign id, so the fan-out stamps it for the composite key.
+                [{"step": "1", "variant": "0", "sent": 5, "campaign_id": "c-1"}],
+            ),
+            (
+                "subsequences",
+                "/api/v2/subsequences",
+                [{"id": "s-1", "parent_campaign": "c-1"}],
+                {"limit": 100, "parent_campaign": "c-1"},
+                [{"id": "s-1", "parent_campaign": "c-1"}],
+            ),
+        ],
+    )
+    def test_campaign_fanout_scopes_each_request_to_one_campaign(
+        self, endpoint, child_path, child_page, expected_params, expected_rows
+    ):
+        client = _FakeClient(
+            {
+                "/api/v2/campaigns": [[{"id": "c-1"}, {"name": "no id"}]],
+                child_path: [child_page],
+            }
+        )
+
+        with mock.patch(f"{MODULE}._make_client", return_value=client):
+            response = instantly_source(
+                api_key="key", endpoint=endpoint, team_id=1, job_id="job", resumable_source_manager=mock.MagicMock()
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            pages = list(items)
+
+        assert pages == [expected_rows]
+        # The fan-out keeps no cursor, so the pipeline must not treat the run as resumable.
+        assert response.supports_resume is False
+        # A campaign without an id is skipped rather than sent as an unscoped request.
+        assert client.calls == [("/api/v2/campaigns", {"limit": 100}), (child_path, expected_params)]
+
+    def test_account_daily_analytics_windows_by_start_date_and_sorts_rows(self):
+        rows = [
+            {"date": "2026-03-05", "email_account": "a@example.com"},
+            {"date": "2026-03-04", "email_account": "b@example.com"},
+        ]
+        client = _FakeClient({"/api/v2/accounts/analytics/daily": [rows]})
+
+        with (
+            mock.patch(f"{MODULE}._make_client", return_value=client),
+            mock.patch(f"{MODULE}._today", return_value=date(2026, 3, 10)),
+        ):
+            response = instantly_source(
+                api_key="key",
+                endpoint="account_daily_analytics",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=mock.MagicMock(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 4),
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            pages = list(items)
+
+        # The incremental watermark is within one window of "today", so this collapses to a
+        # single bounded request instead of a chunked walk.
+        assert client.calls == [
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2026-03-04", "end_date": "2026-03-10"})
+        ]
+        # Ascending date order keeps the asc incremental watermark from skipping unwritten days.
+        assert [row["date"] for row in pages[0]] == ["2026-03-04", "2026-03-05"]
+        assert response.primary_keys == ["date", "email_account"]
+
+    @pytest.mark.parametrize("should_use_incremental_field", [False, True])
+    def test_account_daily_analytics_full_refresh_splits_into_bounded_windows(self, should_use_incremental_field):
+        client = _FakeClient({"/api/v2/accounts/analytics/daily": [[]]})
+
+        with (
+            mock.patch(f"{MODULE}._make_client", return_value=client),
+            mock.patch(f"{MODULE}._today", return_value=date(2020, 4, 15)),
+        ):
+            response = instantly_source(
+                api_key="key",
+                endpoint="account_daily_analytics",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=mock.MagicMock(),
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=None,
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            list(items)
+
+        assert client.calls == [
+            (
+                "/api/v2/accounts/analytics/daily",
+                {"start_date": ANALYTICS_HISTORY_START_DATE, "end_date": "2020-01-31"},
+            ),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-02-01", "end_date": "2020-03-02"}),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-03-03", "end_date": "2020-04-02"}),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-04-03", "end_date": "2020-04-15"}),
+        ]
+
+    def test_probe_sends_required_campaign_id_for_subsequences(self):
+        session = mock.MagicMock()
+
+        _probe_endpoint(session, "subsequences")
+
+        assert session.get.call_args.kwargs["params"] == {"limit": 1, "parent_campaign": PROBE_CAMPAIGN_ID}
+
+    @pytest.mark.parametrize(
         "endpoint,expected_primary_keys,expected_partition_mode",
         [
             ("campaigns", ["id"], "datetime"),
@@ -182,6 +326,8 @@ class TestInstantly:
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.partition_mode == expected_partition_mode
+        rest_config = mock_resource.call_args.args[0]
+        assert rest_config["client"]["request_timeout"] == SYNC_REQUEST_TIMEOUT_SECONDS
 
     @mock.patch(f"{MODULE}.rest_api_resource")
     def test_resume_state_seeds_paginator_and_saves_after_batches(self, mock_resource):

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
@@ -117,6 +118,26 @@ class TestSlackAgentDesignStream(TestCase):
         )
 
         assert mock_stop.call_args.args[0].turn_trace_id == trace_id
+
+    @patch("products.tasks.backend.logic.services.living_artifacts.deliver_pending_slack_file_artifacts")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_stream_slack_closed_still_delivers_the_turns_attachments(self, mock_get_client, mock_deliver) -> None:
+        client = mock_get_client.return_value
+        client.chat_appendStream.side_effect = SlackApiError(
+            "message_not_in_streaming_state", {"error": "message_not_in_streaming_state"}
+        )
+
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
+                ts="2.0",
+                final_markdown="Signups grew.",
+                run_id=str(self.task_run.id),
+            )
+        )
+
+        assert "Signups grew." in client.chat_postMessage.call_args.kwargs["text"]
+        mock_deliver.assert_called_once_with(self.task_run)
 
     @parameterized.expand(
         [

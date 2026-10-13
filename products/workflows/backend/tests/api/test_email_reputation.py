@@ -57,10 +57,10 @@ class TestEmailReputationAPI(APIBaseTest):
             provider.get_identity_isp_metrics.return_value = isp_metrics or []
         with (
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source",
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
                 return_value=totals_by_source,
             ),
-            patch("products.workflows.backend.presentation.views.hog_flow.SESProvider", return_value=provider),
+            patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
             patch(
                 "products.workflows.backend.presentation.views.hog_flow._isp_breakdown_enabled",
                 return_value=isp_flag_enabled,
@@ -145,10 +145,10 @@ class TestEmailReputationAPI(APIBaseTest):
         provider.get_tenant_reputation.side_effect = Exception("SES timeout")
         with (
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source",
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
                 return_value={},
             ),
-            patch("products.workflows.backend.presentation.views.hog_flow.SESProvider", return_value=provider),
+            patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
         ):
             url = f"/api/projects/{self.team.id}/hog_flows/reputation"
             first = self.client.get(url)
@@ -459,12 +459,12 @@ class TestEmailReputationAPI(APIBaseTest):
         provider.get_tenant_reputation.return_value = None
         with (
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source",
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
                 return_value={},
             ),
-            patch("products.workflows.backend.presentation.views.hog_flow.SESProvider", return_value=provider),
+            patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
             patch("products.workflows.backend.presentation.views.hog_flow._isp_breakdown_enabled", return_value=True),
-            patch("products.workflows.backend.presentation.views.hog_flow.cache.add", return_value=False),
+            patch("products.workflows.backend.services.email_health.cache.add", return_value=False),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
 
@@ -549,10 +549,10 @@ class TestEmailReputationAccessControl(APIBaseTest):
         ]
         with (
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source",
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
                 return_value={str(flow.id): {"email_sent": 100, "email_bounced_hard": 5}},
             ),
-            patch("products.workflows.backend.presentation.views.hog_flow.SESProvider", return_value=provider),
+            patch("products.workflows.backend.services.email_health.SESProvider", return_value=provider),
             # Enabled, so what the assertion below tests is the access-control gate, not the flag.
             patch("products.workflows.backend.presentation.views.hog_flow._isp_breakdown_enabled", return_value=True),
         ):

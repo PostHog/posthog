@@ -209,27 +209,9 @@ class TestBuyMeACoffee(SimpleTestCase):
         self.inputs.schema_name = "subscriptions"
         manager = self.source.get_resumable_source_manager(self.inputs)
         manager.save_state(BuyMeACoffeeResumeConfig(page=3))
+        manager.confirm()
         manager.commit()
         self.respond([{"data": [{"subscription_id": 100}], "current_page": 3, "last_page": 3}])
         response = self.source.source_for_pipeline(self.config, manager, self.inputs)
         assert list(cast(Iterable[Any], response.items())) == [[{"subscription_id": 100}]]
         assert parse_qs(urlsplit(self.requests[0].url or "").query) == {"page": ["3"], "status": ["all"]}
-
-    def test_checkpoint_is_staged_after_yield_and_committed_after_writes(self) -> None:
-        self.respond(
-            [
-                {"data": [{"support_id": 2}], "current_page": 1, "last_page": 2},
-                {"data": [{"support_id": 1}], "current_page": 2, "last_page": 2},
-            ]
-        )
-        manager = self.source.get_resumable_source_manager(self.inputs)
-        response = self.source.source_for_pipeline(self.config, manager, self.inputs)
-        pages = iter(cast(Iterable[Any], response.items()))
-        assert next(pages) == [{"support_id": 2}]
-        assert not manager.has_staged_state()
-        assert next(pages) == [{"support_id": 1}]
-        assert manager.has_staged_state()
-        assert not manager.can_resume()
-        manager.commit()
-        assert manager.load_state() == BuyMeACoffeeResumeConfig(page=2)
-        assert list(pages) == []

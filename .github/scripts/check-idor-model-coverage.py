@@ -89,6 +89,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # RoleMembership has a direct user FK but org is indirect (via role), so the
         # script sees it as user_scoped while semgrep correctly has it in org_scoped.
         "RoleMembership",
+        # IdJagIdentity has a direct user FK but org is indirect (via its IdentityProviderConfig),
+        # so the script sees it as user_scoped while semgrep has it in org_scoped.
+        "IdJagIdentity",
         # --- Ingestion/event tables (not queried by user-supplied ID) ---
         "CoreEvent",
         "ElementGroup",
@@ -200,14 +203,19 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckgresServer",
         "EvaluationConfig",
         "RemoteConfig",
+        "TeamAccessControlConfig",
         "TeamConversationsSlackConfig",
         "TeamConversationsTeamsChannelSync",
+        "TeamConversationsTicketConfig",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
         "TeamBusinessKnowledgeConfig",
         "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        # Staff-only OneToOne extension keyed on the team, edited in Django admin and read by the
+        # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
+        "TeamEventsRetentionConfig",
         "TeamFeatureFlagsConfig",
         # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
         # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
@@ -223,6 +231,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # no endpoint looks it up by a user-supplied ID.
         "TeamReplayVisionConfig",
         "TeamTracingConfig",
+        "WarehouseSuggestionTeamConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
@@ -261,6 +270,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # `(slack_workspace_id, slack_channel_id)` from the Slack event handler,
         # never by user-supplied ID. `approved_by` is for audit only.
         "SlackChannel",
+        # Instance-wide bank of metrics dashboards, read only through staff endpoints. `reviewed_by` is for audit only.
+        "MetricsDashboardTemplate",
         "UserActivity",
         "UserGroup",
         "UserGroupMembership",
@@ -301,6 +312,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "AsyncMigration",
         "AsyncMigrationError",
         "InstanceSetting",
+        "DevStackImageTarget",
+        "DevStackImageAttempt",
         "License",
         # --- Deprecated ---
         "Prompt",
@@ -310,6 +323,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CommunitySkill",  # instance-global community skills catalog, synced from GitHub
         "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
+        "MetricsDashboardTemplate",  # instance-global bank of metrics dashboards; staff approve generated rows
         "MCPServer",
         "MCPRegistryServer",  # instance-global MCP registry index, crawled from the official registry
         "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
@@ -330,6 +344,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Role",
         "RoleMembership",
         "LinkedIdentityProviderConfig",
+        "IdJagIdentity",
         # --- User-scoped (cross-tenant by design) ---
         "NotificationViewed",
         "SCIMProvisionedUser",

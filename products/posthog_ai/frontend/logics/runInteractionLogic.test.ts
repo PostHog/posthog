@@ -1096,7 +1096,7 @@ describe('runInteractionLogic', () => {
             TASK_ID,
             {
                 runtime_adapter: 'claude',
-                model: 'claude-sonnet-5',
+                model: 'claude-sonnet-5-5',
                 reasoning_effort: 'high',
                 initial_permission_mode: 'auto',
                 resume_from_run_id: RUN_ID,
@@ -1180,7 +1180,7 @@ describe('runInteractionLogic', () => {
             expect(tasksWarmResumeCreate).toHaveBeenCalledWith('997', TASK_ID, {
                 resume_from_run_id: RUN_ID,
                 runtime_adapter: 'claude',
-                model: 'claude-sonnet-5',
+                model: 'claude-sonnet-5-5',
                 reasoning_effort: 'high',
                 initial_permission_mode: 'auto',
             })

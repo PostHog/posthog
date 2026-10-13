@@ -1,5 +1,4 @@
-"""Reconciliation sweep for loop trigger schedules. See products/tasks/docs/LOOPS.md
-(Lifecycle and reconciliation).
+"""Reconciliation sweep for loop trigger schedules.
 
 Schedule sync to Temporal is best-effort: `sync_loop_trigger_schedule` records `pending` or
 `failed` on the trigger instead of raising, so a transient Temporal outage during a create or

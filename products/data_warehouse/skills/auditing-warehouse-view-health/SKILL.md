@@ -27,11 +27,12 @@ relevant team rather than diagnosing here.
 
 ## Available tools
 
-| Tool                                         | Purpose                                                             |
-| -------------------------------------------- | ------------------------------------------------------------------- |
-| `data-warehouse-data-health-issues-retrieve` | One-shot: all failed/degraded items across the whole pipeline       |
-| `view-list`                                  | All saved queries / materialized views with status and latest_error |
-| `view-run-history`                           | Run history for a specific materialized view                        |
+| Tool                                         | Purpose                                                              |
+| -------------------------------------------- | -------------------------------------------------------------------- |
+| `data-warehouse-data-health-issues-retrieve` | One-shot: all failed/degraded items across the whole pipeline        |
+| `view-list`                                  | All saved queries / materialized views with status and latest_error  |
+| `view-run-history`                           | Run history for a specific materialized view                         |
+| `warehouse-suggestions-list`                 | PostHog's open deprecate / materialize / certify suggestions, if any |
 
 Filter the `data-health-issues` results to the `materialized_view` type for this audit. Use `view-list` when you need
 more than the active-failure summary (non-failing views, materialization flags, last-queried info) and
@@ -72,6 +73,9 @@ Materialized view failures are usually independent of sources — a view failure
 itself (syntax error, missing table reference, type mismatch). For each failing view, surface the `error` and point
 at the offending query. Use `view-run-history` if the user wants the failure trail.
 
+An `error` that starts with `Not published:` is not a query problem. The view's data quality checks failed and the
+refresh was held back. Hand off to `debugging-failed-data-quality-checks`.
+
 ### Step 3 — Present the audit
 
 Render a prioritized report. Don't dump the raw JSON — human-readable:
@@ -87,6 +91,19 @@ Both are HogQL issues in the view definitions — independent of your sources. W
 ```
 
 ### Step 4 — Go beyond active failures (when asked)
+
+**Start from PostHog's suggestions** if the `warehouse-suggestions-*` tools are available. Call
+`warehouse-suggestions-list` with `status=proposed`. PostHog computes these from read usage:
+
+- A `deprecate` suggestion names a materialized view that nobody reads. Accepting it marks the view deprecated in the
+  data catalog. The view keeps refreshing, so it still costs compute. To stop that cost, unmaterialize the view with
+  `view-unmaterialize`, after the user confirms.
+- A `materialize` suggestion names a view that is read often enough that materializing it saves compute. Accepting it
+  turns on materialization with the proposed refresh interval.
+
+Present them before any hand audit. Accept one with `warehouse-suggestions-accept-prepare` / `-execute` after the user
+types `confirm`, or dismiss it with `warehouse-suggestions-dismiss`. If the list is empty, `warehouse-suggestions-status`
+tells you whether suggestions are still warming up, not eligible, or turned off.
 
 **Unused materialized views:**
 Call `view-list`. Materialized views cost storage and compute every run. If any are marked materialized but haven't

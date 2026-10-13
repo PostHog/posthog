@@ -6,23 +6,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.loops.settings import LOOPS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.loops.settings import (
+    LOOPS_ENDPOINTS,
+    PAGE_SIZE,
+    LoopsEndpointConfig,
+)
 
 BASE_URL = "https://app.loops.so/api"
-
-# Loops caps `perPage` at 50 (allowed range 10-50, default 20) on cursor-paginated
-# list endpoints.
-PAGE_SIZE = 50
 
 
 @dataclasses.dataclass
@@ -61,6 +66,56 @@ def get_resource(endpoint: str) -> EndpointResource:
     }
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": BASE_URL,
+        "auth": {
+            "type": "bearer",
+            "token": api_key,
+        },
+        "headers": {
+            "Accept": "application/json",
+        },
+        "request_timeout": (10, 60),
+    }
+
+
+def _fanout_source_response(
+    api_key: str,
+    endpoint_config: LoopsEndpointConfig,
+    fanout: DependentEndpointConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    # One request per parent row with no cursor of its own, so the fan-out runs as a plain
+    # full refresh without resume state.
+    resource = build_dependent_resource(
+        endpoint_configs=LOOPS_ENDPOINTS,
+        child_endpoint=endpoint_config.name,
+        fanout=fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # Only the parent list takes perPage; it rides in the fan-out's parent_params.
+        page_size_param=None,
+        parent_endpoint_extra={
+            "data_selector": "data",
+            "paginator": JSONResponseCursorPaginator(cursor_path="pagination.nextCursor", cursor_param="cursor"),
+        },
+        child_endpoint_extra={"data_selector": "$", "paginator": SinglePagePaginator()},
+    )
+
+    return SourceResponse(
+        name=endpoint_config.name,
+        items=lambda: resource,
+        primary_keys=[endpoint_config.primary_key],
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def loops_source(
     api_key: str,
     endpoint: str,
@@ -70,17 +125,11 @@ def loops_source(
 ) -> SourceResponse:
     endpoint_config = LOOPS_ENDPOINTS[endpoint]
 
+    if endpoint_config.fanout is not None:
+        return _fanout_source_response(api_key, endpoint_config, endpoint_config.fanout, team_id, job_id)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": BASE_URL,
-            "auth": {
-                "type": "bearer",
-                "token": api_key,
-            },
-            "headers": {
-                "Accept": "application/json",
-            },
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {
             "write_disposition": "replace",
         },

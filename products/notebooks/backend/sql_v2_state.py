@@ -330,7 +330,9 @@ def _merge_prose_cells(cells: list[NotebookCellState], content: Any) -> list[Not
 
     by_node_id = {cell.node_id: cell for cell in cells}
     ordered: list[NotebookCellState] = []
-    for block in iter_markdown_blocks(markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS):
+    for block in iter_markdown_blocks(
+        markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS, group_anchored_prose=True
+    ):
         if block.kind == "prose":
             ordered.append(
                 NotebookCellState(

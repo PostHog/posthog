@@ -30,7 +30,7 @@ export const getPostHogClient = (): PostHogMCP => {
             captureModel: true,
             serverBuild: getMCPServerBuild(),
             before_send: (event) => {
-                if (event?.properties?.is_impersonated === true) {
+                if (event?.properties?.is_impersonated === true || event?.properties?.suppress_analytics === true) {
                     return null
                 }
                 return event

@@ -22,6 +22,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
+import { ConversionRecordingsSelection } from 'products/marketing_analytics/frontend/conversionRecordingsRequest'
+
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { createMarketingAnalyticsOrderBy, goalSumsAProperty, isDraftConversionGoalColumn } from './utils'
 
@@ -85,6 +87,7 @@ export interface marketingAnalyticsTableLogicValues {
     drillDownLevel: MarketingAnalyticsDrillDownLevel // marketingAnalyticsLogic
     _query: DataTableNode | null
     columnConfiguration: ColumnConfiguration | null
+    conversionRecordings: ConversionRecordingsSelection | null
     defaultColumns: string[]
     query: DataTableNode | null
     sortedColumns: string[]
@@ -97,6 +100,9 @@ export interface marketingAnalyticsTableLogicActions {
     } // marketingAnalyticsLogic
     setColumnConfiguration: (columnConfiguration: ColumnConfiguration) => {
         columnConfiguration: ColumnConfiguration
+    }
+    setConversionRecordings: (selection: ConversionRecordingsSelection | null) => {
+        selection: ConversionRecordingsSelection | null
     }
     setQuery: (query: DataTableNode) => {
         query: DataTableNode
@@ -135,10 +141,15 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
         actions: [marketingAnalyticsLogic, ['setDraftConversionGoal']],
     })),
     actions({
+        setConversionRecordings: (selection: ConversionRecordingsSelection | null) => ({ selection }),
         setQuery: (query: DataTableNode) => ({ query }),
         setColumnConfiguration: (columnConfiguration: ColumnConfiguration) => ({ columnConfiguration }),
     }),
     reducers(() => ({
+        conversionRecordings: [
+            null as ConversionRecordingsSelection | null,
+            { setConversionRecordings: (_, { selection }) => selection, setQuery: () => null },
+        ],
         columnConfiguration: [
             null as ColumnConfiguration | null,
             buildTeamScopedPersistenceConfig(),

@@ -6,6 +6,8 @@ export const COMPOSER_DRAFT_PARAM = 'from'
 export const COMPOSER_DRAFT_VALUE = 'ai_composer'
 
 const COMPOSER_DRAFTS_STORAGE_KEY = 'broadcasts-ai-composer-drafts'
+// pinned: session storage key
+const ENTRY_SOURCES_STORAGE_KEY = 'broadcasts-entry-sources'
 
 export type BroadcastPath = 'composer' | 'manual'
 
@@ -100,4 +102,29 @@ export function advanceAgentDraft(
 
 export function editedFields(agentDraft: BroadcastFieldSnapshot, current: BroadcastFieldSnapshot): BroadcastField[] {
     return BROADCAST_FIELDS.filter((field) => !objectsEqual(agentDraft[field], current[field]))
+}
+
+function readEntrySources(): Record<string, string> {
+    try {
+        const stored = JSON.parse(sessionStorage.getItem(ENTRY_SOURCES_STORAGE_KEY) || '{}')
+        return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}
+    } catch {
+        return {}
+    }
+}
+
+/** Kept for the tab, because saving the draft remounts the wizard under the draft's own URL. */
+export function saveEntrySource(broadcastId: string, source: string): void {
+    try {
+        sessionStorage.setItem(
+            ENTRY_SOURCES_STORAGE_KEY,
+            JSON.stringify({ ...readEntrySources(), [broadcastId]: source })
+        )
+    } catch {
+        // Storage can be blocked. The launch then reports no entry source.
+    }
+}
+
+export function loadEntrySource(broadcastId: string | null | undefined): string | null {
+    return broadcastId ? (readEntrySources()[broadcastId] ?? null) : null
 }

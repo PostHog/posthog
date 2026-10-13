@@ -47,7 +47,6 @@ import {
     type SurveyStatsData,
 } from 'products/surveys/mcp/apps'
 import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanListData } from 'products/tracing/mcp/apps'
-import { InviteEmailPreviewView, type InviteEmailPreviewData } from 'products/user_interviews/mcp/apps'
 import {
     EmailTemplateView,
     WorkflowListView,
@@ -433,7 +432,6 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'insight-actors': ({ data, openLink }) => (
         <InsightActorsView data={data as InsightActorsData} openLink={openLink} />
     ),
-    'invite-email-preview': ({ data }) => <InviteEmailPreviewView data={data as InviteEmailPreviewData} />,
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
     'query-results': ({ data }) => <Component data={data} />,
     'session-recording': ({ data }) => <SessionRecordingView recording={data as SessionRecordingData} />,

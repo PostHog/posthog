@@ -1,7 +1,6 @@
 from typing import cast
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,

@@ -121,10 +121,40 @@ HUBPLANNER_ENDPOINTS: dict[str, HubPlannerEndpointConfig] = {
         partition_key="createdDate",
         incremental_fields=[],
     ),
+    "booking_categories": HubPlannerEndpointConfig(
+        name="booking_categories",
+        path="/categories",
+        partition_key="createdDate",
+        incremental_fields=[],
+    ),
+    "cost_categories": HubPlannerEndpointConfig(
+        name="cost_categories",
+        path="/costCategories",
+        partition_key="createdDate",
+        incremental_fields=[],
+    ),
+    # Tags and unassigned work carry no creation timestamp (`_id` and `value` only), so they
+    # aren't partitioned.
+    "project_tags": HubPlannerEndpointConfig(
+        name="project_tags",
+        path="/project-tag",
+        incremental_fields=[],
+    ),
+    # Only available when the account has the Unassigned Work extension enabled, so it starts off.
+    "unassigned_work": HubPlannerEndpointConfig(
+        name="unassigned_work",
+        path="/unassigned-work",
+        incremental_fields=[],
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(HUBPLANNER_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in HUBPLANNER_ENDPOINTS.items()
+}
+
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: config.should_sync_default for name, config in HUBPLANNER_ENDPOINTS.items()
 }

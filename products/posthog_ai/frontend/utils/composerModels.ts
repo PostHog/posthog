@@ -101,9 +101,11 @@ export function getDefaultModelForRuntimeAdapter(
 ): string | null {
     const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
     const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
+    const defaultModel = DEFAULT_MODEL_BY_RUNTIME_ADAPTER[runtimeAdapter]
     const ladderModel = ladderDefaultModel(runtimeAdapter)
     return (
         models.find((option) => option.model === preferredModel)?.model ??
+        models.find((option) => option.model === defaultModel)?.model ??
         models.find((option) => option.model === ladderModel)?.model ??
         models[0]?.model ??
         null

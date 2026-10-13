@@ -13,14 +13,29 @@ never a count.
 Every environment runs one main cluster plus the same satellites and ingestion nodes.
 
 - Main cluster (`posthog`) — sharded, several shards, multiple replicas per shard. Holds the
-  sharded tables and is the default target for a migration.
+  sharded tables and the `Distributed` read tables the app queries, including those in front of
+  satellite tables.
 - Satellites — `ai_events`, `aux`, `batch_exports`, `endpoints`, `logs`, `sessions`, `ops`. Each is
-  a single shard with multiple replicas, and owns the tables for one product area.
-- Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`. Stateless, one shard
-  per node, no replicas. See Ingestion nodes below.
+  a single shard with multiple replicas, and owns the tables for one product area, including rollups
+  of that data. `aux` holds general product pre-aggregates (see "Satellite storage with a main-cluster
+  read table" below).
+- Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`, `ingestion-apm`.
+  Stateless, one shard per node, no replicas. See Ingestion nodes below.
 
 Shard and replica counts differ per environment and change over time, so nothing in a migration may
 depend on them. Read `system.clusters` when you need the current shape.
+
+## Verify against the live clusters
+
+The repo can trail the clusters: older migrations, the HCL `local` layers and shared helpers may
+describe a layout that some environments have already moved away from. Before choosing `node_roles`
+for a new table, use the ClickHouse MCP to check each of dev, prod-us and prod-eu: where comparable
+tables live, which satellite tables the main cluster reads through `Distributed` tables, and that the
+new table names are unused. See the [Housekeeper MCP runbook](https://runbooks.posthog.com/services/clickhouse/concepts/housekeeper-mcp) for setup and usage.
+
+When precedents disagree, follow the newest migration for that table family and confirm it matches
+all three environments. A layout that only some environments still run is mid-migration, not a
+pattern to copy. State the chosen cluster, and the migration or check behind it, in the PR description.
 
 ## Ingestion nodes
 
@@ -34,6 +49,10 @@ The way this is done:
 3. Create a materialized view that reads from Kafka and writes to the writetable table
 
 If a destination table is non-sharded, we pick only one node as data for the Distributed table.
+
+The `ingestion-apm` nodes (`NodeRole.APM`) run the same pattern for metrics: a Kafka table feeds a
+`Null` input table, materialized views fan it out to writable `Distributed` tables, and those write
+into the storage tables on the `logs` cluster (`NodeRole.LOGS`).
 
 # Local setup parity
 
@@ -219,7 +238,32 @@ run_sql_with_exceptions(
 )
 ```
 
-The table is created on data nodes because it's not sharded.
+A non-sharded table on `DATA` keeps a full copy on every main-cluster node, and every write and
+partition swap replicates to all of them. Reserve it for small tables the main cluster needs locally
+(joins, dictionary sources). A product rollup or pre-aggregate belongs on a satellite instead; see
+the next section.
+
+## Satellite storage with a main-cluster read table
+
+Pre-aggregates and rollups are stored on a satellite and read through a `Distributed` table on the
+main cluster, unless the app already connects to that satellite directly. A rollup of a satellite's own data stays on that satellite; general product
+pre-aggregates go to `AUX`. Confirm the satellite with the live check above. Create the `Distributed`
+table on the storage satellite too, for ad-hoc reads there. The storage table needs a different name
+from the read table, since both exist on that satellite. With `AUX` as the storage satellite:
+
+```python
+operations = [
+    run_sql_with_exceptions(STORAGE_TABLE_SQL(), node_roles=[NodeRole.AUX]),
+    run_sql_with_exceptions(DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.AUX]),
+]
+```
+
+The read table uses `Distributed(data_table=..., cluster=<the storage satellite's cluster setting>)`.
+Find a current example of this layout with the live check, and its HCL layers with `hclexp locate`.
+Inserts can go through the `Distributed` table on `DATA`, which forwards them to the satellite.
+Operations that must run where the storage table lives (partition swaps, `ALTER`s, recreating a
+staging table) go to a host of that satellite through `ClickhouseCluster` with its `NodeRole`.
 
 ## Replicated, sharded tables
 

@@ -6,6 +6,8 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
+import type { TracingSceneTab } from './frontend/tracingSceneLogic'
+
 export const manifest: ProductManifest = {
     name: 'Tracing',
     scenes: {
@@ -53,7 +55,7 @@ export const manifest: ProductManifest = {
     },
     redirects: {},
     urls: {
-        tracing: (): string => '/tracing',
+        tracing: (tab?: TracingSceneTab): string => (tab ? `/tracing?tab=${tab}` : '/tracing'),
         // Query params rather than path segments: span names ("GET /api/stats") contain slashes
         // and arbitrary characters that break path routing.
         tracingOperation: (
@@ -82,6 +84,8 @@ export const manifest: ProductManifest = {
                 'var(--color-product-tracing-dark)',
             ] as FileSystemIconColor,
             href: urls.tracing(),
+            searchKeywords: ['apm', 'spans', 'latency'],
+            searchTabs: [{ name: 'SQL', href: urls.tracing('sql'), flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
             flag: FEATURE_FLAGS.TRACING,
             sceneKey: 'Tracing',
         },

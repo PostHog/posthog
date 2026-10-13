@@ -119,11 +119,52 @@ def mark_cdc_broken(
         if create_visibility_jobs:
             _create_failure_visibility_jobs(source, newly_broken, message, log)
         _schedule_failure_digest(source, log)
+        _emit_sync_alerts(source, newly_broken)
 
     _notify(source, message, log)
     _capture(source, reason, paused=pause, log=log)
 
     log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
+
+
+def broken_for_another_reason(source: ExternalDataSource, reason: str) -> bool:
+    """Whether a table that `mark_cdc_broken` would mark already holds a marker with a different reason.
+
+    A table whose sync is off keeps the marker it had, so it must not count.
+    """
+    return (
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config__has_key="cdc_broken",
+        )
+        .exclude(deleted=True)
+        .exclude(sync_type_config__cdc_broken__reason=reason)
+        .exists()
+    )
+
+
+def tables_wait_for_repair(source: ExternalDataSource) -> bool:
+    """Whether a broken marker holds this source's CDC table schedules paused, for Repair CDC to unpause.
+
+    A marker set with `pause=False` leaves the schedules running, so it does not count: self-managed
+    critical lag, and a billing stop that kept the slot. A table with sync off counts, because every
+    path that lifts a marker lifts it from those tables too.
+    """
+    return (
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config__has_key="cdc_broken",
+        )
+        .exclude(deleted=True)
+        .exclude(sync_type_config__cdc_broken__reason=SELF_MANAGED_LAG_REASON)
+        .exclude(sync_type_config__cdc_broken__has_key="slot_kept")
+        .exists()
+    )
 
 
 def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
@@ -211,6 +252,19 @@ def _schedule_failure_digest(source: ExternalDataSource, log: typing.Any) -> Non
     except Exception:
         # Best-effort: the daily catch-up still delivers via the visibility job rows.
         log.warning("cdc_broken_digest_schedule_failed", exc_info=True)
+
+
+def _emit_sync_alerts(source: ExternalDataSource, schemas: list[ExternalDataSchema]) -> None:
+    # Deferred: the data_warehouse facade imports this pipeline back.
+    from products.data_warehouse.backend.facade.api import SyncAlertEvent, SyncAlertKind, emit_sync_alert
+
+    for schema in schemas:
+        emit_sync_alert(
+            team_id=source.team_id,
+            schema_id=str(schema.id),
+            event=SyncAlertEvent.FAILED,
+            kind=SyncAlertKind.CDC_BROKEN,
+        )
 
 
 def _pause_schedules(source: ExternalDataSource, cdc_schemas: list[ExternalDataSchema], log: typing.Any) -> None:

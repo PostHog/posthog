@@ -8,7 +8,9 @@ from pathlib import Path
 import click
 
 from .baseline import check_baseline
-from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, is_isolated_product, validate_tach_toml
+from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, has_contracts_module, validate_tach_toml
+from .crossings import BASELINE_PATH
+from .ledger_growth import LEDGER_BASE_ENV, LEDGER_GROWTH_INSTRUCTION, ledger_growth_issues
 from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
@@ -25,8 +27,10 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
     Lint a product's structure. Returns list of issues found.
 
     Runs in two modes based on whether the product has backend/facade/contracts.py:
-      strict  — isolated product, all structure rules enforced
-      lenient — legacy product, subset of rules enforced (see product_structure.yaml)
+      strict  — the Strict rung or above, all structure rules enforced
+      lenient — the Lenient rung, subset of rules enforced (see product_structure.yaml)
+
+    The detailed output also prints the product's isolation rung (Lenient, Strict, Sealed, Isolated).
 
     Set detailed=True (single-product run) for richer isolation progress output.
     Pass structure= to avoid re-parsing product_structure.yaml on every call (useful in --all mode).
@@ -37,20 +41,26 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
     if not product_dir.exists():
         raise click.ClickException(f"Product '{name}' not found at {product_dir}")
 
-    isolated = is_isolated_product(backend_dir)
-    mode = "strict" if isolated else "lenient"
+    strict = has_contracts_module(backend_dir)
+    mode = "strict" if strict else "lenient"
 
     if verbose:
-        click.echo(f"  mode: {mode}" + (" (has backend/facade/contracts.py)" if isolated else " (legacy)"))
+        click.echo(
+            f"  mode: {mode}"
+            + (" (has backend/facade/contracts.py)" if strict else " (no backend/facade/contracts.py)")
+        )
 
     ctx = CheckContext(
         name=name,
         product_dir=product_dir,
         backend_dir=backend_dir,
-        is_isolated=isolated,
+        has_facade_contracts=strict,
         structure=structure or load_structure(),
         detailed=detailed,
     )
+    # The checks below read the same memoized status, so printing the rung costs no extra scan.
+    if verbose and backend_dir.is_dir():
+        click.echo(f"  rung: {ctx.isolation_status().rung}")
 
     issues: list[str] = []
     for check in CHECKS:
@@ -86,14 +96,14 @@ def _lint_tach_toml() -> list[str]:
 def lint_all_products() -> None:
     product_dirs = backend_product_dirs()
 
-    strict = [d.name for d in product_dirs if is_isolated_product(d / "backend")]
-    lenient = [d.name for d in product_dirs if not is_isolated_product(d / "backend")]
+    strict = [d.name for d in product_dirs if has_contracts_module(d / "backend")]
+    lenient = [d.name for d in product_dirs if not has_contracts_module(d / "backend")]
 
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
         "Checks: required root files, package.json scripts (presence + content), misplaced files (strict), "
         "file/folder conflicts, tach boundaries (+ interfaces for strict), isolation progress (lenient), "
-        "facade shape, isolation baseline\n"
+        "facade shape, isolation baseline, crossings ledger growth\n"
     )
 
     structure = load_structure()
@@ -129,13 +139,31 @@ def lint_all_products() -> None:
         click.echo("  ✓ ok")
     click.echo("")
 
-    if failed or tach_issues or baseline_issues:
+    click.echo("─ crossings ledger growth")
+    growth_issues = ledger_growth_issues()
+    if growth_issues is None:
+        click.echo(f"  – skipped: {LEDGER_BASE_ENV} is not set (CI sets it on pull requests)")
+    elif growth_issues:
+        click.echo(f"  ✗ {len(growth_issues)} issue(s)")
+        click.echo(f"    {LEDGER_GROWTH_INSTRUCTION}")
+        for issue in growth_issues:
+            click.echo(f"    → {issue}")
+            _gh_annotation(
+                "error", "products", "crossings ledger growth", issue, file=str(BASELINE_PATH.relative_to(REPO_ROOT))
+            )
+    else:
+        click.echo("  ✓ ok")
+    click.echo("")
+
+    if failed or tach_issues or baseline_issues or growth_issues:
         if failed:
             click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
         if tach_issues:
             click.echo(f"✗ {len(tach_issues)} tach.toml issue(s)")
         if baseline_issues:
             click.echo(f"✗ {len(baseline_issues)} isolation baseline issue(s)")
+        if growth_issues:
+            click.echo(f"✗ {len(growth_issues)} crossings ledger growth issue(s)")
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")
@@ -185,7 +213,7 @@ def lint_owners(names: list[str] | None = None) -> None:
             name=product_dir.name,
             product_dir=product_dir,
             backend_dir=product_dir / "backend",
-            is_isolated=is_isolated_product(product_dir / "backend"),
+            has_facade_contracts=has_contracts_module(product_dir / "backend"),
             structure=structure,
             detailed=False,
         )

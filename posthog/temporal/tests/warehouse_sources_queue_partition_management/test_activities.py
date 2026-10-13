@@ -443,3 +443,47 @@ async def test_connect_failure_keeps_database_url_out_of_traceback_locals() -> N
 
     hits = _frames_holding(exc_info.value.__traceback__, _SECRET)
     assert hits == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "existing_options, expect_alter",
+    [
+        ("", True),
+        ("autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02", True),
+        (", ".join(activities_module._PARTITION_AUTOVACUUM_OPTIONS), False),
+    ],
+)
+def test_tune_partition_autovacuum_sets_options_once(existing_options: str, expect_alter: bool) -> None:
+    table = f"autovacuum_test_{uuid4().hex[:12]}"
+    partition = f"{table}_20261002"
+    errors: list[str] = []
+
+    with psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn:
+        try:
+            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute(
+                f"CREATE TABLE {partition} PARTITION OF {table} FOR VALUES FROM ('2026-10-02') TO ('2026-10-03')"
+            )
+            if existing_options:
+                conn.execute(f"ALTER TABLE {partition} SET ({existing_options})")
+
+            statements: list[str] = []
+            real_execute = conn.execute
+
+            def recording_execute(query: Any, *args: Any, **kwargs: Any) -> Any:
+                statements.append(str(query))
+                return real_execute(query, *args, **kwargs)
+
+            with patch.object(conn, "execute", side_effect=recording_execute):
+                activities_module._tune_partition_autovacuum(conn, partition, errors)
+
+            row = conn.execute("SELECT reloptions FROM pg_class WHERE oid = %s::regclass", [partition]).fetchone()
+            assert row is not None
+            options = row[0]
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    assert errors == []
+    assert set(options) >= set(activities_module._PARTITION_AUTOVACUUM_OPTIONS)
+    assert any(statement.startswith("ALTER TABLE") for statement in statements) is expect_alter

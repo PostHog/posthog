@@ -12,6 +12,9 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization import Organization
+from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -53,11 +56,21 @@ class TestAccountRequests(ProvisioningTestBase):
         assert len(data["oauth"]["code"]) > 0
         assert User.objects.filter(email="newuser@example.com").exists()
 
-    def test_new_user_creates_org_and_team(self):
+    def test_new_user_refused_by_an_access_rule_gets_no_account(self):
+        with patch("ee.api.agentic_provisioning.accounts.signup_refused", return_value=True):
+            res = self._post_account_request(self._account_request_payload())
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "access_blocked"
+        assert not User.objects.filter(email="newuser@example.com").exists()
+
+    def test_new_user_creates_org_and_team_attributed_to_partner(self):
         self._post_account_request(self._account_request_payload())
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
+        assert TeamProvisioningConfig.objects.get(team=user.team).application_id == self.partner.id
+        record = OrganizationProvisioning.objects.get(organization=user.organization)
+        assert (record.partner, record.application_id) == ("provisioning_api", self.partner.id)
 
     def test_new_user_starts_unverified(self):
         # Partner-asserted email ownership is not trusted: the user must prove they own
@@ -152,12 +165,24 @@ class TestAccountRequests(ProvisioningTestBase):
         # the partner is sent through consent rather than getting a silent code.
         assert res.json()["type"] == "requires_auth"
 
-    @patch("ee.api.agentic_provisioning.accounts.User.objects.bootstrap", side_effect=IntegrityError)
-    def test_integrity_error_without_existing_user_returns_500(self, _mock_bootstrap):
+    @parameterized.expand(
+        [
+            ("in_bootstrap", "ee.api.agentic_provisioning.accounts.User.objects.bootstrap"),
+            (
+                "in_organization_attribution",
+                "ee.api.agentic_provisioning.accounts.OrganizationProvisioning.objects.create",
+            ),
+        ]
+    )
+    def test_integrity_error_without_existing_user_returns_500(self, _name: str, failing_call: str) -> None:
+        organization_count = Organization.objects.count()
         payload = self._account_request_payload(email="ghost@example.com")
-        res = self._post_account_request(payload)
+        with patch(failing_call, side_effect=IntegrityError):
+            res = self._post_account_request(payload)
         assert res.status_code == 500
         assert res.json()["error"]["code"] == "account_creation_failed"
+        assert not User.objects.filter(email="ghost@example.com").exists()
+        assert Organization.objects.count() == organization_count
 
     @patch("ee.api.agentic_provisioning.accounts.capture_provisioning_event")
     def test_new_user_capture_includes_team_id(self, mock_capture_event):

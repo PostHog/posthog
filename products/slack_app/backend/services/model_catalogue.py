@@ -13,6 +13,7 @@ against it. Neither may hardcode a model list.
 from __future__ import annotations
 
 from products.tasks.backend.facade.model_catalogue import (
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
@@ -23,6 +24,7 @@ from products.tasks.backend.facade.model_catalogue import (
     filter_unsupported_effort,
     group_by_runtime,
     label_for,
+    normalize_model_id,
     offered_model_choices,
     runtime_adapter_for,
 )
@@ -52,6 +54,7 @@ def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
 
 
 __all__ = [
+    "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
     "COST_BASELINE_MODEL",
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
@@ -64,5 +67,6 @@ __all__ = [
     "display_name_for_model",
     "group_by_runtime",
     "label_for",
+    "normalize_model_id",
     "runtime_adapter_for",
 ]
