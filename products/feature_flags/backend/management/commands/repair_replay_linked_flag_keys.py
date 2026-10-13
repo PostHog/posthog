@@ -321,7 +321,21 @@ class Command(BaseCommand):
                 )
             ]
 
-        findings = []
+        # `trigger_group_flag_refs` skips an entry that is not an object, so the scan reports it here.
+        # The command still repairs the readable groups beside it.
+        findings = [
+            _Finding(
+                outcome=Outcome.MALFORMED,
+                location=Location.TRIGGER_GROUP,
+                team_id=team.id,
+                project_id=team.project_id,
+                stored_flag=group,
+                group_index=index,
+                group_id=None,
+            )
+            for index, group in enumerate(trigger_groups["groups"])
+            if not isinstance(group, dict)
+        ]
         for ref in trigger_group_flag_refs(trigger_groups):
             outcome, resolved = self._classify_trigger_group_ref(ref, team.project_id, flags)
             findings.append(

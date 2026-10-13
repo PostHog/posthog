@@ -335,6 +335,31 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         self.team.refresh_from_db()
         assert self.team.session_recording_trigger_groups == stored
 
+    def test_reports_a_group_entry_that_is_not_an_object_and_repairs_its_siblings(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
+        readable_group = {"id": "group-1", "conditions": {"flag": {"id": flag.id, "key": "replay-gate"}}}
+        self.team.session_recording_trigger_groups = {"version": 2, "groups": ["not-a-group", readable_group]}
+        self.team.save()
+
+        report = self._run("--live-run", teams=[self.team])
+
+        assert report["outcomes"] == {"malformed": 1, "repaired": 1}
+        assert report["unrepairable"] == [
+            {
+                "outcome": "malformed",
+                "location": "trigger_group",
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "group_index": 0,
+                "group_id": None,
+                "stored_flag": "not-a-group",
+            }
+        ]
+        self.team.refresh_from_db()
+        groups = self.team.session_recording_trigger_groups["groups"]
+        assert groups[0] == "not-a-group"
+        assert groups[1]["conditions"]["flag"] == {"id": flag.id, "key": "replay-gate-v2"}
+
     @parameterized.expand(
         [
             # The key is what the SDK resolves, so a reference without one gates nothing. These
