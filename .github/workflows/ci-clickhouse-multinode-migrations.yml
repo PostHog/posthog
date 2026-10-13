@@ -12,6 +12,8 @@ on:
             - 'posthog/clickhouse/client/migration_tools.py'
             - 'docker/clickhouse/config.d/multinode/**'
             - 'docker-compose.multinode-clickhouse.yml'
+            # The multinode stack extends this file, which pins the ClickHouse image.
+            - 'docker-compose.base.yml'
             - 'tools/infra-scripts/clickhouse-multinode/**'
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
