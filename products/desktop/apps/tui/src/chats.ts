@@ -138,9 +138,10 @@ export class PiChats {
           initialPermissionMode: pick.mode as ExecutionMode,
         }),
     });
+    // Uploaded to the run, not staged on the task: the server resolves a pending message's artifacts on the run.
     const artifactIds =
       images.length > 0
-        ? await this.uploads.toTask(task.id, filesOf(images))
+        ? await this.uploads.toRun(task.id, run.id, filesOf(images))
         : [];
     const started = await this.api.startTaskRun(task.id, run.id, {
       pendingUserMessage: prompt,
