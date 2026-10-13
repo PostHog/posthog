@@ -19,11 +19,9 @@ import { organizationLogic } from './organizationLogic'
 import { urls } from './urls'
 import { userLogic } from './userLogic'
 
-/** Whether a page stays reachable while the current project is pending deletion. */
 export function isPathOpenWhileProjectPendingDeletion(pathname: string): boolean {
     // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.
-    // Support tickets load from PostHog's own project through posthog-js, not from this project, and
-    // the reply emails link to them. Locking that page out leaves the user unable to read our replies.
+    // Tickets load from PostHog's support project, not this one, and reply emails link to them.
     return pathname.endsWith(urls.projectPendingDeletion()) || removeProjectIdIfPresent(pathname) === urls.myTickets()
 }
 

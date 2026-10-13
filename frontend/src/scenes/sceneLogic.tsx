@@ -915,7 +915,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     projectLogic.findMounted()?.values.currentProject?.is_pending_deletion &&
                     !isPathOpenWhileProjectPendingDeletion(router.values.location.pathname)
                 ) {
-                    // Decide the project lockout here too, for the same reason as the organization block above.
+                    // Same reason as the organization block above.
                     router.actions.replace(urls.projectPendingDeletion())
                     return
                 }
