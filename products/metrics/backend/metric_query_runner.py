@@ -527,7 +527,11 @@ class MetricQueryRunner:
         self.metric_type = metric_type
         # An alert check passes its own execution cap so ClickHouse ends an overrunning query
         # before the caller's activity times out.
-        self._query_settings = query_settings or _QUERY_SETTINGS
+        self._query_settings = (
+            _QUERY_SETTINGS.model_copy(update=query_settings.model_dump(exclude_unset=True))
+            if query_settings is not None
+            else _QUERY_SETTINGS
+        )
 
     @property
     def scan_from(self) -> dt.datetime:
