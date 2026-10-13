@@ -172,6 +172,32 @@ export interface projectLogicMeta {
             otherOrganizations: OrganizationBasicType[]
         ) => "You can't move the project because you aren't a member of another organization" | null
     }
+    __keaTypeGenInternalReducerActions: {
+        'location changed (kea.router)': ({
+            method,
+            pathname,
+            search,
+            searchParams,
+            hash,
+            hashParams,
+            initial,
+            url,
+            routerState,
+        }: LocationChangedPayload) => {
+            payload: {
+                hash: string
+                hashParams: Record<string, any>
+                initial: boolean
+                method: 'POP' | 'PUSH' | 'REPLACE'
+                pathname: string
+                routerState: Record<string, any>
+                search: string
+                searchParams: Record<string, any>
+                url: string
+            }
+            type: 'location changed (kea.router)'
+        }
+    }
 }
 
 export type projectLogicType = MakeLogicType<
