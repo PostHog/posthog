@@ -16,8 +16,8 @@ import {
 
 // Tab-freezing recordings are both large overall and made of huge individual events (giant DOM
 // mutations); most large recordings are ordinary small events and play fine, so both must trip
-export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
-export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
+const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
+const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
 
 export function isRecordingTooLargeToPlay(
     recording: Pick<SessionRecordingType, 'snapshot_source' | 'total_size' | 'event_count'> | null | undefined
