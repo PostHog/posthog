@@ -153,6 +153,17 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Numeric external IDs (e.g. a numeric user ID) crashed in trim() before the fetch, so the
+            # conversion was never sent. Functions created earlier keep the frozen code without toString().
+            "openai-ads-numeric-external-id": {
+                "template_id": "template-openai-ads",
+                "replacements": [
+                    {
+                        "from_string": "sha256Hex(trim(inputs.externalId))",
+                        "to_string": "sha256Hex(trim(toString(inputs.externalId)))",
+                    },
+                ],
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:

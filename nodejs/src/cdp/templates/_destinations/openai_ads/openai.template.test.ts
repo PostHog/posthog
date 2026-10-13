@@ -172,6 +172,23 @@ describe('openai template', () => {
         expect(response.error).toBeUndefined()
         assertIdentifiers(getBody(response).events[0])
     })
+    // Person properties keep their JSON type, so a numeric customer ID must hash like its string form
+    it.each([
+        ['a numeric', 1234567890, EXTERNAL_ID_SHA256],
+        ['a zero', 0, '5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9'],
+        ['a string', ' 1234567890 ', EXTERNAL_ID_SHA256],
+    ])('hashes %s external ID', async (_, externalId, expectedHash) => {
+        const response = await tester.invokeMapping(
+            'Custom',
+            { pixelId: 'pixel-123', apiKey: 'api-key' },
+            createAdDestinationPayload({
+                event: { properties: { $current_url: 'https://posthog.com/checkout' } },
+                person: { properties: { oppref: null, email: null, external_id: externalId } },
+            })
+        )
+        expect(response.error).toBeUndefined()
+        expect(getBody(response).events[0].user).toEqual({ external_ids_sha256: [expectedHash] })
+    })
     it('skips when only weak identifiers are available', async () => {
         const response = await tester.invokeMapping(
             'Custom',
