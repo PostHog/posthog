@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, patch
 
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
-from posthog.cdp.validation import compile_hog
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import compile_hog
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now

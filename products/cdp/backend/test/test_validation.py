@@ -10,8 +10,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
-from posthog.cdp.validation import (
+from posthog.models.integration import Integration
+
+from products.cdp.backend.filters import RUNTIME_CONTRACT
+from products.cdp.backend.validation import (
     FunctionInputsSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -21,8 +23,6 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
     reserved_functions_used,
 )
-from posthog.models.integration import Integration
-
 from products.messaging.backend.facade.api import validate_design
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
