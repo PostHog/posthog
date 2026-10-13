@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
@@ -284,7 +286,7 @@ class TestReportUserAction(BaseTest):
             )
 
 
-class TestGetEventSource(BaseTest):
+class TestGetEventSource(SimpleTestCase):
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
@@ -481,7 +483,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
 
-class TestIsWizardSelfDrivingProgram(BaseTest):
+class TestIsWizardSelfDrivingProgram(SimpleTestCase):
     @parameterized.expand(
         [
             # Direct wizard → Django: the marker rides on the User-Agent itself.
@@ -581,7 +583,7 @@ class TestSignupCrmExclusion(BaseTest):
             mock_group_identify.assert_not_called()
 
 
-class TestSanitizeHeaderValue(BaseTest):
+class TestSanitizeHeaderValue(SimpleTestCase):
     @parameterized.expand(
         [
             ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),
