@@ -67,12 +67,13 @@ Do not claim that an event never existed based on a bounded search.
    asked about session traces, use `posthog:apm-attributes-list` to find a
    span attribute that stores the session ID. If a clear key exists, call
    `posthog:query-apm-spans` with an exact `span_attribute` filter, a short
-   window around the error, `rootSpans: true`, and a small `limit`. Call
-   `posthog:apm-trace-get` for a candidate that needs a link. Label these as
-   session matches. Time alone does not prove which request raised the error.
-4. **Same-trace logs:** For each unique trace ID, use the trace's
-   `service_name` values to scope the log read. If the trace gives no service,
-   use the bounded SQL query below to find services with logs for that trace.
+   window around the error, `flatSpans: true`, and a small `limit`. This finds
+   matching child spans as well as root spans. Call `posthog:apm-trace-get`
+   for a candidate that needs a link. Label these as session matches. Time
+   alone does not prove which request raised the error.
+4. **Same-trace logs:** For each unique trace ID, run the bounded SQL query
+   below to find services with logs for that trace, even when retained spans
+   name some services. Add any service names from the retained trace.
    `logs-attribute-values-list` cannot filter service values by trace ID.
    Call `posthog:logs-count`, then `posthog:query-logs` with the same trace ID,
    services, and time window. Include every severity, including `info`. If no
@@ -80,7 +81,8 @@ Do not claim that an event never existed based on a bounded search.
 
 Raw `logs.trace_id` values use base64. Convert the validated hex ID in the
 predicate, and use a short time window around the error. The 21st row shows
-when the first 20 services are incomplete.
+when the first 20 services are incomplete. Narrow the window and retry if a
+complete list matters; otherwise report the limit.
 
 ```sql
 posthog:execute-sql

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
@@ -14,7 +17,8 @@ from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
     SkillSearchFirst,
     skill_distribution_expectations,
 )
-from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
+from products.posthog_ai.evals.error_tracking.seeders import seed_error_tracking_issues
+from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext
 
 
 def _case(
@@ -26,6 +30,7 @@ def _case(
     *,
     alternate_skills: list[str] | None = None,
     excluded_skill: str | None = None,
+    setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = None,
 ) -> SandboxedEvalCase:
     return SandboxedEvalCase(
         name=name,
@@ -38,6 +43,7 @@ def _case(
             excluded_skill=excluded_skill,
         ),
         metadata={"expected_skill": skill, "skill_delivery": skill_delivery},
+        setup=setup,
         # The sandbox identifies as the eval consumer, which the MCP serves `learn` to; the default
         # (Desktop) consumer is excluded from `learn`, so the exec arm would never exercise it.
         interaction_origin=EVAL_INTERACTION_ORIGIN,
@@ -140,15 +146,16 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
             excluded_skill="linking-errors-to-traces",
         ),
         _case(
-            name="issue_diagnosis_without_trace_request",
+            name="error_triage_without_trace_request",
             prompt=(
-                "Explain error tracking issue 1ad13555-9f8c-4943-9e06-ef0f801cd3fa: "
-                "who does it affect, and what is the likely cause?"
+                "Which active error tracking issues are affecting the most users this week? "
+                "Give me a short list of what to investigate first."
             ),
-            skill="investigating-error-issue",
-            downstream_tools=["query-error-tracking-issue"],
+            skill="triaging-error-issues",
+            downstream_tools=["query-error-tracking-issues-list"],
             skill_delivery=ctx.skill_delivery,
             excluded_skill="linking-errors-to-traces",
+            setup=seed_error_tracking_issues,
         ),
     ]
 
