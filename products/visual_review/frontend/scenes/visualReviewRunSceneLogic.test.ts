@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -266,5 +267,43 @@ describe('visualReviewRunSceneLogic', () => {
             selectedLiftRequest,
             selectedLiftOnMergeDisabledReason: disabledReason,
         })
+    })
+
+    it.each([
+        {
+            name: 'moves a renamed repo path to the run repo',
+            pathName: 'PostHog/old-name',
+            expectedPath: 'PostHog/posthog',
+        },
+        {
+            name: 'keeps a path that differs only in case',
+            pathName: 'posthog/POSTHOG',
+            expectedPath: 'posthog/POSTHOG',
+        },
+    ])('$name', async ({ pathName, expectedPath }) => {
+        // A run of its own, because the shared logic already loaded the run without a repo name.
+        const NAMED_RUN_ID = '00000000-0000-0000-0000-0000000000bb'
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${NAMED_RUN_ID}/`]: [
+                    200,
+                    { id: NAMED_RUN_ID, repo_id: 'repo', run_type: 'storybook', pr_number: 7, status: 'completed' },
+                ],
+                '/api/projects/:team_id/visual_review/repos/repo/': [
+                    200,
+                    { id: 'repo', team_id: 1, repo_full_name: 'PostHog/posthog' },
+                ],
+            },
+        })
+        const [owner, name] = pathName.split('/')
+        router.actions.push(`/visual_review/repos/${owner}/${name}/runs/${NAMED_RUN_ID}`, {}, { snapshot: 'kept' })
+        const namedLogic = visualReviewRunSceneLogic({ runId: NAMED_RUN_ID, repoFullName: pathName })
+        namedLogic.mount()
+
+        await expectLogic(namedLogic).toDispatchActions(['loadRepoSuccess'])
+        await expectLogic(namedLogic).toMatchValues({ repoFullName: 'PostHog/posthog' })
+        expect(router.values.location.pathname).toContain(`/visual_review/repos/${expectedPath}/runs/${NAMED_RUN_ID}`)
+        expect(router.values.hashParams).toEqual({ snapshot: 'kept' })
+        namedLogic.unmount()
     })
 })
