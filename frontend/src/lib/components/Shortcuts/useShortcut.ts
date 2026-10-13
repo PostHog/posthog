@@ -29,6 +29,8 @@ interface UseShortcutOptionsBase {
     ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** If true, register the shortcut but hide it from the shortcut menu */
+    hidden?: boolean
 }
 
 interface UseShortcutOptionsWithRef extends UseShortcutOptionsBase {
@@ -117,6 +119,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         disabled = false,
         ignoreInEditable = false,
         priority,
+        hidden,
     } = options
 
     const internalRef = useRef<T>(null)
@@ -155,6 +158,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 scope,
                 priority,
                 ignoreInEditable,
+                hidden,
             })
         } else if (isRefReady && ref.current && interaction !== 'function') {
             const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
@@ -167,6 +171,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 scope,
                 priority,
                 ignoreInEditable,
+                hidden,
             })
         }
 
@@ -184,6 +189,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         ignoreInEditable,
         ref,
         priority,
+        hidden,
         registerShortcut,
         unregisterShortcut,
     ])

@@ -30,11 +30,17 @@ export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.obje
     billing_limit: zod.number(),
 })
 
-export const billingCouponsClaimCreateBodyPlanMax = 100
-
 export const BillingCouponsClaimCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingCouponsClaimCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    code: zod
+        .string()
+        .optional()
+        .describe('Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access.'),
+    campaign_slug: zod
+        .string()
+        .optional()
+        .describe(
+            'Slug of a campaign to redeem. Give this or `code`, never both. Any organization member can redeem an allowlisted campaign.'
+        ),
 })
 
 export const billingCreditsPurchaseCreateBodyPlanMax = 100
