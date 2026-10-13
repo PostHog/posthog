@@ -49,7 +49,12 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
         )
 
     def _create_order_paid(
-        self, distinct_id: str, person_id: UUID, timestamp: datetime, session_id: str | None = None
+        self,
+        distinct_id: str,
+        person_id: UUID,
+        timestamp: datetime,
+        session_id: str | None = None,
+        properties: dict | None = None,
     ) -> None:
         _create_event(
             team=self.team,
@@ -57,16 +62,20 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             distinct_id=distinct_id,
             person_id=person_id,
             timestamp=timestamp,
-            properties={"$session_id": session_id} if session_id else {},
+            properties={**({"$session_id": session_id} if session_id else {}), **(properties or {})},
         )
 
-    def _assert_matches(self, events: list[dict], expected: list[str], flag_enabled: bool = True) -> None:
+    def _assert_matches(
+        self, events: list[dict], expected: list[str], flag_enabled: bool = True, properties: list | None = None
+    ) -> None:
         with patch(
             "posthog.session_recordings.queries.sub_queries.events_subquery.feature_enabled_or_false",
             side_effect=lambda flag, *args, **kwargs: flag_enabled and flag == UNSESSIONED_EVENTS_FLAG,
         ):
             assert_query_matches_session_ids(
-                team=self.team, query={"date_from": "-3d", "events": events}, expected=expected
+                team=self.team,
+                query={"date_from": "-3d", "events": events, "properties": properties or []},
+                expected=expected,
             )
 
     @parameterized.expand(
@@ -74,6 +83,15 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             ("same_distinct_id_inside_window", True, "user-1", INSIDE_WINDOW, None, [ORDER_PAID], True),
             ("merged_distinct_id_inside_window", True, "anon-1", INSIDE_WINDOW, None, [ORDER_PAID], True),
             ("outside_window", True, "user-1", RECORDING_END + timedelta(hours=2), None, [ORDER_PAID], False),
+            (
+                "inside_margin_in_the_hour_before_the_recording",
+                True,
+                "user-1",
+                RECORDING_START - timedelta(seconds=30),
+                None,
+                [ORDER_PAID],
+                True,
+            ),
             ("other_session_id_on_event", True, "user-1", INSIDE_WINDOW, "other", [ORDER_PAID], False),
             ("flag_off", False, "user-1", INSIDE_WINDOW, None, [ORDER_PAID], False),
             ("exclusion_turns_match_off", True, "user-1", INSIDE_WINDOW, None, [ORDER_PAID, REFUND_EXCLUDED], False),
@@ -152,3 +170,20 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
 
         with patch("posthog.session_recordings.queries.sub_queries.events_subquery.EVENTS_SUBQUERY_ROW_LIMIT", 1):
             self._assert_matches([ORDER_PAID], ["recording-of-user-1"])
+
+    @parameterized.expand(
+        [("backend_event_has_the_property", "pro", True), ("no_event_has_the_property", "free", False)]
+    )
+    def test_top_level_event_property_matches_event_without_session_id(
+        self, _name: str, plan: str, expected_match: bool
+    ) -> None:
+        person = create_person(team=self.team, distinct_ids=["user-1"])
+        self._produce_recording("recording-of-user-1", "user-1")
+        self._create_order_paid("user-1", person.uuid, INSIDE_WINDOW, properties={"plan": plan})
+        flush_persons_and_events()
+
+        self._assert_matches(
+            [ORDER_PAID],
+            ["recording-of-user-1"] if expected_match else [],
+            properties=[{"key": "plan", "value": ["pro"], "operator": "exact", "type": "event"}],
+        )

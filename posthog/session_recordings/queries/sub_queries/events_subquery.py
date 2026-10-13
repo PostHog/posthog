@@ -116,7 +116,8 @@ class SessionIdMatchPlan:
     # reads properties for the plain event filters, which the separate scans never needed.
     property_filter_count: int
     combined_eligible: bool
-    # Event filters that also match events without a session id, by person and time.
+    # Event filters and top-level event property filters that also match events without a
+    # session id, by person and time.
     unsessioned_filter_count: int
 
 
@@ -215,46 +216,58 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             UNSESSIONED_EVENTS_FLAG, str(self._team.id), only_evaluate_locally=True, send_feature_flag_events=False
         )
 
+    @staticmethod
+    def _global_in(field: str, subquery: ast.SelectQuery) -> ast.CompareOperation:
+        # GLOBAL: the initiator builds each set once and ships it, so no shard runs the scan of
+        # a distributed table again.
+        return ast.CompareOperation(op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=[field]), right=subquery)
+
+    def _recorded_distinct_ids(self) -> ast.SelectQuery:
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                "SELECT s.distinct_id FROM raw_session_replay_events AS s WHERE {scope}",
+                placeholders={"scope": self._recording_scope()},
+            ),
+        )
+
+    def _current_persons(self, distinct_ids: ast.SelectQuery) -> ast.SelectQuery:
+        """The current person of each of `distinct_ids`.
+
+        The lookup is by distinct id, which leads the mapping's sort key. The column names are
+        unique, so a join to the events table does not make the event filter's `distinct_id` or
+        `person_id` ambiguous.
+        """
+        query = parse_select(
+            """
+            SELECT distinct_id AS mapped_distinct_id, argMax(person_id, version) AS mapped_person_id
+            FROM raw_person_distinct_ids
+            WHERE {distinct_ids}
+            GROUP BY distinct_id
+            HAVING argMax(is_deleted, version) = 0
+            """,
+            placeholders={"distinct_ids": self._global_in("distinct_id", distinct_ids)},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _unsessioned_person_mapping(self) -> ast.SelectQuery:
         """The current person of every distinct id that may share a person with a recording in scope.
 
         The raw rows nominate candidates without resolving versions, so the set can only be too
         wide. The latest-version resolution then runs over those candidates only, not over the
-        team's whole mapping. The column names are unique, so a join to the events table does not
-        make the event filter's `distinct_id` or `person_id` ambiguous.
+        team's whole mapping. No table is sorted by person id, so the nomination reads the team's
+        whole mapping once. Only the events side needs it.
         """
-
-        def global_in(field: str, subquery: ast.SelectQuery) -> ast.CompareOperation:
-            # GLOBAL: the initiator builds each set once and ships it, so no shard runs the scan of
-            # a distributed table again.
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=[field]), right=subquery
-            )
-
-        recorded_distinct_ids = parse_select(
-            "SELECT s.distinct_id FROM raw_session_replay_events AS s WHERE {scope}",
-            placeholders={"scope": self._recording_scope()},
-        )
         recorded_persons = parse_select(
             "SELECT person_id FROM raw_person_distinct_ids WHERE {recorded}",
-            placeholders={"recorded": global_in("distinct_id", cast(ast.SelectQuery, recorded_distinct_ids))},
+            placeholders={"recorded": self._global_in("distinct_id", self._recorded_distinct_ids())},
         )
         candidates = parse_select(
             "SELECT distinct_id FROM raw_person_distinct_ids WHERE {persons}",
-            placeholders={"persons": global_in("person_id", cast(ast.SelectQuery, recorded_persons))},
+            placeholders={"persons": self._global_in("person_id", cast(ast.SelectQuery, recorded_persons))},
         )
-        query = parse_select(
-            """
-            SELECT distinct_id AS mapped_distinct_id, argMax(person_id, version) AS mapped_person_id
-            FROM raw_person_distinct_ids
-            WHERE {candidates}
-            GROUP BY distinct_id
-            HAVING argMax(is_deleted, version) = 0
-            """,
-            placeholders={"candidates": global_in("distinct_id", cast(ast.SelectQuery, candidates))},
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
+        return self._current_persons(cast(ast.SelectQuery, candidates))
 
     def _unsessioned_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
         """One row per person and minute with matching events that carry no session id.
@@ -287,6 +300,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 ast.Alias(alias="event_person_id", expr=ast.Field(chain=["event_person", "mapped_person_id"])),
                 ast.Alias(alias="first_timestamp", expr=parse_expr("min(timestamp)")),
                 ast.Alias(alias="last_timestamp", expr=parse_expr("max(timestamp)")),
+                # A row covers one minute, so it falls in one hour.
+                ast.Alias(alias="hour_bucket", expr=parse_expr("intDiv(toUnixTimestamp(min(timestamp)), 3600)")),
             ],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
@@ -309,7 +324,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         )
 
     def _unsessioned_recordings_query(self) -> ast.SelectQuery:
-        query = parse_select(
+        """One row per recording, person, and hour that its window (plus the margin) touches.
+
+        The hour key bounds the join to the event minutes: a person with many recordings and
+        many event minutes only pairs the ones in the same hour.
+        """
+        windows = parse_select(
             """
             SELECT s.session_id AS session_id,
                    recording_person.mapped_person_id AS person_id,
@@ -320,12 +340,27 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             WHERE {scope}
             GROUP BY s.session_id, recording_person.mapped_person_id
             """,
-            placeholders={"recording_person": self._unsessioned_person_mapping(), "scope": self._recording_scope()},
+            placeholders={
+                "recording_person": self._current_persons(self._recorded_distinct_ids()),
+                "scope": self._recording_scope(),
+            },
+        )
+        assert isinstance(windows, ast.SelectQuery)
+        assert windows.select_from is not None and windows.select_from.next_join is not None
+        # GLOBAL: the initiator builds the mapping once and ships it to each shard.
+        windows.select_from.next_join.join_type = "GLOBAL INNER JOIN"
+        query = parse_select(
+            """
+            SELECT session_id, person_id, window_start, window_end,
+                   arrayJoin(range(
+                       intDiv(toUnixTimestamp(subtractMinutes(window_start, {margin})), 3600),
+                       intDiv(toUnixTimestamp(addMinutes(window_end, {margin})), 3600) + 1
+                   )) AS hour_bucket
+            FROM {windows}
+            """,
+            placeholders={"windows": windows, "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES)},
         )
         assert isinstance(query, ast.SelectQuery)
-        assert query.select_from is not None and query.select_from.next_join is not None
-        # GLOBAL: the initiator builds the mapping once and ships it to each shard.
-        query.select_from.next_join.join_type = "GLOBAL INNER JOIN"
         return query
 
     def _unsessioned_sessions_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
@@ -333,16 +368,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         A recording matches when the event falls inside the recording window of one of that
         person's distinct ids. Both sides resolve the person through the current distinct id
-        mapping, so a merge after the event is followed in every persons-on-events mode. Each
-        side builds the mapping once. The events join the recording windows before any cap, so
-        only matched sessions count toward the limit. The minute grouping can widen the match by
-        up to one minute past the margin.
+        mapping, so a merge after the event is followed in every persons-on-events mode. The
+        events join the recording windows before any cap, so only matched sessions count toward
+        the limit. The minute grouping can widen the match by up to one minute past the margin.
         """
         query = parse_select(
             """
             SELECT recording.session_id AS session_id
             FROM {unsessioned} AS unsessioned
-            INNER JOIN {recording} AS recording ON recording.person_id = unsessioned.event_person_id
+            INNER JOIN {recording} AS recording
+                ON recording.person_id = unsessioned.event_person_id AND recording.hour_bucket = unsessioned.hour_bucket
             WHERE unsessioned.last_timestamp >= subtractMinutes(recording.window_start, {margin})
               AND unsessioned.first_timestamp <= addMinutes(recording.window_end, {margin})
             GROUP BY recording.session_id
@@ -909,10 +944,13 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         )
         unsessioned_filter_count = 0
         if match_unsessioned:
-            # _gathered_exprs puts one predicate per event and action filter first, and
-            # _separate_queries keeps that order after the optional hybrid query.
+            # _gathered_exprs puts one predicate per event and action filter first, then one per
+            # top-level event property, and _separate_queries keeps that order after the optional
+            # hybrid query. Match is off with any negative property, so these are all positive.
             offset = 1 if hybrid_query else 0
-            unsessioned_filter_count = sum(1 for entity in self.entities if not isinstance(entity, DataWarehouseNode))
+            unsessioned_filter_count = sum(
+                1 for entity in self.entities if not isinstance(entity, DataWarehouseNode)
+            ) + len(self._emitted_event_properties())
             for index in range(unsessioned_filter_count):
                 queries[offset + index] = self._with_unsessioned_sessions(
                     queries[offset + index], gathered_exprs[index]
