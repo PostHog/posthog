@@ -467,13 +467,13 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
     def test_leaves_trigger_groups_naming_unusable_flags_alone(
         self, _name: str, unusable: str, live_flag_holds_key: bool, outcome: str
     ) -> None:
-        # The group stores the unusable flag's own key, so a check that compared keys before it
-        # checked the flag would count this group correct.
+        # The group stores the key that the unusable flag held. A check that compared keys before it
+        # checked the flag would miss the block.
         flag = self._create_unusable_flag(unusable)
         if live_flag_holds_key:
             # The API renames a soft-deleted flag before another flag takes its key. A queryset
             # update skips the relink that rename runs, which is the failure this case covers.
-            FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).update(key=f"tombstone-{flag.pk}")
+            FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).update(key=flag.tombstoned_key())
             FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
         set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "replay-gate-v2"}})
         stored_before = self.team.session_recording_trigger_groups
