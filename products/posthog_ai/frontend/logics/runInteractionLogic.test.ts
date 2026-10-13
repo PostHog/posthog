@@ -363,12 +363,12 @@ describe('runInteractionLogic', () => {
         expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()).toBeNull()
     })
 
-    it('restores the saved draft, then adds comment text and sends the comment chips before it', async () => {
+    it('restores the saved draft and its chips, then adds comment text and sends every chip before it', async () => {
         const comments = taskCommentContextsLogic({ taskId: TASK_ID })
         comments.mount()
         new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).save({
             runId: RUN_ID,
-            draft: 'saved draft',
+            draft: '<comment_context label="chart.png">\n- **Artifact** chart.png\n</comment_context>\nsaved draft',
             queuedText: '',
             recovery: null,
         })
@@ -383,7 +383,7 @@ describe('runInteractionLogic', () => {
 
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
             ...userMessageCommand(
-                '<comment_context label="report.md">\n- **Artifact** report.md\n</comment_context>\nsaved draft\n\nFix the title'
+                '<comment_context label="chart.png">\n- **Artifact** chart.png\n</comment_context>\n<comment_context label="report.md">\n- **Artifact** report.md\n</comment_context>\nsaved draft\n\nFix the title'
             )
         )
         expect(comments.values.commentContexts).toEqual([])

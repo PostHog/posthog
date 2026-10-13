@@ -80,7 +80,6 @@ export const taskCommentContextsLogic = kea<taskCommentContextsLogicType>([
     reducers({
         commentContexts: [
             [] as PendingCommentContext[],
-            { persist: true },
             {
                 addCommentToChat: (state, { context }) => (context ? [...state, context] : state),
                 restoreCommentContexts: (state, { contexts }) => [...contexts, ...state],
@@ -90,7 +89,6 @@ export const taskCommentContextsLogic = kea<taskCommentContextsLogicType>([
         ],
         pendingCommentText: [
             [] as string[],
-            { persist: true },
             {
                 addCommentToChat: (state, { comment }) => [...state, comment],
                 consumePendingCommentText: () => [],

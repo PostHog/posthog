@@ -1693,7 +1693,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     }),
     listeners(taskDraftListeners),
     listeners(({ actions, values, props, cache }) => ({
-        hydrateTaskDraft: () => actions.applyPendingCommentText(),
+        hydrateTaskDraft: () => {
+            const draft = values.composerForm.draft
+            const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
+            const { contexts, text } = extractCommentContexts(draft)
+            if (commentLogic && contexts.length > 0) {
+                commentLogic.actions.restoreCommentContexts(contexts)
+                actions.setComposerFormValues({ draft: text })
+            }
+            actions.applyPendingCommentText()
+        },
         applyPendingCommentText: () => {
             const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
             const pendingText = commentLogic?.values.pendingCommentText ?? []
