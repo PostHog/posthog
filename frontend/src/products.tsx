@@ -1484,6 +1484,8 @@ export const productUrls = {
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
     warehouseDestinations: (): string => '/data-management/warehouse-destinations',
+    warehouseDestination: (id: string): string =>
+        `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
