@@ -2248,6 +2248,7 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -
             "system_one_model": decision.model,
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
+            "own_code_lines": decision.own_code_lines,
         },
         groups=groups(team=report.team),
     )

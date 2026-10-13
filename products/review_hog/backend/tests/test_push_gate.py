@@ -183,6 +183,8 @@ def test_push_gate_asks_system_one_about_own_code_commits(
         probability,
         PUSH_GATE_MODEL,
     )
+    # The README's lines stay out of the push size, like they stay out of the state.
+    assert decision.own_code_lines == 2
     call = system_one.decide.call_args.kwargs
     # The threshold was calibrated on exactly this state: own code patches, docs dropped.
     assert call["state"] == f"--- posthog/billing.py\n{_BILLING_FIX}"
