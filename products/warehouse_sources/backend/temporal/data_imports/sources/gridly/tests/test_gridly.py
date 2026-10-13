@@ -289,6 +289,22 @@ class TestRecordHistories:
         assert "{recordId}/histories" in str(result.raised)
         assert "a%2Fb" not in " ".join(str(call) for call in logger.error.call_args_list)
 
+    @patch(f"{_MODULE}.PAGE_SIZE", 2)
+    def test_record_id_is_redacted_from_connection_errors(self) -> None:
+        record_id = "secret@example.com"
+        failure = requests.ConnectionError(
+            f"Max retries exceeded with url: /v1/views/view/records/{record_id}/histories"
+        )
+
+        result = _driver().run(
+            "record_histories",
+            [ScriptedResponse(json=[{"id": record_id}]), *[failure] * MAX_RETRY_ATTEMPTS],
+        )
+
+        assert isinstance(result.raised, requests.ConnectionError)
+        assert record_id not in str(result.raised)
+        assert "{recordId}/histories" in str(result.raised)
+
 
 class TestRetries:
     def test_retries_exhausted_raises(self) -> None:

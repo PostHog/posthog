@@ -77,7 +77,13 @@ def _fetch(
 ) -> requests.Response:
     # `redacted_url` replaces `url` in every log line and error when the URL embeds customer content,
     # such as a customer-defined record id.
-    response = session.get(url, params=params, headers=headers, timeout=60)
+    try:
+        response = session.get(url, params=params, headers=headers, timeout=60)
+    except (requests.ReadTimeout, requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as error:
+        if redacted_url is None:
+            raise
+        # The transport message repeats the request path and query, so rebuild it from the redacted URL.
+        raise type(error)(f"{type(error).__name__} requesting {redacted_url}") from None
 
     if response.status_code == 429 or response.status_code >= 500:
         raise GridlyRetryableError(
