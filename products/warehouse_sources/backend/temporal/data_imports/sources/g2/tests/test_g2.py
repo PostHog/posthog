@@ -1,76 +1,38 @@
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.g2 import g2
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2 import (
     G2ResumeConfig,
     MissingProductIdError,
     _build_url,
     _ensure_g2_url,
     _extract_error_detail,
-    g2_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.settings import G2_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.g2.source import G2Source
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.g2 import G2SourceConfig
 
 
-class _FakeResumeManager(ResumableSourceManager[G2ResumeConfig]):
-    def __init__(self, state: G2ResumeConfig | None = None) -> None:
-        self.state = state
-        self.saved: list[G2ResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> G2ResumeConfig | None:
-        return self.state
-
-    def save_state(self, data: G2ResumeConfig) -> None:
-        self.saved.append(data)
+def _driver(product_id: str = "prod-1") -> SourceDriver:
+    return SourceDriver(G2Source(), G2SourceConfig(access_token="token-1", product_id=product_id))
 
 
-def _page(items: list[dict[str, Any]], next_url: str | None = None) -> dict[str, Any]:
-    return {"data": items, "links": {"self": "irrelevant", "next": next_url, "prev": None}}
+def _page(items: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "links": {"self": "irrelevant", "next": next_url, "prev": None}})
 
 
 def _resource(item_id: str, attributes: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"id": item_id, "type": "products", "attributes": attributes or {}}
-
-
-def _collect_rows(
-    monkeypatch: pytest.MonkeyPatch,
-    pages: dict[str, dict[str, Any]],
-    endpoint: str = "products",
-    product_id: str = "",
-    manager: ResumableSourceManager[G2ResumeConfig] | None = None,
-) -> list[dict[str, Any]]:
-    def fake_fetch(session: Any, url: str, headers: dict[str, str]) -> dict[str, Any]:
-        return pages[url]
-
-    monkeypatch.setattr(g2, "_fetch_page", fake_fetch)
-
-    rows: list[dict[str, Any]] = []
-    for table in cast(
-        "list[Any]",
-        list(
-            get_rows(
-                access_token="token-1",
-                endpoint=endpoint,
-                product_id=product_id,
-                api_version="v2",
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager or _FakeResumeManager(),
-            )
-        ),
-    ):
-        rows.extend(table.to_pylist())
-    return rows
 
 
 class TestBuildUrl:
@@ -112,75 +74,55 @@ class TestExtractErrorDetail:
 
 
 class TestGetRowsPagination:
-    def test_resumes_from_saved_next_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_resumes_from_saved_next_url(self) -> None:
         resume_url = "https://data.g2.com/api/v2/products?page%5Bafter%5D=cursor-9"
-        pages = {resume_url: _page([_resource("p9")])}
+        result = _driver().run("products", [_page([_resource("p9")])], resume_state=G2ResumeConfig(next_url=resume_url))
 
-        rows = _collect_rows(monkeypatch, pages, manager=_FakeResumeManager(G2ResumeConfig(next_url=resume_url)))
+        assert result.raised is None
+        assert result.urls == [resume_url]
+        assert [row for table in result.items for row in table.to_pylist()] == [{"id": "p9"}]
 
-        # No request for the first-page URL is wired, so resuming past it would raise KeyError.
-        assert rows == [{"id": "p9"}]
-
-    def test_refuses_a_links_next_pointing_off_the_g2_origin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_refuses_a_links_next_pointing_off_the_g2_origin(self) -> None:
         first_url = "https://data.g2.com/api/v2/products?page%5Bsize%5D=250"
-        pages = {first_url: _page([_resource("p1")], next_url="https://evil.example.com/steal-token")}
+        result = _driver().run("products", [_page([_resource("p1")], next_url="https://evil.example.com/steal-token")])
 
-        with pytest.raises(ValueError):
-            _collect_rows(monkeypatch, pages)
+        assert isinstance(result.raised, ValueError)
+        assert result.urls == [first_url]
 
-    def test_refuses_a_saved_resume_url_pointing_off_the_g2_origin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_refuses_a_saved_resume_url_pointing_off_the_g2_origin(self) -> None:
         poisoned_url = "https://evil.example.com/steal-token"
+        result = _driver().run("products", [], resume_state=G2ResumeConfig(next_url=poisoned_url))
 
-        with pytest.raises(ValueError):
-            _collect_rows(monkeypatch, {}, manager=_FakeResumeManager(G2ResumeConfig(next_url=poisoned_url)))
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
-    def test_missing_product_id_raises_for_reviews(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        with pytest.raises(MissingProductIdError):
-            _collect_rows(monkeypatch, {}, endpoint="reviews", product_id="")
+    def test_missing_product_id_raises_for_reviews(self) -> None:
+        result = _driver(product_id="").run("reviews", [])
+
+        assert isinstance(result.raised, MissingProductIdError)
+        assert result.requests == []
 
 
 class TestResumeStateSaving:
-    def _drive_with_small_chunks(
-        self, monkeypatch: pytest.MonkeyPatch, pages: dict[str, dict[str, Any]]
-    ) -> _FakeResumeManager:
-        real_batcher_cls = g2.Batcher
-
-        def small_batcher(*args: Any, **kwargs: Any) -> Any:
-            kwargs["chunk_size"] = 1
-            return real_batcher_cls(*args, **kwargs)
-
-        monkeypatch.setattr(g2, "Batcher", small_batcher)
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str]) -> dict[str, Any]:
-            return pages[url]
-
-        monkeypatch.setattr(g2, "_fetch_page", fake_fetch)
-
-        manager = _FakeResumeManager()
-        for _table in get_rows(
-            access_token="token-1",
-            endpoint="products",
-            product_id="",
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=manager,
-        ):
-            pass
-        return manager
-
-    def test_saves_state_only_while_a_later_page_remains(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_saves_state_only_while_a_later_page_remains(self) -> None:
         first_url = "https://data.g2.com/api/v2/products?page%5Bsize%5D=250"
         second_url = "https://data.g2.com/api/v2/products?page%5Bafter%5D=c1"
-        pages = {
-            first_url: _page([_resource("p1")], next_url=second_url),
-            second_url: _page([_resource("p2")]),
-        }
-
-        manager = self._drive_with_small_chunks(monkeypatch, pages)
+        result = _driver().run(
+            "products",
+            [
+                _page([_resource(f"p{i}") for i in range(2000)], next_url=second_url),
+                _page([_resource("p2000")]),
+            ],
+        )
 
         # The first (non-terminal) page saves a checkpoint; the terminal page does not, so a
         # resumed run stops re-fetching once the sync actually finished.
-        assert manager.saved == [G2ResumeConfig(next_url=second_url)]
+        assert result.raised is None
+        assert result.urls == [first_url, second_url]
+        assert result.params("page[size]") == ["250", None]
+        assert len(result.items) == 2
+        assert sum(table.num_rows for table in result.items) == 2001
+        assert result.saved_states == [G2ResumeConfig(next_url=second_url)]
 
 
 class TestValidateCredentials:
@@ -191,24 +133,21 @@ class TestValidateCredentials:
             ("forbidden", 403, False),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2.make_tracked_session")
-    def test_reports_the_probe_status(
-        self, _name: str, status_code: int, expected: bool, mock_session_factory: mock.MagicMock
-    ) -> None:
-        mock_session_factory.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+    def test_reports_the_probe_status(self, _name: str, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            result = validate_credentials("token-1", "v2")
 
-        assert validate_credentials("token-1", "v2") == (expected, status_code)
+        assert result == (expected, status_code)
+        assert network.requests_log[0].path == "/api/v2/categories"
+        assert network.requests_log[0].param("page[size]") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer token-1"
 
 
 class TestG2Source:
     @parameterized.expand([(name, config.primary_keys) for name, config in G2_ENDPOINTS.items()])
     def test_primary_keys_match_settings(self, endpoint: str, primary_keys: list[str]) -> None:
-        response = g2_source(
-            access_token="token-1",
-            endpoint=endpoint,
-            product_id="prod-1",
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeResumeManager(),
-        )
-        assert response.primary_keys == primary_keys
+        result = _driver().run(endpoint, [_page([])])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == primary_keys

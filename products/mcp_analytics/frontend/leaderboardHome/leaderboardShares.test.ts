@@ -19,7 +19,7 @@ import {
 } from './leaderboardShares'
 
 const row = (bucket: string, label: string, calls: number): BucketedFacetRow => ({ bucket, label, calls })
-const labShare = (lab: LabShare['lab'], share: number): LabShare => ({ lab, share })
+const labShare = (lab: LabShare['lab'], share: number): LabShare => ({ lab, share, count: share, total: 100 })
 const windowRow = (label: string, calls: number): WindowFacetRow => ({ label, calls, users: 1, errors: 0 })
 
 describe('leaderboardShares', () => {
@@ -98,8 +98,8 @@ describe('leaderboardShares', () => {
             row('d1', 'mystery', 10),
         ])
         expect(shares).toEqual([
-            { lab: 'Anthropic', share: 40 },
-            { lab: 'OpenAI', share: 10 },
+            { lab: 'Anthropic', share: 40, count: 8, total: 20 },
+            { lab: 'OpenAI', share: 10, count: 2, total: 20 },
         ])
     })
 
@@ -130,8 +130,8 @@ describe('leaderboardShares', () => {
             10
         )
         expect(shares).toEqual([
-            { lab: 'Anthropic', share: 90 },
-            { lab: 'OpenAI', share: 60 },
+            { lab: 'Anthropic', share: 90, count: 9, total: 10 },
+            { lab: 'OpenAI', share: 60, count: 6, total: 10 },
         ])
     })
 

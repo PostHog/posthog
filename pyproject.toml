@@ -734,11 +734,6 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.service",
-    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.hogql_source",
-    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
-    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
-    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

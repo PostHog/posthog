@@ -2,6 +2,7 @@ import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 
+import type { PeopleImportApi } from '../../generated/api.schemas'
 import type { AudienceCohort } from './broadcastAudienceCohortsLogic'
 
 const SUPPORTED_ID_HEADERS = ['email', 'e-mail', 'distinct_id', 'distinct-id', 'person_id', 'person-id', 'person .id']
@@ -113,4 +114,24 @@ export function audienceCohortLaunchError(cohort: AudienceCohort): string | null
         return `"${cohort.name}" couldn't match its people. Remove it from the recipients, or upload the list again.`
     }
     return null
+}
+
+/** What an upload added, and which rows it skipped and why, so a short list is never a surprise. */
+export function peopleImportMessage(cohortName: string, summary: PeopleImportApi): string {
+    const parts = [`Added "${cohortName}" to the audience.`]
+    if (summary.new_people) {
+        parts.push(`${summary.new_people} new ${summary.new_people === 1 ? 'person was' : 'people were'} created.`)
+    }
+    const skipped: [number, string][] = [
+        [summary.dropped_invalid_email, 'had no valid email'],
+        [summary.dropped_duplicate_email, 'repeated an email or distinct ID'],
+        [summary.dropped_too_large, 'held more than 4KB of data'],
+    ]
+    const reasons = skipped.filter(([count]) => count > 0).map(([count, reason]) => `${count} ${reason}`)
+    const skippedRows = skipped.reduce((total, [count]) => total + count, 0)
+    if (skippedRows) {
+        parts.push(`Skipped ${skippedRows} ${skippedRows === 1 ? 'row' : 'rows'}: ${reasons.join(', ')}.`)
+    }
+    parts.push('Their properties can take a minute to update.')
+    return parts.join(' ')
 }

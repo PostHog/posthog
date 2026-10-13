@@ -1,86 +1,34 @@
-import json
-from collections.abc import Iterable
-from types import SimpleNamespace
-from typing import Any, cast
-
-from unittest import mock
+from typing import Any
 
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos import easypromos
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.easypromos import (
-    EASYPROMOS_BASE_URL,
     EasypromosResumeConfig,
-    easypromos_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import EASYPROMOS_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-
-PROMOS_URL = f"{EASYPROMOS_BASE_URL}/promotions"
-
-
-def _url(path: str) -> str:
-    return f"{EASYPROMOS_BASE_URL}{path}"
+from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.source import EasypromosSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
+    EasypromosSourceConfig,
+)
 
 
 def _body(items: list[dict[str, Any]], next_cursor: int | None) -> dict[str, Any]:
     return {"items": items, "paging": {"next_cursor": next_cursor, "items_page": 100}}
 
 
-def _response(url: str, body: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp.url = url
-    resp._content = json.dumps(body).encode()
-    return resp
+def _page(items: list[dict[str, Any]], next_cursor: int | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json=_body(items, next_cursor))
 
 
-class _FakeSession:
-    """Routes each prepared request to a canned page keyed by (url, next_cursor request param).
-
-    ``request.params`` is mutated in place across pages by the paginator, so the key is snapshotted
-    at prepare_request time (mirroring how the real session prepares each request).
-    """
-
-    def __init__(self, pages: dict[tuple[str, int | None], dict[str, Any]]) -> None:
-        self._pages = pages
-        self.headers: dict[str, str] = {}
-        self.requests: list[tuple[str, int | None]] = []
-        self._pending: tuple[str, int | None] | None = None
-
-    def prepare_request(self, request: Any) -> Any:
-        cursor = (request.params or {}).get("next_cursor")
-        self._pending = (request.url, cursor)
-        self.requests.append((request.url, cursor))
-        return SimpleNamespace(url=request.url)
-
-    def send(self, prepared: Any, **kwargs: Any) -> Response:
-        assert self._pending is not None
-        return _response(prepared.url, self._pages[self._pending])
-
-
-def _make_manager(state: EasypromosResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = state is not None
-    manager.load_state.return_value = state
-    manager.saved = []
-    manager.save_state.side_effect = manager.saved.append
-    return manager
-
-
-def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
-    response = easypromos_source(
-        access_token="tok",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
-    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(EasypromosSource(), EasypromosSourceConfig(access_token="tok"))
 
 
 class TestValidateCredentials:
@@ -93,10 +41,12 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status_code)
-        with mock.patch.object(easypromos, "make_tracked_session", return_value=session):
+        response = ScriptedResponse(status=status_code)
+        script = always(response) if status_code >= 500 else [response]
+        with scripted_network(script) as network:
             ok, error = validate_credentials("tok")
+        assert network.requests_log[0].path == "/v2/promotions"
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
         assert ok is expected_ok
         if expected_msg is None:
             assert error is None
@@ -104,99 +54,92 @@ class TestValidateCredentials:
             assert error is not None and expected_msg in error
 
     def test_request_exception_is_invalid(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch.object(easypromos, "make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))) as network:
             ok, error = validate_credentials("tok")
+        assert {request.path for request in network.requests_log} == {"/v2/promotions"}
         assert ok is False
         assert error is not None
 
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_does_not_inject_promotion_id_for_top_level(self, mock_session) -> None:
-        url = _url("/organizing_brands")
-        mock_session.return_value = _FakeSession({(url, None): _body([{"id": 7, "name": "Acme"}], None)})
-        rows = _rows("organizing_brands", _make_manager())
-        assert rows == [{"id": 7, "name": "Acme"}]
-        assert "promotion_id" not in rows[0]
+    def test_does_not_inject_promotion_id_for_top_level(self) -> None:
+        result = _driver().run("organizing_brands", [_page([{"id": 7, "name": "Acme"}])])
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "name": "Acme"}]
+        assert "promotion_id" not in result.rows[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, mock_session) -> None:
-        # Only the resumed page is served; if the run started at the first page this would KeyError.
-        session = _FakeSession({(PROMOS_URL, 100): _body([{"id": 3}], None)})
-        mock_session.return_value = session
-        rows = _rows("promotions", _make_manager(EasypromosResumeConfig(cursor=100)))
-        assert rows == [{"id": 3}]
-        assert session.requests == [(PROMOS_URL, 100)]
+    def test_resumes_from_saved_cursor(self) -> None:
+        # The first request must use the saved cursor.
+        result = _driver().run("promotions", [_page([{"id": 3}])], resume_state=EasypromosResumeConfig(cursor=100))
+        assert result.raised is None
+        assert result.rows == [{"id": 3}]
+        assert result.paths == ["/v2/promotions"]
+        assert result.params("next_cursor") == ["100"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_next_cursor_while_a_page_remains(self, mock_session) -> None:
-        mock_session.return_value = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 1}], 100),
-                (PROMOS_URL, 100): _body([{"id": 2}], None),
-            }
-        )
-        manager = _make_manager()
-        _rows("promotions", manager)
-        # Checkpoint saved once, after the first page, pointing at the next cursor; the final (null)
-        # page has no next cursor and is not checkpointed.
-        assert manager.saved == [EasypromosResumeConfig(cursor=100)]
+    def test_checkpoints_next_cursor_while_a_page_remains(self) -> None:
+        result = _driver().run("promotions", [_page([{"id": 1}], 100), _page([{"id": 2}])])
+        assert result.raised is None
+        assert result.rows == [{"id": 1}, {"id": 2}]
+        assert result.params("next_cursor") == [None, "100"]
+        # The final page has no next cursor and is not checkpointed.
+        assert result.saved_states == [EasypromosResumeConfig(cursor=100)]
 
 
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_promotions_and_injects_promotion_id(self, mock_session) -> None:
-        mock_session.return_value = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 10}, {"id": 20}], None),
-                (_url("/users/10"), None): _body([{"id": 1}, {"id": 2}], None),
-                (_url("/users/20"), None): _body([{"id": 1}], None),
-            }
+    def test_fans_out_over_promotions_and_injects_promotion_id(self) -> None:
+        result = _driver().run(
+            "users",
+            [
+                _page([{"id": 10}, {"id": 20}]),
+                _page([{"id": 1}, {"id": 2}]),
+                _page([{"id": 1}]),
+            ],
         )
-        rows = _rows("users", _make_manager())
-        assert rows == [
+        assert result.raised is None
+        assert result.paths == ["/v2/promotions", "/v2/users/10", "/v2/users/20"]
+        assert result.rows == [
             {"id": 1, "promotion_id": 10},
             {"id": 2, "promotion_id": 10},
             {"id": 1, "promotion_id": 20},
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_records_fanout_progress(self, mock_session) -> None:
-        mock_session.return_value = _FakeSession(
-            {
-                (PROMOS_URL, None): _body([{"id": 10}], None),
-                (_url("/prizes/10"), None): _body([{"id": 1}], None),
-            }
-        )
-        manager = _make_manager()
-        _rows("prizes", manager)
-        # The final checkpoint marks the promotion's child path complete so a restart skips it.
-        assert manager.saved[-1] == EasypromosResumeConfig(
+    def test_checkpoint_records_fanout_progress(self) -> None:
+        result = _driver().run("prizes", [_page([{"id": 10}]), _page([{"id": 1}])])
+        assert result.raised is None
+        assert result.paths == ["/v2/promotions", "/v2/prizes/10"]
+        # The final checkpoint marks the child path complete so a restart skips it.
+        assert result.saved_states[-1] == EasypromosResumeConfig(
             fanout_state={"completed": ["/prizes/10"], "current": None, "child_state": None}
         )
+
+    def test_resume_skips_the_promotions_already_completed(self) -> None:
+        result = _driver().run(
+            "users",
+            [_page([{"id": 10}, {"id": 20}]), _page([{"id": 1}])],
+            resume_state=EasypromosResumeConfig(
+                fanout_state={"completed": ["/users/10"], "current": None, "child_state": None}
+            ),
+        )
+        assert result.raised is None
+        assert result.paths == ["/v2/promotions", "/v2/users/20"]
+        assert result.rows == [{"id": 1, "promotion_id": 20}]
 
 
 class TestSourceResponse:
     @parameterized.expand(list(EASYPROMOS_ENDPOINTS.keys()))
     def test_primary_keys_and_partitioning_match_settings(self, endpoint: str) -> None:
         config = EASYPROMOS_ENDPOINTS[endpoint]
-        response = easypromos_source(
-            access_token="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == config.primary_keys
         if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
+            assert result.response.partition_mode == "datetime"
+            assert result.response.partition_keys == [config.partition_key]
         else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
+            assert result.response.partition_mode is None
+            assert result.response.partition_keys is None
 
     def test_fan_out_children_carry_promotion_id_in_primary_key(self) -> None:
         for endpoint, config in EASYPROMOS_ENDPOINTS.items():
