@@ -1,0 +1,76 @@
+name: tmp jest sizing probe
+
+on:
+    push:
+        branches:
+            - tmp/jest-sizing-probe
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
+jobs:
+    plan:
+        name: probe plan
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        outputs:
+            matrix: ${{ steps.plan.outputs.matrix }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ github.token }}
+
+            - name: Build products
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Count related tests and build the matrix
+              id: plan
+              run: node .github/scripts/jest_sizing_probe_plan.mjs
+
+    run:
+        name: probe ${{ matrix.arm }} s${{ matrix.shards }}-${{ matrix.chunk }} w${{ matrix.workers }} r${{ matrix.rep }}
+        needs: plan
+        if: needs.plan.outputs.matrix != ''
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ github.token }}
+
+            - name: Build products
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Run jest
+              continue-on-error: true
+              env:
+                  NODE_OPTIONS: --max-old-space-size=16384
+                  CHANGED_FILE: ${{ matrix.file }}
+                  JEST_CONFIG: ${{ matrix.config }}
+                  SHARD_INDEX: ${{ matrix.chunk }}
+                  SHARD_COUNT: ${{ matrix.shards }}
+                  WORKERS: ${{ matrix.workers }}
+              run: |
+                  args=(--forceExit --passWithNoTests "--shard=$SHARD_INDEX/$SHARD_COUNT")
+                  if [ -n "$JEST_CONFIG" ]; then args+=(--config "$JEST_CONFIG"); fi
+                  if [ "$WORKERS" != "default" ]; then args+=("--maxWorkers=$WORKERS"); fi
+                  pnpm --filter=@posthog/frontend exec jest "${args[@]}" --findRelatedTests "$CHANGED_FILE"
