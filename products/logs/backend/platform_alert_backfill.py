@@ -1,20 +1,22 @@
 """One-way copy of logs alert configurations into the skeleton shared tables.
 
 The control plane stays with the logs product: this reads, never writes back. Each check reads the
-logs alert's current settings, so an edit counts without a rerun. A change of check interval, and
-turning an alert back on, still need one.
+logs alert's current settings, so an edit counts without a rerun. A check can only see a copy that
+is enabled, so the logs API copies an alert created or turned back on in a team that already runs
+logs on the platform.
 
 `legacy_configuration_id` carries the row each copy came from, so a second run updates
 rather than duplicates, and a later comparison can line the two stacks up per alert.
 """
 
+from uuid import UUID
+
 import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import SourceKind
-from products.logs.backend.alert_source_cycle import platform_upsert_of
+from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
+from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +28,36 @@ class BackfillCounts:
     updated: int
     skipped: int
     failed: int
+
+
+def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
+    """The platform copy of a logs alert, which the backfill writes and every check reads again.
+
+    The bound is not validated here, so a bound the query cannot read reaches triage and marks the
+    alert BROKEN.
+    """
+    return PlatformAlertUpsert(
+        legacy_configuration_id=alert.id,
+        team_id=alert.team_id,
+        name=alert.name,
+        enabled=alert.enabled,
+        source_kind=SourceKind.LOGS,
+        source_config={
+            **alert.filters,
+            SOURCE_CONDITION_KEY: {
+                "threshold_count": alert.threshold_count,
+                "threshold_operator": alert.threshold_operator,
+                "window_minutes": alert.window_minutes,
+            },
+        },
+        check_interval_minutes=alert.check_interval_minutes,
+        evaluation_periods=alert.evaluation_periods,
+        datapoints_to_alarm=alert.datapoints_to_alarm,
+        cooldown_minutes=alert.cooldown_minutes,
+        schedule_restriction=alert.schedule_restriction,
+        next_check_at=alert.next_check_at,
+        snooze_until=alert.snooze_until,
+    )
 
 
 def _is_team_sampled(team_id: int, sample_percent: int) -> bool:
@@ -91,3 +123,15 @@ def disable_platform_alert_configurations(*, team_id: int | None = None) -> int:
     disabled = disable_configurations(SourceKind.LOGS, team_id=team_id)
     logger.info("platform_alert_backfill.disabled", disabled=disabled, team_id=team_id)
     return disabled
+
+
+def follow_logs_alert(alert_id: UUID) -> None:
+    """Copies a logs alert that was just created or turned back on, if its team runs logs on the platform.
+
+    Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
+    stay off the platform until the next backfill.
+    """
+    alert = LogsAlertConfiguration.objects.filter(id=alert_id).first()
+    if alert is None or not alert.enabled:
+        return
+    upsert_if_running(platform_upsert_of(alert))

@@ -461,7 +461,8 @@ Pass `--sample-percent` to copy a sample of teams. Logs samples whole teams, not
 An alert the copy rejects is logged and counted as failed, and the run carries on.
 It is a seed, not a sync: the logs product keeps the control plane.
 Each logs check reads its logs alert's current filters, threshold, window, N-of-M, cooldown, quiet hours and snooze, so an edit counts from the next check without a rerun.
-A copy whose logs alert is deleted or disabled switches itself off on its next check. A changed check interval, and an alert turned back on, still need the next run.
+A copy whose logs alert is deleted or disabled switches itself off on its next check.
+A logs alert created or turned back on is copied when the logs API commits it, but only in a team that already has an enabled logs copy. So a write in the logs product never widens a sample or undoes `--disable`, and those teams still wait for the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
 A second run of either backfill, logs or insight, leaves an enabled copy's `next_check_at` alone unless it has none yet or its cadence changed, because the platform owns its schedule once the row exists. The logs product parks its own next check at the end of quiet hours, while the platform checks through them and only mutes. A new or re-enabled copy still takes the source's due time, which spreads a large copy's first checks the way the source spreads them.
 Each run also copies the logs alert's snooze onto its platform alert row, so a snoozed alert stays silent, and an alert unsnoozed since the last run is unsnoozed here too.

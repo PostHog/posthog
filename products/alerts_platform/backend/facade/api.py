@@ -44,6 +44,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     return platform_lifecycle.upsert_configuration(upsert)
 
 
+def upsert_if_running(upsert: PlatformAlertUpsert) -> bool:
+    """Copy one configuration in only when its team already runs that source here. True when it did."""
+    return platform_lifecycle.upsert_if_running(upsert)
+
+
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
     """Write a source's current settings onto its copy, leaving the schedule and state alone."""
     platform_lifecycle.refresh_settings(team_id, configuration_id, upsert)

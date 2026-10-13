@@ -15,13 +15,20 @@ from posthog.cdp.templates.fixtures import template_pagerduty, template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from posthog.clickhouse.client import sync_execute
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.alerts_platform.backend.facade.api import list_configurations
+from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_alert_backfill import (
+    backfill_platform_alert_configurations,
+    disable_platform_alert_configurations,
+)
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_ALERTS_PER_TEAM,
@@ -377,6 +384,39 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(
+        [
+            ("created_in_a_team_running_logs_on_the_platform", "create", "running", True),
+            ("created_in_a_team_outside_the_sample", "create", "not_backfilled", None),
+            ("turned_back_on_in_a_team_running_logs_on_the_platform", "enable", "running", True),
+            ("turned_back_on_after_the_team_was_switched_off", "enable", "switched_off", False),
+        ]
+    )
+    def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
+        self, _name: str, write: str, team_run: str, copy_enabled: bool | None
+    ) -> None:
+        self._create_via_api(name="Already on the platform")
+        dormant = self._create_via_api(name="Turned back on", enabled=False)
+        if team_run != "not_backfilled":
+            backfill_platform_alert_configurations(team_id=self.team.id)
+        if team_run == "switched_off":
+            disable_platform_alert_configurations(team_id=self.team.id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if write == "create":
+                alert_id = self._create_via_api(name="New alert")["id"]
+            else:
+                alert_id = dormant["id"]
+                response = self.client.patch(f"{self.base_url}{alert_id}/", {"enabled": True}, format="json")
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
+        assert (copy.enabled if copy else None) is copy_enabled
 
     # --- first_enabled_at stamping ---
 

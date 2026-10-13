@@ -1,6 +1,7 @@
 import os
 import datetime as dt
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Final, Literal, TypedDict, cast
 from zoneinfo import ZoneInfo
 
@@ -80,6 +81,7 @@ from products.logs.backend.facade.api import (
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_alert_backfill import follow_logs_alert
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
@@ -619,7 +621,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 else:
                     instance.clear_next_check()
 
-            return super().update(instance, validated_data)
+            updated = super().update(instance, validated_data)
+            if enabled_change is True:
+                transaction.on_commit(partial(follow_logs_alert, updated.id), robust=True)
+            return updated
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -646,7 +651,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     team_timezone=team.timezone,
                     schedule_restriction=schedule_restriction,
                 )
-            return super().create(validated_data)
+            created = super().create(validated_data)
+            transaction.on_commit(partial(follow_logs_alert, created.id), robust=True)
+            return created
 
 
 def _validate_filters(filters: dict) -> None:

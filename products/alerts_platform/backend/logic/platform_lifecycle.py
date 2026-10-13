@@ -346,6 +346,24 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     return created
 
 
+def upsert_if_running(upsert: PlatformAlertUpsert) -> bool:
+    """Copies one configuration in when its team already runs that source here. True when it did.
+
+    A team runs a source here while any of its copies of that source is enabled. A team the backfill
+    left out of its sample, or one `disable_configurations` switched off, gets nothing, so a write
+    in the source never widens a sample or undoes an operator's switch-off.
+    """
+    running = (
+        PlatformAlertConfiguration.objects.for_team(upsert.team_id)
+        .filter(source_kind=upsert.source_kind.value, enabled=True)
+        .exists()
+    )
+    if not running:
+        return False
+    upsert_configuration(upsert)
+    return True
+
+
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
     """Writes a source's current settings onto its copy, so history and messages state what a check
     evaluated.

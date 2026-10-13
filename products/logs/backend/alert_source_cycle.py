@@ -31,13 +31,11 @@ from posthog.models import Team
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
-    SOURCE_CONDITION_KEY,
     AlertDeliveryRequest,
     AlertEventKind,
     MuteReason,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
-    PlatformAlertUpsert,
     SkipReason,
     SourceBatchEvaluation,
     SourceKind,
@@ -79,6 +77,7 @@ from products.logs.backend.alert_check_query import (
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_alert_backfill import platform_upsert_of
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -134,36 +133,6 @@ class LogsAlertCondition:
             threshold_operator=condition["threshold_operator"],
             window_minutes=condition["window_minutes"],
         )
-
-
-def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
-    """The platform copy of a logs alert, which the backfill writes and every check reads again.
-
-    The bound is not validated here, so a bound the query cannot read reaches triage and marks the
-    alert BROKEN.
-    """
-    return PlatformAlertUpsert(
-        legacy_configuration_id=alert.id,
-        team_id=alert.team_id,
-        name=alert.name,
-        enabled=alert.enabled,
-        source_kind=SourceKind.LOGS,
-        source_config={
-            **alert.filters,
-            SOURCE_CONDITION_KEY: {
-                "threshold_count": alert.threshold_count,
-                "threshold_operator": alert.threshold_operator,
-                "window_minutes": alert.window_minutes,
-            },
-        },
-        check_interval_minutes=alert.check_interval_minutes,
-        evaluation_periods=alert.evaluation_periods,
-        datapoints_to_alarm=alert.datapoints_to_alarm,
-        cooldown_minutes=alert.cooldown_minutes,
-        schedule_restriction=alert.schedule_restriction,
-        next_check_at=alert.next_check_at,
-        snooze_until=alert.snooze_until,
-    )
 
 
 # The copy's settings a check takes from the logs alert as it is now. The schedule stays the
