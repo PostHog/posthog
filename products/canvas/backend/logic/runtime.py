@@ -24,6 +24,7 @@ from products.canvas.backend.facade.contracts import (
     CanvasStateNotFoundError,
 )
 from products.canvas.backend.logic.canvases import canvas_row
+from products.canvas.backend.logic.data_dependencies import latest_missing_data
 from products.canvas.backend.logic.records import state_entry_record
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasState
 from products.canvas.backend.state_reads import CanvasStateReader
@@ -68,6 +69,12 @@ def prepare_fix_request(team_id: int, canvas_id: UUID, build_id: UUID, raw_error
         if is_build_failure
         else error_reports.sanitize_error_type(raw_error_type)
     )
+    if is_build_failure:
+        origin = "build"
+    elif error_type == error_reports.DATA_DRIFT_ERROR_TYPE:
+        origin = "data"
+    else:
+        origin = "runtime"
     return CanvasFixRequest(
         build_id=build.id,
         task_id=error_reports.authoring_task_id(canvas, build),
@@ -77,8 +84,9 @@ def prepare_fix_request(team_id: int, canvas_id: UUID, build_id: UUID, raw_error
             build_id=str(build.id),
             source_version_id=str(build.source_version_id) if build.source_version_id else None,
             error_type=error_type,
-            origin="build" if is_build_failure else "runtime",
+            origin=origin,
             error_codes=error_reports.diagnostic_error_codes(build.diagnostics),
+            missing_data=latest_missing_data(team_id, canvas_id) if origin == "data" else None,
         ),
     )
 

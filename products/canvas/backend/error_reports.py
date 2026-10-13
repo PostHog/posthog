@@ -23,10 +23,15 @@ RUNTIME_ERROR_TYPES = frozenset(
 )
 UNKNOWN_ERROR_TYPE = "unknown"
 BUILD_FAILURE_ERROR_TYPE = "build_failed"
+# The nightly data dependency check found events, properties, or tables the canvas declares but the
+# project no longer has. Not a runtime class: a person asks for the fix from the drift notice.
+DATA_DRIFT_ERROR_TYPE = "data_drift"
 
 
 def sanitize_error_type(raw: str | None) -> str:
     value = (raw or "").strip()
+    if value == DATA_DRIFT_ERROR_TYPE:
+        return value
     return value if value in RUNTIME_ERROR_TYPES else UNKNOWN_ERROR_TYPE
 
 
@@ -112,13 +117,36 @@ def build_fix_prompt(
     error_type: str,
     origin: str,
     error_codes: list[str] | None = None,
+    missing_data: dict[str, Any] | None = None,
 ) -> str:
     """The agent prompt for a human-requested canvas fix.
 
     Composed entirely from ids and whitelisted identifiers — no free text from
-    the requester or from rendering sessions may reach this string.
+    the requester or from rendering sessions may reach this string. Declared
+    data names come from the canvas's own manifest, which its author wrote.
     """
-    if origin == "build":
+    if origin == "data":
+        missing = missing_data or {}
+        parts = []
+        if missing.get("events"):
+            parts.append("events: " + ", ".join(missing["events"]))
+        if missing.get("properties"):
+            parts.append(
+                "properties: " + ", ".join(f"{entry['name']} ({entry['type']})" for entry in missing["properties"])
+            )
+        if missing.get("tables"):
+            parts.append("tables: " + ", ".join(missing["tables"]))
+        what = (
+            "The nightly data dependency check found that this project no longer has data the canvas declares "
+            f"in capabilities.posthog.data ({'; '.join(parts) or 'see the data check'})."
+        )
+        context = (
+            "Read the declared dependencies with `canvas-source-retrieve` and the project's current events, "
+            "properties, and tables with the data tools. Repoint the canvas's queries and its data declaration "
+            "at what exists now, or remove the parts of the app that depended on data that is gone, and say "
+            "which in your reply."
+        )
+    elif origin == "build":
         what = f"Its build {build_id} failed with error codes: {', '.join(error_codes or []) or 'unknown'}."
         context = "Read the failed build's diagnostics with `canvas-builds-retrieve`."
     else:

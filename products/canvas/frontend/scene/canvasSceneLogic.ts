@@ -52,6 +52,7 @@ import {
     canvasesBuildActionCreate,
     canvasesBuildsRetrieve,
     canvasesPartialUpdate,
+    canvasesDataCheckRetrieve,
     canvasesRequestFixCreate,
     canvasesViewRetrieve,
 } from '../generated/api'
@@ -61,6 +62,7 @@ import type {
     CanvasBuildActionActionEnumApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
+    CanvasDataCheckApi,
     CanvasFixRequestResultApi,
     CanvasViewResponseApi,
 } from '../generated/api.schemas'
@@ -121,10 +123,23 @@ function readAgentTurn(stream: ReturnType<typeof runStreamLogic.build>): boolean
     return historyComplete && sseStatus !== 'error' ? isThinking : null
 }
 
+/** The fix request for a nightly data check that found declared events, properties, or tables missing. */
+export const DATA_DRIFT_ERROR_TYPE = 'data_drift'
+
 export interface CanvasFixRequest {
     buildId: string
-    /** The runtime error's class name. Omitted for a failed build, whose diagnostics the server reads. */
+    /**
+     * The runtime error's class name, or DATA_DRIFT_ERROR_TYPE. Omitted for a failed build, whose
+     * diagnostics the server reads.
+     */
     errorType?: string
+}
+
+export function canvasFixOrigin(request: CanvasFixRequest): 'build' | 'runtime' | 'data' {
+    if (!request.errorType) {
+        return 'build'
+    }
+    return request.errorType === DATA_DRIFT_ERROR_TYPE ? 'data' : 'runtime'
 }
 
 export function canvasBuildStatus(
@@ -166,6 +181,9 @@ export interface canvasSceneLogicValues {
     buildsLoading: boolean
     busy: boolean
     canvas: CanvasApi | null
+    dataCheck: CanvasDataCheckApi | null
+    dataCheckLoading: boolean
+    dataDrift: CanvasDataCheckApi | null
     draftCode: string | null
     fixRequestPending: boolean
     fixTaskId: string | null
@@ -271,6 +289,21 @@ export interface canvasSceneLogicActions {
         payload?: any
     ) => {
         builds: CanvasBuildsResponseApi | null
+        payload?: any
+    }
+    loadDataCheck: () => any
+    loadDataCheckFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDataCheckSuccess: (
+        dataCheck: CanvasDataCheckApi | null,
+        payload?: any
+    ) => {
+        dataCheck: CanvasDataCheckApi | null
         payload?: any
     }
     loadGenerationTask: () => any
@@ -385,6 +418,7 @@ export interface canvasSceneLogicActions {
 export interface canvasSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        dataDrift: (dataCheck: CanvasDataCheckApi | null) => CanvasDataCheckApi | null
         busy: (isGenerating: boolean, buildStatus: CanvasBuildStatus) => boolean
         canvas: (view: CanvasViewResponseApi | null) => CanvasApi | null
         visibility: (canvas: CanvasApi | null, space: CanvasSpace | null) => CanvasVisibility | null
@@ -544,6 +578,15 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 },
             },
         ],
+        dataCheck: [
+            null as CanvasDataCheckApi | null,
+            {
+                loadDataCheck: async () =>
+                    values.currentProjectId
+                        ? await canvasesDataCheckRetrieve(String(values.currentProjectId), props.id)
+                        : null,
+            },
+        ],
         space: [
             null as CanvasSpace | null,
             {
@@ -657,6 +700,12 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         ],
     }),
     selectors({
+        /** The nightly data check, when it found declared data the project no longer has. */
+        dataDrift: [
+            (s) => [s.dataCheck],
+            (dataCheck: CanvasDataCheckApi | null): CanvasDataCheckApi | null =>
+                dataCheck?.status === 'drift' ? dataCheck : null,
+        ],
         /** Whether an agent or a build is at work on the canvas, which the Views sidebar marks with a spinner. */
         busy: [
             (s) => [s.isGenerating, s.buildStatus],
@@ -827,6 +876,12 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             if (!view) {
                 return
             }
+            // A new head version can add, change, or drop the data declaration, so the check is read again.
+            // The mount already loads it for the first view.
+            if (cache.dataCheckVersionId !== undefined && cache.dataCheckVersionId !== view.current_version_id) {
+                actions.loadDataCheck()
+            }
+            cache.dataCheckVersionId = view.current_version_id
             if (!cache.viewedTracked) {
                 cache.viewedTracked = true
                 posthog.capture(CANVAS_EVENTS.viewed, {
@@ -1156,7 +1211,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 actions.requestFixFinished(null)
                 return
             }
-            const origin = request.errorType ? 'runtime' : 'build'
+            const origin = canvasFixOrigin(request)
             try {
                 const result = await canvasesRequestFixCreate(String(values.currentProjectId), canvas.id, {
                     build_id: request.buildId,
@@ -1201,6 +1256,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         }
         actions.loadView()
         actions.loadBuilds()
+        actions.loadDataCheck()
         actions.syncSidePanel()
     }),
     beforeUnmount(({ actions, props }) => {
