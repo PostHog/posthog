@@ -64,7 +64,7 @@ impl TimeoutKind {
         }
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Statement => "statement_timeout",
             Self::Lock => "lock_timeout",
