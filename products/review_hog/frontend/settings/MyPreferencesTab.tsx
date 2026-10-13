@@ -20,7 +20,7 @@ import { reviewHogProjectSettingsLogic } from 'products/review_hog/frontend/repo
 import { reviewHogRepositoriesLogic } from 'products/review_hog/frontend/repositories/reviewHogRepositoriesLogic'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
-import { ON_OFF_OPTIONS, OnOff, THRESHOLD_OPTIONS, toOnOff } from './deepReviewOptions'
+import { ON_OFF_OPTIONS, OnOff, THRESHOLD_OPTIONS, projectDeepDefaults, toOnOff } from './deepReviewOptions'
 import { InboxSection } from './InboxSection'
 import { ReviewSkillsPanel } from './ReviewSkillsPanel'
 import { SettingRow } from './SettingRow'
@@ -53,12 +53,7 @@ export function MyPreferencesTab(): JSX.Element {
 
     const disabledReason = settings === null ? 'Loading…' : settingsLoading ? 'Saving…' : undefined
     const myDefault = settings?.default_review_mode ?? 'follow'
-    // The project settings answer first after an admin edit; the personal settings reload after it.
-    const projectThreshold =
-        projectSettings?.urgency_threshold ?? settings?.project_defaults.urgency_threshold ?? 'consider'
-    const projectCelebrate = toOnOff(
-        projectSettings?.celebrate_clean_reviews ?? settings?.project_defaults.celebrate_clean_reviews ?? true
-    )
+    const project = projectDeepDefaults(projectSettings, settings)
     const ownThreshold = settings?.sources.urgency_threshold === 'user' ? settings.urgency_threshold : undefined
     const ownCelebrate =
         settings?.sources.celebrate_clean_reviews === 'user'
@@ -66,8 +61,7 @@ export function MyPreferencesTab(): JSX.Element {
             : undefined
 
     return (
-        // Capped so a control stays close to the label it belongs to on a wide window.
-        <div className="flex max-w-200 flex-col gap-8">
+        <>
             {projectSettings !== null && installations.length === 0 && (
                 <LemonBanner
                     type="info"
@@ -118,7 +112,7 @@ export function MyPreferencesTab(): JSX.Element {
                             {
                                 key: 'repositories',
                                 header: 'Choose per repository',
-                                content: <RepositoryList Row={RepositoryMyRow} otherTabView="exceptions" />,
+                                content: <RepositoryList Row={RepositoryMyRow} hiddenView="exceptions" />,
                                 dataAttr: 'review-hog-my-repository-choices',
                             },
                         ]}
@@ -153,7 +147,7 @@ export function MyPreferencesTab(): JSX.Element {
                             size="small"
                             aria-label="Mine: Post findings at or above"
                             value={ownThreshold ?? 'project'}
-                            options={mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold)}
+                            options={mineOptions(THRESHOLD_OPTIONS, project.threshold, ownThreshold)}
                             onChange={(value) =>
                                 value === 'project'
                                     ? followProjectDefault('urgency_threshold')
@@ -171,7 +165,7 @@ export function MyPreferencesTab(): JSX.Element {
                             size="small"
                             aria-label="Mine: Celebrate clean reviews"
                             value={ownCelebrate ?? 'project'}
-                            options={mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate)}
+                            options={mineOptions(ON_OFF_OPTIONS, project.celebrate, ownCelebrate)}
                             onChange={(value) =>
                                 value === 'project'
                                     ? followProjectDefault('celebrate_clean_reviews')
@@ -186,6 +180,6 @@ export function MyPreferencesTab(): JSX.Element {
 
             <ReviewSkillsPanel />
             <InboxSection />
-        </div>
+        </>
     )
 }

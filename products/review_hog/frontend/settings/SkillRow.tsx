@@ -1,4 +1,3 @@
-import { IconExternal } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -47,7 +46,10 @@ export function SkillRow({
             <div className="flex min-w-48 flex-1 flex-col gap-0.5">
                 <span className="text-sm font-semibold">{prettifySkillName(skillName)}</span>
                 <Tooltip title={description}>
-                    <span className="line-clamp-1 text-xs text-secondary">{description}</span>
+                    {/* Focusable, so a keyboard user can open the tooltip that holds the clipped text. */}
+                    <span tabIndex={0} className="line-clamp-1 text-xs text-secondary">
+                        {description}
+                    </span>
                 </Tooltip>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     {kept !== undefined && <KeptCount kept={kept} />}
@@ -55,10 +57,10 @@ export function SkillRow({
                         <Link
                             to={urls.skill(skillName)}
                             target="_blank"
-                            className="inline-flex items-center gap-0.5 text-xs"
+                            className="text-xs"
                             data-attr="review-hog-edit-skill-text"
                         >
-                            Edit skill <IconExternal className="size-3" />
+                            Edit skill
                         </Link>
                     </Tooltip>
                 </div>

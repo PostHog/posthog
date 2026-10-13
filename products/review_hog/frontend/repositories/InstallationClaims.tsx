@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
+
 import type { ReviewInstallationApi } from 'products/review_hog/frontend/generated/api.schemas'
 import { SettingsList } from 'products/review_hog/frontend/settings/SettingsList'
 
@@ -75,7 +77,7 @@ export function InstallationClaims(): JSX.Element {
     }
     if (installations.length === 0) {
         return (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-primary bg-surface-primary px-4 py-3">
+            <LemonCard hoverEffect={false} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <span className="text-sm text-secondary">
                     Connect GitHub to choose which repositories this project reviews.
                 </span>
@@ -89,7 +91,7 @@ export function InstallationClaims(): JSX.Element {
                 >
                     Connect GitHub
                 </LemonButton>
-            </div>
+            </LemonCard>
         )
     }
     return (

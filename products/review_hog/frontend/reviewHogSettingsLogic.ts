@@ -1016,9 +1016,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 },
             },
         ],
-        // The "Mine / Everyone" filter on the reviews table: it scopes the list AND every stat
-        // surface fed by perspectiveStats (proof card, effectiveness cards on the My preferences tab).
-        // Skill lists and their toggles stay per-user regardless.
+        // The "Mine / Everyone" filter on the reviews table: it scopes the list AND the proof card,
+        // which perspectiveStats feeds. Skill lists and their toggles stay per-user regardless.
         reviewsScope: [
             ReviewHogReviewsListScope.Mine as ReviewHogReviewsListScope,
             { persist: true },

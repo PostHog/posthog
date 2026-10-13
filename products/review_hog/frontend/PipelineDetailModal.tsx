@@ -7,11 +7,10 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /**
- * "Detailed view" of the review pipeline, opened from the "How we review your PRs" button.
- * The diagram is a fixed 1280×780 canvas recreated from the design handoff (grown from 720 to fit
- * the Resolve stage) with a hardcoded dark palette — it renders identically in light and dark theme
- * (treat it as artwork; its contrast was tuned against this exact background) and scales down
- * uniformly instead of reflowing.
+ * The review pipeline diagram, opened from the "How we review your PRs" button.
+ * The diagram is a fixed 1280×780 canvas recreated from the design handoff, with a hardcoded dark
+ * palette. It renders identically in light and dark theme (treat it as artwork; its contrast was
+ * tuned against this exact background) and scales down uniformly instead of reflowing.
  */
 
 const CANVAS_W = 1280

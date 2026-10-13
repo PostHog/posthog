@@ -18,7 +18,7 @@ import { reviewHogProjectSettingsLogic } from 'products/review_hog/frontend/repo
 import { RuleControls } from 'products/review_hog/frontend/repositories/RuleControls'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
-import { ON_OFF_OPTIONS, OnOff, THRESHOLD_OPTIONS, toOnOff } from './deepReviewOptions'
+import { ON_OFF_OPTIONS, OnOff, THRESHOLD_OPTIONS, projectDeepDefaults } from './deepReviewOptions'
 import { SettingRow } from './SettingRow'
 import { SettingsList } from './SettingsList'
 
@@ -42,15 +42,10 @@ export function ProjectSettingsTab(): JSX.Element {
     const { updateProjectSettings, addProjectPerson, removeProjectPerson } = useActions(reviewHogProjectSettingsLogic)
 
     const botPrs = projectSettings?.bot_prs ?? 'skip'
-    // The project settings answer first after an admin edit; the personal settings reload after it.
-    const threshold = projectSettings?.urgency_threshold ?? settings?.project_defaults.urgency_threshold ?? 'consider'
-    const celebrate = toOnOff(
-        projectSettings?.celebrate_clean_reviews ?? settings?.project_defaults.celebrate_clean_reviews ?? true
-    )
+    const { threshold, celebrate } = projectDeepDefaults(projectSettings, settings)
 
     return (
-        // Capped so a control stays close to the label it belongs to on a wide window.
-        <div className="flex max-w-200 flex-col gap-8">
+        <>
             {projectSettings !== null && !canEdit && (
                 <LemonBanner type="info">Only project admins can change these settings.</LemonBanner>
             )}
@@ -141,9 +136,9 @@ export function ProjectSettingsTab(): JSX.Element {
                     title="Repository rules"
                     description="Give a repository its own rule, or add and remove repositories."
                 >
-                    <RepositoryList Row={RepositoryProjectRow} otherTabView="mine" />
+                    <RepositoryList Row={RepositoryProjectRow} hiddenView="mine" />
                 </SceneSection>
             )}
-        </div>
+        </>
     )
 }

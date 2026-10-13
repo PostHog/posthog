@@ -154,6 +154,9 @@ export interface reviewHogRepositoriesLogicActions {
     repositorySaveStarted: (fullName: string) => {
         fullName: string
     }
+    resetFilters: () => {
+        value: true
+    }
     selectInstallation: (installationId: string) => {
         installationId: string
     }
@@ -238,6 +241,7 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
         setSearch: (search: string) => ({ search }),
         setView: (view: ReviewHogRepositoryOverviewRetrieveView) => ({ view }),
         setPage: (page: number) => ({ page }),
+        resetFilters: true,
         includeRepository: (entry: ReviewRepositoryOverviewEntryApi) => ({ entry }),
         removeFromProject: (entry: ReviewRepositoryOverviewEntryApi) => ({ entry }),
         addException: (entry: ReviewRepositoryOverviewEntryApi) => ({ entry }),
@@ -296,12 +300,14 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
             '',
             {
                 setSearch: (_, { search }) => search,
+                resetFilters: () => '',
             },
         ],
         view: [
             ReviewHogRepositoryOverviewRetrieveView.All as ReviewHogRepositoryOverviewRetrieveView,
             {
                 setView: (_, { view }) => view,
+                resetFilters: () => ReviewHogRepositoryOverviewRetrieveView.All,
             },
         ],
         page: [
@@ -311,6 +317,7 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                 setSearch: () => 0,
                 setView: () => 0,
                 selectInstallation: () => 0,
+                resetFilters: () => 0,
             },
         ],
         overviewLoadFailed: [
@@ -401,6 +408,21 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
             },
             setView: () => actions.loadOverview(),
             setPage: () => actions.loadOverview(),
+            // Both settings tabs show this list. Each one starts unfiltered on the first page, so a
+            // filter set on one tab never applies on the other.
+            [reviewHogSettingsLogic.actionTypes.setActiveTab]: ({ tab }, _, __, previousState) => {
+                const filtered =
+                    values.view !== ReviewHogRepositoryOverviewRetrieveView.All ||
+                    values.search !== '' ||
+                    values.page !== 0
+                // The Activity tab has no list, and a click on the open tab keeps its filter.
+                const opensOtherList =
+                    tab !== 'activity' && tab !== reviewHogSettingsLogic.selectors.activeTab(previousState)
+                if (filtered && opensOtherList) {
+                    actions.resetFilters()
+                }
+            },
+            resetFilters: () => actions.loadOverview(),
             // A write can empty the last page. Go to the last page that still has rows.
             loadOverviewSuccess: ({ overview }) => {
                 if (overview && values.page >= values.pageCount) {

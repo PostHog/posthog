@@ -15,17 +15,15 @@ const VIEW_OPTIONS: { value: ReviewHogRepositoryOverviewRetrieveView; label: str
 ]
 
 export function RepositoryListToolbar({
-    otherTabView,
+    hiddenView,
 }: {
-    /** The view that belongs to the other settings tab, left out of this tab's filter. */
-    otherTabView: ReviewHogRepositoryOverviewRetrieveView
+    /** The one view this list leaves out of its filter. */
+    hiddenView: ReviewHogRepositoryOverviewRetrieveView
 }): JSX.Element {
     const { installations } = useValues(reviewHogProjectSettingsLogic)
     const { installation, search, view } = useValues(reviewHogRepositoriesLogic)
     const { selectInstallation, setSearch, setView } = useActions(reviewHogRepositoriesLogic)
-    // Both tabs share one view. The other tab's view stays offered while it is active, so a filter
-    // is never applied without showing.
-    const options = VIEW_OPTIONS.filter((option) => option.value !== otherTabView || option.value === view)
+    const options = VIEW_OPTIONS.filter((option) => option.value !== hiddenView)
 
     return (
         <div className="flex flex-wrap items-center gap-2">

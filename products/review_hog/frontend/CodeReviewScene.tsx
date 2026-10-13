@@ -20,6 +20,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -104,8 +105,8 @@ function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element
 }
 
 /**
- * Proof block: the validation funnel across the in-scope recent reviews, summed from the same
- * stats the effectiveness cards use. Hidden while there are no reviewed findings in scope yet.
+ * Proof block: the validation funnel across the in-scope recent reviews. Hidden while there are
+ * no reviewed findings in scope yet.
  */
 function ProofCard(): JSX.Element | null {
     const { perspectiveStats } = useValues(reviewHogSettingsLogic)
@@ -134,9 +135,11 @@ function ProofCard(): JSX.Element | null {
                     <StatsWindowLabel reportCount={perspectiveStats.report_count} />
                 </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-fill-highlight-100">
-                <div className="h-full rounded-full bg-success" style={{ width: `${(kept / raised) * 100}%` }} />
-            </div>
+            <LemonProgress
+                percent={(kept / raised) * 100}
+                strokeColor="var(--success)"
+                bgColor="var(--color-bg-fill-highlight-100)"
+            />
         </LemonCard>
     )
 }
@@ -449,7 +452,7 @@ function DrawerFindingsSkeleton(): JSX.Element {
     )
 }
 
-/** The "Published" tab: the findings that crossed the urgency threshold, caveated while unpublished. */
+/** The first drawer tab, "Posted" or "Kept": the findings that crossed the urgency threshold, caveated while unpublished. */
 function DrawerPublishedTab(): JSX.Element {
     const { reviewFindingsSplit, reviewDetail } = useValues(reviewHogSettingsLogic)
 
@@ -874,10 +877,11 @@ export function CodeReviewScene(): JSX.Element {
 
                 {activeTab === 'activity' ? (
                     <ActivityTab />
-                ) : activeTab === 'project' ? (
-                    <ProjectSettingsTab />
                 ) : (
-                    <MyPreferencesTab />
+                    // Capped so a control stays close to the label it belongs to on a wide window.
+                    <div className="flex max-w-200 flex-col gap-8">
+                        {activeTab === 'project' ? <ProjectSettingsTab /> : <MyPreferencesTab />}
+                    </div>
                 )}
 
                 {/* Overlays stay mounted on every tab, so a `?review=` deep link opens on any of them. */}

@@ -16,12 +16,11 @@ export function RepositoryMyRow({ entry }: { entry: ReviewRepositoryOverviewEntr
     const name = entry.full_name
     const hasChoice = entry.my_choice !== null
     const busyReason = busyRepositories.includes(name) ? 'Saving…' : undefined
-    const otherProjectId = entry.owner === 'other_project' ? entry.owner_project?.id : null
-    const reviewedHere = entry.in_project && entry.owner !== 'other_project'
-    const note = reviewedHere ? myChoiceNote(entry) : null
 
+    let note: string | null = null
     let choice: JSX.Element
     if (entry.owner === 'other_project') {
+        const otherProjectId = entry.owner_project?.id
         choice = (
             <span className="text-xs">
                 {otherProjectId ? (
@@ -37,6 +36,7 @@ export function RepositoryMyRow({ entry }: { entry: ReviewRepositoryOverviewEntr
     } else if (!entry.in_project) {
         choice = <span className="text-xs text-secondary">Not part of this project</span>
     } else {
+        note = myChoiceNote(entry)
         choice = (
             <LemonSelect<MyChoiceValue>
                 size="small"

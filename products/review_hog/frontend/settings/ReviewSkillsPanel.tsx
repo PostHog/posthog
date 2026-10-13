@@ -3,6 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import {
@@ -17,10 +20,6 @@ import { SkillGroupHeader } from './SkillGroupHeader'
 import { SkillKept, SkillRow } from './SkillRow'
 
 const SKILL_KINDS: ReviewSkillKind[] = ['perspective', 'blind_spots', 'validator', 'resolution']
-
-function capitalize(text: string): string {
-    return text.charAt(0).toUpperCase() + text.slice(1)
-}
 
 /**
  * The viewer's review skills for the Deep reviews they start, always open. Kept counts come from the
@@ -60,7 +59,7 @@ export function ReviewSkillsPanel(): JSX.Element {
             titleHelper="Standard reviews use a fixed set of skills and read none of these."
             actions={<span className="text-xs text-secondary">Kept counts: your last 10 Deep reviews</span>}
         >
-            <div className="flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">
+            <LemonCard hoverEffect={false} className="flex flex-col overflow-hidden p-0">
                 <SkillGroupHeader title="Perspectives" rule="any number, at least one" />
                 {perspectives === null ? (
                     <div className="px-4 py-2">
@@ -117,7 +116,7 @@ export function ReviewSkillsPanel(): JSX.Element {
                 <footer className="flex flex-wrap items-center gap-2 border-t border-primary px-4 py-3">
                     <LemonMenu
                         items={SKILL_KINDS.map((kind) => ({
-                            label: capitalize(REVIEW_SKILL_KIND_LABELS[kind]),
+                            label: capitalizeFirstLetter(REVIEW_SKILL_KIND_LABELS[kind]),
                             onClick: () => startSkillAuthorTask(kind),
                         }))}
                     >
@@ -133,7 +132,7 @@ export function ReviewSkillsPanel(): JSX.Element {
                     </LemonMenu>
                     <LemonMenu
                         items={SKILL_KINDS.map((kind) => ({
-                            label: capitalize(REVIEW_SKILL_KIND_LABELS[kind]),
+                            label: capitalizeFirstLetter(REVIEW_SKILL_KIND_LABELS[kind]),
                             onClick: () => openAdoptSkillModal(kind),
                             'data-attr': `review-hog-adopt-skill-${kind}`,
                         }))}
@@ -155,7 +154,7 @@ export function ReviewSkillsPanel(): JSX.Element {
                         How a review uses skills
                     </Link>
                 </footer>
-            </div>
+            </LemonCard>
         </SceneSection>
     )
 }

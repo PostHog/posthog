@@ -18,12 +18,12 @@ import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
  */
 export function RepositoryList({
     Row,
-    otherTabView,
+    hiddenView,
 }: {
     Row: (props: { entry: ReviewRepositoryOverviewEntryApi }) => JSX.Element
-    otherTabView: ReviewHogRepositoryOverviewRetrieveView
+    hiddenView: ReviewHogRepositoryOverviewRetrieveView
 }): JSX.Element {
-    const { overview, overviewLoading, overviewLoadFailed } = useValues(reviewHogRepositoriesLogic)
+    const { overview, overviewLoadFailed } = useValues(reviewHogRepositoriesLogic)
     const { loadOverview } = useActions(reviewHogRepositoriesLogic)
 
     let rows: React.ReactNode
@@ -38,15 +38,7 @@ export function RepositoryList({
     } else if (overview === null) {
         rows = (
             <div className="flex flex-col gap-2 px-4 py-3">
-                {overviewLoading ? (
-                    <>
-                        <LemonSkeleton className="h-8 w-full" />
-                        <LemonSkeleton className="h-8 w-full" />
-                        <LemonSkeleton className="h-8 w-full" />
-                    </>
-                ) : (
-                    <span className="text-xs text-secondary">No repositories to show.</span>
-                )}
+                <LemonSkeleton className="h-8 w-full" repeat={3} />
             </div>
         )
     } else if (overview.results.length === 0) {
@@ -57,7 +49,7 @@ export function RepositoryList({
 
     return (
         <div className="flex flex-col gap-2">
-            <RepositoryListToolbar otherTabView={otherTabView} />
+            <RepositoryListToolbar hiddenView={hiddenView} />
             <SettingsList>{rows}</SettingsList>
             <RepositoryListPager />
         </div>
