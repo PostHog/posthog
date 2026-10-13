@@ -7,7 +7,8 @@ Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
 from datetime import timedelta
-from typing import Any
+from typing import Any, Final
+from uuid import NAMESPACE_URL, uuid5
 
 from posthog.utils import absolute_uri
 
@@ -73,3 +74,60 @@ def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
     params = build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
     return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
+
+
+_LEGACY_WEBHOOK_TYPES: Final = {
+    AlertEventKind.FIRING: "logs_alert.firing",
+    AlertEventKind.RESOLVED: "logs_alert.resolved",
+    AlertEventKind.ERRORED: "logs_alert.errored",
+    AlertEventKind.BROKEN: "logs_alert.auto_disabled",
+}
+
+
+def legacy_logs_webhook_body(
+    *,
+    project_id: int,
+    alert_id: str,
+    alert_name: str,
+    consecutive_failures: int,
+    transition: AnnouncedTransition,
+) -> dict[str, Any]:
+    """The body the logs alert webhook HogFunction sent, field for field.
+
+    Its template rendered a lone placeholder as the value's own type, so counts stay numbers and
+    filter lists stay lists here too.
+    """
+    filters = transition.source_config
+    alert_url = absolute_uri(f"/project/{project_id}/logs/alerts/{alert_id}")
+    data: dict[str, Any] = {
+        "alert_id": alert_id,
+        "alert_name": alert_name,
+        "service_names": filters.get("serviceNames", []),
+        "severity_levels": filters.get("severityLevels", []),
+    }
+    if transition.kind in (AlertEventKind.FIRING, AlertEventKind.RESOLVED):
+        condition = transition.condition
+        date_to = transition.occurred_at
+        date_from = date_to - timedelta(minutes=condition["window_minutes"])
+        params = build_logs_url_params(filters, date_from=date_from, date_to=date_to)
+        data |= {
+            "result_count": int(transition.value) if transition.value is not None else None,
+            "threshold_count": condition["threshold_count"],
+            "threshold_operator": condition["threshold_operator"],
+            "window_minutes": condition["window_minutes"],
+            "logs_url": absolute_uri(f"/project/{project_id}/logs?{params}"),
+        }
+    else:
+        error_key = "last_error_message" if transition.kind == AlertEventKind.BROKEN else "error_message"
+        data |= {"consecutive_failures": consecutive_failures, error_key: transition.error_message or ""}
+    data["alert_url"] = alert_url
+    return {
+        # The HogFunction path sent its event's id. A stable id per transition lets a receiver
+        # drop a retried send.
+        "id": str(
+            uuid5(NAMESPACE_URL, f"{alert_id}|{transition.grouping_key}|{transition.kind}|{transition.occurred_at}")
+        ),
+        "type": _LEGACY_WEBHOOK_TYPES[transition.kind],
+        "timestamp": transition.occurred_at.isoformat(),
+        "data": data,
+    }

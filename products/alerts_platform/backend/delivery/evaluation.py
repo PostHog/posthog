@@ -4,8 +4,9 @@ The layer that knows a transport exists. `dispatch.deliver` handles one destinat
 is what decides which destinations there are and which transport each one takes.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
-from typing import Final
+from typing import Any, Final
 
 import structlog
 import posthoganalytics
@@ -13,10 +14,12 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts_platform.backend.delivery import legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.email import EmailTransport
+from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
@@ -71,19 +74,7 @@ def destinations_are_live(team: Team) -> bool:
     is where everything was before this existed. Reading a blip the other way starts sending.
     """
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                LIVE_DELIVERY_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                # This runs in a Temporal activity, where a captured event is silently dropped.
-                send_feature_flag_events=False,
-            )
-        )
+        return _team_flag_enabled(LIVE_DELIVERY_FLAG, team)
     except Exception:
         logger.warning(
             "alerts_platform_live_delivery_flag_check_failed_defaulting_off",
@@ -91,6 +82,63 @@ def destinations_are_live(team: Team) -> bool:
             exc_info=True,
         )
         return False
+
+
+def _team_flag_enabled(flag: str, team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            # This runs in a Temporal activity, where a captured event is silently dropped.
+            send_feature_flag_events=False,
+        )
+    )
+
+
+class _WebhookTransports:
+    """The webhook transport for one evaluation, with the legacy body when the team keeps it.
+
+    The flag is read once, and only when a webhook destination is about to be sent to. Unlike the
+    live-delivery flag, a failed read is a failed delivery: a guess either way sends a body some
+    receiver cannot parse, and a retry costs only time.
+    """
+
+    def __init__(self, team: Team, request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> None:
+        self._team = team
+        self._request = request
+        self._announced = announced
+        self._transport: WebhookTransport | None = None
+
+    def get(self) -> WebhookTransport:
+        if self._transport is None:
+            self._transport = WebhookTransport(legacy_body=self._legacy_body())
+        return self._transport
+
+    def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
+        body = legacy_webhook.body_for(self._request.source)
+        if body is None:
+            return None
+        try:
+            keeps_legacy_body = _team_flag_enabled(legacy_webhook.LEGACY_WEBHOOK_BODY_FLAG, self._team)
+        except Exception as error:
+            raise DeliveryError("Could not read which webhook body this team receives.") from error
+        if not keeps_legacy_body:
+            return None
+        team_id = self._team.id
+        alert_id = self._request.destination_alert_id
+        consecutive_failures = self._announced.consecutive_failures
+        return lambda message: body(
+            project_id=team_id,
+            alert_id=alert_id,
+            alert_name=message.alert_name,
+            consecutive_failures=consecutive_failures,
+            transition=message.transition,
+        )
 
 
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
@@ -121,6 +169,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     action_by_event_id = {
         event_id: IncidentAction(action) for action, event_id in request.event_ids_by_incident_action.items()
     }
+    webhook_transports = _WebhookTransports(team, request, announced)
     for event_id, transitions in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
             transport_class = _TRANSPORTS.get(target["type"])
@@ -128,8 +177,9 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 skipped += 1
                 continue
             try:
+                transport = webhook_transports.get() if transport_class is WebhookTransport else transport_class()
                 deliver(
-                    transport=transport_class(),
+                    transport=transport,
                     thread_store=thread_store,
                     team_id=request.team_id,
                     configuration_id=request.configuration_id,

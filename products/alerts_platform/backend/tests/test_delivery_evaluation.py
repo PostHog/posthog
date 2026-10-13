@@ -25,6 +25,8 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
+_LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
+_WEBHOOK_URL_MODULE = "products.alerts_platform.backend.delivery.webhook_url"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
 
 FIRING_EVENT = "$logs_alert_firing"
@@ -300,6 +302,44 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert RecordingTransport.sends == []
         assert outcome.live is False
+
+    @parameterized.expand(
+        [
+            ("keeps_the_legacy_body", True, "1", "legacy"),
+            ("moved_to_alertmanager", False, "2", "4"),
+            ("flag_unreadable", RuntimeError("flags unreachable"), None, None),
+        ]
+    )
+    def test_a_webhook_gets_the_body_its_team_still_receives(
+        self, _name: str, keeps_legacy: bool | Exception, header: str | None, body_version: str | None
+    ) -> None:
+        def flag(key: str, *_args: Any, **_kwargs: Any) -> bool:
+            if key == LIVE_DELIVERY_FLAG:
+                return True
+            if isinstance(keeps_legacy, Exception):
+                raise keeps_legacy
+            return keeps_legacy
+
+        def legacy_body(**kwargs: Any) -> dict[str, Any]:
+            return {"version": "legacy", "alert_id": kwargs["alert_id"]}
+
+        with (
+            patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=flag),
+            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK)]),
+            patch(f"{_MODULE}.DatabaseThreadStore"),
+            patch.dict(f"{_LEGACY_MODULE}._bodies", {SourceKind.LOGS: legacy_body}),
+            patch(f"{_WEBHOOK_URL_MODULE}.post_json") as post,
+        ):
+            if header is None:
+                with pytest.raises(DeliveryError):
+                    deliver_evaluation(_request(self.team.id))
+                post.assert_not_called()
+                return
+            deliver_evaluation(_request(self.team.id))
+
+        assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
+        assert post.call_args.args[1]["version"] == body_version
 
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.

@@ -1,14 +1,20 @@
 import json
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition, MessageDetail
-from products.logs.backend.platform_alert_wording import describe_logs_transition
+from products.cdp.backend.validation import generate_template_bytecode
+from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG
+from products.logs.backend.logs_url_params import build_logs_url_params
+from products.logs.backend.platform_alert_wording import describe_logs_transition, legacy_logs_webhook_body
+
+from common.hogvm.python.execute import execute_bytecode
 
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 10}
 OCCURRED = datetime(2026, 10, 8, 18, 5, tzinfo=UTC)
@@ -93,3 +99,61 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
             "date_from": "2026-10-08T17:55:00+00:00",
             "date_to": "2026-10-08T18:05:00+00:00",
         }
+
+    @parameterized.expand(
+        [
+            ("firing", AlertEventKind.FIRING, "firing"),
+            ("resolved", AlertEventKind.RESOLVED, "resolved"),
+            ("errored", AlertEventKind.ERRORED, "errored"),
+            ("auto_disabled", AlertEventKind.BROKEN, "broken"),
+        ]
+    )
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_the_legacy_webhook_body_matches_what_the_hog_function_sent(
+        self, _name: str, kind: AlertEventKind, legacy_kind: str
+    ) -> None:
+        filters = {"serviceNames": ["api"], "severityLevels": ["error"]}
+        breach = kind in (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
+        transition = replace(
+            _transition(kind, 11.0 if breach else None, filters), error_message=None if breach else "query timed out"
+        )
+
+        native = legacy_logs_webhook_body(
+            project_id=7, alert_id="alert-1", alert_name="API errors", consecutive_failures=2, transition=transition
+        )
+
+        # The properties the logs stack put on its event, rendered through the stock template.
+        properties = {
+            "alert_id": "alert-1",
+            "alert_name": "API errors",
+            "result_count": 11,
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 10,
+            "service_names": ["api"],
+            "severity_levels": ["error"],
+            "logs_url_params": build_logs_url_params(
+                transition.source_config, date_from=OCCURRED - timedelta(minutes=10), date_to=OCCURRED
+            ),
+            "triggered_at": OCCURRED.isoformat(),
+            "consecutive_failures": 2,
+            "error_message": "query timed out",
+            "last_error_message": "query timed out",
+        }
+        globals_ = {
+            "event": {"uuid": native["id"], "properties": properties},
+            "project": {"url": "https://us.posthog.com/project/7"},
+        }
+        legacy = _render(generate_template_bytecode(EVENT_KIND_CONFIG[legacy_kind].webhook_body, set()), globals_)
+
+        assert native == legacy
+
+
+def _render(node: Any, globals_: dict[str, Any]) -> Any:
+    if isinstance(node, list) and node and node[0] in ("_H", "_h"):
+        return execute_bytecode(node, globals=globals_).result
+    if isinstance(node, dict):
+        return {key: _render(value, globals_) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_render(item, globals_) for item in node]
+    return node

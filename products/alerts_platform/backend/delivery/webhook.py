@@ -6,11 +6,13 @@ transition is one message.
 """
 
 import hashlib
+from collections.abc import Callable
 from typing import Any, ClassVar, Final
 from urllib.parse import urlsplit
 
 from django.conf import settings
 
+from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_VERSION
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
@@ -91,6 +93,14 @@ class WebhookTransport(WebhookUrlTransport):
     display_name = "webhook"
     headers: ClassVar[dict[str, str]] = {"X-PostHog-Webhook-Version": WEBHOOK_VERSION}
 
+    def __init__(self, legacy_body: Callable[[AlertMessage], dict[str, Any]] | None = None) -> None:
+        self._legacy_body = legacy_body
+
+    def headers_for(self) -> dict[str, str]:
+        if self._legacy_body is not None:
+            return {"X-PostHog-Webhook-Version": LEGACY_WEBHOOK_VERSION}
+        return self.headers
+
     def check_url(self, url: str) -> None:
         # Plain HTTP would expose the URL, which is the credential, and the alert body to anyone on
         # the path. Teams and Discord URLs are always HTTPS, so only the generic webhook needs this.
@@ -98,4 +108,6 @@ class WebhookTransport(WebhookUrlTransport):
             raise DeliveryError("This webhook destination's URL must use https.")
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
+        if self._legacy_body is not None:
+            return self._legacy_body(message)
         return alertmanager_body(message)
