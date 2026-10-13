@@ -545,7 +545,6 @@ tools:
             instruction fields from the project's Self-driving config singleton, with empty strings for unset roles.
             Read shared project instructions separately with tasks-config-list. A role's instructions supplement the
             shared project instructions; scouts also retain their individual briefs.
-        feature_flag: signals-agent-steering
         response:
             include:
                 - research_instructions
@@ -572,7 +571,6 @@ tools:
             - research_instructions
             - implementation_instructions
             - scout_instructions
-        feature_flag: signals-agent-steering
         response:
             include:
                 - research_instructions

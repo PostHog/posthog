@@ -7196,8 +7196,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "signals-agent-steering"
+        }
     },
     "inbox-steering-instructions-update": {
         "description": "Set project-level instructions for research agents, implementation agents, or all scouts. Requires project admin. Sandbox agents cannot change these instructions. Read inbox-steering-instructions-get first. Send the full replacement text for each role you change, not a diff; omitted roles keep their instructions. Send an empty string to clear a role while retaining shared project instructions. Each field accepts up to 20,000 characters. New and resumed runs receive the saved instructions. Use tasks-config-agent-instructions-create to edit the shared project instructions instead.",
@@ -7211,8 +7210,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "signals-agent-steering"
+        }
     },
     "insight-create": {
         "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /\nquery-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.\nReturns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if\nyou want to see the computed results.\n\nPut the insight definition in `query.source`, under the wrapper node that matches it. Use\n`InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:\n\n```json\n{ \"name\": \"Example\", \"query\": { \"kind\": \"DataVisualizationNode\", \"source\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } } }\n```\n\nA bare query is accepted too. `{ \"kind\": \"TrendsQuery\", ... }` and `{ \"kind\": \"HogQLQuery\", ... }` are each\nwrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.\n\nChoose the TrendsQuery `trendsFilter.display` from the question the insight answers:\n- Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.\n- Compare breakdown values or series as totals (\"top pages\", \"failures by reason\"): `ActionsBarValue`, or `ActionsPie` for the share of a whole with a few values.\n- One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare: true` for a comparison, or `BoldNumber` when a trend has no meaning.\n- Many breakdown rows that a person reads rather than compares: `ActionsTable`.\n- Totals per country from a `$geoip_country_code` breakdown: `WorldMap`.\n\nIn a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per X-axis value, and `ActionsBarValue` draws the same bars horizontally.",
@@ -12943,8 +12941,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "tasks"
+        }
     },
     "tasks-config-create": {
         "description": "Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model` must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve to list valid model identifiers.",
@@ -12973,8 +12970,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "tasks"
+        }
     },
     "tasks-create": {
         "description": "Create a task without starting a run. Set `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. A person can start the task at the returned URL. Use `tasks-create-and-run` to start a run immediately when that tool is available.",

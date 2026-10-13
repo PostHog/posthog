@@ -113,7 +113,6 @@ tools:
             scout runs. Requires project admin. Sandbox agents cannot rewrite these instructions. Replaces the stored
             text; send an empty string to clear. Read tasks-config-list first, and send the full new text, not a diff.
             Use inbox-steering-instructions-update for instructions that apply to only one Self-driving agent role.
-        feature_flag: tasks
     tasks-config-create:
         operation: tasks_config_create
         enabled: true
@@ -144,7 +143,6 @@ tools:
             Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
             runs created without an explicit runtime selection. All fields are null when no project default is stored.
             Also returns the project's agent instructions (`agent_instructions`), empty when unset.
-        feature_flag: tasks
     tasks-create:
         operation: tasks_create
         enabled: true
