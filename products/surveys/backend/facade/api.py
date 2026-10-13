@@ -62,7 +62,9 @@ def _editable_survey(*, team_id: int, user: User, survey_id: UUID | str) -> Surv
     return survey
 
 
-def _log(survey: Survey, user: User, activity: str, field: str, before: datetime | None, after: datetime | None) -> None:
+def _log(
+    survey: Survey, user: User, activity: str, field: str, before: datetime | None, after: datetime | None
+) -> None:
     log_activity(
         organization_id=survey.team.organization_id,
         team_id=survey.team_id,
