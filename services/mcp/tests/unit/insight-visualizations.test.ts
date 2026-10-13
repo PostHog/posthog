@@ -78,6 +78,7 @@ describe('insight visualizations', () => {
                 ['HogQLQuery', 'table'],
                 ['WebStatsTableQuery', 'table'],
                 ['WebOverviewQuery', 'table'],
+                ['WebVitalsPathBreakdownQuery', 'table'],
             ] as const)('falls back to %s when results are empty', (kind, expected) => {
                 expect(inferVisualizationType(queryPayload([], kind))).toBe(expected)
             })
@@ -272,6 +273,28 @@ describe('insight visualizations', () => {
                         ['Visitors', '1.5K', '+12%'],
                         ['Session duration', '1m 35s', '-3%'],
                         ['Bounce rate', '41.3%', null],
+                    ],
+                })
+            })
+
+            it.each([
+                ['LCP', 'p90', 2873.4, '2873 ms'],
+                ['CLS', 'p75', 0.314, '0.31'],
+            ])('maps %s web vitals bands to path rows, worst first', (metric, percentile, poorValue, poorCell) => {
+                const results = [
+                    {
+                        good: [{ path: '/', value: 0.01 }],
+                        needs_improvements: [],
+                        poor: [{ path: '/pricing', value: poorValue }],
+                    },
+                ]
+                expect(
+                    toTableResult({ kind: 'WebVitalsPathBreakdownQuery', metric, percentile }, results, undefined)
+                ).toEqual({
+                    columns: ['Path', `${metric} (${percentile})`, 'Rating'],
+                    results: [
+                        ['/pricing', poorCell, 'Poor'],
+                        ['/', metric === 'CLS' ? '0.01' : '0 ms', 'Good'],
                     ],
                 })
             })
