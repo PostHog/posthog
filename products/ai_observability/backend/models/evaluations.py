@@ -232,7 +232,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         return [c.get("properties", []) for c in self.conditions] != [c.get("properties", []) for c in stored]
 
     def save(self, *args, **kwargs):
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
