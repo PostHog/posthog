@@ -92,8 +92,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
     StripeAuthenticationError,
+    StripeListCursorMissingError,
     StripeNestedResource,
     StripeResource,
+    StripeResumeConfig,
     StripeTransientError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
@@ -725,6 +727,97 @@ class TestStripeNestedResourceGetRows:
 
         assert seen_customers == ["cus_a", "cus_b"]
         assert {row["customer"] for row in rows} == {"cus_a", "cus_b"}
+
+
+def _paging_list_method(ids: list[str], page_size: int, rejected_cursors: set[str]):
+    def _list(params):
+        def pages():
+            cursor = params.get("starting_after")
+            while True:
+                if cursor in rejected_cursors:
+                    raise stripe_lib.InvalidRequestError(
+                        f"No such invoice_payment: '{cursor}'",
+                        "starting_after",
+                        code="resource_missing",
+                        http_status=404,
+                    )
+                start = ids.index(cursor) + 1 if cursor is not None else 0
+                page = ids[start : start + page_size]
+                yield from ({"id": object_id} for object_id in page)
+                if start + page_size >= len(ids):
+                    return
+                cursor = page[-1]
+
+        return _FakeStripeList(pages())
+
+    return _list
+
+
+class TestStripeFlatListMissingCursor:
+    @parameterized.expand(
+        [
+            ("fresh_run", None, ["inpay_0", "inpay_1", "inpay_2", "inpay_3", "inpay_4", "inpay_5"]),
+            (
+                "resume_from_rejected_cursor",
+                StripeResumeConfig(starting_after="inpay_1", fallback_starting_after="inpay_0"),
+                ["inpay_2", "inpay_3", "inpay_4", "inpay_5"],
+            ),
+        ]
+    )
+    def test_pages_past_a_listed_object_stripe_rejects_as_cursor(self, _name, resume_config, expected_ids):
+        ids = [f"inpay_{i}" for i in range(6)]
+        resource = StripeResource(method=_paging_list_method(ids, page_size=2, rejected_cursors={"inpay_1"}))
+        manager = MagicMock()
+        manager.can_resume.return_value = resume_config is not None
+        manager.load_state.return_value = resume_config
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                )
+            )
+
+        assert [row["id"] for table in tables for row in table.to_pylist()] == expected_ids
+        assert manager.save_state.call_args_list[-1].args[0] == StripeResumeConfig(
+            starting_after="inpay_5", fallback_starting_after="inpay_4"
+        )
+
+    def test_rejected_resume_cursor_without_fallback_raises_non_retryable(self):
+        ids = [f"inpay_{i}" for i in range(4)]
+        resource = StripeResource(method=_paging_list_method(ids, page_size=2, rejected_cursors={"inpay_1"}))
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = StripeResumeConfig(starting_after="inpay_1")
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+            pytest.raises(StripeListCursorMissingError),
+        ):
+            list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                )
+            )
 
 
 def _invoice(invoice_id: Optional[str], has_more: bool = True) -> SimpleNamespace:
