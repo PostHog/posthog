@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconGear, IconPlusSmall, IconReceipt } from '@posthog/icons'
 import {
@@ -50,13 +51,25 @@ export function TodayOrgMenu(): JSX.Element {
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
     const { openOrgSwitcher, closeOrgSwitcher } = useActions(newAccountMenuLogic)
+    // A switch reloads the page when it succeeds. Until then, a second pick would race the first.
+    const [switching, setSwitching] = useState(false)
 
     const organizations = [...(currentOrganization ? [currentOrganization] : []), ...otherOrganizations].sort((a, b) =>
         a.name.localeCompare(b.name)
     )
 
     return (
-        <DropdownMenu open={isOrgSwitcherOpen} onOpenChange={(open) => (open ? openOrgSwitcher() : closeOrgSwitcher())}>
+        <DropdownMenu
+            open={isOrgSwitcherOpen}
+            onOpenChange={(open) => {
+                if (open) {
+                    setSwitching(false)
+                    openOrgSwitcher()
+                } else {
+                    closeOrgSwitcher()
+                }
+            }}
+        >
             <Tooltip>
                 <TooltipTrigger
                     delay={0}
@@ -89,7 +102,9 @@ export function TodayOrgMenu(): JSX.Element {
                     <DropdownMenuRadioGroup
                         value={currentOrganization?.id ?? ''}
                         onValueChange={(id) => {
-                            if (id !== currentOrganization?.id) {
+                            if (id !== currentOrganization?.id && !switching) {
+                                setSwitching(true)
+                                closeOrgSwitcher()
                                 updateCurrentOrganization(id as string)
                             }
                         }}
@@ -98,7 +113,9 @@ export function TodayOrgMenu(): JSX.Element {
                             <DropdownMenuRadioItem
                                 key={organization.id}
                                 value={organization.id}
-                                disabled={'is_active' in organization && organization.is_active === false}
+                                disabled={
+                                    switching || ('is_active' in organization && organization.is_active === false)
+                                }
                                 data-attr="today-rail-org-item"
                             >
                                 <UploadedLogo
