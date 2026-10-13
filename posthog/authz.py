@@ -64,9 +64,10 @@ def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, querys
             resource=Resource(type=ResourceType.DASHBOARD, project_id=team_id),
             action=Action.VIEW,
             subject=Subject(user_id=user.pk),
+            creator_exempt=True,
         )
         if result.complete:
-            allowed |= Q(team_id=team_id) & filter_q(result, id_field="pk", creator_field=None)
+            allowed |= Q(team_id=team_id) & filter_q(result, id_field="pk", subject_user_id=user.pk)
     return queryset.filter(allowed)
 
 
