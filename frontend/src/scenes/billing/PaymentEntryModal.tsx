@@ -155,7 +155,7 @@ export const PaymentEntryModal = (): JSX.Element => {
                             you need help. We answer billing questions on every plan.
                         </p>
                         <LemonBanner type="error">{apiError}</LemonBanner>
-                        <div className="flex justify-end deprecated-space-x-2 mt-2">
+                        <div className="flex justify-end gap-2 mt-2">
                             <LemonButton type="secondary" onClick={hidePaymentEntryModal}>
                                 Close
                             </LemonButton>
