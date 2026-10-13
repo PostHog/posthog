@@ -44,6 +44,17 @@ import type {
     SidePanelViewState,
 } from '../../types'
 
+// A dropped connection fails every support request at once, and the user's own network is the
+// cause, not support. Stay quiet while offline, and raise one toast per run of failures until a load
+// succeeds or the connection comes back.
+function toastLoadFailure(cache: Record<string, any>, message: string): void {
+    if (navigator.onLine === false || cache.loadFailureToasted) {
+        return
+    }
+    cache.loadFailureToasted = true
+    lemonToast.error(message)
+}
+
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
     switch (filter) {
         case 'all':
@@ -544,12 +555,26 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!cache.onVisibilityChange) {
                 cache.onVisibilityChange = (): void => {
                     if (document.visibilityState === 'visible') {
-                        actions.loadTickets()
+                        // A tab that wakes offline would only fail; the online handler reloads instead
+                        if (navigator.onLine !== false) {
+                            actions.loadTickets()
+                        }
                     } else {
                         actions.stopPolling()
                     }
                 }
                 document.addEventListener('visibilitychange', cache.onVisibilityChange)
+            }
+
+            if (!cache.onOnline) {
+                cache.onOnline = (): void => {
+                    cache.loadFailureToasted = false
+                    actions.loadTickets()
+                    if (values.currentTicket && values.view === 'ticket' && !values.messagesLoading) {
+                        actions.loadMessages(values.currentTicket.id)
+                    }
+                }
+                window.addEventListener('online', cache.onOnline)
             }
         },
         loadTickets: async () => {
@@ -619,6 +644,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     cache.ticketsFetched = true
+                    cache.loadFailureToasted = false
                     actions.setTickets(response.results as ConversationTicket[])
                     // With no tickets there's nothing to poll for; creating one re-runs loadTickets
                     // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
@@ -638,7 +664,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
-                lemonToast.error('Failed to load tickets.')
+                toastLoadFailure(cache, 'Failed to load tickets.')
             } finally {
                 actions.setTicketsLoading(false)
             }
@@ -723,6 +749,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     authorName: msg.author_name || '',
                     createdAt: msg.created_at,
                 }))
+                cache.loadFailureToasted = false
                 actions.setMessages(transformedMessages)
                 actions.setHasMoreMessages(false)
             } catch (e) {
@@ -734,7 +761,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     reason: 'thread_load_failed',
                     error: e,
                 })
-                lemonToast.error('Failed to load messages. Please try again.')
+                toastLoadFailure(cache, 'Failed to load messages. Please try again.')
             } finally {
                 actions.setMessagesLoading(false)
             }
@@ -1084,6 +1111,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         }
         if (cache.onVisibilityChange) {
             document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        }
+        if (cache.onOnline) {
+            window.removeEventListener('online', cache.onOnline)
         }
     }),
     afterMount(({ values, actions }) => {
