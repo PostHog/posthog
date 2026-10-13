@@ -94,7 +94,9 @@ def _team_flag_enabled(flag: str, team: Team) -> bool | None:
         groups={"organization": str(team.organization_id), "project": str(team.id)},
         group_properties={
             "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
+            # Both regions read flags from one PostHog project, and project ids repeat across
+            # regions. A condition on the uuid names one team in one region.
+            "project": {"id": str(team.id), "uuid": str(team.uuid)},
         },
         # This runs in a Temporal activity, where a captured event is silently dropped.
         send_feature_flag_events=False,

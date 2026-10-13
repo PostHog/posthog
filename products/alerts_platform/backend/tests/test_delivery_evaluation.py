@@ -300,6 +300,7 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert flag.call_args.args[0] == LIVE_DELIVERY_FLAG
         assert flag.call_args.kwargs["groups"]["project"] == str(self.team.id)
+        assert flag.call_args.kwargs["group_properties"]["project"]["uuid"] == str(self.team.uuid)
 
     def test_a_flag_that_cannot_be_read_leaves_the_legacy_path_as_the_only_deliverer(self) -> None:
         with patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")):
