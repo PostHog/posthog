@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.core.cache import cache
 from django.db import connection, transaction
 from django.http import HttpResponse, HttpResponseRedirect
 
@@ -43,6 +44,8 @@ CONNECT_SALT = "vercel_connect"
 CONNECT_NONCE_COOKIE_PREFIX = "ph_vercel_connect_"
 CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
 INSTALL_STATE_COOKIE_PREFIX = "__Host-ph_vercel_install_state_"
+MAX_PENDING_INSTALL_STATES = 5
+INSTALL_CONTINUATION_CACHE_PREFIX = "vercel_connect_install_next:"
 SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
 _BROWSER_NONCE_KEY = "browser_nonce"
 
@@ -119,12 +122,33 @@ def _install_state_cookie_name(state: str) -> str:
     return _per_flow_cookie_name(INSTALL_STATE_COOKIE_PREFIX, state)
 
 
-def _redirect_through_vercel_install() -> HttpResponse:
+def _install_continuation_cache_key(state: str) -> str:
+    return INSTALL_CONTINUATION_CACHE_PREFIX + hashlib.sha256(state.encode()).hexdigest()
+
+
+def _pop_install_continuation(state: str) -> str:
+    key = _install_continuation_cache_key(state)
+    next_url = cache.get(key, "")
+    cache.delete(key)
+    return next_url
+
+
+def _drop_excess_install_state_cookies(request: Request, response: HttpResponse) -> None:
+    # Any code starts a flow before it is validated, and every request to this host carries these cookies.
+    pending = sorted(name for name in request.COOKIES if name.startswith(INSTALL_STATE_COOKIE_PREFIX))
+    for name in pending[MAX_PENDING_INSTALL_STATES - 1 :]:
+        response.delete_cookie(name, path="/", samesite="Lax")
+
+
+def _redirect_through_vercel_install(request: Request, next_url: str) -> HttpResponse:
     # A Marketplace install calls back without a state, so nothing ties its code to this browser. Vercel's
     # external install flow returns the state we send, and the state cookie ties that state to this browser.
     state = secrets.token_urlsafe(32)
     slug = quote(settings.VERCEL_INTEGRATION_SLUG, safe="")
     response = HttpResponseRedirect(f"https://vercel.com/integrations/{slug}/new?{urlencode({'state': state})}")
+    if next_url:
+        cache.set(_install_continuation_cache_key(state), next_url, timeout=CONNECT_SESSION_TIMEOUT)
+    _drop_excess_install_state_cookies(request, response)
     response.set_cookie(
         _install_state_cookie_name(state),
         state,
@@ -286,8 +310,9 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
         state = request.query_params.get("state")
         if not state:
             _reject_install_return_without_state(request)
-            return _redirect_through_vercel_install()
+            return _redirect_through_vercel_install(request, next_url)
         _require_install_state_from_this_browser(request, state)
+        next_url = _pop_install_continuation(state) or next_url
 
         client = VercelAPIClient(bearer_token=None)
         token_response = client.oauth_token_exchange(

@@ -20,6 +20,8 @@ from ee.api.vercel.crypto import encrypt_payload
 from ee.api.vercel.vercel_connect import (
     CONNECT_NONCE_COOKIE_PREFIX,
     CONNECT_SALT,
+    INSTALL_STATE_COOKIE_PREFIX,
+    MAX_PENDING_INSTALL_STATES,
     VercelImportError,
     _browser_nonce_cookie_name,
     _delete_orphaned_integration,
@@ -95,10 +97,16 @@ class VercelConnectTestBase(APIBaseTest):
         return _sign_connect_session(CACHED_SESSION_DATA, browser_nonce=BROWSER_NONCE)
 
     def _callback_through_vercel_install(
-        self, params: dict[str, str], browser: Client | None = None, host: str = "testserver"
+        self,
+        params: dict[str, str],
+        browser: Client | None = None,
+        host: str = "testserver",
+        marketplace_params: dict[str, str] | None = None,
     ) -> HttpResponseBase:
         browser = browser or self.client
-        install_redirect = browser.get(CALLBACK_URL, {"code": "code_from_marketplace"}, HTTP_HOST=host)
+        install_redirect = browser.get(
+            CALLBACK_URL, {"code": "code_from_marketplace", **(marketplace_params or {})}, HTTP_HOST=host
+        )
         return browser.get(
             CALLBACK_URL, {**params, "state": _state_from_install_redirect(install_redirect)}, HTTP_HOST=host
         )
@@ -144,9 +152,33 @@ class TestVercelConnectCallback(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    @parameterized.expand(
+        [
+            ("next_on_install_return", {}, {"next": "https://vercel.com/done"}, "https://vercel.com/done"),
+            (
+                "install_return_omits_next",
+                {"next": "https://vercel.com/marketplace"},
+                {},
+                "https://vercel.com/marketplace",
+            ),
+            (
+                "install_return_sends_other_next",
+                {"next": "https://vercel.com/marketplace"},
+                {"next": "https://vercel.com/install-page"},
+                "https://vercel.com/marketplace",
+            ),
+        ]
+    )
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_successful_exchange_redirects_authenticated_user_to_link(self, mock_client_class):
+    def test_successful_exchange_redirects_authenticated_user_to_link(
+        self,
+        _name: str,
+        marketplace_params: dict[str, str],
+        return_params: dict[str, str],
+        expected_next_url: str,
+        mock_client_class: MagicMock,
+    ) -> None:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
@@ -157,7 +189,9 @@ class TestVercelConnectCallback(VercelConnectTestBase):
             team_id="team_1",
         )
 
-        response = self._callback_through_vercel_install({"code": "good_code", "next": "https://vercel.com/done"})
+        response = self._callback_through_vercel_install(
+            {"code": "good_code", **return_params}, marketplace_params=marketplace_params
+        )
 
         assert response.status_code == 302
         location = response["Location"]
@@ -166,7 +200,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert "session" in parsed
         assert "next" not in parsed
         session_data = _load_connect_session(parsed["session"][0])
-        assert session_data["next_url"] == "https://vercel.com/done"
+        assert session_data["next_url"] == expected_next_url
 
     @parameterized.expand(
         [
@@ -277,6 +311,22 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert cookie["httponly"] is True
         assert cookie["samesite"] == "Lax"
         mock_client.oauth_token_exchange.assert_not_called()
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_callback_without_state_caps_pending_install_cookies(self, mock_client_class: MagicMock) -> None:
+        _mock_vercel_client(mock_client_class)
+        for flow in range(MAX_PENDING_INSTALL_STATES + 3):
+            self.client.cookies[_install_state_cookie_name(f"pending-{flow}")] = f"pending-{flow}"
+
+        self.client.get(self.url, {"code": "unvalidated_code"})
+
+        pending = [
+            name
+            for name, cookie in self.client.cookies.items()
+            if name.startswith(INSTALL_STATE_COOKIE_PREFIX) and cookie.value
+        ]
+        assert len(pending) == MAX_PENDING_INSTALL_STATES
 
     @parameterized.expand(
         [
