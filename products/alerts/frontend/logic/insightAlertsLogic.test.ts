@@ -7,7 +7,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
 
@@ -44,7 +44,7 @@ const METRICS_QUERY = {
     clauses: [{ name: 'a', metricName: 'queue.depth', aggregation: 'avg' }],
 }
 
-const funnelWithViz = (funnelVizType?: string): Record<string, any> => ({
+const funnelWithViz = (funnelVizType?: string): Node & { source: Record<string, any> } => ({
     ...FUNNEL_QUERY,
     source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
 })
