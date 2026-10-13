@@ -895,7 +895,7 @@ export const SavedInboxOptIns: Story = {
     parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const inboxLabel = 'Review PRs the agent opens for Inbox reports assigned to me'
+        const inboxLabel = 'Review my Inbox PRs'
         // The Inbox section renders before the settings load and can re-render with new nodes,
         // so query again on every attempt until the saved values arrive.
         await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })
