@@ -310,10 +310,10 @@ export interface notebookLogicValues {
     findNodeLogic: (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
     frameNodeSummaries: NotebookFrameNodeSummary[]
-    hasCodeCells: boolean
-    hasDataframeConsumers: boolean
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
     getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+    hasCodeCells: boolean
+    hasDataframeConsumers: boolean
     hasUnsavedVariables: boolean
     isEditable: boolean
     isLocalOnly: boolean
