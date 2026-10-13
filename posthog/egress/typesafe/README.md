@@ -53,6 +53,8 @@ The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
 No TypeSafe caller exists on master yet. Each new local caller adds itself here with its lane and its feature flag.
 
+- `mcp_analytics_evals` (`BATCH`, no feature flag): the `jev` grader of `manage.py grade_mcp_evals` sends an eval scenario's request, success criteria and the agent's answer. It runs only from a developer's shell, against synthetic or PostHog-owned projects.
+
 ## Rate-limit headers
 
 TypeSafe documents no rate-limit status headers, so the domain declares no gauges.
