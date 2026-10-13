@@ -37,6 +37,11 @@ jobs:
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
             # Pushes default to 'false' because `semgrep ci` already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
+            # `semgrep ci` drops a match when the merge-base has the same code, even where a
+            # nosemgrep comment suppressed it there. A change that moves such a call away from
+            # its comment then passes a diff-aware scan and fails the full scan on master.
+            # The merge queue run gates master, so it runs the full scan.
+            merge-queue: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -174,7 +179,7 @@ jobs:
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
-                  full-scan: ${{ needs.changes.outputs.scan-setup }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup == 'true' || needs.changes.outputs.merge-queue == 'true' }}
                   args: >-
                       --config p/python
                       --config p/owasp-top-ten
@@ -221,6 +226,7 @@ jobs:
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.merge-queue }}
                   args: >-
                       --config p/golang
                       --config p/owasp-top-ten
@@ -257,6 +263,7 @@ jobs:
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.merge-queue }}
                   args: >-
                       --config p/rust
                       --config p/owasp-top-ten
@@ -295,7 +302,7 @@ jobs:
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
-                  full-scan: ${{ needs.changes.outputs.scan-setup }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup == 'true' || needs.changes.outputs.merge-queue == 'true' }}
                   args: >-
                       --config .semgrep/rules/security
                       --config p/javascript
@@ -341,7 +348,7 @@ jobs:
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
-                  full-scan: ${{ needs.changes.outputs.scan-setup }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup == 'true' || needs.changes.outputs.merge-queue == 'true' }}
                   args: >-
                       --config .semgrep/rules/security/prefer-codegen-api.yaml
                       --include /products
@@ -381,6 +388,7 @@ jobs:
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.merge-queue }}
                   args: >-
                       --config p/owasp-top-ten
                       --config p/security-audit

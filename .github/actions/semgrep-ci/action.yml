@@ -26,6 +26,8 @@ inputs:
             diff-aware `semgrep ci`, so a pull request reports every finding, the way a
             push does. Set it when the pull request changes a rule or the scan setup:
             the diff-aware scan cannot see what an edited rule matches in unchanged code.
+            Set it on the merge queue run too: the diff-aware scan also drops a match that
+            the merge-base suppressed with a nosemgrep comment on a different line.
         required: false
         default: 'false'
 
