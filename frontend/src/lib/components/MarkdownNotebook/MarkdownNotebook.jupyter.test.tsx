@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { createElement, useCallback } from 'react'
 
 import { usePublishNotebookComponentRunHandler } from './componentRunHandlers'
@@ -31,14 +31,24 @@ const registry = createMarkdownNotebookRegistry([
         label: 'Python',
         category: 'Code',
         defaultProps: { code: '' },
+        insertCommand: {},
         ViewComponent: () => createElement('div', null, 'output'),
         EditComponent: CodeEditorStandIn,
         ToolbarComponent: RunPublisher,
     },
+    {
+        tagName: 'Sql',
+        label: 'SQL',
+        category: 'Code',
+        defaultProps: { code: '' },
+        insertCommand: {},
+        ViewComponent: () => createElement('div', null, 'output'),
+        EditComponent: CodeEditorStandIn,
+    },
 ])
 
 const jupyterMode: MarkdownNotebookJupyterModeConfig = {
-    cellTagNames: ['Py'],
+    cellTagNames: ['Py', 'Sql'],
     newCellTagName: 'Py',
     getCellSource: (node) => String(node.props.code ?? ''),
     withCellSource: (node, source) => ({ ...node, props: { ...node.props, code: source } }),
@@ -95,6 +105,35 @@ async function flushFrames(): Promise<void> {
 const TWO_CELLS = '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />'
 
 describe('MarkdownNotebook in Jupyter mode', () => {
+    it.each([
+        ['Add Python', 'Py'],
+        ['Add SQL', 'Sql'],
+    ])('%s appends the requested code cell and focuses its editor', async (label, tagName) => {
+        const notebook = renderJupyterNotebook(TWO_CELLS)
+        fireEvent.click(within(notebook.container).getByText(label))
+        await waitFor(() => expect(document.activeElement).toBe(notebook.editor(2)))
+        expect(notebook.latest()).toEqual(`${TWO_CELLS}\n\n<${tagName} code="" />`)
+    })
+
+    it('Add text starts a separate markdown cell ready for typing', async () => {
+        const notebook = renderJupyterNotebook('# Title\n\nExisting text')
+        fireEvent.click(within(notebook.container).getByText('Add text'))
+        const newParagraph = notebook.container.querySelectorAll<HTMLElement>('.MarkdownNotebook__text-block')[2]
+        await waitFor(() => expect(document.activeElement).toBe(newParagraph))
+        expect(newParagraph.textContent).toBe('')
+        newParagraph.textContent = 'More text'
+        fireEvent.input(newParagraph)
+        expect(notebook.latest()).toEqual('# Title\n\nExisting text\n\n\nMore text')
+    })
+
+    it('the footer slash button opens the insert menu at the end', async () => {
+        const notebook = renderJupyterNotebook(TWO_CELLS)
+        fireEvent.click(within(notebook.container).getByLabelText('Add a cell'))
+        const menu = await within(notebook.container).findByRole('listbox')
+        fireEvent.click(within(menu).getByText('Python'))
+        expect(notebook.latest()).toEqual(`${TWO_CELLS}\n\n\n<Py code="" />`)
+    })
+
     it.each([
         [
             'A inserts a cell above',
