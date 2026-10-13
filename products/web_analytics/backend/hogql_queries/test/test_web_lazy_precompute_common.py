@@ -154,7 +154,13 @@ class TestChannelModifiersShapeKey(BaseTest):
             override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
             mock.patch(
                 "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+                side_effect=lambda key: (
+                    [self.team.pk]
+                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
+                    else "native.example.com"
+                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
+                    else False
+                ),
             ),
             mock.patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
@@ -186,7 +192,7 @@ class TestChannelModifiersShapeKey(BaseTest):
         aggregate.assert_not_called()
         assert execute.called
         for call in execute.call_args_list:
-            assert call.kwargs["workload"] == Workload.NATIVE_EVENTS
+            assert call.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER
             assert "preaggregated" not in call.args[0]
         assert "events_json" in execute.call_args.args[0]
 

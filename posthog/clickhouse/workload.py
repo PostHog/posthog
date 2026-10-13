@@ -10,6 +10,6 @@ class Workload(StrEnum):
     OFFLINE = "OFFLINE"
     # Logs queries
     LOGS = "LOGS"
-    NATIVE_EVENTS = "NATIVE_EVENTS"
+    NEW_EVENTS_CLUSTER = "NEW_EVENTS_CLUSTER"
     # Endpoints (the product) queries
     ENDPOINTS = "ENDPOINTS"

@@ -89,15 +89,28 @@ def test_connection_pool_creation_with_team_id(settings):
     assert team_pool.connection_args["host"] == "clicky"
 
 
-def test_native_events_pool_is_separate_from_legacy_pool(settings):
-    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
+def test_native_events_pool_is_separate_from_legacy_pool(settings, monkeypatch):
+    from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
+    from posthog.models.event.new_events_schema import new_events_cluster_host_scope
+
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "env.example.com"
+    host = "native.example.com"
+    monkeypatch.setattr("posthog.models.event.new_events_schema.get_instance_setting", lambda key: host)
     settings.CLICKHOUSE_VERIFY = True
     settings.CLICKHOUSE_PER_TEAM_SETTINGS = {}
     legacy = get_pool(Workload.ONLINE, team_id=44)
-    native = get_pool(Workload.NATIVE_EVENTS, team_id=44)
+    native = get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44)
     assert native is not legacy
     assert native.connection_args["host"] == "native.example.com"
-    assert get_pool(Workload.NATIVE_EVENTS, team_id=44) is native
+    with new_events_cluster_host_scope():
+        assert get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44) is native
+        host = "replacement.example.com"
+        pools = []
+        run_in_parallel_threads([lambda: pools.append(get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44))])
+        assert pools == [native]
+    replacement = get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44)
+    assert replacement is not native
+    assert replacement.connection_args["host"] == host
 
 
 @pytest.mark.parametrize("readonly", [False, True])
@@ -111,14 +124,14 @@ def test_native_events_route_preserves_resolved_credentials(settings, readonly, 
     settings.READONLY_CLICKHOUSE_USER = "reader"
     settings.READONLY_CLICKHOUSE_PASSWORD = "example-readonly"
     baseline = connection.get_kwargs_for_client(Workload.DEFAULT, team_id=44, readonly=readonly)
-    native = connection.get_kwargs_for_client(Workload.NATIVE_EVENTS, team_id=44, readonly=readonly)
+    native = connection.get_kwargs_for_client(Workload.NEW_EVENTS_CLUSTER, team_id=44, readonly=readonly)
     assert native == {**baseline, "host": "native.example.com", "verify": True}
 
 
 def test_native_events_workload_without_host_fails_closed(settings):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = None
     with pytest.raises(ValueError, match="Native events ClickHouse host is not configured"):
-        get_pool(Workload.NATIVE_EVENTS)
+        get_pool(Workload.NEW_EVENTS_CLUSTER)
 
 
 def test_read_password_reads_file_fresh_and_stripped(tmp_path):
@@ -210,7 +223,7 @@ def test_deletion_executor_credentials_do_not_fall_back_to_default(monkeypatch):
         get_clickhouse_creds(ClickHouseUser.DELETION_EXECUTOR)
 
 
-@pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.NATIVE_EVENTS])
+@pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.NEW_EVENTS_CLUSTER])
 def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeypatch, tmp_path, workload):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
@@ -226,7 +239,7 @@ def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeyp
     assert make_ch_pool.cache_info().currsize == 1
 
 
-@pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.NATIVE_EVENTS])
+@pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.NEW_EVENTS_CLUSTER])
 def test_get_http_kwargs_reads_file_backed_credential_fresh(settings, monkeypatch, tmp_path, workload):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
     token = tmp_path / "token"
@@ -276,8 +289,12 @@ def test_refreshing_pool_stamps_current_credential(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def reset_state():
+def reset_state(settings, monkeypatch):
     make_ch_pool.cache_clear()
+    monkeypatch.setattr(
+        "posthog.models.event.new_events_schema.get_instance_setting",
+        lambda key: settings.CLICKHOUSE_NATIVE_EVENTS_HOST,
+    )
 
     yield
 
@@ -325,15 +342,15 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
 @pytest.mark.parametrize(
     "workload,clickhouse_verify,queryservice_verify,expected_verify",
     [
-        (Workload.NATIVE_EVENTS, False, True, False),
-        (Workload.NATIVE_EVENTS, True, False, True),
+        (Workload.NEW_EVENTS_CLUSTER, False, True, True),
+        (Workload.NEW_EVENTS_CLUSTER, True, False, False),
         (Workload.OFFLINE, True, True, True),
         (Workload.OFFLINE, True, False, False),
         (Workload.DEFAULT, False, True, True),
         (Workload.LOGS, False, True, True),
     ],
 )
-def test_http_pool_preserves_workload_verification_policy(
+def test_http_pool_preserves_existing_verification_policy(
     settings, monkeypatch, workload, clickhouse_verify, queryservice_verify, expected_verify
 ):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"

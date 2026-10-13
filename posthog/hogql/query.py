@@ -73,6 +73,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.models.event.new_events_schema import new_events_cluster_host_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -939,11 +940,13 @@ class HogQLQueryExecutor:
             from posthog.models.event.new_events_schema import use_new_events_cluster  # noqa: PLC0415
 
             if use_new_events_cluster(self.team.pk, self.query_modifiers):
-                if workload == Workload.LOGS or not clickhouse_context.uses_new_events_schema():
+                if workload not in (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE, Workload.NEW_EVENTS_CLUSTER):
                     raise ExposedHogQLError(
-                        "Native events cluster queries require the native events workload and schema."
+                        "New events cluster opt-ins support analytics workloads only. Remove useNewEventsCluster for logs or endpoints queries."
                     )
-                workload = Workload.NATIVE_EVENTS
+                if not clickhouse_context.uses_new_events_schema():
+                    raise ExposedHogQLError("New events cluster queries require the native events schema.")
+                workload = Workload.NEW_EVENTS_CLUSTER
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(
@@ -1035,6 +1038,7 @@ class HogQLQueryExecutor:
         )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
+    @new_events_cluster_host_scope()
     def execute(self) -> HogQLQueryResponse:
         self._executing = True
         trace.get_current_span().set_attribute("team_id", self.team.pk)

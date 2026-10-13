@@ -457,11 +457,11 @@ def sync_execute(
     # Cluster-pinned workloads must keep their host because their tables live outside the main cluster.
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
-        if workload not in (Workload.LOGS, Workload.NATIVE_EVENTS):
+        if workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS and workload not in (Workload.LOGS, Workload.NATIVE_EVENTS):
+    if tags.workload == Workload.ENDPOINTS and workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:

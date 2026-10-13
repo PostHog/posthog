@@ -2518,7 +2518,13 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         self.modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
         self.settings_patch = patch(
             "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: [44] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+            side_effect=lambda key: (
+                [44]
+                if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
+                else "native.example.com"
+                if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
+                else False
+            ),
         )
         self.settings_patch.start()
         self.addCleanup(self.settings_patch.stop)

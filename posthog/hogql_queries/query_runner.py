@@ -55,7 +55,6 @@ from posthog.schema import (
     EndpointsUsageTrendsQuery,
     EventsQuery,
     EventTaxonomyQuery,
-    ExperimentActorsQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
@@ -95,7 +94,6 @@ from posthog.schema import (
     MetricsQuery,
     NodeKind,
     PathsQuery,
-    PathsV2ActorsQuery,
     PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -109,7 +107,6 @@ from posthog.schema import (
     SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
-    StickinessActorsQuery,
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
@@ -190,7 +187,11 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.new_events_schema import (
+    get_new_events_cluster_host,
+    new_events_cluster_host_scope,
+    use_new_events_schema,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -1823,40 +1824,19 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
     return None
 
 
-def query_node_modifiers_path(query: BaseModel) -> tuple[str, ...]:
-    if isinstance(
-        query,
-        (
-            ActorsQuery,
-            InsightActorsQuery,
-            InsightActorsQueryOptions,
-            FunnelsActorsQuery,
-            FunnelCorrelationQuery,
-            FunnelCorrelationActorsQuery,
-            StickinessActorsQuery,
-            ExperimentActorsQuery,
-            PathsV2ActorsQuery,
-            WebVitalsQuery,
-        ),
-    ) and isinstance(source := getattr(query, "source", None), BaseModel):
-        return ("source", *query_node_modifiers_path(source))
-    return ()
-
-
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     choices: dict[str, bool] = {}
-    sources = [query]
-    for field in query_node_modifiers_path(query):
-        query = getattr(query, field)
-        sources.append(query)
-    for source in sources:
-        source_modifiers = getattr(source, "modifiers", None)
-        if source_modifiers is not None:
+    while True:
+        modifiers = getattr(query, "modifiers", None)
+        if modifiers is not None:
             for key in ("useNewEventsSchema", "useNewEventsCluster"):
-                value = getattr(source_modifiers, key)
+                value = getattr(modifiers, key)
                 if key not in choices and value is not None:
                     choices[key] = value
-    modifiers = getattr(query, "modifiers", None)
+        source = getattr(query, "source", None)
+        if not isinstance(source, BaseModel):
+            break
+        query = source
     if choices:
         return (modifiers or HogQLQueryModifiers()).model_copy(update=choices)
     return modifiers
@@ -1923,10 +1903,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
-        self._use_new_events_schema_without_user = self.modifiers.useNewEventsSchema
-        if user is not None:
-            self.modifiers = create_default_modifiers_for_user(user, team, self.modifiers)
-        elif self.modifiers.useNewEventsSchema is None:
+        if self.modifiers.useNewEventsSchema is None:
             self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
         self.query = query
         self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
@@ -1945,22 +1922,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user. Subclasses that override this to rebuild their own user-dependent state (e.g.
         a cached HogQLContext / Database) must call super()._on_user_changed()."""
         self._shared_database = None
-        self.modifiers.useNewEventsSchema = self._use_new_events_schema_without_user
-        if self.user is not None:
-            self.modifiers = create_default_modifiers_for_user(self.user, self.team, self.modifiers)
-        elif self.modifiers.useNewEventsSchema is None:
-            self.modifiers.useNewEventsSchema = use_new_events_schema(self.team.pk, self.modifiers)
 
     @property
     def _use_new_events_schema(self) -> bool:
         return use_new_events_schema(self.team.pk, self.modifiers)
-
-    def _serialized_modifier_sources(self, query_json: dict[str, Any]) -> list[dict[str, Any]]:
-        sources = [query_json]
-        for field in query_node_modifiers_path(self.query):
-            query_json = query_json[field]
-            sources.append(query_json)
-        return sources
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2384,6 +2349,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
             return query_result, query_duration_ms
 
+    @new_events_cluster_host_scope()
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -2795,6 +2761,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         target_age = self.cache_target_age(last_refresh=last_refresh)
 
         if query_run.user:
+            self.modifiers = create_default_modifiers_for_user(query_run.user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
         query_scan_flag = get_query_scan_flag(self.team)
@@ -3156,12 +3123,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
         # Queued queries carry the effective table choice; the resolved modifiers already key it.
-        for modifier_source in self._serialized_modifier_sources(query):
+        modifier_source: dict[str, Any] | None = query
+        while isinstance(modifier_source, dict):
             if isinstance(modifier_source.get("modifiers"), dict):
                 modifier_source["modifiers"].pop("useNewEventsSchema", None)
                 modifier_source["modifiers"].pop("useNewEventsCluster", None)
                 if not modifier_source["modifiers"]:
                     modifier_source.pop("modifiers")
+            modifier_source = modifier_source.get("source")
 
         cache_modifiers = to_dict(self.modifiers)
         if cache_modifiers.get("useNewEventsSchema") is False:
@@ -3179,8 +3148,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
-        if self.modifiers.useNewEventsCluster and settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
-            payload["native_events_host"] = settings.CLICKHOUSE_NATIVE_EVENTS_HOST
+        if self.modifiers.useNewEventsCluster:
+            payload["native_events_host"] = get_new_events_cluster_host()
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.

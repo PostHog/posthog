@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
 from posthog.clickhouse.workload import Workload
+from posthog.models.event.new_events_schema import get_new_events_cluster_host
 from posthog.settings import data_stores
 from posthog.utils import patchable
 
@@ -351,7 +352,7 @@ class ProxyClient:
 
 
 @cache
-def _clickhouse_http_pool_mgr(verify: bool | None = None):
+def _clickhouse_http_pool_mgr():
     # clickhouse_connect probes pandas/numpy availability when imported, dragging pandas and
     # pyarrow (~400ms) onto the path of whoever imports it — and this module loads at
     # django.setup(). Only the HTTP client paths need it, so build the pool manager on demand.
@@ -362,12 +363,12 @@ def _clickhouse_http_pool_mgr(verify: bool | None = None):
         block=True,  # makes the maxsize limit per pool, keeps connections
         num_pools=12,  # number of pools
         ca_cert=settings.CLICKHOUSE_CA,
-        verify=settings.QUERYSERVICE_VERIFY if verify is None else verify,
+        verify=settings.QUERYSERVICE_VERIFY,
     )
 
 
 @contextmanager
-def get_http_client(workload: Workload = Workload.DEFAULT, **overrides):
+def get_http_client(**overrides):
     from clickhouse_connect import get_client  # noqa: PLC0415
 
     kwargs = {
@@ -381,9 +382,7 @@ def get_http_client(workload: Workload = Workload.DEFAULT, **overrides):
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         "autogenerate_session_id": True,
         # beware, this makes each query to run in a separate session - no temporary tables will work
-        "pool_mgr": _clickhouse_http_pool_mgr(
-            settings.CLICKHOUSE_VERIFY if workload == Workload.NATIVE_EVENTS else settings.QUERYSERVICE_VERIFY
-        ),
+        "pool_mgr": _clickhouse_http_pool_mgr(),
         **overrides,
     }
     yield ProxyClient(get_client(**kwargs))
@@ -414,14 +413,6 @@ def get_kwargs_for_client(
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
-    if workload == Workload.NATIVE_EVENTS:
-        if not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
-            raise ValueError("Native events ClickHouse host is not configured")
-        return {
-            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
-            "host": settings.CLICKHOUSE_NATIVE_EVENTS_HOST,
-            "verify": settings.CLICKHOUSE_VERIFY,
-        }
     if workload == Workload.LOGS:
         logs_kwargs = {
             "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
@@ -439,6 +430,16 @@ def get_kwargs_for_client(
 
     creds = get_clickhouse_creds(ch_user)
     base_kwargs = {"user": creds.user, "password": creds.password}
+
+    if workload == Workload.NEW_EVENTS_CLUSTER:
+        host = get_new_events_cluster_host()
+        if not host:
+            raise ValueError("Native events ClickHouse host is not configured")
+        return {
+            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
+            "host": host,
+            "verify": settings.CLICKHOUSE_VERIFY,
+        }
 
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
@@ -503,7 +504,7 @@ def get_client_from_pool(
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
-        return get_http_client(workload=workload, **kwargs)
+        return get_http_client(**kwargs)
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
 
