@@ -54,15 +54,7 @@ import { isPiTaskRuntime } from '../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
-import {
-    PI_GET_STATE_COMMAND,
-    parsePiSessionConfig,
-    type PiSessionConfig,
-    piRpcRequest,
-    piRpcResponseError,
-    piSetModelCommand,
-    piSetThinkingLevelCommand,
-} from '../utils/piWire'
+import { parsePiSessionConfig, type PiSessionConfig, piRpcRequest, piRpcResponseError } from '../utils/piWire'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -1435,7 +1427,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     )
                     if (values.selectedModel !== activeModel) {
                         await (isPi
-                            ? sendPiCommand(piSetModelCommand(values.selectedModel))
+                            ? sendPiCommand({ type: 'set_model', provider: 'posthog', modelId: values.selectedModel })
                             : setConfigOption(MODEL_CONFIG_ID, values.selectedModel))
                         if (!isCurrent()) {
                             return
@@ -1444,7 +1436,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     }
                     if (values.selectedEffort !== activeEffort) {
                         await (isPi
-                            ? sendPiCommand(piSetThinkingLevelCommand(values.selectedEffort))
+                            ? sendPiCommand({ type: 'set_thinking_level', level: values.selectedEffort })
                             : setConfigOption(EFFORT_CONFIG_ID, values.selectedEffort))
                         if (!isCurrent()) {
                             return
@@ -1570,7 +1562,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         String(currentProjectId),
                         taskId,
                         runId,
-                        piRpcRequest(PI_GET_STATE_COMMAND, uuid())
+                        piRpcRequest({ type: 'get_state' }, uuid())
                     )
                     result = response.result
                 } catch {

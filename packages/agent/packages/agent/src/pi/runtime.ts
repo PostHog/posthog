@@ -89,9 +89,7 @@ export class PiRuntime {
         id: command.id,
         message: command.message,
         type: command.type,
-        ...(options?.conversationContent
-          ? { conversationContent: options.conversationContent }
-          : {}),
+        conversationContent: options?.conversationContent,
       });
     }
     if (command.type !== "bash") {

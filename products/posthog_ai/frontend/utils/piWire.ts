@@ -4,8 +4,8 @@ import type { PermissionRequestRecord } from '../types/streamTypes'
 import type { PermissionOption, StoredLogEntry } from '../types/wireTypes'
 
 export const PI_EXTENSION_UI_META_KEY = 'piExtensionUi'
-export const PI_EXTENSION_CONFIRM_OPTION_ID = 'confirm'
-export const PI_EXTENSION_CANCEL_OPTION_ID = 'cancel'
+const PI_EXTENSION_CONFIRM_OPTION_ID = 'confirm'
+const PI_EXTENSION_CANCEL_OPTION_ID = 'cancel'
 const PI_MCP_ALLOW_ONCE_OPTION_ID = 'allow'
 const PI_MCP_REJECT_HINT = 'Blocks this tool call. The agent keeps working.'
 
@@ -18,39 +18,29 @@ const PI_WIRE_TYPES = new Set([
     'extension_error',
 ])
 
-export interface PiExtensionUiMeta {
+interface PiExtensionUiMeta {
     id: string
     method: string
 }
 
-export type PiExtensionUiResponse =
+type PiExtensionUiResponse =
     | { type: 'extension_ui_response'; id: string; value: string }
     | { type: 'extension_ui_response'; id: string; confirmed: boolean }
     | { type: 'extension_ui_response'; id: string; cancelled: true }
 
-export interface PiMcpPermissionResponse {
+interface PiMcpPermissionResponse {
     id: string
     type: 'mcp_permission_response'
     requestId: string
     decision: string
 }
 
-export type PiPermissionCommand = PiExtensionUiResponse | PiMcpPermissionResponse
+type PiPermissionCommand = PiExtensionUiResponse | PiMcpPermissionResponse
 
 /** The model and thinking level a live Pi session reports through `get_state`. */
 export interface PiSessionConfig {
     model: string | null
     effort: string | null
-}
-
-export const PI_GET_STATE_COMMAND = { type: 'get_state' } as const
-
-export function piSetModelCommand(modelId: string): { type: 'set_model'; provider: 'posthog'; modelId: string } {
-    return { type: 'set_model', provider: 'posthog', modelId }
-}
-
-export function piSetThinkingLevelCommand(level: string): { type: 'set_thinking_level'; level: string } {
-    return { type: 'set_thinking_level', level }
 }
 
 // Pi's thinking levels and the catalogue's reasoning efforts share these names. Pi also has levels
