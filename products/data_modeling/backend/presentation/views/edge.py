@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework import serializers, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -50,7 +50,15 @@ class EdgePagination(PageNumberPagination):
     page_size = 5000
 
 
-class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EdgeViewSet(
+    MetricNodeVisibilityMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     scope_object = "INTERNAL"
     queryset = Edge.objects.select_related("dag").all()
     serializer_class = EdgeSerializer

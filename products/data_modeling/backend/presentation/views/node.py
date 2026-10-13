@@ -10,7 +10,7 @@ from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from rest_framework import filters, request, response, serializers, status, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import PageNumberPagination
@@ -242,13 +242,10 @@ class NodeSerializer(serializers.ModelSerializer):
         if self.instance is not None and self.instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
         node_type = attrs.get("type")
-        if node_type is not None:
+        if node_type is not None and self.instance is not None:
             # A full PUT round-trips the node's own type, so a type equal to the current one is
             # not a retype and must not be rejected.
-            if self.instance is None:
-                if node_type != NodeType.TABLE:
-                    raise serializers.ValidationError("Only table nodes can be created through the API.")
-            elif node_type != self.instance.type:
+            if node_type != self.instance.type:
                 raise serializers.ValidationError("A node's type cannot be changed through the API.")
         return attrs
 
@@ -338,7 +335,15 @@ class LineageResponseSerializer(serializers.Serializer):
     edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
 
 
-class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class NodeViewSet(
+    MetricNodeVisibilityMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     scope_object = "INTERNAL"
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer

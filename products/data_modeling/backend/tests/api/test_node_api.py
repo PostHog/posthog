@@ -809,18 +809,21 @@ class TestMetricNodeAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Edge.objects.filter(id=edge.id).exists())
 
-    @parameterized.expand(["post", "patch"])
-    def test_only_table_nodes_can_be_written_through_the_api(self, method):
-        if method == "post":
-            response = self.client.post(
-                self.url,
-                data={"name": "sneaky", "type": NodeType.METRIC},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="sneaky").exists())
-            return
+    @parameterized.expand(
+        [
+            ("node", "data_modeling_nodes", {"name": "sneaky", "type": NodeType.TABLE}),
+            ("edge", "data_modeling_edges", {"properties": {}}),
+        ]
+    )
+    def test_nodes_and_edges_cannot_be_created_through_the_api(self, _name, endpoint, payload):
+        nodes_before, edges_before = Node.objects.count(), Edge.objects.count()
 
+        response = self.client.post(f"/api/environments/{self.team.id}/{endpoint}/", data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual((Node.objects.count(), Edge.objects.count()), (nodes_before, edges_before))
+
+    def test_a_node_cannot_be_retyped_through_the_api(self):
         response = self.client.patch(f"{self.url}{self.table_node.id}/", data={"type": NodeType.VIEW}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.table_node.refresh_from_db()

@@ -9,31 +9,12 @@
  */
 import * as zod from 'zod'
 
-export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
-    properties: zod.unknown().optional(),
-})
-
 export const DataModelingEdgesUpdateBody = /* @__PURE__ */ zod.object({
     properties: zod.unknown().optional(),
 })
 
 export const DataModelingEdgesPartialUpdateBody = /* @__PURE__ */ zod.object({
     properties: zod.unknown().optional(),
-})
-
-export const dataModelingNodesCreateBodyNameMax = 2048
-
-export const dataModelingNodesCreateBodyDescriptionMax = 1024
-
-export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
-        .optional()
-        .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
-        ),
-    description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })
 
 export const dataModelingNodesUpdateBodyNameMax = 2048
