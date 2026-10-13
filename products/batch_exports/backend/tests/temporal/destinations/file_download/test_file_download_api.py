@@ -744,6 +744,11 @@ class TestFileDownloadHogQL:
                 id="events-model-missing-intervals",
             ),
             pytest.param(
+                {"hogql_modifiers": {"useNewEventsCluster": True}},
+                "synchronous query API",
+                id="native-cluster-modifier",
+            ),
+            pytest.param(
                 {"model": "events", "hogql_query": None, "hogql_modifiers": {"convertToProjectTimezone": False}},
                 "'hogql_modifiers' are only supported when 'model' is 'hogql'",
                 id="modifiers-with-events-model",
@@ -1047,8 +1052,8 @@ class TestFileDownloadHogQL:
 
     @pytest.mark.parametrize(
         "hogql_modifiers,expected_count",
-        [(None, 10), ({"convertToProjectTimezone": True}, 0)],
-        ids=["utc-by-default", "project-timezone-from-modifier"],
+        [(None, 10), ({"useNewEventsCluster": False}, 10), ({"convertToProjectTimezone": True}, 0)],
+        ids=["utc-by-default", "legacy-cluster", "project-timezone-from-modifier"],
     )
     @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
     @pytest.mark.django_db(transaction=True)
@@ -1167,6 +1172,15 @@ class TestFileDownloadHogQL:
                 },
                 "Extra inputs are not permitted",
                 id="unknown-modifier",
+            ),
+            pytest.param(
+                {
+                    "model": "hogql",
+                    "hogql_query": "SELECT event AS event FROM events",
+                    "hogql_modifiers": {"useNewEventsCluster": True},
+                },
+                "synchronous query API",
+                id="native-cluster-modifier",
             ),
         ],
     )

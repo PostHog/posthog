@@ -616,12 +616,15 @@ def test_create_batch_export_fails_with_invalid_query(
 
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")
+@pytest.mark.parametrize("cluster_opt_in", [None, False])
 def test_create_batch_export_with_hogql_model(
-    client: HttpClient, temporal, encryption_codec, organization, team, user, hogql_batch_export_data
+    client: HttpClient, temporal, encryption_codec, organization, team, user, hogql_batch_export_data, cluster_opt_in
 ):
     client.force_login(user)
     other_user = create_user("other@example.com", "Test User", organization)
     hogql_modifiers = {"convertToProjectTimezone": False}
+    if cluster_opt_in is not None:
+        hogql_modifiers["useNewEventsCluster"] = cluster_opt_in
 
     response = create_batch_export(
         client,
@@ -740,6 +743,11 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
             "notAModifier: Extra inputs are not permitted",
         ),
         (
+            {"hogql_modifiers": {"useNewEventsCluster": True}},
+            "hogql_modifiers",
+            "Native events cluster queries are only supported by the synchronous query API",
+        ),
+        (
             {"model": "events", "hogql_modifiers": {"convertToProjectTimezone": False}},
             "hogql_modifiers",
             "'hogql_modifiers' is only supported for 'hogql' not 'events' model",
@@ -752,6 +760,7 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
         "unaliased-column",
         "filters",
         "unknown-modifier",
+        "native-cluster-modifier",
         "modifiers-with-events-model",
     ],
 )
@@ -776,6 +785,7 @@ def test_create_batch_export_with_hogql_model_fails_with_invalid_request(
     # HogQL may append field name suggestions to a resolution error, so match on the prefix.
     assert response.json()["detail"].startswith(expected_error_message), response.json()["detail"]
     assert BatchExportSource.objects.for_team(team.pk).count() == 0
+    assert not BatchExport.objects.filter(team=team).exists()
 
 
 def test_cannot_create_batch_export_with_hogql_model_if_not_enabled(
