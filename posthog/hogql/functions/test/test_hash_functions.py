@@ -28,14 +28,14 @@ class TestHashFunctions(BaseTest):
             *[(f"length_{length}", "a" * length) for length in (55, 56, 63, 64, 65, 1000)],
         ]
     )
-    def test_sha1_returns_binary_digest(self, _name: str, value: str):
+    def test_sha1_returns_hex_digest(self, _name: str, value: str):
         response = execute_hogql_query(
-            "SELECT lower(hex(SHA1({value}))), length(SHA1({value})), toTypeName(SHA1({value}))",
+            "SELECT SHA1({value}), length(SHA1({value})), toTypeName(SHA1({value}))",
             self.team,
             placeholders={"value": ast.Constant(value=value)},
         )
 
-        assert response.results == [(hashlib.sha1(value.encode("utf-8")).hexdigest(), 20, "FixedString(20)")]
+        assert response.results == [(hashlib.sha1(value.encode("utf-8")).hexdigest().upper(), 40, "String")]
 
     def test_sha1_preserves_null(self):
         response = execute_hogql_query("SELECT SHA1(NULL)", self.team)
@@ -47,13 +47,13 @@ class TestHashFunctions(BaseTest):
         response = execute_hogql_query(
             """
             SELECT
-                lower(hex(digest)),
+                lower(digest),
                 hash_integer,
                 hash_integer / 1152921504606846975
             FROM (
                 SELECT
                     SHA1(concat({prefix}, {identifier}, {salt})) AS digest,
-                    bitShiftRight(reinterpretAsUInt64(reverse(substring(digest, 1, 8))), 4) AS hash_integer
+                    bitShiftRight(reinterpretAsUInt64(reverse(unhex(substring(digest, 1, 16)))), 4) AS hash_integer
             )
             """,
             self.team,

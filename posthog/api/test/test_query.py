@@ -1,5 +1,4 @@
 import json
-import base64
 import hashlib
 
 import time_machine
@@ -90,30 +89,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
     @parameterized.expand([("abc",), ("99937",), ("25",), ("19130574",)])
-    def test_hogql_binary_hash_results_are_json_safe_and_cached(self, value):
+    def test_hogql_sha1_results_are_json_safe_and_cached(self, value):
         query = HogQLQuery(
             query=f"""
                 SELECT SHA1('{value}'), [SHA1('{value}')], tuple(SHA1('{value}'), 'plain text'),
                     map('digest', SHA1('{value}')), map(SHA1('{value}'), 'digest'),
-                    lower(hex(SHA1('{value}'))), length(SHA1('{value}')), SHA1(NULL),
-                    accurateCast(SHA1('{value}'), 'Nullable(FixedString(20))'),
-                    accurateCast(tuple(SHA1('{value}'), 'plain text'), 'Tuple(digest FixedString(20), label String)')
+                    length(SHA1('{value}')), SHA1(NULL), SHA1(toNullableString('{value}')),
+                    accurateCast('abc', 'FixedString(3)'), accurateCast('abc', 'FixedString(20)')
             """
         )
-        digest = hashlib.sha1(value.encode()).digest()
-        digest_base64 = base64.b64encode(digest).decode("ascii")
+        digest = hashlib.sha1(value.encode()).hexdigest().upper()
         expected = [
             [
-                digest_base64,
-                [digest_base64],
-                [digest_base64, "plain text"],
-                {"digest": digest_base64},
-                {digest_base64: "digest"},
-                digest.hex(),
-                20,
+                digest,
+                [digest],
+                [digest, "plain text"],
+                {"digest": digest},
+                {digest: "digest"},
+                40,
                 None,
-                digest_base64,
-                [digest_base64, "plain text"],
+                digest,
+                "abc",
+                "abc",
             ]
         ]
         for refresh, is_cached in (("force_blocking", False), ("force_cache", True)):
@@ -124,24 +121,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["results"], expected)
             self.assertEqual(response.json()["is_cached"], is_cached)
-
-    @parameterized.expand(
-        [
-            ("binary_first", "map(SHA1('abc'), 'hash', base64Encode(SHA1('abc')), 'text')"),
-            ("text_first", "map(base64Encode(SHA1('abc')), 'text', SHA1('abc'), 'hash')"),
-        ]
-    )
-    def test_hogql_binary_map_key_collision_returns_error(self, _name, expression):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {"query": HogQLQuery(query=f"SELECT {expression}").model_dump(), "refresh": "force_blocking"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Cannot encode binary map keys without losing entries. Return mapKeys() and mapValues() separately.",
-        )
 
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),

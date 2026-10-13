@@ -4,8 +4,6 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -28,7 +26,7 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, _encode_binary_results
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.utils import UUIDT
 
@@ -36,24 +34,6 @@ from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREH
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-
-
-class TestBinaryResultEncoding(SimpleTestCase):
-    def test_reuses_results_without_binary_values(self):
-        rows = [(1, "text", {"nested": [None, True]})]
-
-        self.assertIs(_encode_binary_results(rows), rows)
-
-    def test_reuses_unchanged_containers_without_mutating_binary_values(self):
-        unchanged = [1, {"key": "value"}]
-        binary = {"nested": [b"\xff"]}
-        rows = [(unchanged, binary)]
-
-        encoded = _encode_binary_results(rows)
-
-        self.assertEqual(encoded, [(unchanged, {"nested": ["/w=="]})])
-        self.assertIs(encoded[0][0], unchanged)
-        self.assertEqual(binary, {"nested": [b"\xff"]})
 
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):

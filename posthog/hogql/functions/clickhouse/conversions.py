@@ -141,7 +141,8 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "defaultValueOfTypeName": HogQLFunctionMeta("defaultValueOfTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "MD5": HogQLFunctionMeta("MD5", 1, 1),
-    "SHA1": HogQLFunctionMeta("SHA1", 1, 1),
+    # Like md5, return hex so binary digests do not reach the JSON/cache encoders.
+    "SHA1": HogQLFunctionMeta("hex(SHA1({}))", 1, 1, using_placeholder_arguments=True),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
 }
 
