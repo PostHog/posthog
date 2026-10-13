@@ -1,9 +1,7 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -110,6 +108,20 @@ function SamplesTab(): JSX.Element {
     )
 }
 
+/** One `key=value` label with the key muted, so the values are easy to scan. */
+function SeriesNamePart({ part }: { part: string }): JSX.Element {
+    const separatorIndex = part.indexOf('=')
+    if (separatorIndex < 1) {
+        return <>{part}</>
+    }
+    return (
+        <>
+            <span className="text-tertiary">{part.slice(0, separatorIndex + 1)}</span>
+            {part.slice(separatorIndex + 1)}
+        </>
+    )
+}
+
 function SeriesTab(): JSX.Element {
     const { seriesRows } = useValues(metricsSamplesLogic)
     const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
@@ -123,57 +135,56 @@ function SeriesTab(): JSX.Element {
             size="small"
             rowKey={(row: MetricsSeriesRow) => row.name}
             emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
-            columns={[
-                {
-                    key: 'toggle',
-                    width: 0,
-                    render: (_, row) => {
-                        const isExpanded = expandedNames.includes(row.name)
-                        return (
-                            <LemonButton
-                                noPadding
-                                active={isExpanded}
-                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                                title={isExpanded ? 'Show less' : 'Show full series name'}
-                                onClick={() => {
-                                    if (isExpanded) {
-                                        setExpandedNames(expandedNames.filter((name) => name !== row.name))
-                                    } else {
-                                        setExpandedNames([...expandedNames, row.name])
-                                        seriesRowExpanded()
-                                    }
-                                }}
-                                data-attr="metrics-series-row-toggle"
-                            />
-                        )
-                    },
+            expandable={{
+                noIndent: true,
+                // The first label stays on the row line, so the row reads as one box that grows.
+                expandedRowRender: (row) => (
+                    <div className="flex flex-col gap-1 pb-2.5 pr-4 pl-[4.375rem]">
+                        {row.nameParts.slice(1).map((part, index) => (
+                            <span key={index} className="wrap-anywhere">
+                                <SeriesNamePart part={part} />
+                            </span>
+                        ))}
+                    </div>
+                ),
+                expandedRowClassName: '!border-t-0 !bg-surface-primary',
+                rowExpandable: (row) => row.hasLabels,
+                isRowExpanded: (row) => expandedNames.includes(row.name),
+                onRowExpand: (row) => {
+                    setExpandedNames([...expandedNames, row.name])
+                    seriesRowExpanded()
                 },
+                onRowCollapse: (row) => setExpandedNames(expandedNames.filter((name) => name !== row.name)),
+            }}
+            columns={[
                 {
                     title: 'Series',
                     key: 'series',
-                    render: (_, row) => {
-                        const isExpanded = expandedNames.includes(row.name)
-                        return (
-                            <span className={clsx('flex gap-1.5', isExpanded ? 'items-start' : 'items-center')}>
-                                <span
-                                    className={clsx('w-2 h-2 rounded-full shrink-0', isExpanded && 'mt-1.5')}
-                                    // Dynamic per-series colour can't be a Tailwind class.
-                                    style={{ backgroundColor: getColorVar(row.color) }}
-                                />
-                                {isExpanded ? (
-                                    <span className="flex flex-col max-w-40 wrap-anywhere">
-                                        {row.nameParts.map((part, index) => (
-                                            <span key={index}>{part}</span>
-                                        ))}
-                                    </span>
-                                ) : (
-                                    <span className="truncate max-w-40" title={row.name}>
-                                        {row.name}
-                                    </span>
-                                )}
-                            </span>
-                        )
-                    },
+                    width: '100%',
+                    render: (_, row) => (
+                        <span className="flex items-center gap-1.5">
+                            <span
+                                className="w-2 h-2 rounded-full shrink-0"
+                                // Dynamic per-series colour can't be a Tailwind class.
+                                style={{ backgroundColor: getColorVar(row.color) }}
+                            />
+                            {/* w-0 + min-w-full fills the column without the text widening it. */}
+                            {expandedNames.includes(row.name) ? (
+                                <span className="w-0 min-w-full wrap-anywhere">
+                                    <SeriesNamePart part={row.nameParts[0]} />
+                                </span>
+                            ) : (
+                                <span className="w-0 min-w-full truncate" title={row.name}>
+                                    {row.nameParts.map((part, index) => (
+                                        <Fragment key={index}>
+                                            {index > 0 && ', '}
+                                            <SeriesNamePart part={part} />
+                                        </Fragment>
+                                    ))}
+                                </span>
+                            )}
+                        </span>
+                    ),
                 },
                 {
                     title: 'Latest',

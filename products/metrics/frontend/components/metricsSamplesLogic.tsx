@@ -30,6 +30,7 @@ export interface MetricsSeriesRow {
     name: string
     /** One `key=value` label per entry, for the expanded row. */
     nameParts: string[]
+    hasLabels: boolean
     color: string
     latest: number
     total: number
@@ -264,6 +265,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                     return {
                         name: nameParts[index].join(', '),
                         nameParts: nameParts[index],
+                        hasLabels: Object.keys(series.labels ?? {}).length > 0,
                         color: seriesColor(index),
                         latest: values.length ? values[values.length - 1] : 0,
                         total: values.reduce((sum, value) => sum + value, 0),
