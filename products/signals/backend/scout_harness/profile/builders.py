@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v14"
+INVENTORY_SOURCE_VERSION = "v15"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without

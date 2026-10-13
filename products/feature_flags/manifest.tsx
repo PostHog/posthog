@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -94,6 +95,20 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'feature_flag',
             href: urls.featureFlags(),
+            searchKeywords: ['toggles', 'rollouts', 'remote config', 'kill switch'],
+            searchTabs: [
+                {
+                    name: 'Request usage',
+                    href: urls.featureFlags('usage'),
+                    flag: FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE,
+                },
+                { name: 'Projects', href: urls.featureFlags('projects') },
+                {
+                    name: 'Notifications',
+                    href: urls.featureFlags('notifications'),
+                    flag: FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS,
+                },
+            ],
             sceneKey: 'FeatureFlags',
             sceneKeys: ['FeatureFlags', 'FeatureFlag'],
         },

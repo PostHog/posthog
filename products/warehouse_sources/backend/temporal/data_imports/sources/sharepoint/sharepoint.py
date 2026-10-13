@@ -9,6 +9,7 @@ import structlog
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.settings import (
@@ -187,6 +188,47 @@ class SharePointClient:
             response.raise_for_status()
 
         return response.json()
+
+    def open_stream(self, path: str) -> requests.Response:
+        if path.startswith("/"):
+            url = f"{GRAPH_BASE_URL}{path}"
+        elif path.startswith(f"{GRAPH_BASE_URL}/"):
+            url = path
+        else:
+            raise ValueError("Refusing to follow a non-Graph URL")
+
+        if self._token is None:
+            self.mint_token()
+
+        def download() -> requests.Response:
+            # Requests removes Authorization when Graph redirects to another host.
+            with redact_request_urls():
+                try:
+                    return self._session.get(
+                        url,
+                        headers={"Authorization": f"Bearer {self._token}", "Accept": "*/*"},
+                        timeout=REQUEST_TIMEOUT_SECONDS,
+                        stream=True,
+                    )
+                except requests.RequestException as error:
+                    raise type(error)("SharePoint file download failed. Try the sync again.") from None
+
+        response = download()
+        if response.status_code == 401:
+            response.close()
+            self.mint_token()
+            response = download()
+
+        if not response.ok:
+            response.close()
+            # The final response URL grants file access, so keep it out of error messages.
+            error_type = "Client" if response.status_code < 500 else "Server"
+            raise requests.HTTPError(
+                f"{response.status_code} {error_type} Error: {response.reason} for url: {url}",
+                response=response,
+            )
+
+        return response
 
 
 def _status(error: requests.HTTPError) -> Optional[int]:

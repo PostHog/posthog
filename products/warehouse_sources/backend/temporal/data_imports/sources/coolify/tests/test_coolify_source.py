@@ -1,6 +1,9 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.source import CoolifySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coolify import (
     CoolifySourceConfig,
@@ -26,21 +29,13 @@ class TestCoolifySourceForPipeline:
             pytest.param("servers", ["uuid"], None, id="servers_no_partition"),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.coolify.source.coolify_source")
     def test_plumbs_primary_keys_and_partitioning(
-        self, mock_source: MagicMock, endpoint: str, expected_pk: list[str], expected_partition_key: str | None
+        self, endpoint: str, expected_pk: list[str], expected_partition_key: str | None
     ) -> None:
-        resource = MagicMock()
-        resource.name = endpoint
-        resource.column_hints = None
-        mock_source.return_value = resource
-
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.team_id = 1
-        inputs.job_id = "job-1"
-
-        response = CoolifySource().source_for_pipeline(_config(), inputs)
+        result = SourceDriver(CoolifySource(), _config()).run(endpoint, [ScriptedResponse(json=[])])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == expected_pk

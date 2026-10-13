@@ -224,7 +224,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 setInsightMode(ItemMode.Edit, null)
                                             }
                                         }}
-                                        {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
+                                        {...getOverrideWarningPropsForButton(query, filtersOverride, variablesOverride)}
                                         {...(isBIVisualizationNode(query) && !biEnabled
                                             ? {
                                                   disabledReason:

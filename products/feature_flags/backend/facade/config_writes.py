@@ -112,7 +112,7 @@ def reject_duplicate_json_keys(body: bytes) -> None:
         for key, value in pairs:
             if key in result:
                 raise ConfigValidationError(
-                    [ConfigError(code="invalid", detail=f"Must not repeat the key {json.dumps(key)}.", attr="filters")]
+                    [ConfigError(code="invalid", detail=f"Must not repeat the key {json.dumps(key)}.", attr=None)]
                 )
             result[key] = value
         return result
@@ -122,9 +122,7 @@ def reject_duplicate_json_keys(body: bytes) -> None:
     except ConfigValidationError:
         raise
     except ValueError as exc:
-        raise ConfigValidationError(
-            [ConfigError(code="invalid", detail="Must not repeat a key.", attr="filters")]
-        ) from exc
+        raise ConfigValidationError([ConfigError(code="invalid", detail="Must not repeat a key.", attr=None)]) from exc
 
 
 def resolve_identity(submitted: object, *, stored: Mapping[str, Any]) -> dict[str, Any]:

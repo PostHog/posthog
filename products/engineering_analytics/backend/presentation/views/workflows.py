@@ -7,10 +7,18 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
+
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import CIEngine
+from products.engineering_analytics.backend.facade.contracts import CIEngine, CITimingKind
 from products.engineering_analytics.backend.presentation.serializers.workflows import (
+    CIDataFreshnessQuerySerializer,
+    CIDataFreshnessSerializer,
+    CITimingContextQuerySerializer,
+    CITimingContextSerializer,
     CurrentBranchHealthSerializer,
+    JobLogInsightsQuerySerializer,
+    JobLogInsightsSerializer,
     MasterFailureGroupSerializer,
     RepoOverviewSerializer,
     RunFailureLogsSerializer,
@@ -55,6 +63,9 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         "workflow_run_activity",
         "workflow_runner_costs",
         "workflow_jobs",
+        "job_log_insights",
+        "ci_data_freshness",
+        "ci_timing_context",
         "repo_overview",
         "current_branch_health",
         "repo_run_activity",
@@ -366,6 +377,111 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid source_id")
         return Response(WorkflowJobSerializer(instance=jobs, many=True).data)
+
+    @validated_request(
+        query_serializer=JobLogInsightsQuerySerializer,
+        operation_id="engineering_analytics_job_log_insights",
+        responses={
+            200: OpenApiResponse(response=JobLogInsightsSerializer),
+            400: OpenApiResponse(
+                description="Missing or invalid repo, run_id, job_id, ci_engine or source_id, or an ambiguous job_id."
+            ),
+        },
+        description=(
+            "What one GitHub Actions job's log says it did: cache restores (hit, older cache, miss, restore failed) "
+            "and migrations applied, for the job and per step. Reads the log from GitHub on demand. Only a completed "
+            "job's answer is cached. `log_read` is false, never an error, when there is no log to read: a Depot CI "
+            "job, a job the source does not hold, an expired log, or a failed fetch."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def job_log_insights(self, request: ValidatedRequest, **kwargs) -> Response:
+        query = request.validated_query_data
+        source_id = query.get("source_id")
+        try:
+            insights = api.get_job_log_insights(
+                team=self.team,
+                repo=query["repo"],
+                run_id=query["run_id"],
+                job_id=query["job_id"],
+                ci_engine=CIEngine(query["ci_engine"]) if query.get("ci_engine") else None,
+                source_id=str(source_id) if source_id else None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(JobLogInsightsSerializer(instance=insights).data)
+
+    @validated_request(
+        query_serializer=CIDataFreshnessQuerySerializer,
+        operation_id="engineering_analytics_ci_data_freshness",
+        responses={
+            200: OpenApiResponse(response=CIDataFreshnessSerializer),
+            400: OpenApiResponse(description="Missing or invalid repo or source_id."),
+        },
+        description=(
+            "When the stored CI data of a repository was last synced from its source: one time for workflow runs "
+            "and one for workflow jobs. Every stored row is at least that fresh, so use these times, not the time "
+            "of the request, to say how current a CI answer is. Each time is when the last completed sync started. "
+            "For a repository that also syncs Depot CI, it is the older of the GitHub and the Depot CI time."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def ci_data_freshness(self, request: ValidatedRequest, **kwargs) -> Response:
+        query = request.validated_query_data
+        source_id = query.get("source_id")
+        try:
+            freshness = api.get_ci_data_freshness(
+                team=self.team,
+                repo=query["repo"],
+                source_id=str(source_id) if source_id else None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(CIDataFreshnessSerializer(instance=freshness).data)
+
+    @validated_request(
+        query_serializer=CITimingContextQuerySerializer,
+        operation_id="engineering_analytics_ci_timing_context",
+        responses={
+            200: OpenApiResponse(response=CITimingContextSerializer),
+            400: OpenApiResponse(
+                description="Missing or invalid parameters, a run the source does not hold, a job id that is not "
+                "in the run attempt, or a step number the job does not have."
+            ),
+        },
+        description=(
+            "How long a selected workflow, matrix, job or step usually takes: compares it with runs of the same "
+            "workflow on the repository's default branch over the last 7 days, from stored data only. A run "
+            "counts only when it ran the same jobs on the same runner tiers, so the answer never mixes in a "
+            "different workflow, job or runner. Pull request runs and merge queue runs are left out. At most the "
+            "newest 40 default-branch runs are checked, and `sampled` is true when more existed. `average_seconds` "
+            "and `sample_count` cover successful samples only, and `recent` lists the newest three matches of any "
+            "status. `average_seconds` is null when no comparable run exists. `unavailable_reason` says why no "
+            "comparison was made. Answers are cached for 5 minutes."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def ci_timing_context(self, request: ValidatedRequest, **kwargs) -> Response:
+        query = request.validated_query_data
+        source_id = query.get("source_id")
+        try:
+            context = api.get_ci_timing_context(
+                team=self.team,
+                repo=query["repo"],
+                ci_engine=CIEngine(query["ci_engine"]),
+                run_id=query["run_id"],
+                run_attempt=query["run_attempt"],
+                kind=CITimingKind(query["kind"]),
+                job_ids=query.get("job_ids") or [],
+                step_number=query.get("step_number"),
+                source_id=str(source_id) if source_id else None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo, source_id or selection")
+        return Response(CITimingContextSerializer(instance=context).data)
 
     @extend_schema(
         operation_id="engineering_analytics_repo_overview",

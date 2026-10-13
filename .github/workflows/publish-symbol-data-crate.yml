@@ -504,7 +504,8 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
-                  toolchain: 1.91.1
+                  # Sampo uses a workspace-wide dry run with Cargo 1.91 and newer, which includes internal crates.
+                  toolchain: 1.90.0
                   components: cargo
 
             - name: Cache Sampo CLI

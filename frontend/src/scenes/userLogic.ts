@@ -20,7 +20,7 @@ import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole
 import {
     clearSQLEditorDraftFromStorageEvent,
     clearSQLEditorDrafts,
-} from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
+} from 'products/data_warehouse/frontend/sqlEditorDraftCleanup'
 
 import type { BillingFeatureType } from '../types'
 import { urls } from './urls'

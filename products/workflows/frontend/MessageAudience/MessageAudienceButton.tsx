@@ -11,8 +11,8 @@ import {
 } from './messageAudience'
 
 const DESTINATION_LABELS: Record<MessageAudienceDestination, string> = {
-    broadcast: 'Send a broadcast',
-    workflow: 'Start a workflow',
+    broadcast: 'Send a one-time email',
+    workflow: 'Build a custom workflow',
 }
 
 export interface MessageAudienceButtonProps extends Pick<
@@ -27,7 +27,7 @@ export interface MessageAudienceButtonProps extends Pick<
 export function MessageAudienceButton({
     audience,
     destinations = ['broadcast', 'workflow'],
-    label = 'Message these people',
+    label = 'Email these people',
     type = 'secondary',
     size = 'small',
     disabledReason,

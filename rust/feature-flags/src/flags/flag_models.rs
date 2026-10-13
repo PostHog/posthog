@@ -301,7 +301,7 @@ pub enum BucketingIdentifier {
 // (which, tbh, is probably a better idea)
 ///
 /// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
-/// MinimalFeatureFlagSerializer (posthog/api/feature_flag.py). Field changes must
+/// MinimalFeatureFlagSerializer (products/feature_flags/backend/api/feature_flag.py). Field changes must
 /// follow the expand-and-contract pattern. Golden fixture contract test:
 ///   cargo test -p feature-flags test_hypercache_contract
 ///

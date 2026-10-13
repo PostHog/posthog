@@ -64,7 +64,7 @@ class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
 
 You can generate a personal token (starts with `pk_`) under **Settings → Apps** in ClickUp.
 
-The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`.
+The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`. You can paste the full URL.
 """,
             iconPath="/static/services/clickup.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/clickup",

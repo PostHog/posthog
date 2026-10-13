@@ -83,18 +83,14 @@ describe('LemonCalendarSelect', () => {
     test('select various dates', async () => {
         const { container, onClose, onChange, clickOnDate } = renderLemonCalendarSelect(dayjs('2022-02-10'))
 
-        // find just one month
         const calendar = getByDataAttr(container, 'lemon-calendar')
         expect(calendar).toBeTruthy()
 
-        // find February 2022
         expect(await within(calendar).findByText('February 2022')).toBeTruthy()
 
-        // click on 15
         await clickOnDate('15')
         expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-15'))
 
-        // click on 27
         await clickOnDate('27')
         expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-27'))
 
@@ -107,22 +103,18 @@ describe('LemonCalendarSelect', () => {
             granularity: 'minute',
         })
 
-        // click on hour 8
         await clickOnDate('15')
         // sets the date to 15, hour and minutes to current time, and seconds to 0
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T17:22:00.000Z'))
 
-        // click on minute 42
         await clickOnTime({ unit: 'm', value: 42 })
         // sets the minutes but leaves all other values unchanged
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T17:42:00.000Z'))
 
-        // click on 'am'
         await clickOnTime({ unit: 'a', value: 'am' })
         // subtracts 12 hours from the time
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T05:42:00.000Z'))
 
-        // click on hour 8
         await clickOnTime({ unit: 'h', value: 8 })
         // only changes the hour
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T08:42:00.000Z'))
@@ -134,27 +126,22 @@ describe('LemonCalendarSelect', () => {
             selectionPeriod: 'upcoming',
         })
 
-        // click on minute
         await clickOnTime({ unit: 'm', value: 42 })
         // time is disabled until a date is clicked
         expect(onChange).not.toHaveBeenCalled()
 
-        // click on past date
         await clickOnDate('9')
         // cannot select a date in the past
         expect(onChange).not.toHaveBeenCalled()
 
-        // click on current date
         await clickOnDate('10')
         // chooses the current date and sets the time to the current hour and minute
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
 
-        // click on an earlier hour
         await clickOnTime({ unit: 'a', value: 'am' })
         // does not update the date because it is in the past
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
 
-        // click on a later hour
         await clickOnTime({ unit: 'h', value: '8' })
         // updates the hour to 8pm (later than 5pm)
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T20:22:00.000Z'))
@@ -213,27 +200,22 @@ describe('LemonCalendarSelect', () => {
             selectionPeriod: 'past',
         })
 
-        // click on minute
         await clickOnTime({ unit: 'm', value: 12 })
         // time is disabled until a date is clicked
         expect(onChange).not.toHaveBeenCalled()
 
-        // click on future date
         await clickOnDate('11')
         // cannot select a date in the future
         expect(onChange).not.toHaveBeenCalled()
 
-        // click on current date
         await clickOnDate('10')
         // chooses the current date and sets the time to the current hour and minute
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
 
-        // click on an later hour
         await clickOnTime({ unit: 'h', value: '18' })
         // does not update the date because it is in the future
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
 
-        // click on an earlier hour
         await clickOnTime({ unit: 'h', value: '2' })
         // updates the hour to 2pm (earlier than 5pm)
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T14:22:00.000Z'))
@@ -245,7 +227,6 @@ describe('LemonCalendarSelect', () => {
             use24HourFormat: true,
         })
 
-        // click on a date first
         await clickOnDate('15')
         // sets the date to 15, hour and minutes to current time, and seconds to 0
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T17:22:00.000Z'))
@@ -262,7 +243,6 @@ describe('LemonCalendarSelect', () => {
         await clickOnTime({ unit: 'h', value: 0 })
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T00:22:00.000Z'))
 
-        // click on minute 45
         await clickOnTime({ unit: 'm', value: 45 })
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T00:45:00.000Z'))
     })

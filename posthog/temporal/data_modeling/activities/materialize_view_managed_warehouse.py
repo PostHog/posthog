@@ -188,6 +188,17 @@ async def check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
     return await _check_managed_warehouse_shadow_enabled_activity(team_id)
 
 
+@database_sync_to_async_pool
+def _check_team_managed_warehouse_shadow_eligibility(team_id: int) -> bool:
+    return _is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
+
+
+@activity.defn
+async def check_team_managed_warehouse_shadow_eligibility_activity(team_id: int) -> bool:
+    """Check whether DAG runs of this team's organization should start a Trino shadow run."""
+    return await _check_team_managed_warehouse_shadow_eligibility(team_id)
+
+
 @activity.defn
 async def check_managed_warehouse_shadow_eligibility_activity(
     inputs: ManagedWarehouseShadowEligibilityInputs,
@@ -220,9 +231,9 @@ async def _materialize_view_managed_warehouse(
 ) -> ManagedWarehouseShadowResult:
     """Shadow activity: execute a managed warehouse materialization and create a DuckLake table.
 
-    This is a fire-and-forget companion to the main ClickHouse-based materialize_view_activity.
+    It runs in a managed_warehouse_only MaterializeViewWorkflow, which the Trino shadow DAG run
+    starts separately from the ClickHouse run, so its failures never affect ClickHouse.
     The query result is materialized as a native DuckLake table (Parquet on S3 + Postgres catalog).
-    Failures here never affect the parent workflow.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()

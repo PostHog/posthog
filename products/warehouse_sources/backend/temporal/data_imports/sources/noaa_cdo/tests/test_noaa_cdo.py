@@ -1,28 +1,20 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
 
-import requests_mock
-from requests import Session
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.noaacdo import (
     NoaaCdoSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.noaa_cdo import noaa_cdo_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.settings import AUTH_ERROR, REQUEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.source import NoaaCdoSource
-
-
-def sync_items(response: SourceResponse) -> Iterable[Any]:
-    items = response.items()
-    assert isinstance(items, Iterable)
-    return items
 
 
 @pytest.fixture(autouse=True)
@@ -32,53 +24,34 @@ def fixed_clock() -> Iterator[None]:
 
 
 @pytest.fixture
-def http() -> Iterator[requests_mock.Mocker]:
-    with (
-        requests_mock.Mocker() as mock,
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session",
-            side_effect=lambda **kwargs: Session(),
-        ),
-    ):
-        yield mock
-
-
-@pytest.fixture
 def config() -> NoaaCdoSourceConfig:
     return NoaaCdoSourceConfig(
         api_token="test-noaa-token", dataset_id="GHCND", station_id="GHCND:TEST0001", start_date="2024-01-01"
     )
 
 
-@pytest.fixture
-def manager() -> MagicMock:
-    mock = MagicMock(spec=ResumableSourceManager)
-    mock.can_resume.return_value = False
-    return mock
-
-
 @pytest.mark.parametrize("count", [0, 1, 1000, 1001, 2000])
-def test_offset_pagination_and_terminal_page(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, manager: MagicMock, count: int
-) -> None:
+def test_offset_pagination_and_terminal_page(config: NoaaCdoSourceConfig, count: int) -> None:
     rows = [{"id": f"station-{i}"} for i in range(count)]
+    offsets = range(1, count + 2, 1000)
+    script = [
+        ScriptedResponse(
+            json={
+                "results": rows[offset - 1 : offset + 999],
+                "metadata": {"resultset": {"count": count, "offset": offset, "limit": 1000}},
+            }
+        )
+        for offset in offsets
+    ]
 
-    def page(request: Any, context: Any) -> dict[str, Any]:
-        offset = int(request.qs["offset"][0])
-        return {
-            "results": rows[offset - 1 : offset + 999],
-            "metadata": {"resultset": {"count": count, "offset": offset, "limit": 1000}},
-        }
+    result = SourceDriver(NoaaCdoSource(), config).run("stations", script)
 
-    http.get("https://www.ncei.noaa.gov/cdo-web/api/v2/stations", json=page)
-    result = noaa_cdo_source(config, "stations", 1, "test", manager, "v2")
-    actual = [row for batch in sync_items(result) for row in batch]
-
-    assert actual == rows
-    assert [r.qs["offset"] for r in http.request_history] == [[str(i)] for i in range(1, count + 2, 1000)]
-    assert all(r.headers["token"] == "test-noaa-token" for r in http.request_history)
-    assert all("token" not in r.qs and r.qs["limit"] == ["1000"] for r in http.request_history)
-    assert manager.save_state.call_args.args[0].complete
+    assert result.raised is None
+    assert result.rows == rows
+    assert result.params("offset") == [str(offset) for offset in offsets]
+    assert all(request.headers["token"] == "test-noaa-token" for request in result.requests)
+    assert all(request.param("token") is None and request.param("limit") == "1000" for request in result.requests)
+    assert result.saved_states[-1].complete
 
 
 @pytest.mark.parametrize(
@@ -93,71 +66,75 @@ def test_offset_pagination_and_terminal_page(
     ],
 )
 def test_observation_date_filters(
-    http: requests_mock.Mocker,
     config: NoaaCdoSourceConfig,
-    manager: MagicMock,
     incremental: bool,
     watermark: str | date | datetime | None,
     expected_start: str,
 ) -> None:
     config.start_date = "2023-12-01"
     row = {"date": "2024-01-02T00:00:00", "station": "GHCND:TEST0001", "datatype": "TMAX", "value": 10}
-    http.get("https://www.ncei.noaa.gov/cdo-web/api/v2/data", json={"results": [row]})
-    result = noaa_cdo_source(config, "data", 1, "test", manager, "v2", incremental, watermark)
-    assert list(sync_items(result)) == [[row]]
-    assert result.sort_mode == "desc"
-    assert http.last_request is not None
-    assert http.last_request.qs == {
-        "datasetid": ["ghcnd"],
-        "stationid": ["ghcnd:test0001"],
-        "startdate": [expected_start],
-        "enddate": ["2024-01-03"],
-        "units": ["metric"],
-        "offset": ["1"],
-        "limit": ["1000"],
-    }
+    result = SourceDriver(NoaaCdoSource(), config).run(
+        "data",
+        [ScriptedResponse(json={"results": [row]})],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
+
+    assert result.raised is None
+    assert result.items == [[row]]
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
+    assert result.queries == [
+        {
+            "datasetid": ("GHCND",),
+            "stationid": ("GHCND:TEST0001",),
+            "startdate": (expected_start,),
+            "enddate": ("2024-01-03",),
+            "units": ("metric",),
+            "offset": ("1",),
+            "limit": ("1000",),
+        }
+    ]
 
 
-def test_resume_after_page_failure_then_advance_to_next_window(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, manager: MagicMock
-) -> None:
+def test_resume_after_page_failure_then_advance_to_next_window(config: NoaaCdoSourceConfig) -> None:
     config.start_date = "2023-01-01"
     rows = [
         {"station": "GHCND:TEST0001", "datatype": f"TYPE{i}", "date": "2023-01-01T00:00:00", "value": i}
         for i in range(1000)
     ]
-    url = "https://www.ncei.noaa.gov/cdo-web/api/v2/data"
-    http.get(
-        url,
+    driver = SourceDriver(NoaaCdoSource(), config)
+    first = driver.run(
+        "data",
         [
-            {"json": {"results": rows}},
-            {"status_code": 400, "json": {"message": "The token parameter provided is not valid."}},
+            ScriptedResponse(json={"results": rows}),
+            ScriptedResponse(status=400, json={"message": "The token parameter provided is not valid."}),
         ],
     )
-    pages = iter(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
-    assert next(pages) == rows
-    with pytest.raises(ValueError, match=AUTH_ERROR):
-        next(pages)
-    checkpoint = manager.save_state.call_args.args[0]
+
+    assert first.items == [rows]
+    assert isinstance(first.raised, ValueError)
+    assert AUTH_ERROR in str(first.raised)
+    checkpoint = first.saved_states[-1]
     assert checkpoint.offset == 1001
     assert checkpoint.window_start == "2023-01-01"
     assert not checkpoint.complete
+    assert first.final_state == checkpoint
 
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = checkpoint
-    http.get(
-        url,
-        json={
-            "results": [{"station": "GHCND:TEST0001", "datatype": "PRCP", "date": "2023-12-31T00:00:00", "value": 1}]
-        },
+    row = {"station": "GHCND:TEST0001", "datatype": "PRCP", "date": "2023-12-31T00:00:00", "value": 1}
+    resumed = driver.run(
+        "data",
+        [ScriptedResponse(json={"results": [row]}), ScriptedResponse(json={"results": [row]})],
+        resume_state=checkpoint,
     )
-    batches = list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
-    assert len(batches) == 2
-    assert [(r.qs["startdate"], r.qs["offset"]) for r in http.request_history[2:]] == [
-        (["2023-01-01"], ["1001"]),
-        (["2024-01-01"], ["1"]),
+
+    assert resumed.raised is None
+    assert resumed.items == [[row], [row]]
+    assert list(zip(resumed.params("startdate"), resumed.params("offset"))) == [
+        ("2023-01-01", "1001"),
+        ("2024-01-01", "1"),
     ]
-    assert manager.save_state.call_args.args[0].complete
+    assert resumed.saved_states[-1].complete
 
 
 @pytest.mark.parametrize(
@@ -171,51 +148,50 @@ def test_resume_after_page_failure_then_advance_to_next_window(
     ],
 )
 def test_authentication_and_request_errors(
-    http: requests_mock.Mocker,
     config: NoaaCdoSourceConfig,
-    manager: MagicMock,
     status: int,
     message: str,
     expected: str,
 ) -> None:
-    http.get(requests_mock.ANY, status_code=status, json={"status": str(status), "message": message})
+    response = ScriptedResponse(status=status, json={"status": str(status), "message": message})
     source = NoaaCdoSource()
-    assert source.validate_credentials(config, 1) == (False, expected)
-    assert http.call_count == 1
-    with pytest.raises(ValueError, match=expected):
-        list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
-    assert http.call_count == 2
+    with scripted_network([response]) as network:
+        assert source.validate_credentials(config, 1) == (False, expected)
+    assert len(network.requests_log) == 1
+
+    result = SourceDriver(source, config).run("data", [response])
+    assert isinstance(result.raised, ValueError)
+    assert expected in str(result.raised)
+    assert len(result.requests) == 1
     assert source.get_non_retryable_errors()[expected] == expected
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_errors_retry_without_invalidating_credentials(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, status: int
-) -> None:
-    http.get(
-        "https://www.ncei.noaa.gov/cdo-web/api/v2/datasets",
+def test_transient_errors_retry_without_invalidating_credentials(config: NoaaCdoSourceConfig, status: int) -> None:
+    with scripted_network(
         [
-            {"status_code": status, "json": {}, "headers": {"Retry-After": "0"}},
-            {"json": {"results": [{"id": "GHCND"}]}},
-        ],
-    )
-    assert NoaaCdoSource().validate_credentials(config, 1) == (True, None)
-    assert http.call_count == 2
-    assert http.last_request is not None
-    assert http.last_request.qs == {"limit": ["1"]}
-    assert http.last_request.headers["token"] == config.api_token
+            ScriptedResponse(status=status, json={}, headers={"Retry-After": "0"}),
+            ScriptedResponse(json={"results": [{"id": "GHCND"}]}),
+        ]
+    ) as network:
+        assert NoaaCdoSource().validate_credentials(config, 1) == (True, None)
+
+    assert len(network.requests_log) == 2
+    assert network.requests_log[-1].param("limit") == "1"
+    assert network.requests_log[-1].headers["token"] == config.api_token
 
 
 @pytest.mark.parametrize("body", [{"message": "unexpected failure"}, {"metadata": {"resultset": {"count": 1}}}])
-def test_unexpected_response_fails_without_saving_completion(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, manager: MagicMock, body: dict[str, Any]
-) -> None:
-    http.get(requests_mock.ANY, json=body)
-    with pytest.raises(ValueError, match="Required data_selector"):
-        list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
-    manager.save_state.assert_not_called()
-    with pytest.raises(ValueError, match="Required data_selector"):
-        NoaaCdoSource().validate_credentials(config, 1)
+def test_unexpected_response_fails_without_saving_completion(config: NoaaCdoSourceConfig, body: dict[str, Any]) -> None:
+    response = ScriptedResponse(json=body)
+    result = SourceDriver(NoaaCdoSource(), config).run("data", [response])
+
+    assert isinstance(result.raised, ValueError)
+    assert "Required data_selector" in str(result.raised)
+    assert result.saved_states == []
+    with scripted_network([response]):
+        with pytest.raises(ValueError, match="Required data_selector"):
+            NoaaCdoSource().validate_credentials(config, 1)
 
 
 @pytest.mark.parametrize(
@@ -229,13 +205,17 @@ def test_unexpected_response_fails_without_saving_completion(
     ],
 )
 def test_invalid_configuration_stops_before_network(
-    http: requests_mock.Mocker, config: NoaaCdoSourceConfig, field: str, value: str, message: str
+    config: NoaaCdoSourceConfig, field: str, value: str, message: str
 ) -> None:
     setattr(config, field, value)
-    assert NoaaCdoSource().validate_credentials(config, 1) == (False, message)
-    assert not http.called
+    with scripted_network([]) as network:
+        assert NoaaCdoSource().validate_credentials(config, 1) == (False, message)
+    assert network.requests_log == []
 
 
-def test_unknown_endpoint_cannot_change_request_path(config: NoaaCdoSourceConfig, manager: MagicMock) -> None:
-    with pytest.raises(ValueError, match="Unknown NOAA table"):
-        noaa_cdo_source(config, "https://example.com", 1, "test", manager, "v2")
+def test_unknown_endpoint_cannot_change_request_path(config: NoaaCdoSourceConfig) -> None:
+    result = SourceDriver(NoaaCdoSource(), config).run("https://example.com", [])
+
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown NOAA table" in str(result.raised)
+    assert result.requests == []

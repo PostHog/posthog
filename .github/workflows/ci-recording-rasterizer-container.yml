@@ -29,7 +29,8 @@ on:
         - cron: '30 7 * * 1'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Per-SHA on push: a shared group keeps one pending run, and the push that replaces it skips the build unless its own diff touches these paths.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
