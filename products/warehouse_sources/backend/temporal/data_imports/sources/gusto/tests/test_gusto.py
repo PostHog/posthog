@@ -1,15 +1,23 @@
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
-from urllib.parse import parse_qs, urlparse
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 import requests
+import structlog
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+    source_inputs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
     DEFAULT_WINDOW_START,
     GUSTO_API_VERSION_2024_04_01,
@@ -20,84 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gust
     base_url,
     extract_next_page,
     extract_rows,
-    get_rows,
-    gusto_source,
     list_companies,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import ENDPOINTS, GUSTO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source import GustoSource
 
 
 class _FakeResponse:
-    def __init__(
-        self,
-        status_code: int = 200,
-        body: Any = None,
-        headers: Optional[dict[str, str]] = None,
-    ) -> None:
-        self.status_code = status_code
-        self._body = body if body is not None else []
+    def __init__(self, headers: Optional[dict[str, str]] = None) -> None:
         self.headers = headers or {}
-        self.text = ""
-
-    @property
-    def ok(self) -> bool:
-        return self.status_code < 400
-
-    def json(self) -> Any:
-        return self._body
-
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error", response=cast(Any, self))
-
-
-class _FakeSession:
-    """Routes requests by path, replaying a queued response list per path."""
-
-    def __init__(
-        self,
-        routes: dict[str, list[_FakeResponse]],
-        token_responses: Optional[list[_FakeResponse]] = None,
-    ) -> None:
-        self._routes = routes
-        self._token_responses = token_responses or [_FakeResponse(200, {"access_token": "tok-1"})]
-        self.get_urls: list[str] = []
-        self.post_urls: list[str] = []
-
-    def _next(self, queue: list[_FakeResponse]) -> _FakeResponse:
-        return queue.pop(0) if len(queue) > 1 else queue[0]
-
-    def get(self, url: str, headers: Optional[dict[str, str]] = None, timeout: Optional[int] = None) -> _FakeResponse:
-        self.get_urls.append(url)
-        path = urlparse(url).path
-        if path not in self._routes:
-            raise AssertionError(f"unexpected Gusto request to {path}")
-        return self._next(self._routes[path])
-
-    def post(
-        self,
-        url: str,
-        data: Optional[dict[str, Any]] = None,
-        timeout: Optional[int] = None,
-    ) -> _FakeResponse:
-        self.post_urls.append(url)
-        return self._next(self._token_responses)
-
-
-class _FakeResumableManager(ResumableSourceManager[GustoResumeConfig]):
-    def __init__(self, state: Optional[GustoResumeConfig] = None) -> None:
-        self._state = state
-        self.saved: list[GustoResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> Optional[GustoResumeConfig]:
-        return self._state
-
-    def save_state(self, data: GustoResumeConfig) -> None:
-        self.saved.append(data)
 
 
 def _me_body(company_uuids: list[str]) -> dict[str, Any]:
@@ -107,32 +47,16 @@ def _me_body(company_uuids: list[str]) -> dict[str, Any]:
     }
 
 
-def _run(
-    endpoint: str,
-    routes: dict[str, list[_FakeResponse]],
-    manager: Optional[_FakeResumableManager] = None,
-    db_incremental_field_last_value: Any = None,
-) -> tuple[list[list[dict[str, Any]]], _FakeSession, _FakeResumableManager]:
-    session = _FakeSession(routes)
-    resume_manager = manager or _FakeResumableManager()
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
-        return_value=session,
-    ):
-        batches = list(
-            get_rows(
-                environment="production",
-                client_id="cid",
-                client_secret="secret",
-                refresh_token="refresh",
-                endpoint=endpoint,
-                api_version=GUSTO_API_VERSION_2026_06_15,
-                logger=MagicMock(),
-                resumable_source_manager=resume_manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-        )
-    return batches, session, resume_manager
+def _token() -> ScriptedResponse:
+    return ScriptedResponse(json={"access_token": "tok-1"})
+
+
+def _config() -> GustoSourceConfig:
+    return GustoSourceConfig(client_id="cid", client_secret="secret", refresh_token="refresh", environment="production")
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(GustoSource(), _config())
 
 
 class TestBaseUrl:
@@ -167,19 +91,11 @@ class TestExtractNextPage:
     def test_next_page(
         self, _name: str, headers: dict[str, str], page: int, item_count: int, expected: Optional[int]
     ) -> None:
-        response = cast(Any, _FakeResponse(200, [], headers))
+        response = cast(Any, _FakeResponse(headers))
         assert extract_next_page(response, page, item_count) == expected
 
 
 class TestListCompanies:
-    def _client(self, body: Any) -> GustoClient:
-        session = _FakeSession({"/v1/me": [_FakeResponse(200, body)]})
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
-            return_value=session,
-        ):
-            return GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
-
     @parameterized.expand(
         [
             ("no_roles", {"email": "a@b.test"}),
@@ -189,11 +105,16 @@ class TestListCompanies:
         ]
     )
     def test_returns_empty_when_no_companies_are_reachable(self, _name: str, body: dict[str, Any]) -> None:
-        assert list_companies(self._client(body)) == []
+        with scripted_network([_token(), ScriptedResponse(json=body)]) as network:
+            client = GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
+            assert list_companies(client) == []
+        assert [request.path for request in network.requests_log] == ["/oauth/token", "/v1/me"]
 
     def test_rejects_unexpected_payload(self) -> None:
-        with pytest.raises(ValueError, match="unexpected /v1/me payload"):
-            list_companies(self._client(["not", "a", "dict"]))
+        with scripted_network([_token(), ScriptedResponse(json=["not", "a", "dict"])]):
+            client = GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
+            with pytest.raises(ValueError, match="unexpected /v1/me payload"):
+                list_companies(client)
 
 
 class TestExtractRows:
@@ -232,132 +153,149 @@ class TestWindowBounds:
 
 
 class TestGustoClient:
-    def _client(self, session: _FakeSession, environment: str = "production") -> GustoClient:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
-            return_value=session,
-        ):
-            return GustoClient(environment, "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15, MagicMock())
-
     @parameterized.expand([(GUSTO_API_VERSION_2024_04_01,), (GUSTO_API_VERSION_2026_06_15,)])
     def test_session_pins_the_api_version_and_redacts_secrets(self, api_version: str) -> None:
         # Each supported version reaches the header verbatim, so a pinned source syncs under its pin.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session"
-        ) as make_session:
+        with scripted_network([]) as network:
             GustoClient("production", "cid", "secret", "refresh", api_version)
-        kwargs = make_session.call_args.kwargs
+        kwargs = network.session_options[0]
         assert kwargs["headers"]["X-Gusto-API-Version"] == api_version
         assert set(kwargs["redact_values"]) == {"secret", "refresh"}
         # Payroll PII must never reach HTTP sample capture.
         assert kwargs["capture"] is False
 
     def test_persistent_401_is_raised_rather_than_reminted_forever(self) -> None:
-        session = _FakeSession({"/v1/me": [_FakeResponse(401)]})
-        client = self._client(session)
-        with pytest.raises(requests.HTTPError):
-            client.request("/v1/me")
-        assert len(session.post_urls) == 2
+        answers = [_token(), ScriptedResponse(status=401), _token(), ScriptedResponse(status=401)]
+        with scripted_network(answers) as network:
+            client = GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
+            with pytest.raises(requests.HTTPError):
+                client.request("/v1/me")
+        assert [request.path for request in network.requests_log] == [
+            "/oauth/token",
+            "/v1/me",
+            "/oauth/token",
+            "/v1/me",
+        ]
 
     @parameterized.expand([("forbidden", 403), ("not_found", 404), ("server_error", 500)])
     def test_error_statuses_raise(self, _name: str, status: int) -> None:
-        session = _FakeSession({"/v1/me": [_FakeResponse(status)]})
-        with pytest.raises(requests.HTTPError):
-            self._client(session).request("/v1/me")
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return _token() if request.path == "/oauth/token" else ScriptedResponse(status=status)
+
+        with scripted_network(respond), capture_logs() as logs:
+            client = GustoClient(
+                "production",
+                "cid",
+                "secret",
+                "refresh",
+                GUSTO_API_VERSION_2026_06_15,
+                logger=structlog.get_logger(),
+            )
+            with pytest.raises(requests.HTTPError):
+                client.request("/v1/me")
+        errors = [entry["event"] for entry in logs if entry["log_level"] == "error"]
+        assert len(errors) == 1
+        assert f"status={status}" in errors[0]
 
     def test_missing_access_token_is_an_explicit_failure(self) -> None:
-        session = _FakeSession({"/v1/me": [_FakeResponse(200, {})]}, token_responses=[_FakeResponse(200, {})])
-        with pytest.raises(ValueError, match="did not return an access token"):
-            self._client(session).mint_token()
+        with scripted_network([ScriptedResponse(json={})]):
+            client = GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
+            with pytest.raises(ValueError, match="did not return an access token"):
+                client.mint_token()
 
 
 class TestGetRowsPaginated:
     def test_resumes_at_the_saved_company_and_page(self) -> None:
-        routes = {
-            "/v1/me": [_FakeResponse(200, _me_body(["c-1", "c-2"]))],
-            "/v1/companies/c-2/locations": [_FakeResponse(200, [{"uuid": "l-9"}], {"X-Total-Pages": "3"})],
-        }
-        # c-1 is absent from the routes on purpose: resuming must not re-request it.
-        batches, session, _ = _run(
-            "locations", routes, manager=_FakeResumableManager(GustoResumeConfig(company_index=1, next_page=3))
+        # c-1 is absent from the script on purpose: resuming must not re-request it.
+        result = _driver().run(
+            "locations",
+            [
+                _token(),
+                ScriptedResponse(json=_me_body(["c-1", "c-2"])),
+                ScriptedResponse(json=[{"uuid": "l-9"}], headers={"X-Total-Pages": "3"}),
+            ],
+            resume_state=GustoResumeConfig(company_index=1, next_page=3),
         )
-
-        assert [row["uuid"] for batch in batches for row in batch] == ["l-9"]
-        assert parse_qs(urlparse(session.get_urls[-1]).query)["page"] == ["3"]
+        assert result.raised is None
+        assert [row["uuid"] for row in result.rows] == ["l-9"]
+        assert result.paths == ["/oauth/token", "/v1/me", "/v1/companies/c-2/locations"]
+        assert result.params("page")[-1] == "3"
 
     def test_stops_on_an_empty_page(self) -> None:
-        routes = {
-            "/v1/me": [_FakeResponse(200, _me_body(["c-1"]))],
-            "/v1/companies/c-1/employees": [
-                _FakeResponse(200, [{"uuid": "e-1"}], {"X-Has-Next-Page": "true"}),
-                _FakeResponse(200, [], {"X-Has-Next-Page": "true"}),
+        result = _driver().run(
+            "employees",
+            [
+                _token(),
+                ScriptedResponse(json=_me_body(["c-1"])),
+                ScriptedResponse(json=[{"uuid": "e-1"}], headers={"X-Has-Next-Page": "true"}),
+                ScriptedResponse(json=[], headers={"X-Has-Next-Page": "true"}),
             ],
-        }
-        batches, _, _ = _run("employees", routes)
-        assert [row["uuid"] for batch in batches for row in batch] == ["e-1"]
+        )
+        assert result.raised is None
+        assert [row["uuid"] for row in result.rows] == ["e-1"]
+        assert result.params("page") == [None, None, "1", "2"]
 
 
 class TestGetRowsCompanies:
     def test_yields_the_full_company_detail_per_company(self) -> None:
-        routes = {
-            "/v1/me": [_FakeResponse(200, _me_body(["c-1", "c-2"]))],
-            "/v1/companies/c-1": [_FakeResponse(200, {"uuid": "c-1", "name": "Acme"})],
-            "/v1/companies/c-2": [_FakeResponse(200, {"uuid": "c-2", "name": "Globex"})],
-        }
-        batches, _, _ = _run("companies", routes)
-        assert [row["name"] for batch in batches for row in batch] == ["Acme", "Globex"]
+        result = _driver().run(
+            "companies",
+            [
+                _token(),
+                ScriptedResponse(json=_me_body(["c-1", "c-2"])),
+                ScriptedResponse(json={"uuid": "c-1", "name": "Acme"}),
+                ScriptedResponse(json={"uuid": "c-2", "name": "Globex"}),
+            ],
+        )
+        assert result.raised is None
+        assert [row["name"] for row in result.rows] == ["Acme", "Globex"]
 
 
 class TestGetRowsFanOut:
-    def _routes(self) -> dict[str, list[_FakeResponse]]:
-        return {
-            "/v1/me": [_FakeResponse(200, _me_body(["c-1"]))],
-            "/v1/companies/c-1/employees": [
-                _FakeResponse(200, [{"uuid": "e-2"}, {"uuid": "e-1"}], {"X-Total-Pages": "1"})
-            ],
-            "/v1/employees/e-1/jobs": [_FakeResponse(200, [{"uuid": "j-1", "title": "Engineer"}])],
-            "/v1/employees/e-2/jobs": [_FakeResponse(200, [{"uuid": "j-1", "title": "Designer"}])],
-        }
-
     def test_resumes_partway_through_a_company_employee_list(self) -> None:
-        routes = self._routes()
-        del routes["/v1/employees/e-1/jobs"]
-        batches, _, _ = _run(
-            "jobs", routes, manager=_FakeResumableManager(GustoResumeConfig(company_index=0, employee_index=1))
+        result = _driver().run(
+            "jobs",
+            [
+                _token(),
+                ScriptedResponse(json=_me_body(["c-1"])),
+                ScriptedResponse(json=[{"uuid": "e-2"}, {"uuid": "e-1"}], headers={"X-Total-Pages": "1"}),
+                ScriptedResponse(json=[{"uuid": "j-1", "title": "Designer"}]),
+            ],
+            resume_state=GustoResumeConfig(company_index=0, employee_index=1),
         )
-        assert [row["_employee_uuid"] for batch in batches for row in batch] == ["e-2"]
+        assert result.raised is None
+        assert [row["_employee_uuid"] for row in result.rows] == ["e-2"]
+        assert result.paths[-1] == "/v1/employees/e-2/jobs"
 
 
 class TestGetRowsWindowed:
-    def _payroll_routes(self) -> dict[str, list[_FakeResponse]]:
-        return {
-            "/v1/me": [_FakeResponse(200, _me_body(["c-1", "c-2"]))],
-            "/v1/companies/c-1/payrolls": [
-                _FakeResponse(200, [{"uuid": "pr-3", "check_date": "2024-03-15"}], {"X-Total-Pages": "1"})
-            ],
-            "/v1/companies/c-2/payrolls": [
-                _FakeResponse(
-                    200,
-                    [
-                        {"payroll_uuid": "pr-2", "check_date": "2024-02-15"},
-                        {"payroll_uuid": "pr-1", "check_date": "2024-01-15"},
-                    ],
-                    {"X-Total-Pages": "1"},
-                )
-            ],
-        }
+    def _payroll_script(self) -> list[ScriptedResponse]:
+        return [
+            _token(),
+            ScriptedResponse(json=_me_body(["c-1", "c-2"])),
+            ScriptedResponse(json=[{"uuid": "pr-3", "check_date": "2024-03-15"}], headers={"X-Total-Pages": "1"}),
+            ScriptedResponse(
+                json=[
+                    {"payroll_uuid": "pr-2", "check_date": "2024-02-15"},
+                    {"payroll_uuid": "pr-1", "check_date": "2024-01-15"},
+                ],
+                headers={"X-Total-Pages": "1"},
+            ),
+        ]
 
     def test_first_sync_requests_the_full_history_window(self) -> None:
-        _, session, _ = _run("payrolls", self._payroll_routes())
-        assert parse_qs(urlparse(session.get_urls[1]).query)["start_date"] == [DEFAULT_WINDOW_START]
+        result = _driver().run("payrolls", self._payroll_script())
+        assert result.raised is None
+        assert result.requests[2].param("start_date") == DEFAULT_WINDOW_START
 
     def test_unpaginated_windowed_endpoint_flattens_and_sorts(self) -> None:
-        routes = {
-            "/v1/me": [_FakeResponse(200, _me_body(["c-1"]))],
-            "/v1/companies/c-1/contractor_payments": [
-                _FakeResponse(
-                    200,
-                    {
+        result = _driver().run(
+            "contractor_payments",
+            [
+                _token(),
+                ScriptedResponse(json=_me_body(["c-1"])),
+                ScriptedResponse(
+                    json={
                         "contractor_payments": [
                             {
                                 "contractor_uuid": "k-1",
@@ -368,31 +306,23 @@ class TestGetRowsWindowed:
                             }
                         ]
                     },
-                )
+                ),
             ],
-        }
-        batches, _, _ = _run("contractor_payments", routes)
-        rows = [row for batch in batches for row in batch]
-        assert [row["uuid"] for row in rows] == ["p-1", "p-2"]
-        assert {row["_company_uuid"] for row in rows} == {"c-1"}
+        )
+        assert result.raised is None
+        assert [row["uuid"] for row in result.rows] == ["p-1", "p-2"]
+        assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
 
 
 class TestGustoSourceResponse:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_primary_keys_match_the_endpoint_catalog(self, endpoint: str) -> None:
-        response = gusto_source(
-            environment="production",
-            client_id="cid",
-            client_secret="secret",
-            refresh_token="refresh",
-            endpoint=endpoint,
-            api_version=GUSTO_API_VERSION_2026_06_15,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == GUSTO_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
+        result = _driver().run(endpoint, [_token(), ScriptedResponse(json=_me_body([]))])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == GUSTO_ENDPOINTS[endpoint].primary_keys
+        assert result.response.sort_mode == "asc"
 
     @parameterized.expand([("jobs",), ("contractor_payments",), ("pay_periods",)])
     def test_fan_out_and_keyless_tables_include_their_parent_in_the_key(self, endpoint: str) -> None:
@@ -401,62 +331,49 @@ class TestGustoSourceResponse:
         assert any(key.startswith("_") for key in GUSTO_ENDPOINTS[endpoint].primary_keys)
 
     def test_items_are_lazy(self) -> None:
-        response = gusto_source(
-            environment="production",
-            client_id="cid",
-            client_secret="secret",
-            refresh_token="refresh",
-            endpoint="employees",
-            api_version=GUSTO_API_VERSION_2026_06_15,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),
-        )
-        # Building the response must not touch the network — only iterating does.
-        items = cast(Iterable[Any], response.items())
-        assert isinstance(items, Iterator)
+        source = GustoSource()
+        inputs = source_inputs("employees")
+        manager = source.get_resumable_source_manager(inputs)
+        with scripted_network([]) as network:
+            response = source.source_for_pipeline(_config(), manager, inputs)
+            # Building the response must not touch the network — only iterating does.
+            items = cast(Iterable[Any], response.items())
+            assert isinstance(items, Iterator)
+        assert network.requests_log == []
 
 
 class TestValidateCredentials:
-    def _validate(
-        self,
-        routes: dict[str, list[_FakeResponse]],
-        token_responses: Optional[list[_FakeResponse]] = None,
-    ) -> tuple[bool, Optional[str]]:
-        session = _FakeSession(routes, token_responses=token_responses)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
-            return_value=session,
-        ):
+    def _validate(self, answers: list[ScriptedResponse]) -> tuple[bool, Optional[str]]:
+        with scripted_network(answers):
             return validate_credentials("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
 
     def test_accepts_credentials_that_reach_a_company(self) -> None:
-        assert self._validate({"/v1/me": [_FakeResponse(200, _me_body(["c-1"]))]}) == (True, None)
+        assert self._validate([_token(), ScriptedResponse(json=_me_body(["c-1"]))]) == (True, None)
 
     @parameterized.expand([("bad_request", 400), ("unauthorized", 401)])
     def test_rejected_token_exchange_explains_rotation(self, _name: str, status: int) -> None:
-        ok, message = self._validate({"/v1/me": []}, token_responses=[_FakeResponse(status)])
+        ok, message = self._validate([ScriptedResponse(status=status)])
         assert ok is False
         assert message is not None and "rotates refresh tokens" in message
 
     def test_other_token_errors_report_the_status(self) -> None:
-        ok, message = self._validate({"/v1/me": []}, token_responses=[_FakeResponse(500)])
+        with scripted_network(always(ScriptedResponse(status=500))):
+            ok, message = validate_credentials("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
         assert (ok, message) == (False, "Gusto returned HTTP 500 when requesting an access token")
 
     def test_forbidden_company_read_asks_for_a_payroll_admin(self) -> None:
-        ok, message = self._validate({"/v1/me": [_FakeResponse(403)]})
+        ok, message = self._validate([_token(), ScriptedResponse(status=403)])
         assert ok is False
         assert message is not None and "payroll admin" in message
 
     def test_token_without_companies_is_rejected(self) -> None:
-        ok, message = self._validate({"/v1/me": [_FakeResponse(200, {"roles": {}})]})
+        ok, message = self._validate([_token(), ScriptedResponse(json={"roles": {}})])
         assert ok is False
         assert message is not None and "no companies" in message
 
     def test_invalid_environment_is_reported(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
-            return_value=_FakeSession({}),
-        ):
+        with scripted_network([]) as network:
             ok, message = validate_credentials("sandbox", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
         assert ok is False
         assert message is not None and "Invalid Gusto environment" in message
+        assert network.requests_log == []

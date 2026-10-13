@@ -1,7 +1,9 @@
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.settings import (
     DEEPSOURCE_ENDPOINTS,
     ENDPOINTS,
@@ -12,12 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 _CONFIG = DeepsourceSourceConfig(api_token="tok", account_login="acme", vcs_provider="GITHUB")
-
-
-def _source_inputs(schema_name: str) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = schema_name
-    return inputs
 
 
 class TestDeepsourceSource:
@@ -32,8 +28,16 @@ class TestDeepsourceSource:
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_for_pipeline_wires_endpoint_config(self, endpoint: str) -> None:
-        response = DeepsourceSource().source_for_pipeline(_CONFIG, MagicMock(), _source_inputs(endpoint))
+        connection = {"edges": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}
+        if endpoint == "analyzers":
+            payload = {"data": {"analyzers": connection}}
+        else:
+            payload = {"data": {"account": {"repositories": connection}}}
+        result = SourceDriver(DeepsourceSource(), _CONFIG).run(endpoint, [ScriptedResponse(json=payload)])
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == DEEPSOURCE_ENDPOINTS[endpoint].primary_keys
         assert callable(response.items)

@@ -1,14 +1,16 @@
-from typing import Any, Optional
-
-from unittest.mock import MagicMock, patch
+import time_machine
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepassword import (
     OnePasswordSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.source import OnePasswordSource
 
@@ -16,23 +18,6 @@ ALL_FEATURES_INTROSPECTION = {
     "uuid": "OK41XEGLRTH4YKO5YRTCPNX3IU",
     "features": ["auditevents", "itemusages", "signinattempts"],
 }
-
-
-def _source_inputs(schema_name: str, last_value: Optional[Any] = None, use_incremental: bool = False) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-1",
-        source_id="source-1",
-        team_id=1,
-        should_use_incremental_field=use_incremental,
-        db_incremental_field_last_value=last_value,
-        db_incremental_field_earliest_value=None,
-        incremental_field="timestamp" if use_incremental else None,
-        incremental_field_type=None,
-        job_id="job-1",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
 
 
 class TestOnePasswordSource:
@@ -64,16 +49,18 @@ class TestOnePasswordSource:
         self, _name: str, introspection: dict | None, schema_name: str | None, expected_ok: bool
     ) -> None:
         config = OnePasswordSourceConfig(api_token="token", region="us")
-        with patch.object(source_module, "introspect", return_value=introspection):
+        answer = ScriptedResponse(status=200 if introspection is not None else 401, json=introspection)
+        with scripted_network([answer]) as network:
             ok, error = self.source.validate_credentials(config, team_id=1, schema_name=schema_name)
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert [request.path for request in network.requests_log] == ["/api/v2/auth/introspect"]
 
     def test_endpoint_permissions_report_missing_features(self) -> None:
         # A token scoped to a subset of features must surface which tables it can't read so the
         # schema picker can flag them — without blocking the reachable ones.
         config = OnePasswordSourceConfig(api_token="token", region="us")
-        with patch.object(source_module, "introspect", return_value={"features": ["signinattempts"]}):
+        with scripted_network([ScriptedResponse(json={"features": ["signinattempts"]})]):
             permissions = self.source.get_endpoint_permissions(config, team_id=1, endpoints=list(ENDPOINTS))
         assert permissions["sign_in_attempts"] is None
         assert permissions["item_usages"] is not None
@@ -81,7 +68,7 @@ class TestOnePasswordSource:
 
     def test_endpoint_permissions_never_block_on_probe_failure(self) -> None:
         config = OnePasswordSourceConfig(api_token="token", region="us")
-        with patch.object(source_module, "introspect", return_value=None):
+        with scripted_network([ScriptedResponse(status=401)]):
             permissions = self.source.get_endpoint_permissions(config, team_id=1, endpoints=list(ENDPOINTS))
         assert all(reason is None for reason in permissions.values())
 
@@ -102,7 +89,12 @@ class TestOnePasswordSource:
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
         # A stale watermark on a full-refresh run would wrongly narrow the start_time window.
         config = OnePasswordSourceConfig(api_token="token", region="us")
-        inputs = _source_inputs("audit_events", last_value="2026-07-01T00:00:00Z", use_incremental=False)
-        with patch.object(source_module, "onepassword_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            result = SourceDriver(self.source, config).run(
+                "audit_events",
+                [ScriptedResponse(json={"has_more": False, "items": []})],
+                should_use_incremental_field=False,
+                db_incremental_field_last_value="2026-07-01T00:00:00Z",
+            )
+        assert result.raised is None
+        assert result.requests[0].json() == {"limit": 1000, "start_time": "2025-07-15T12:00:00+00:00"}

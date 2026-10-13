@@ -1,77 +1,63 @@
 from typing import Any, cast
 
-from unittest.mock import Mock, patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.strato import StratoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.strato.source import StratoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato import (
     get_resource,
-    strato_source,
     validate_credentials,
 )
 
 
-def _response(status_code: int = 200, json_body: Any = None, text: str = "") -> Mock:
-    response = Mock()
-    response.status_code = status_code
-    response.json.return_value = json_body if json_body is not None else {}
-    response.text = text
-    return response
+def _driver(api_token: str = "token") -> SourceDriver:
+    return SourceDriver(StratoSource(), StratoSourceConfig(api_token=api_token))
 
 
 class TestValidateCredentials:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.make_tracked_session")
-    def test_valid_token(self, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response(200, ["PONG"])
-
-        result = validate_credentials("valid-token")
+    def test_valid_token(self) -> None:
+        with scripted_network([ScriptedResponse(json=["PONG"])]):
+            result = validate_credentials("valid-token")
 
         assert result == (True, None)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.make_tracked_session")
-    def test_invalid_token(self, mock_make_session) -> None:
+    def test_invalid_token(self) -> None:
         # Verbatim error body the live API returns for a bad token.
-        mock_make_session.return_value.get.return_value = _response(
-            401, {"type": "UNAUTHORIZED", "message": "The Token you are using is not valid", "errors": None}
-        )
-
-        valid, message = validate_credentials("bad-token")
+        body = {"type": "UNAUTHORIZED", "message": "The Token you are using is not valid", "errors": None}
+        with scripted_network([ScriptedResponse(status=401, json=body)]):
+            valid, message = validate_credentials("bad-token")
 
         assert valid is False
         assert message is not None
         assert "Invalid STRATO API token" in message
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.make_tracked_session")
-    def test_ip_restricted_token_points_to_the_restriction(self, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response(406)
-
-        valid, message = validate_credentials("token")
+    def test_ip_restricted_token_points_to_the_restriction(self) -> None:
+        with scripted_network([ScriptedResponse(status=406, json={})]):
+            valid, message = validate_credentials("token")
 
         assert valid is False
         assert message is not None
         assert "IP" in message
 
     @parameterized.expand([(500,), (503,)])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.make_tracked_session")
-    def test_other_error_uses_response_message(self, status_code: int, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response(status_code, {"message": "Internal error"})
-
-        result = validate_credentials("token")
+    def test_other_error_uses_response_message(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={"message": "Internal error"}))):
+            result = validate_credentials("token")
 
         assert result == (False, "Internal error")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.make_tracked_session")
-    def test_network_error_returns_false(self, mock_make_session) -> None:
-        from requests.exceptions import ConnectionError
+    def test_network_error_returns_false(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            valid, message = validate_credentials("token")
 
-        mock_make_session.return_value.get.side_effect = ConnectionError("boom")
-
-        result = validate_credentials("token")
-
-        assert result == (False, "boom")
+        assert valid is False
+        assert "boom" in (message or "")
 
 
 class TestGetResource:
@@ -120,12 +106,10 @@ class TestSecretScrubbing:
 
 
 class TestStratoSourceTopLevel:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.rest_api_resource")
-    def test_servers_builds_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
+    def test_servers_builds_response(self) -> None:
+        resp = _driver().run("Servers", []).response
 
-        resp = strato_source(api_token="token", endpoint="Servers", team_id=1, job_id="job-1")
-
+        assert resp is not None
         assert resp.name == "Servers"
         assert resp.primary_keys == ["id"]
         assert resp.partition_mode == "datetime"
@@ -133,21 +117,21 @@ class TestStratoSourceTopLevel:
 
 
 class TestStratoFanout:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.strato.strato.build_dependent_resource")
-    def test_client_sends_token_header_and_refuses_redirects(self, mock_build) -> None:
-        mock_build.return_value = iter([])
+    def test_client_sends_token_header_and_refuses_redirects(self) -> None:
+        result = _driver("secret-token").run(
+            "Snapshots",
+            [ScriptedResponse(json=[{"id": "srv1"}]), ScriptedResponse(json=[{"id": "snap1"}])],
+        )
 
-        strato_source(api_token="secret-token", endpoint="Snapshots", team_id=1, job_id="job-1")
-
-        _, kwargs = mock_build.call_args
-        client_config = kwargs["client_config"]
-        assert client_config["auth"] == {
-            "type": "api_key",
-            "name": "X-TOKEN",
-            "api_key": "secret-token",
-            "location": "header",
-        }
-        assert client_config["allow_redirects"] is False
-        assert isinstance(client_config["paginator"], SinglePagePaginator)
+        assert result.raised is None
+        assert result.rows == [{"id": "snap1", "server_id": "srv1"}]
+        assert all(request.headers["x-token"] == "secret-token" for request in result.requests)
         # STRATO list endpoints take no page-size param; sending one would be undocumented.
-        assert kwargs["page_size_param"] is None
+        assert result.queries == [{}, {}]
+
+    def test_a_redirect_is_never_followed(self) -> None:
+        redirect = ScriptedResponse(status=302, headers={"Location": "https://evil.example.com/v1/servers"})
+
+        result = _driver("secret-token").run("Snapshots", [redirect])
+
+        assert all("evil.example.com" not in url for url in result.urls)

@@ -3,7 +3,6 @@ from typing import Any, Optional
 from urllib.parse import quote, quote_plus
 
 import pytest
-from unittest import mock
 
 import requests
 
@@ -15,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.a
     AppLovinResumeConfig,
     _body_code,
     _to_date,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import (
@@ -27,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
     REPORT_WINDOW_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source import AppLovinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -38,41 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
     AppLovinSourceConfig,
 )
-
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.applovin.applovin"
-
-
-class FakeResumeManager(ResumableSourceManager[AppLovinResumeConfig]):
-    """In-memory stand-in for the Redis-backed manager."""
-
-    def __init__(self, state: Optional[AppLovinResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[AppLovinResumeConfig] = []
-        self.clear_count = 0
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[AppLovinResumeConfig]:
-        return self.state
-
-    def save_state(self, data: AppLovinResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.clear_count += 1
-
-
-def _response(body: Any = None, status_code: int = 200, text: str = "", json_error: bool = False) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    resp.text = text
-    if json_error:
-        resp.json.side_effect = ValueError("not json")
-    else:
-        resp.json.return_value = body
-    return resp
 
 
 def _driver(api_key: str = "key") -> SourceDriver:
@@ -137,19 +99,20 @@ class TestRequestShape:
 
 
 class TestWindowWalking:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_checkpoint_survives_a_failed_walk(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = [
-            _response({"code": 200, "results": _rows(2)}),
-            _response(status_code=500, text="boom"),
-        ]
-        manager = FakeResumeManager()
+    def test_checkpoint_survives_a_failed_walk(self) -> None:
+        first_window = _earliest()
+        second_window = first_window + timedelta(days=REPORT_WINDOW_DAYS)
 
-        with pytest.raises(AppLovinAPIError):
-            list(get_rows("key", "max_ad_revenue", mock.MagicMock(), manager))
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("start") in {first_window.isoformat(), second_window.isoformat()}:
+                return _page(_rows(2))
+            return ScriptedResponse(status=500, body=b"boom")
 
-        assert manager.saved
-        assert manager.clear_count == 0
+        result = _driver().run("max_ad_revenue", respond)
+
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert result.saved_states
+        assert result.final_state == AppLovinResumeConfig(next_window_start=second_window.isoformat())
 
 
 class TestPagination:
