@@ -102,6 +102,8 @@ export function FullReviewSettingsSection(): JSX.Element {
                         <YouMark shown={ownThreshold !== undefined} />
                         <LemonSelect<UrgencyThresholdEnumApi | 'project'>
                             size="small"
+                            className="min-w-0 shrink"
+                            truncateText={{ maxWidthClass: 'max-w-full' }}
                             aria-label="Mine: Post findings at or above"
                             value={ownThreshold ?? 'project'}
                             options={mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold)}
@@ -135,6 +137,8 @@ export function FullReviewSettingsSection(): JSX.Element {
                         <YouMark shown={ownCelebrate !== undefined} />
                         <LemonSelect<OnOff | 'project'>
                             size="small"
+                            className="min-w-0 shrink"
+                            truncateText={{ maxWidthClass: 'max-w-full' }}
                             aria-label="Mine: Celebrate clean reviews"
                             value={ownCelebrate ?? 'project'}
                             options={mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate)}
