@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterator
 from dataclasses import field, replace
 from typing import Any
@@ -32,12 +33,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.umami import UmamiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.umami.settings import (
+    DAY_MS,
     DEFAULT_BASE_URL,
     ENDPOINTS,
     PAGE_SIZE,
 )
 
 REQUEST_TIMEOUT = (10, 30)
+# A server-supplied date range outside this span is implausible. Rejecting it bounds the number of event windows.
+MIN_TIMESTAMP_MS = 631_152_000_000  # 1990-01-01
+MAX_FUTURE_MS = 366 * DAY_MS
 
 
 class UmamiError(ValueError):
@@ -78,12 +83,15 @@ def normalize_host(host: str | None) -> str:
 
 
 def timestamp_ms(value: object) -> int:
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return int(value)
-    parsed = parse_datetime_value(value)
-    if parsed is None:
-        raise UmamiError("Umami returned an invalid date range. Check the server API version.")
-    return int(parsed.timestamp() * 1000)
+    try:
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return int(value)
+        parsed = parse_datetime_value(value)
+        if parsed is not None:
+            return int(parsed.timestamp() * 1000)
+    except (OverflowError, ValueError, OSError):
+        pass
+    raise UmamiError("Umami returned an invalid date range. Check the server API version.")
 
 
 class UmamiClient:
@@ -191,9 +199,10 @@ class UmamiClient:
         return rest_api_resource(config, inputs.team_id, inputs.job_id, None)
 
     def probe(self) -> None:
+        params: dict[str, str | int] = {"page": 1, "pageSize": 1, "includeTeams": "true"}
         response = self.session.get(
             f"{self.base_url}/websites",
-            params={"page": 1, "pageSize": 1, "includeTeams": "true"},
+            params=params,
             auth=self.auth,
             timeout=REQUEST_TIMEOUT,
         )
@@ -260,6 +269,8 @@ def get_rows(
                     stop_at = timestamp_ms(dates.get("endDate"))
                     if start_at > stop_at:
                         raise UmamiError("Umami returned a reversed date range. Check the server API version.")
+                    if start_at < MIN_TIMESTAMP_MS or stop_at > int(time.time() * 1000) + MAX_FUTURE_MS:
+                        raise UmamiError("Umami returned an implausible date range. Check the server API version.")
                     state = replace(
                         state, website_id=website_id, start_at=start_at, stop_at=stop_at, end_at=None, page=1
                     )

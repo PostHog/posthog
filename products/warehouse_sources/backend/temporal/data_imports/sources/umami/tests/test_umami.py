@@ -161,6 +161,8 @@ def test_invalid_or_capped_response_cannot_replace_the_table(body: dict[str, Any
         {},
         {"startDate": "not-a-date", "endDate": "2024-01-01"},
         {"startDate": "2024-01-02", "endDate": "2024-01-01"},
+        {"startDate": "0001-01-01", "endDate": "2024-01-01"},
+        {"startDate": "2024-01-01", "endDate": "9999-12-31"},
     ],
 )
 def test_invalid_date_range_fails_before_a_child_request(dates: dict[str, str]) -> None:

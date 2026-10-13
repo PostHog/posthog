@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.umami.sour
 def test_validation_maps_vendor_denials_without_blocking_partial_access(
     status: int, schema_name: str | None, valid: bool, error_fragment: str | None
 ) -> None:
-    body = {"data": []} if schema_name is None and status == 200 else {"error": {"code": "unauthorized"}}
+    body: dict[str, object] = (
+        {"data": []} if schema_name is None and status == 200 else {"error": {"code": "unauthorized"}}
+    )
     with scripted_network([ScriptedResponse(status=status, json=body)]):
         result, error = UmamiSource().validate_credentials(UmamiSourceConfig(api_key="fake-key"), 1, schema_name)
     assert result == valid
