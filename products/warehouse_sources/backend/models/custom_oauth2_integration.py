@@ -58,9 +58,9 @@ class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMet
     # constraint takes a SHARE ROW EXCLUSIVE lock on the parent, which stalls under write traffic. Team
     # scoping is enforced at the app level by TeamScopedRootMixin. The external_data_source FK targets a
     # non-hot table, so it keeps its constraint (and its cascade cleans the row up when the source is deleted).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     external_data_source = models.ForeignKey(
         "warehouse_sources.ExternalDataSource",

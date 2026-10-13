@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
@@ -6,16 +8,31 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
+    const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
-    const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { hiddenRecordingsCount, totalFiltersCount, isScopedByCaller } = useValues(sessionRecordingsPlaylistLogic)
+    const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
+
+    const recordingsAreHidden = hideViewedRecordings !== false
+    const hasFilters = totalFiltersCount > 0
+
+    useEffect(() => {
+        posthog.capture('recording list empty state shown', {
+            hidden_recordings_count: hiddenRecordingsCount,
+            total_filters_count: totalFiltersCount,
+        })
+    }, [])
+    // Clearing would drop the caller's scoping, leaving a list that no longer matches the surface.
+    const canClearFilters = hasFilters && !isScopedByCaller
 
     return (
         <>
-            <h3 className="title text-secondary mb-0">No matching recordings</h3>
+            <h3 className="title text-secondary mb-0">
+                {hasFilters ? 'No recordings match your filters' : 'No recordings found'}
+            </h3>
             <div className="flex flex-col deprecated-space-y-2">
                 <ul className="deprecated-space-y-1">
-                    {hiddenRecordingsCount > 0 && (
+                    {recordingsAreHidden && (
                         <li>
                             <LemonButton
                                 type="secondary"
@@ -27,7 +44,22 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                                     setHideViewedRecordings(false)
                                 }}
                             >
-                                Show {hiddenRecordingsCount} hidden recordings
+                                {hiddenRecordingsCount > 0
+                                    ? `Show ${hiddenRecordingsCount} hidden recordings`
+                                    : 'Show hidden recordings'}
+                            </LemonButton>
+                        </li>
+                    )}
+                    {canClearFilters && (
+                        <li>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
+                                data-attr="replay-empty-state-troubleshooting-clear-filters"
+                                onClick={() => resetFilters()}
+                            >
+                                Clear filters
                             </LemonButton>
                         </li>
                     )}

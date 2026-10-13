@@ -1,22 +1,26 @@
 import pytest
 from unittest.mock import patch
 
-from pymongo.errors import InvalidURI, OperationFailure, ServerSelectionTimeoutError
+from pymongo.errors import ConfigurationError, InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
-    DATABASE_NAME_REQUIRED_ERROR,
-    _parse_connection_string,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import DATABASE_NAME_REQUIRED_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
     _DNS_RESOLUTION_FAILURE_MARKERS,
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
+    _MONGO_INVALID_CONNECTION_STRING_MESSAGE,
     _MONGO_NO_COLLECTIONS_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
+    _MONGO_SERVER_TOO_OLD_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     MongoDBSource,
@@ -26,25 +30,22 @@ _SRV_NO_DB = "mongodb+srv://user:pass@cluster.abc.mongodb.net/?retryWrites=true&
 _SRV_WITH_DB = "mongodb+srv://user:pass@cluster.abc.mongodb.net/realdb?retryWrites=true"
 
 
-class TestParseConnectionStringDatabaseOverride:
-    def test_uses_override_when_connection_string_omits_database(self):
-        # Atlas SRV strings routinely have no `/<db>` path — the separate field fills it.
-        params = _parse_connection_string(_SRV_NO_DB, database_override="mydb")
-        assert params["database"] == "mydb"
-
-    def test_connection_string_database_wins_over_override(self):
-        params = _parse_connection_string(_SRV_WITH_DB, database_override="ignored")
-        assert params["database"] == "realdb"
-
-    @pytest.mark.parametrize("override", [None, "", "   "])
-    def test_no_usable_override_leaves_database_empty(self, override):
-        # The trailing `/` makes the parsed path empty, so `database` is falsy
-        # (the downstream "is db missing" checks treat "" and None the same).
-        params = _parse_connection_string(_SRV_NO_DB, database_override=override)
-        assert not params["database"]
-
-
 class TestMongoValidateCredentialsDatabaseName:
+    @pytest.mark.parametrize(
+        "connection_string",
+        [
+            "https://cluster.example.com/db",  # wrong scheme, rejected by our own check
+            "mongodb+srv://host:not-a-port/db",  # urlparse rejects the non-numeric port
+        ],
+    )
+    def test_unparseable_connection_string_returns_actionable_error(self, connection_string):
+        config = MongoDBSourceConfig.from_dict({"connection_string": connection_string})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_INVALID_CONNECTION_STRING_MESSAGE
+
     def test_missing_database_everywhere_returns_actionable_error(self):
         config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_NO_DB})
 
@@ -92,6 +93,19 @@ class TestMongoValidateCredentialsServerSelection:
         assert ok is False
         assert err == _MONGO_HOST_UNRESOLVED_MESSAGE
         assert "Topology Description" not in (err or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_private_srv_members_return_host_guidance(self, mock_get_collections):
+        # An SRV URI skips the up-front host check, so the connect form only learns the members are
+        # private when the server selector refuses them. That must read as a host problem rather
+        # than the generic connect failure, which also reports to error tracking.
+        mock_get_collections.side_effect = HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == DATABASE_HOST_NOT_ALLOWED_GUIDANCE
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
     def test_unreachable_cluster_returns_allowlist_message(self, mock_get_collections):
@@ -179,6 +193,29 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 ),
                 _MONGO_UNREACHABLE_MESSAGE,
                 False,
+            ),
+            (
+                # dnspython's NXDOMAIN, wrapped by pymongo as ConfigurationError, when a
+                # mongodb+srv:// URI's SRV DNS record doesn't exist at all.
+                ConfigurationError("The DNS query name does not exist: _mongodb._tcp.cluster.abc.mongodb.net."),
+                _MONGO_HOST_UNRESOLVED_MESSAGE,
+                False,
+            ),
+            (
+                # pymongo's server-selection wording for a server below the driver's minimum wire version.
+                ConfigurationError(
+                    "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
+                    "PyMongo requires at least 8 (MongoDB 4.2)."
+                ),
+                _MONGO_SERVER_TOO_OLD_MESSAGE,
+                False,
+            ),
+            (
+                # An unrecognized ConfigurationError still falls back to capturing, same as any
+                # other unexpected exception.
+                ConfigurationError("some-unrecognized-configuration-problem"),
+                _MONGO_CONNECT_FAILED_MESSAGE,
+                True,
             ),
             (Exception("some-internal-driver-detail"), _MONGO_CONNECT_FAILED_MESSAGE, True),
         ],

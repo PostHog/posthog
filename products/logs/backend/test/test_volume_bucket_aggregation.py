@@ -7,8 +7,11 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV
 
 from products.logs.backend.temporal.volume_tick.aggregation import (
+    _ENVIRONMENT_KEYS,
+    _NAMESPACE_KEYS,
     RollupPreview,
     _rollup_parameters,
     _rollup_sql,
@@ -165,8 +168,15 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([row[4] for row in self._rollup()], [expected])
 
-    @parameterized.expand([("present", {"k8s.namespace.name": "web"}, "web"), ("absent", {}, "")])
-    def test_namespace_is_verbatim_with_no_sentinel(
+    @parameterized.expand(
+        [
+            ("k8s", {"k8s.namespace.name": "web"}, "web"),
+            ("non_k8s_semconv", {"service.namespace": "web"}, "web"),
+            ("k8s_wins_when_both", {"k8s.namespace.name": "web", "service.namespace": "team-a"}, "web"),
+            ("absent", {}, ""),
+        ]
+    )
+    def test_namespace_falls_back_through_the_key_chain(
         self, _name: str, resource_attributes: dict[str, str], expected: str
     ) -> None:
         self._insert_logs([self._log(_START, resource_attributes=resource_attributes)])
@@ -197,3 +207,13 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
         self._insert_logs([self._log(_START), {**self._log(_START), "team_id": self.team.id + 10_000}])
 
         self.assertEqual(self._preview().rollup_rows, 1)
+
+
+def test_mv_matches_the_detector_grid_and_dimension_keys() -> None:
+    sql = LOGS34_TO_VOLUME_BUCKETS_MV()
+
+    assert f"toIntervalSecond({BUCKET_SECONDS})" in sql
+    assert "lower(severity_text)" in sql
+    for chain in (_ENVIRONMENT_KEYS, _NAMESPACE_KEYS):
+        first_seen = [sql.index(f"'{key}'") for key in chain]
+        assert first_seen == sorted(first_seen)

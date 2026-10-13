@@ -9,11 +9,13 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { useInterval } from 'lib/hooks/useInterval'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
     InsightErrorState,
@@ -23,7 +25,9 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getCapacityRetryAt, getRetryCooldown } from 'scenes/insights/sharedUtils'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
@@ -39,14 +43,16 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture'
 import { InsightMeta } from './InsightMeta'
+import { InsightVisualizationSkeleton } from './InsightVisualizationSkeleton'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
@@ -61,7 +67,7 @@ export function shouldRenderInsightCardViz({
     placement: DashboardPlacement | 'SavedInsightGrid'
     inView: boolean
     isPageVisible: boolean
-    query: QueryBasedInsightModel['query']
+    query: InsightModel['query']
 }): boolean {
     if (isStorybook || placement === DashboardPlacement.Export) {
         return true
@@ -74,7 +80,7 @@ export function shouldRenderInsightCardViz({
     return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
 }
 
-const LazyEditAlertModal = React.lazy(() =>
+const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 
@@ -152,9 +158,10 @@ type AlertModalState = {
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    canEditDashboard?: boolean
     /** Whether the insight has been called to load. */
     loadingQueued?: boolean
     /** Whether the insight is loading. */
@@ -163,12 +170,15 @@ export interface InsightCardProps extends Resizeable {
     apiErrored?: boolean
     /** Might contain more information on the error that occurred on the server. */
     apiError?: Error
+    /** Query ID associated with the error, when available from the insight response. */
+    queryId?: string
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
     /** Whether loading timed out. */
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
+    refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
     /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
@@ -204,7 +214,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    tile?: DashboardTile<QueryBasedInsightModel>
+    tile?: DashboardTile
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
     /** Show a direct action for creating an anomaly detection alert for this saved insight. */
@@ -215,6 +225,12 @@ export interface InsightCardProps extends Resizeable {
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Project the insight belongs to, when that is not the current project. The card's links then open it there. */
+    projectId?: number
+    /** Time zone of `projectId`, so the chart places that project's annotations on the right day. */
+    projectTimezone?: string
+    /** Shown above the title, for a card that has to name where its insight comes from. */
+    contextHeading?: JSX.Element | null
 }
 
 function InsightCardInternal(
@@ -222,13 +238,16 @@ function InsightCardInternal(
         tile,
         insight,
         dashboardId,
+        canEditDashboard,
         ribbonColor,
         loadingQueued,
         loading,
         apiError,
         apiErrored,
+        queryId,
         timedOut,
         highlighted,
+        refreshAfterDisplayOptionsChange,
         showResizeHandles,
         isResizing,
         showEditingControls,
@@ -251,6 +270,9 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         children,
+        projectId,
+        projectTimezone,
+        contextHeading,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
@@ -288,6 +310,11 @@ function InsightCardInternal(
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
         : true
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
+    const refreshAfterDisplayOptionsChangeRef = useRef(refreshAfterDisplayOptionsChange)
+    refreshAfterDisplayOptionsChangeRef.current = refreshAfterDisplayOptionsChange
+    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: InsightModel): void => {
+        refreshAfterDisplayOptionsChangeRef.current?.(updatedInsight)
+    }, [])
 
     // Base props without setQuery — used to mount insightDataLogic and retrieve the
     // persistDisplayOptions action before wiring it back in as setQuery below.
@@ -298,8 +325,18 @@ function InsightCardInternal(
             cachedInsight: insight,
             loadPriority,
             doNotLoad,
+            refreshAfterDisplayOptionsChange: handleRefreshAfterDisplayOptionsChange,
+            sourceProject: projectId !== undefined ? { id: projectId, timezone: projectTimezone } : undefined,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad]
+        [
+            insight,
+            dashboardId,
+            loadPriority,
+            doNotLoad,
+            handleRefreshAfterDisplayOptionsChange,
+            projectId,
+            projectTimezone,
+        ]
     )
 
     const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
@@ -314,7 +351,18 @@ function InsightCardInternal(
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, insightDataError } = useValues(insightDataLogic(insightLogicProps))
+
+    const [, setCooldownTick] = useState(0)
+    // The embedded query stores its own failure in insightDataLogic and does not set the apiError prop.
+    const capacityRetryAt = getCapacityRetryAt(apiErrored ? apiError : null, insightDataError)
+    const { secondsLeft: retrySecondsLeft, disabledReason: refreshDisabledReason } = getRetryCooldown(capacityRetryAt)
+    useInterval(() => setCooldownTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
+    const refreshAfterCooldown = useCallback((): void => {
+        if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
+            refresh?.()
+        }
+    }, [refresh, capacityRetryAt])
 
     if (insightLoading || insightDataLoading) {
         loading = true
@@ -327,6 +375,7 @@ function InsightCardInternal(
     const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
     const closeAlertModal = useCallback(() => setAlertModal(null), [])
     const hasResults = !!insight?.result || !!(insight as any)?.results
+    const sharedView = isSharedView()
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
@@ -351,13 +400,10 @@ function InsightCardInternal(
                 <InsightErrorState
                     data-attr="insight-access-denied-state"
                     title={errorMessage || "You don't have permission to view this insight."}
+                    titleStatus={403}
                     excludeDetail
                 />
             )
-        }
-
-        if (!hasResults && loadingQueued) {
-            return <InsightLoadingState insightProps={insightLogicProps} />
         }
 
         if (apiErrored) {
@@ -367,19 +413,35 @@ function InsightCardInternal(
                     <InsightValidationError
                         detail={validationError}
                         validationErrorCode={extractValidationErrorCode(apiError)}
+                        query={insight.query}
+                        excludeActions={sharedView}
+                        placement={placement}
                     />
                 )
             } else if (apiError instanceof ApiError) {
-                const isDashboardTileError = apiError.code === 'dashboard_tile_error'
                 return (
                     <InsightErrorState
                         title={apiError.detail}
-                        queryId={apiError.data?.queryId}
-                        supportOnly={isDashboardTileError}
+                        titleStatus={apiError.status}
+                        queryId={apiError.data?.queryId ?? queryId}
+                        retryAfter={apiError.formattedRetryAfter}
+                        retryAfterTimestamp={capacityRetryAt}
+                        retryLoading={loading || !!loadingQueued}
+                        query={insight.query}
+                        excludeActions={sharedView}
+                        placement={placement}
+                        onRetry={sharedView || !refresh ? undefined : refreshAfterCooldown}
                     />
                 )
             }
             return <InsightErrorState />
+        }
+
+        // Below the failure branch on purpose: a tile whose query is known to have failed must show
+        // that, even while the next attempt is already queued. The other way round, the spinner wins
+        // for as long as the retries run and the user cannot tell a dead tile from a slow one.
+        if (!hasResults && loadingQueued) {
+            return <InsightLoadingState insightProps={insightLogicProps} />
         }
 
         if (timedOut) {
@@ -414,7 +476,9 @@ function InsightCardInternal(
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (
         <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
-    ) : null
+    ) : (
+        <InsightVisualizationSkeleton query={insight.query} />
+    )
 
     return (
         <div
@@ -425,6 +489,7 @@ function InsightCardInternal(
                 className
             )}
             data-attr="insight-card"
+            {...{ [INSIGHT_CARD_KEY_ATTR]: insightCardKey(insight, tile) }}
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}
@@ -435,14 +500,19 @@ function InsightCardInternal(
                     <InsightMeta
                         tile={tile}
                         insight={insight}
+                        projectId={projectId}
+                        contextHeading={contextHeading}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
+                        canEditDashboard={canEditDashboard}
                         persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
+                        refreshAfterDisplayOptionsChange={handleRefreshAfterDisplayOptionsChange}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
-                        refresh={refresh}
+                        refresh={refresh ? refreshAfterCooldown : undefined}
+                        refreshDisabledReason={refreshDisabledReason}
                         loadingQueued={loadingQueued}
                         loading={loading}
                         rename={rename}

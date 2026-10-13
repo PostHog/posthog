@@ -12,13 +12,18 @@ from collections.abc import Callable, Iterator, Sequence
 from typing import Any, TypeVar, overload
 from uuid import UUID
 
-from django.db import IntegrityError
-from django.db.models import Q, QuerySet
+from django.db import IntegrityError, router, transaction
+from django.db.models import BooleanField, ExpressionWrapper, Q, QuerySet
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
 
 import structlog
 
-from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from ..logic.installations import reset_unverified_review_policy
+from ..logic.review_trigger import derive_review_trigger
+from ..logic.reviewer import parse_reviewer_output
+from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from ..models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from . import contracts
 from .enums import (
     TERMINAL_STATUSES,
@@ -106,27 +111,14 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
     )
 
 
-def _digest_channel_to_dto(obj: DigestChannel) -> contracts.DigestChannelDTO:
-    return contracts.DigestChannelDTO(
-        id=obj.id,
-        team_id=obj.team_id,
-        audience_key=obj.audience_key,
-        slack_integration_id=obj.slack_integration_id,
-        slack_channel_id=obj.slack_channel_id,
-        slack_channel_name=obj.slack_channel_name,
-        enabled=obj.enabled,
-        resolution_source=ChannelResolutionSource(obj.resolution_source),
-        last_digest_at=obj.last_digest_at,
-        created_at=obj.created_at,
-        updated_at=obj.updated_at,
-    )
-
-
 def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
     return contracts.DigestRunDTO(
         id=obj.id,
         team_id=obj.team_id,
-        digest_channel_id=obj.digest_channel_id,
+        audience_key=obj.audience_key,
+        slack_channel_id=obj.slack_channel_id,
+        slack_channel_name=obj.slack_channel_name,
+        resolution_source=ChannelResolutionSource(obj.resolution_source),
         status=DigestRunStatus(obj.status),
         pr_count=obj.pr_count,
         summary=obj.summary,
@@ -141,22 +133,21 @@ def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
 # either omit the key or write a populated dict, so testing for the key and testing for truthiness
 # agree — which is what lets the filter below stay in step with the derivation above it.
 _SELF_DRIVING = Q(output__has_key="inbox_review")
+# Same shape for a manual request: request_manual_review writes a populated dict or no key at all.
+_MANUAL = Q(output__has_key="manual_review")
 
 # Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
-def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
-    """Why stamphog looked at this PR: inbox provenance first, then the repo's review mode.
-
-    Inbox provenance outranks the repo mode: a self-driving run is dispatched from the inbox
-    whether or not the repo also reviews every PR event.
-    """
-    if (obj.output or {}).get("inbox_review"):
-        return ReviewTrigger.SELF_DRIVING
-    if obj.pull_request.repo_config.review_mode == ReviewMode.LABEL:
-        return ReviewTrigger.LABEL
-    return ReviewTrigger.ALL
+def _derive_trigger(obj: ReviewRun, *, has_inbox_review: bool, has_manual_review: bool) -> ReviewTrigger:
+    """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
+    the reviewer invocation has to answer the same question before a run exists to read."""
+    return derive_review_trigger(
+        has_inbox_review=has_inbox_review,
+        has_manual_review=has_manual_review,
+        review_mode=obj.pull_request.repo_config.review_mode,
+    )
 
 
 def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
@@ -169,14 +160,16 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     """
     if trigger == ReviewTrigger.SELF_DRIVING:
         return qs.filter(_SELF_DRIVING)
+    if trigger == ReviewTrigger.MANUAL:
+        return qs.exclude(_SELF_DRIVING).filter(_MANUAL)
     if trigger == ReviewTrigger.LABEL:
-        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
     if trigger == ReviewTrigger.ALL:
-        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
     return qs.none()
 
 
-def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+def _build_review_run_dto(obj: ReviewRun, *, output: dict[str, Any], trigger: ReviewTrigger) -> contracts.ReviewRunDTO:
     return contracts.ReviewRunDTO(
         id=obj.id,
         team_id=obj.team_id,
@@ -188,12 +181,12 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         head_sha=obj.head_sha,
         status=ReviewRunStatus(obj.status),
         verdict=ReviewVerdict(obj.verdict),
-        trigger=_derive_trigger(obj),
+        trigger=trigger,
         title=obj.pull_request.title,
         author_login=obj.pull_request.author_login,
         delivery_id=obj.delivery_id,
         gate_result=obj.gate_result,
-        output=obj.output,
+        output=output,
         error=obj.error,
         posted_review_id=obj.posted_review_id,
         verdict_posted_at=obj.verdict_posted_at,
@@ -204,8 +197,60 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
     )
 
 
+def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+    output = obj.output or {}
+    trigger = _derive_trigger(
+        obj,
+        has_inbox_review=bool(output.get("inbox_review")),
+        has_manual_review=bool(output.get("manual_review")),
+    )
+    return _build_review_run_dto(obj, output=output, trigger=trigger)
+
+
+# Retrieve also parses the reviewer's reasoning out of its raw stdout.
+_RETRIEVE_OUTPUT_KEYS = (*contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS, "reviewer_raw")
+
+
+def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
+    """Skip the `output` column and read only `output_keys` and the trigger's provenance flags from it."""
+    return qs.defer("output").annotate(
+        **{f"slim_output_{key}": KeyTransform(key, "output") for key in output_keys},
+        slim_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
+        slim_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
+    )
+
+
+def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> contracts.ReviewRunDTO:
+    output = {key: value for key in output_keys if (value := getattr(obj, f"slim_output_{key}")) is not None}
+    # _slim_review_runs annotates these, so the model type does not declare them.
+    trigger = _derive_trigger(
+        obj,
+        has_inbox_review=obj.slim_has_inbox_review,  # type: ignore[attr-defined]
+        has_manual_review=obj.slim_has_manual_review,  # type: ignore[attr-defined]
+    )
+    return _build_review_run_dto(obj, output=output, trigger=trigger)
+
+
+def _review_run_list_row_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+    return _slim_review_run_to_dto(obj, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS)
+
+
 def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | None:
     obj = StamphogRepoConfig.objects.for_team(team_id).filter(repository=repository).first()
+    return _repo_config_to_dto(obj) if obj is not None else None
+
+
+def get_repo_config_by_id(team_id: int, config_id: str) -> contracts.RepoConfigDTO | None:
+    """Resolve one config by its primary key, or None when the team has no such row.
+
+    An id that is not a UUID is a miss rather than an error, because the value comes straight off
+    the URL and Django raises on a malformed one before the query runs.
+    """
+    try:
+        parsed_id = UUID(config_id)
+    except ValueError:
+        return None
+    obj = StamphogRepoConfig.objects.for_team(team_id).filter(id=parsed_id).first()
     return _repo_config_to_dto(obj) if obj is not None else None
 
 
@@ -226,10 +271,39 @@ def has_reviewable_repo_config(team_id: int) -> bool:
 
 
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
-    obj = (
-        ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
+    """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
+    qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
+    obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
+    return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
+
+
+def _clean_reviewer_text(text: str) -> str:
+    # The same redaction the posted GitHub review gets. An MCP client can render this as markdown,
+    # which fetches images on render the way GitHub's camo proxy does.
+    return neutralize_active_markdown(scrub_credentials(text))
+
+
+def get_review_reasoning(run: contracts.ReviewRunDTO) -> contracts.ReviewReasoningDTO:
+    """The reviewer's reasoning for a run, parsed from its stored output.
+
+    This is the text stamphog posts as its GitHub review. The raw reviewer stdout it is parsed
+    from never leaves the facade. All fields are None until the reviewer has run.
+    """
+    raw = (run.output or {}).get("reviewer_raw")
+    if not isinstance(raw, str) or not raw:
+        return contracts.ReviewReasoningDTO()
+    try:
+        parsed = parse_reviewer_output(raw)
+    except (AttributeError, TypeError, ValueError):
+        # A crashed or version-skewed engine can print a malformed verdict. Retrieve must still answer.
+        logger.warning("stamphog_review_reasoning_unparseable", review_run_id=str(run.id))
+        return contracts.ReviewReasoningDTO()
+    return contracts.ReviewReasoningDTO(
+        reasoning=_clean_reviewer_text(parsed.reasoning),
+        showstoppers=[_clean_reviewer_text(item) for item in parsed.showstoppers],
+        review_body=_clean_reviewer_text(parsed.review_body),
+        change_summary=_clean_reviewer_text(parsed.change_summary),
     )
-    return _review_run_to_dto(obj) if obj is not None else None
 
 
 def create_review_run(
@@ -250,11 +324,6 @@ def create_review_run(
         delivery_id=delivery_id,
     )
     return _review_run_to_dto(obj)
-
-
-def get_digest_channel(team_id: int, digest_channel_id: str) -> contracts.DigestChannelDTO | None:
-    obj = DigestChannel.objects.for_team(team_id).filter(id=digest_channel_id).first()
-    return _digest_channel_to_dto(obj) if obj is not None else None
 
 
 def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO | None:
@@ -307,6 +376,114 @@ def create_repo_config(
     return _repo_config_to_dto(obj)
 
 
+def list_available_repositories(team_id: int, *, search: str = "", limit: int) -> contracts.AvailableRepositoriesDTO:
+    """Repositories in the team's installation snapshots that the team has not added yet.
+
+    A repository another team holds under the same installation is left out too, because the
+    cross-team unique constraint would refuse it. ``search`` is a case-insensitive substring.
+    """
+    # A record without a connecting user cannot mint review credentials, so add_repository refuses it.
+    snapshots = list(
+        StamphogInstallation.objects.for_team(team_id)
+        .filter(provider="github", connected_by_user_id__isnull=False)
+        .values_list("installation_id", "repositories")
+    )
+    if not snapshots:
+        return contracts.AvailableRepositoriesDTO(repositories=[], total_count=0, has_installation=False)
+
+    added = set(StamphogRepoConfig.objects.for_team(team_id).values_list("repository", flat=True))
+    candidates = {
+        (installation_id, repository)
+        for installation_id, repositories in snapshots
+        for repository in repositories
+        if repository not in added
+    }
+    # The one cross-team read here: which of these repositories another team already owns. It
+    # returns only names this team's own snapshots hold, so nothing about the other team leaks.
+    claimed = set(
+        StamphogRepoConfig.objects.unscoped()
+        .filter(
+            provider="github",
+            installation_id__in={installation_id for installation_id, _ in candidates},
+            repository__in={repository for _, repository in candidates},
+        )
+        .exclude(team_id=team_id)
+        .values_list("installation_id", "repository")
+    )
+    addable = {repository for _, repository in candidates - claimed}
+    needle = search.strip().lower()
+    available = sorted((repository for repository in addable if needle in repository.lower()), key=str.lower)
+    return contracts.AvailableRepositoriesDTO(
+        repositories=available[:limit], total_count=len(available), has_installation=True
+    )
+
+
+def add_repository(team_id: int, repository: str) -> contracts.AddRepositoryResultDTO:
+    """Turn reviews on for a repository from the team's installation snapshot.
+
+    The installation and the connecting user come from the snapshot record, never from the caller:
+    the record is what a member's GitHub token proved. A row the team already has for the
+    repository is turned on and bound to that installation rather than refused, so a paused or
+    removed repository can be added again.
+    """
+    write_db = router.db_for_write(StamphogRepoConfig)
+    try:
+        with transaction.atomic(using=write_db):
+            # Writer pin: this read decides which installation the row binds to. The lock is the one a
+            # removal or uninstall webhook takes first. Without it, a webhook can drop the repository
+            # and tombstone the team's rows between this read and the create below, and the new row
+            # then stays enabled for a repository that left the installation. A record without a
+            # connecting user cannot mint review credentials, so a member has to sync it first.
+            installation = (
+                StamphogInstallation.objects.for_team(team_id)
+                .using(write_db)
+                .select_for_update()
+                .filter(provider="github", repositories__contains=[repository], connected_by_user_id__isnull=False)
+                .order_by("-updated_at")
+                .first()
+            )
+            if installation is None:
+                raise contracts.RepositoryNotInstalledError(repository)
+            existing = (
+                StamphogRepoConfig.objects.for_team(team_id)
+                .using(write_db)
+                .select_for_update()
+                .filter(repository=repository)
+                .first()
+            )
+            if existing is None:
+                config = (
+                    StamphogRepoConfig.objects.for_team(team_id)
+                    .using(write_db)
+                    .create(
+                        # for_team() scopes a read but not row creation, so team_id is explicit here.
+                        team_id=team_id,
+                        provider="github",
+                        repository=repository,
+                        installation_id=installation.installation_id,
+                        enabled=True,
+                        connected_by_user_id=installation.connected_by_user_id,
+                    )
+                )
+                return contracts.AddRepositoryResultDTO(config=_repo_config_to_dto(config), created=True)
+
+            update_fields = ["enabled", "updated_at"]
+            if existing.installation_id != installation.installation_id:
+                # A reinstall row keeps its settings, because a verified binding configured them.
+                if not existing.installation_id:
+                    update_fields += reset_unverified_review_policy(existing)
+                existing.installation_id = installation.installation_id
+                update_fields.append("installation_id")
+            existing.connected_by_user_id = installation.connected_by_user_id
+            update_fields.append("connected_by_user_id")
+            existing.enabled = True
+            existing.save(update_fields=update_fields)
+            return contracts.AddRepositoryResultDTO(config=_repo_config_to_dto(existing), created=False)
+    except IntegrityError:
+        # unique_stamphog_installation_repo: another team holds this repository under the installation.
+        raise contracts.RepoAlreadyClaimedError(repository)
+
+
 def update_repo_config(team_id: int, config_id: str, **fields: object) -> contracts.RepoConfigDTO:
     """Apply an update, superseding in-flight runs when the repo goes from enabled to disabled.
 
@@ -316,13 +493,21 @@ def update_repo_config(team_id: int, config_id: str, **fields: object) -> contra
     fields.pop("provider", None)
     fields.pop("repository", None)
     fields.pop("installation_id", None)
-    obj = StamphogRepoConfig.objects.for_team(team_id).get(id=config_id)
-    was_enabled = obj.enabled
-    for name, value in fields.items():
-        setattr(obj, name, value)
-    obj.save()
-    if was_enabled and not obj.enabled:
-        _supersede_active_runs(team_id, obj)
+    write_db = router.db_for_write(StamphogRepoConfig)
+    # One transaction for the read, the save and the supersede. The row is locked because a save
+    # writes every field: two overlapping PATCHes that each read first would otherwise overwrite
+    # each other from stale objects, and each would log only the change it thinks it made. The
+    # supersede belongs here too, because a caller must never observe a disabled repo whose
+    # in-flight runs are still live, and the activity-log receiver then waits for this commit
+    # rather than running its cross-database write between the two statements.
+    with transaction.atomic(using=write_db):
+        obj = StamphogRepoConfig.objects.for_team(team_id).using(write_db).select_for_update().get(id=config_id)
+        was_enabled = obj.enabled
+        for name, value in fields.items():
+            setattr(obj, name, value)
+        obj.save()
+        if was_enabled and not obj.enabled:
+            _supersede_active_runs(team_id, obj)
     return _repo_config_to_dto(obj)
 
 
@@ -334,11 +519,14 @@ def disable_repo_config(team_id: int, config_id: str) -> None:
     leaving it satisfying required reviews forever. A disabled row keeps webhooks resolvable, and
     the disabled-repo skip path retracts standing approvals on the next head change.
     """
-    obj = StamphogRepoConfig.objects.for_team(team_id).get(id=config_id)
-    obj.enabled = False
-    obj.digest_enabled = False
-    obj.save(update_fields=["enabled", "digest_enabled", "updated_at"])
-    _supersede_active_runs(team_id, obj)
+    write_db = router.db_for_write(StamphogRepoConfig)
+    # Same locked transaction as update_repo_config, for the same reasons.
+    with transaction.atomic(using=write_db):
+        obj = StamphogRepoConfig.objects.for_team(team_id).using(write_db).select_for_update().get(id=config_id)
+        obj.enabled = False
+        obj.digest_enabled = False
+        obj.save(update_fields=["enabled", "digest_enabled", "updated_at"])
+        _supersede_active_runs(team_id, obj)
 
 
 def _supersede_active_runs(team_id: int, config: StamphogRepoConfig) -> None:
@@ -375,7 +563,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
-    return LazyDTOList(qs, _review_run_to_dto)
+    return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
 def list_pull_requests(
@@ -392,55 +580,11 @@ def list_pull_requests(
     return LazyDTOList(qs, _pull_request_to_dto)
 
 
-# --- Digest channels ---
-
-
-def list_digest_channels(team_id: int) -> LazyDTOList[contracts.DigestChannelDTO]:
-    qs = DigestChannel.objects.for_team(team_id).order_by("audience_key")
-    return LazyDTOList(qs, _digest_channel_to_dto)
-
-
-def create_digest_channel(team_id: int, **fields: object) -> contracts.DigestChannelDTO:
-    # team_id is injected rather than supplied, so the unique (team, audience_key) constraint can't
-    # be pre-validated by the caller — catch it here so a duplicate audience is a domain error
-    # rather than a 500.
-    try:
-        obj = DigestChannel.objects.for_team(team_id).create(team_id=team_id, **fields)
-    except IntegrityError:
-        raise contracts.DuplicateAudienceError(str(fields.get("audience_key", "")))
-    return _digest_channel_to_dto(obj)
-
-
-def update_digest_channel(team_id: int, channel_id: str, **fields: object) -> contracts.DigestChannelDTO:
-    # audience_key is the bucket this channel is bound to. Editing it re-points the channel at a
-    # different audience — and can effectively re-open an audience a human opted out of, since the
-    # disabled tombstone row keying off the old audience_key would no longer match.
-    fields.pop("audience_key", None)
-    obj = DigestChannel.objects.for_team(team_id).get(id=channel_id)
-    for name, value in fields.items():
-        setattr(obj, name, value)
-    obj.save()
-    return _digest_channel_to_dto(obj)
-
-
-def disable_digest_channel(team_id: int, channel_id: str) -> None:
-    """Soft-disable rather than removing the row.
-
-    The (team_id, audience_key) row is the tombstone that stops auto_provision_channel from
-    recreating and re-posting a digest someone opted out of (see logic/channel_resolution.py —
-    auto-provisioning skips any existing row, disabled included). A hard delete would let the next
-    daily beat resurrect the channel and re-send the digest.
-    """
-    obj = DigestChannel.objects.for_team(team_id).get(id=channel_id)
-    obj.enabled = False
-    obj.save(update_fields=["enabled", "updated_at"])
-
-
 # --- Digest runs ---
 
 
-def list_digest_runs(team_id: int, *, digest_channel_id: UUID | None = None) -> LazyDTOList[contracts.DigestRunDTO]:
+def list_digest_runs(team_id: int, *, slack_channel_id: str | None = None) -> LazyDTOList[contracts.DigestRunDTO]:
     qs = DigestRun.objects.for_team(team_id).order_by("-created_at")
-    if digest_channel_id is not None:
-        qs = qs.filter(digest_channel_id=digest_channel_id)
+    if slack_channel_id is not None:
+        qs = qs.filter(slack_channel_id=slack_channel_id)
     return LazyDTOList(qs, _digest_run_to_dto)

@@ -1,0 +1,5 @@
+# Test files that share a pytest module name inside one CI session. That session dies
+# at collection and runs nothing, so this list should stay empty.
+# Maintained by test_no_new_pytest_module_name_collisions - regenerate with:
+#   python posthog/test/repo_invariants/test_pytest_module_collisions.py
+

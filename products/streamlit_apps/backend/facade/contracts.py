@@ -12,6 +12,7 @@ working), but with runtime validation on construction. See
 
 from __future__ import annotations
 
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
 
@@ -26,6 +27,15 @@ class AppRuntimeConcurrencyError(AppRuntimeError):
     """Raised when a lifecycle action collides with one already in flight."""
 
     pass
+
+
+class SourceEditError(Exception):
+    """Raised when a source edit cannot be applied to the base version."""
+
+    def __init__(self, message: str, path: str | None = None, edit_index: int | None = None) -> None:
+        self.path = path
+        self.edit_index = edit_index
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -105,6 +115,44 @@ class CreateAppInput:
 @dataclass(frozen=True)
 class CreateVersionFromSourceInput:
     source: str
+    files: dict[str, str] = field(default_factory=dict)
+    assets: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AppSourceFileContract:
+    path: str
+    size: int
+    sha256: str
+    content_type: str
+    is_binary: bool
+    content: str | None
+
+
+@dataclass(frozen=True)
+class AppVersionSourceContract:
+    version_number: int
+    files: list[AppSourceFileContract]
+
+
+@dataclass(frozen=True)
+class SourceTextEdit:
+    old: str
+    new: str
+
+
+@dataclass(frozen=True)
+class SourceFileEdit:
+    path: str
+    edits: list[SourceTextEdit]
+
+
+@dataclass(frozen=True)
+class EditVersionSourceInput:
+    base_version: int
+    file_edits: list[SourceFileEdit] = field(default_factory=list)
+    create_files: dict[str, str] = field(default_factory=dict)
+    delete_files: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

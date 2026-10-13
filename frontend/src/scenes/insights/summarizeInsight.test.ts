@@ -1,13 +1,5 @@
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS, RETENTION_RECURRING } from 'lib/constants'
 import { SummaryContext, summarizeInsight } from 'scenes/insights/summarizeInsight'
-import {
-    BASE_MATH_DEFINITIONS,
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    HOGQL_MATH_DEFINITIONS,
-    MathCategory,
-    MathDefinition,
-    PROPERTY_MATH_DEFINITIONS,
-} from 'scenes/trends/mathsLogic'
 
 import { Noun } from '~/models/groupsModel'
 import {
@@ -32,6 +24,15 @@ import {
     PathType,
     PropertyMathType,
 } from '~/types'
+
+import {
+    BASE_MATH_DEFINITIONS,
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    HOGQL_MATH_DEFINITIONS,
+    MathCategory,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
     groupTypeIndex != undefined

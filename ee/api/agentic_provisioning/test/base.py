@@ -2,9 +2,12 @@ import json
 import base64
 import hashlib
 import secrets
+import dataclasses
+from typing import TYPE_CHECKING
 from urllib.parse import quote_plus
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -15,8 +18,14 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
-from ee.models.rbac.access_control import AccessControl
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
+
+    from posthog.models.oauth import OAuthApplication
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 # Stored hashed by ClientSecretField.pre_save, so the plaintext has to live here for
@@ -55,6 +64,21 @@ def provisioning_config(**overrides) -> dict:
     from posthog.models.oauth_provisioning import ProvisioningConfig
 
     return ProvisioningConfig(**{**TEST_PARTNER_PROVISIONING, **overrides}).model_dump(mode="json")
+
+
+def patched_budget(view_cls, method: str, endpoint: str, budget, *, multipliers=None):
+    """Shrink a handler's declared bucket budget for a test.
+
+    The declaration lives on the handler function, so tests patch it there
+    rather than replaying dozens of requests to exhaust a real budget. Pass
+    ``multipliers`` (e.g. FLAT_MULTIPLIERS) when the test partner's tier would
+    otherwise scale the patched budget back up.
+    """
+    budgets = getattr(view_cls, method)._provisioning_budgets
+    changes: dict = {"budget": budget}
+    if multipliers is not None:
+        changes["multipliers"] = multipliers
+    return patch.dict(budgets, {endpoint: dataclasses.replace(budgets[endpoint], **changes)})
 
 
 class ProvisioningTestBase(APIBaseTest):
@@ -128,7 +152,9 @@ class ProvisioningTestBase(APIBaseTest):
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode()
         return verifier, challenge
 
-    def _mint_auth_code(self, scopes: list[str] | None = None, partner=None) -> tuple[str, str]:
+    def _mint_auth_code(
+        self, scopes: list[str] | None = None, partner: "OAuthApplication | None" = None, team_id: int | None = None
+    ) -> tuple[str, str]:
         """Seed an auth code in the cache for the test partner. Returns (code, code_verifier)."""
         partner = partner or self.partner
         verifier, challenge = self._pkce_pair()
@@ -139,7 +165,7 @@ class ProvisioningTestBase(APIBaseTest):
                 "issued_at": timezone.now().isoformat(),
                 "user_id": self.user.id,
                 "org_id": str(self.organization.id),
-                "team_id": self.team.id,
+                "team_id": team_id if team_id is not None else self.team.id,
                 "partner_id": str(partner.id),
                 "scopes": scopes if scopes is not None else ["query:read"],
                 "region": "US",
@@ -150,9 +176,15 @@ class ProvisioningTestBase(APIBaseTest):
         )
         return code, verifier
 
-    def _request_bearer_token(self, scopes: list[str] | None = None, partner=None, secret: str | None = None):
+    def _request_bearer_token(
+        self,
+        scopes: list[str] | None = None,
+        partner: "OAuthApplication | None" = None,
+        secret: str | None = None,
+        team_id: int | None = None,
+    ) -> "_MonkeyPatchedResponse":
         partner = partner or self.partner
-        code, verifier = self._mint_auth_code(scopes=scopes, partner=partner)
+        code, verifier = self._mint_auth_code(scopes=scopes, partner=partner, team_id=team_id)
         data = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
         # A confidential partner has to authenticate at the token endpoint; a public one
         # exchanges on the code_verifier alone.

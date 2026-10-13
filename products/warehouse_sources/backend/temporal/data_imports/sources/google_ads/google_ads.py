@@ -3,7 +3,6 @@ import typing
 import datetime as dt
 import collections.abc
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import grpc
@@ -37,8 +36,10 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
@@ -48,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsResumeConfig,
     GoogleAdsSourceConfigUnion,
     clean_customer_id,
+    parse_start_date,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import (
     FIELD_ALIASES,
@@ -71,15 +73,22 @@ GOOGLE_ADS_HOST = "googleads.googleapis.com"
 # single small window covers the tail, so this is a no-op for healthy tables. Tune to trade
 # catch-up speed against per-run size.
 GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
-GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN = 5
 
-# How far back a *first* sync starts its windowed drain. A first sync has no cursor to start from,
-# and the drain cannot begin at the 1970 incremental sentinel: empty windows are cheap but not free
-# (one request each), so stepping from 1970 would spend the whole run on requests that return
-# nothing. This bound only decides where the walk begins — every window from here forward is
-# imported, and once the cursor exists the drain continues from it. It is not an API limit: Google
-# serves older rows than this, so raising it costs first-sync catch-up time rather than correctness.
-GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
+# Wall time, not a count of windows: a window is anywhere from empty to a full day of rows, so a
+# count has to suit the widest one and then throttles every table to it. Bounds time spent importing
+# new ground rather than the run — see the arming rule in the drain loop.
+GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
+
+# Resources read one campaign at a time. An unfiltered query on a very large account makes Google
+# scan the whole account before it returns a first page, so one call can run past the call deadline
+# on every attempt. One query per campaign keeps each first page cheap and lets a retry resume at
+# the campaign it stopped in.
+_CAMPAIGN_SHARDED_RESOURCES = frozenset({"keyword_view"})
+_CAMPAIGN_ID_QUERY = "SELECT campaign.id FROM campaign ORDER BY campaign.id ASC"
+
+# Lower bound for the "where does this resource's data begin" request. Google serves a date this old
+# and returns nothing from before an account existed, so it needs no per-account tuning.
+_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE = "1970-01-01"
 
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
@@ -91,20 +100,45 @@ GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
 GRPC_MAX_RECEIVE_MESSAGE_LENGTH = 512 * 1024 * 1024
 _GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY = "grpc.max_receive_message_length"
 
+# Every Google Ads call gets a deadline. A call without one can hang forever on a dead connection.
+# A hung call never returns to the import loop, so the worker shutdown check never runs and the pod
+# stays alive until the drain limit. Normal calls finish in seconds. A full page of a wide resource
+# can take minutes, so this value is generous. A call that exceeds it raises DEADLINE_EXCEEDED.
+GOOGLE_ADS_CALL_TIMEOUT_SECONDS = 10 * 60
+
+# HTTP/2 keepalive pings let gRPC detect a connection that a proxy or NAT silently dropped. The
+# call then fails with UNAVAILABLE and the transient retry replaces the channel stream, instead of
+# waiting for the full call deadline.
+GOOGLE_ADS_KEEPALIVE_TIME_MS = 60 * 1000
+GOOGLE_ADS_KEEPALIVE_TIMEOUT_MS = 20 * 1000
+
+_GRPC_KEEPALIVE_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.keepalive_time_ms", GOOGLE_ADS_KEEPALIVE_TIME_MS),
+    ("grpc.keepalive_timeout_ms", GOOGLE_ADS_KEEPALIVE_TIMEOUT_MS),
+    ("grpc.keepalive_permit_without_calls", 0),
+)
+
+
+def _set_grpc_channel_option(key: str, value: int) -> None:
+    options = google_ads_client_module._GRPC_CHANNEL_OPTIONS
+    for index, (existing_key, _value) in enumerate(options):
+        if existing_key == key:
+            options[index] = (key, value)
+            return
+    options.append((key, value))
+
 
 def _ensure_grpc_receive_limit() -> None:
-    """Raise the Google Ads gRPC client's inbound message cap in place.
+    """Raise the Google Ads gRPC client's inbound message cap in place and enable keepalive pings.
 
     ``get_service`` reads the SDK's module-level ``_GRPC_CHANNEL_OPTIONS`` each time it builds
-    a channel, so rewriting the entry here makes every channel we subsequently create pick up
-    the higher limit. The update is idempotent and safe to call repeatedly.
+    a channel, so rewriting the entries here makes every channel we subsequently create pick up
+    the higher limit and the keepalive settings. The update is idempotent and safe to call
+    repeatedly.
     """
-    options = google_ads_client_module._GRPC_CHANNEL_OPTIONS
-    for index, (key, _value) in enumerate(options):
-        if key == _GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY:
-            options[index] = (key, GRPC_MAX_RECEIVE_MESSAGE_LENGTH)
-            return
-    options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
+    _set_grpc_channel_option(_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH)
+    for key, value in _GRPC_KEEPALIVE_OPTIONS:
+        _set_grpc_channel_option(key, value)
 
 
 def _backoff_sleep(attempt: int) -> None:
@@ -205,11 +239,14 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if config.is_mcc_account and config.is_mcc_account.enabled:
             login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
+        resolved = integration_secrets.get_secrets(
+            ["GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"]
+        )
         config_dict: dict[str, object] = {
-            "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            "developer_token": resolved["GOOGLE_ADS_DEVELOPER_TOKEN"],
             "refresh_token": integration.refresh_token,
-            "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
-            "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+            "client_id": resolved["GOOGLE_ADS_APP_CLIENT_ID"],
+            "client_secret": resolved["GOOGLE_ADS_APP_CLIENT_SECRET"],
             "use_proto_plus": False,
         }
         if login_customer_id is not None:
@@ -484,6 +521,36 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
     return table_schemas
 
 
+def _earliest_date_with_data(
+    service: "GoogleAdsSearchService",
+    customer_id: str | None,
+    table: "GoogleAdsTable",
+    incremental_field: str,
+) -> dt.date | None:
+    """Return the first date this resource holds rows for, or None when it holds none.
+
+    How the drain reaches an unbounded range cheaply: it walks fixed windows and each empty one is a
+    request, so starting at the sentinel would spend the run on requests that return nothing. Google
+    sorts and truncates server-side, so this costs one request whatever the account holds. It
+    locates a range rather than choosing one — that is the schema's `history_start`.
+    """
+    query = (
+        f"SELECT {incremental_field} FROM {table.name} "
+        f"WHERE {incremental_field} >= '{_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE}' "
+        f"AND {incremental_field} < '{(dt.date.today() + dt.timedelta(days=1)).isoformat()}'"
+    )
+    if table.extra_where:
+        query += f" AND {table.extra_where}"
+    query += f" ORDER BY {incremental_field} ASC LIMIT 1"
+
+    # Through the wrapper, so a manager account's missing login-customer-id header recovers here the
+    # same way it does for the drain's own queries.
+    for row in _search_with_transient_retry(service, {"customer_id": customer_id, "query": query}):
+        return dt.date.fromisoformat(_traverse_attributes(row, *incremental_field.split(".")))
+
+    return None
+
+
 def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     """Coerce a stored incremental cursor value to a plain date for window arithmetic.
 
@@ -497,6 +564,54 @@ def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     return dateutil_parser.parse(value).date()
 
 
+def _resolve_start(
+    requested_start: str | None,
+    history_start: typing.Any,
+    service: "GoogleAdsSearchService",
+    customer_id: str | None,
+    table: "GoogleAdsTable",
+    incremental_field: str,
+) -> tuple[dt.date, str]:
+    """Where a run with no cursor begins, and which of the three answers it came from.
+
+    A stated start date wins over the range the schema recorded: it is the only one of the two
+    anybody chose, and it wins in both directions, so a source can narrow its range as well as widen
+    it. Neither is a first sync versus a re-import question — both land here and read the same
+    answer, which is what stops the two diverging on which button was pressed.
+    """
+    if requested_start:
+        try:
+            requested = parse_start_date(requested_start)
+        except ValueError:
+            # Validation rejects an unreadable value, so reaching here means one stored before that
+            # check existed. Fall through to the recorded range rather than fail the sync -- the
+            # range this source would have had without the field. Truncated in the log because the
+            # field has no length limit of its own and this runs once per schema per run.
+            logger.warning("google_ads.unparseable_start_date", start_date=requested_start[:32])
+        else:
+            # Clamped to the span that can hold rows. Below the account's first day the walk spends
+            # a request per empty week, and since only a window past the cursor counts as progress,
+            # the drain budget cannot end a run that never reaches data. Past today it leaves
+            # `start` beyond the loop's end, so every run imports nothing and reports that as the
+            # answer.
+            earliest = _earliest_date_with_data(service, customer_id, table, incremental_field)
+            today = dt.date.today()
+            resolved = min(max(requested, earliest), today) if earliest is not None else today
+            if resolved != requested:
+                # The range imported is then not the one the source states, so leave a trace.
+                logger.warning(
+                    "google_ads.clamped_start_date", requested=requested.isoformat(), resolved=resolved.isoformat()
+                )
+            return resolved, "stated"
+
+    if history_start is not None:
+        return _incremental_value_as_date(history_start), "recorded"
+
+    # Neither: unbounded, which this drain reaches by asking the account rather than walking to it.
+    # An account holding nothing has no range to walk.
+    return _earliest_date_with_data(service, customer_id, table, incremental_field) or dt.date.today(), "probe"
+
+
 def google_ads_source(
     config: GoogleAdsSourceConfigUnion,
     resource_name: str,
@@ -507,6 +622,9 @@ def google_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    db_incremental_field_last_value_before_lookback: typing.Any = None,
+    history_start: typing.Any = None,
+    requested_start: str | None = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -519,22 +637,29 @@ def google_ads_source(
     """
 
     name = NamingConvention.normalize_identifier(resource_name)
-    table = get_schemas(config, team_id, api_version)[resource_name]
+    table = schema_for_resource(get_schemas(config, team_id, api_version), resource_name)
 
     # Report tables always need a date filter, so a full-refresh schema is forced onto the
     # incremental query path here. Record whether the pipeline itself is incremental first: only an
     # incremental pipeline persists a cursor between runs, and the bounded windowed drain below is
     # only sound when it does.
     pipeline_is_incremental = should_use_incremental_field
-    if table.requires_filter and not should_use_incremental_field:
+    # Report tables can only ever be windowed by segments.date, so force it here unconditionally —
+    # a full-refresh schema reaching the incremental path, a schema flagged incremental but missing
+    # an incremental field, and a stored config carrying a stale value (e.g. the underscore-joined
+    # synced column name `segments_date` instead of the queryable `segments.date`) all land on the
+    # same, only valid field instead of sending an invalid one to Google.
+    if table.requires_filter:
         should_use_incremental_field = True
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date
 
-    def compose_query(lower_literal: str | None, upper_literal: str | None) -> str:
+    def compose_query(lower_literal: str | None, upper_literal: str | None, extra_condition: str | None = None) -> str:
         query = f"SELECT {','.join(f'{field.qualified_name}' for field in table)} FROM {table.name}"
 
         conditions: list[str] = []
+        if extra_condition:
+            conditions.append(extra_condition)
         if should_use_incremental_field and lower_literal is not None:
             conditions.append(f"{incremental_field} >= {lower_literal}")
             if upper_literal is not None:
@@ -563,6 +688,9 @@ def google_ads_source(
         service = GoogleAdsSearchService(google_ads_client(config, team_id), api_version, customer_id)
 
         if not should_use_incremental_field:
+            if table.name in _CAMPAIGN_SHARDED_RESOURCES:
+                yield from _search_by_campaign(service, customer_id, compose_query, table, resumable_source_manager)
+                return
             yield from _search_as_arrow_tables(
                 service, customer_id, compose_query(None, None), table, resumable_source_manager
             )
@@ -571,30 +699,48 @@ def google_ads_source(
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
 
-        # Bounded windowed drain for date-partitioned report tables (`requires_filter`), including
-        # the first sync. Excluding first syncs is what stranded them: with no cursor they ran a
-        # single open-ended 1970..2100 scan over the whole account history, and a run that never
-        # finishes never lands a chunk, so the cursor stays empty and the next run repeats the same
-        # unbounded scan — the very death spiral the windows exist to break, except nothing could
-        # escape it. A first sync instead starts a bounded backfill window behind today.
-        #
-        # Only incremental pipelines take this path. The per-run window budget assumes the cursor
-        # lands between runs so the next run continues where this one stopped. A full-refresh run
-        # persists no cursor, so a budgeted drain restarts from the same backfill date every run,
-        # and the refresh then replaces the whole table with that same first slice of history:
-        # silent data loss that reports Completed.
+        # Date-partitioned report tables drain in bounded ascending windows rather than one
+        # open-ended scan (see the module constants). A full-refresh pipeline persists no cursor, so
+        # a budgeted drain would restart from the same date every run and the refresh would replace
+        # the table with that one slice; only incremental pipelines, which land a cursor between
+        # runs, take this path.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
-            start = (
-                _incremental_value_as_date(db_incremental_field_last_value)
-                if db_incremental_field_last_value is not None
-                else dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
-            )
+            if db_incremental_field_last_value is not None:
+                # A stated start date is deliberately not read here: the cursor is where this table
+                # got to, and reading anything older would re-import a range it already holds on
+                # every run. Stating an earlier date therefore takes effect on the next re-import,
+                # which is what the field's caption says.
+                start = _incremental_value_as_date(db_incremental_field_last_value)
+                # The cursor arrives shifted back by the schema's lookback, so the windows up to the
+                # cursor itself re-read rows the table already has. They don't count as progress.
+                cursor_before_lookback = (
+                    _incremental_value_as_date(db_incremental_field_last_value_before_lookback)
+                    if db_incremental_field_last_value_before_lookback is not None
+                    else start
+                )
+            else:
+                start, resolved_from = _resolve_start(
+                    requested_start, history_start, service, customer_id, table, incremental_field
+                )
+                cursor_before_lookback = start
+                logger.info(
+                    "google_ads.history_start_used",
+                    resource=table.name,
+                    start=start.isoformat(),
+                    resolved_from=resolved_from,
+                )
+
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
-            windows_with_data = 0
+            landed_new_ground = False
             first_window = True
+            # The load side pulls this generator, so elapsed covers writing each window out too.
+            drain_started = time.monotonic()
 
-            while start < end and windows_with_data < GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN:
+            while start < end:
+                if landed_new_ground and time.monotonic() - drain_started >= GOOGLE_ADS_MAX_DRAIN_SECONDS:
+                    break
+
                 window_end = min(start + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS), end)
                 window_query = compose_query(f"'{start.isoformat()}'", f"'{window_end.isoformat()}'")
 
@@ -605,10 +751,12 @@ def google_ads_source(
                     had_data = True
                     yield pa_table
 
-                # Empty windows don't count toward the per-run budget and don't stop the loop, so a
-                # gap in the data is crossed within a single run instead of stalling the cursor on it.
-                if had_data:
-                    windows_with_data += 1
+                # Arms the budget on new ground only, so a run that has not moved the cursor cannot
+                # be stopped and left for the next run to repeat. `start`, not `window_end`: the
+                # query is `>= start`, so a window merely ending past the cursor can hold only
+                # overlap rows at or before it.
+                if had_data and start > cursor_before_lookback:
+                    landed_new_ground = True
                 first_window = False
                 start = window_end
 
@@ -676,6 +824,15 @@ _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 # ``UNKNOWN`` status, which covers far too broad a range of unrelated failures to retry blindly.
 _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE = "Authentication backend unknown error"
 
+# gRPC's Python client surfaces a peer-initiated HTTP/2 stream reset (a load balancer recycling the
+# underlying connection, a momentary backend restart) as a bare ``UNKNOWN`` status with this detail
+# string rather than a code that already maps to a transient status — a long-documented, widely
+# reported gRPC behavior, not an application-level failure. The request itself was never processed,
+# so a retry on a fresh stream is safe and typically succeeds. Matched on this specific message for
+# the same reason as the auth-backend signature above: the bare ``UNKNOWN`` status alone is too broad
+# a signal to retry blindly.
+_STREAM_REMOVED_ERROR_SIGNATURE = "Stream removed"
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -685,12 +842,15 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     (whose ``code()`` returns the ``StatusCode``) can also propagate. The Google Ads SDK additionally
     re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from
     the trailing metadata (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the
-    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too.
+    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too. A bare
+    ``UNKNOWN`` status is only treated as transient for the specific messages known to be benign
+    (see ``_AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE`` and ``_STREAM_REMOVED_ERROR_SIGNATURE``).
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     if isinstance(exc, google_api_exceptions.Unknown):
-        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in str(exc)
+        message = str(exc)
+        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in message or _STREAM_REMOVED_ERROR_SIGNATURE in message
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
     # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
     # gapic-wrapped form is matched by type rather than via the ``code()`` check below.
@@ -705,6 +865,25 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     if status == grpc.StatusCode.RESOURCE_EXHAUSTED:
         return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
     return True
+
+
+class GoogleAdsCallDeadlineExceeded(Exception):
+    """A Google Ads call ran past ``GOOGLE_ADS_CALL_TIMEOUT_SECONDS``.
+
+    Retryable by Temporal's activity retry policy. The retry builds a fresh channel and resumes
+    from the saved page token, so it is not retried in-process: the worker must get control back to
+    see a shutdown request.
+    """
+
+
+def _is_deadline_exceeded_error(exc: BaseException) -> bool:
+    if isinstance(exc, google_api_exceptions.DeadlineExceeded):
+        return True
+    candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    if isinstance(candidate, google_api_exceptions.DeadlineExceeded):
+        return True
+    code = getattr(candidate, "code", None)
+    return callable(code) and code() == grpc.StatusCode.DEADLINE_EXCEEDED
 
 
 _T = typing.TypeVar("_T")
@@ -725,6 +904,10 @@ def _call_with_transient_retry(
         try:
             return call()
         except Exception as e:
+            if _is_deadline_exceeded_error(e):
+                raise GoogleAdsCallDeadlineExceeded(
+                    f"Google Ads call did not finish within {GOOGLE_ADS_CALL_TIMEOUT_SECONDS} seconds"
+                ) from e
             attempt += 1
             if attempt >= max_attempts or not _is_transient_grpc_error(e):
                 raise
@@ -744,7 +927,9 @@ def _search_with_transient_retry(
     ``_is_transient_grpc_error``). Non-transient errors re-raise immediately so the caller's
     stale-page-token handling and Temporal's retry policy still apply.
     """
-    return _call_with_transient_retry(lambda: service.search(request=request), max_attempts=max_attempts)
+    return _call_with_transient_retry(
+        lambda: service.search(request=request, timeout=GOOGLE_ADS_CALL_TIMEOUT_SECONDS), max_attempts=max_attempts
+    )
 
 
 def _search_fields_with_transient_retry(
@@ -760,7 +945,10 @@ def _search_fields_with_transient_retry(
     error from failing the whole import. Non-transient errors re-raise immediately so the caller's
     handling and Temporal's retry policy still apply.
     """
-    return _call_with_transient_retry(lambda: service.search_google_ads_fields(query=query), max_attempts=max_attempts)
+    return _call_with_transient_retry(
+        lambda: service.search_google_ads_fields(query=query, timeout=GOOGLE_ADS_CALL_TIMEOUT_SECONDS),
+        max_attempts=max_attempts,
+    )
 
 
 _STALE_PAGE_TOKEN_REQUEST_ERRORS = ("INVALID_PAGE_TOKEN", "EXPIRED_PAGE_TOKEN")
@@ -859,7 +1047,9 @@ def _find_manager_customer_id(client: GoogleAdsClient, customer_id: str, api_ver
         customer_service = client.get_service(
             "CustomerService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
         )
-        resource_names = customer_service.list_accessible_customers().resource_names
+        resource_names = customer_service.list_accessible_customers(
+            timeout=GOOGLE_ADS_CALL_TIMEOUT_SECONDS
+        ).resource_names
         candidates = [name.rsplit("/", 1)[-1] for name in resource_names]
         if customer_id in candidates:
             return None
@@ -871,7 +1061,9 @@ def _find_manager_customer_id(client: GoogleAdsClient, customer_id: str, api_ver
                 "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
             )
             try:
-                response = service.search(request={"customer_id": candidate, "query": query})
+                response = service.search(
+                    request={"customer_id": candidate, "query": query}, timeout=GOOGLE_ADS_CALL_TIMEOUT_SECONDS
+                )
                 page = next(iter(response.pages), None)
             except Exception:
                 continue
@@ -905,9 +1097,9 @@ class GoogleAdsSearchService:
             "GoogleAdsService", version=self._api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
         )
 
-    def search(self, request: dict) -> pagers.SearchPager:
+    def search(self, request: dict, timeout: float = GOOGLE_ADS_CALL_TIMEOUT_SECONDS) -> pagers.SearchPager:
         try:
-            return self._service.search(request=request)
+            return self._service.search(request=request, timeout=timeout)
         except Exception as e:
             if self._recovery_attempted or not self._customer_id or not _is_permission_denied_error(e):
                 raise
@@ -922,7 +1114,61 @@ class GoogleAdsSearchService:
             )
             self._client.login_customer_id = manager_customer_id
             self._service = self._build_service()
-            return self._service.search(request=request)
+            return self._service.search(request=request, timeout=timeout)
+
+
+def _list_campaign_ids(service: GoogleAdsSearchService | GoogleAdsServiceClient, customer_id: str | None) -> list[str]:
+    campaign_ids: list[str] = []
+    page_token = ""
+    while True:
+        response = _search_with_transient_retry(
+            service, {"customer_id": customer_id, "query": _CAMPAIGN_ID_QUERY, "page_token": page_token}
+        )
+        page = next(iter(response.pages), None)
+        if page is None:
+            break
+        campaign_ids.extend(str(_traverse_attributes(row, "campaign", "id")) for row in page.results)
+        page_token = page.next_page_token
+        if not page_token:
+            break
+    return campaign_ids
+
+
+def _search_by_campaign(
+    service: GoogleAdsSearchService | GoogleAdsServiceClient,
+    customer_id: str | None,
+    compose_query: collections.abc.Callable[[str | None, str | None, str | None], str],
+    table: GoogleAdsTable,
+    resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
+) -> collections.abc.Generator[pa.Table]:
+    """Read a full-refresh resource one campaign at a time, in ascending campaign id order.
+
+    The saved state names the campaign in flight and its page token. A retry skips the campaigns
+    before it. Saved state without a campaign id, or naming a campaign that is gone, restarts the
+    whole resource, which is safe because the merge over the primary key dedupes repeated rows.
+    """
+    campaign_ids = _list_campaign_ids(service, customer_id)
+
+    resume_campaign_id: str | None = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.campaign_id in campaign_ids:
+            resume_campaign_id = resume.campaign_id
+    if resume_campaign_id is not None:
+        campaign_ids = campaign_ids[campaign_ids.index(resume_campaign_id) :]
+
+    for index, campaign_id in enumerate(campaign_ids):
+        next_campaign_id = campaign_ids[index + 1] if index + 1 < len(campaign_ids) else None
+        yield from _search_as_arrow_tables(
+            service,
+            customer_id,
+            compose_query(None, None, f"campaign.id = {campaign_id}"),
+            table,
+            resumable_source_manager,
+            use_saved_state=index == 0 and resume_campaign_id is not None,
+            campaign_id=campaign_id,
+            next_campaign_id=next_campaign_id,
+        )
 
 
 def _search_as_arrow_tables(
@@ -932,6 +1178,8 @@ def _search_as_arrow_tables(
     table: GoogleAdsTable,
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
     use_saved_state: bool = True,
+    campaign_id: str | None = None,
+    next_campaign_id: str | None = None,
 ) -> collections.abc.Generator[pa.Table]:
     """Paginate ``GoogleAdsService.search`` and yield each page as a ``pyarrow.Table``.
 
@@ -947,6 +1195,9 @@ def _search_as_arrow_tables(
       names the token we sent (see ``_is_rejected_page_token_error``) — we
       discard the saved token and restart pagination from the first page. The
       same merge semantics make re-yielding already-synced rows safe.
+    * ``next_campaign_id`` is the campaign a campaign-sharded caller reads next. Once this
+      campaign's last page has no further token, we save state pointing at that campaign so a
+      resume does not restart this one.
     """
     # `use_saved_state=False` is passed for every window after the first in a windowed drain: the
     # saved page token belongs to whichever window was in flight last time and is meaningless for a
@@ -975,7 +1226,7 @@ def _search_as_arrow_tables(
             # token always requests the first page, so the guard also prevents an
             # infinite restart loop if the first page itself were ever rejected.
             if page_token and (_is_stale_page_token_error(e) or _is_rejected_page_token_error(e, page_token)):
-                resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=""))
+                resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token="", campaign_id=campaign_id))
                 page_token = ""
                 continue
             raise
@@ -993,9 +1244,11 @@ def _search_as_arrow_tables(
 
         next_page_token = page.next_page_token
         if not next_page_token:
+            if next_campaign_id is not None:
+                resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token="", campaign_id=next_campaign_id))
             break
 
-        resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=next_page_token))
+        resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=next_page_token, campaign_id=campaign_id))
         page_token = next_page_token
 
 

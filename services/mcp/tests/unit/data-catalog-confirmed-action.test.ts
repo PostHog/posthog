@@ -19,4 +19,20 @@ describe('data catalog confirmed actions', () => {
             }).success
         ).toBe(false)
     })
+
+    it('accepts only confirmation fields when executing a signed metric deletion', () => {
+        const executeSchema = GENERATED_TOOLS['data-catalog-metric-delete-execute']!().schema
+        const confirmation = {
+            confirmation_hash: 'signed-token',
+            confirmation: 'confirm',
+        }
+
+        expect(executeSchema.safeParse(confirmation).success).toBe(true)
+        expect(
+            executeSchema.safeParse({
+                ...confirmation,
+                name: 'weekly active users',
+            }).success
+        ).toBe(false)
+    })
 })

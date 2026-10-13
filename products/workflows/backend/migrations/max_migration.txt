@@ -1,1 +1,1 @@
-0018_teamworkflowsconfig_ses_tenant_state
+0032_teamworkflowsconfig_default_email_integration_id

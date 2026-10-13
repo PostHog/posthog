@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries
 
 from posthog.schema import (
@@ -215,7 +215,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(
                     "SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups where key = {key}",
@@ -239,7 +239,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             queries = [
                 "SELECT key, revenue_analytics.revenue FROM groups ORDER BY key ASC",
                 "SELECT key, $virt_revenue FROM groups ORDER BY key ASC",
@@ -279,7 +279,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         ]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
@@ -317,7 +317,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         ]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
@@ -346,7 +346,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(
                     "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups ORDER BY key ASC"
@@ -385,7 +385,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(
                     "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups WHERE key = {key}",
@@ -410,7 +410,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY mrr DESC"),
                 self.team,
@@ -447,7 +447,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY group_key ASC"),
                 self.team,
@@ -484,7 +484,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
         self.team.save()
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select(
                     "SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups where key = {key}",
@@ -509,7 +509,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             queries = [
                 "SELECT key, revenue_analytics.revenue FROM groups ORDER BY key ASC",
                 "SELECT key, $virt_revenue FROM groups ORDER BY key ASC",
@@ -548,7 +548,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
@@ -586,7 +586,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
@@ -616,7 +616,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select(
                     "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups ORDER BY key ASC"
@@ -656,7 +656,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
         self.team.save()
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select(
                     "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups WHERE key = {key}",
@@ -682,7 +682,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY mrr DESC"),
                 self.team,
@@ -720,7 +720,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
         self.team.save()
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY group_key ASC"),
                 self.team,

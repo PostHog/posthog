@@ -24,6 +24,7 @@ export type ErrorTrackingRuntime =
     | 'ruby'
     | 'php'
     | 'java'
+    | 'kotlin'
     | 'react-native'
     | 'android'
     | 'ios'

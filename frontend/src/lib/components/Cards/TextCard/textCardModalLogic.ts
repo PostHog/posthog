@@ -6,25 +6,44 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, DashboardTileIdOrNew, DashboardType } from '~/types'
+
+import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
+
+import { textCardConverter } from './textCardMarkdown'
 
 export interface TextTileForm {
     body: string
+    agent_context: string
     transparent_background: boolean
 }
 
+export type TextCardTileType = 'text' | 'image'
+
 export interface TextCardModalProps {
-    dashboard: DashboardType<QueryBasedInsightModel>
-    textTileId: number | 'new'
+    dashboard: DashboardType
+    textTileId: DashboardTileIdOrNew
     onClose: () => void
+    tileType: TextCardTileType
 }
 
 const MAX_TEXT_CARD_BODY_LENGTH = 4000
+const MAX_AGENT_CONTEXT_LENGTH = 10000
 
-const getExistingTextTile = (dashboard: DashboardType<QueryBasedInsightModel>, textTileId: number): TextTileForm => {
+function firstValidationError(value: unknown): string | null {
+    const firstValue = Array.isArray(value) ? value[0] : value
+    return typeof firstValue === 'string' ? firstValue : null
+}
+
+function fieldValidationError(errors: Record<string, any>, field: string): string | null {
+    return firstValidationError(errors[field]) || firstValidationError(errors.text?.[field])
+}
+
+const getExistingTextTile = (dashboard: DashboardType, textTileId: number): TextTileForm => {
     const tile = dashboard.tiles?.find((tt) => tt.id === textTileId)
     return {
         body: tile?.text?.body || '',
+        agent_context: tile?.text?.agent_context || '',
         transparent_background: tile?.transparent_background ?? false,
     }
 }
@@ -100,7 +119,7 @@ export type textCardModalLogicType = MakeLogicType<
 export const textCardModalLogic = kea<textCardModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardTextTileModal', 'logic']),
     props({} as TextCardModalProps),
-    key((props) => `textCardModalLogic-${props.dashboard.id}-${props.textTileId}`),
+    key((props) => `textCardModalLogic-${props.dashboard.id}-${props.textTileId}-${props.tileType}`),
     connect(() => ({ actions: [dashboardsModel, ['updateDashboard']] })),
     listeners(({ props, actions, values }) => ({
         submitTextTileFailure: (error) => {
@@ -119,19 +138,16 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         : null) ||
                     'Unknown error'
                 const formBodyError = values.textTileValidationErrors.body as string | null
-                const apiBodyError =
-                    (Array.isArray(normalizedErrors?.body) ? normalizedErrors.body[0] : normalizedErrors?.body) ||
-                    (Array.isArray(normalizedErrors?.text?.body)
-                        ? normalizedErrors.text.body[0]
-                        : normalizedErrors?.text?.body) ||
-                    null
+                const apiBodyError = fieldValidationError(normalizedErrors, 'body')
+                const formAgentContextError = values.textTileValidationErrors.agent_context as string | null
+                const apiAgentContextError = fieldValidationError(normalizedErrors, 'agent_context')
 
                 // Expected validation errors are shown inline on the form.
-                if (formBodyError || apiBodyError) {
+                if (formBodyError || apiBodyError || formAgentContextError || apiAgentContextError) {
                     return
                 }
 
-                lemonToast.error(`Could not save text: ${normalizedMessage}`)
+                lemonToast.error(`Could not save ${props.tileType}: ${normalizedMessage}`)
             }
         },
         submitTextTileSuccess: ({ textTile }: { textTile: TextTileForm }) => {
@@ -140,50 +156,56 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
 
             posthog.capture('dashboard text tile saved', {
                 dashboard_id: props.dashboard.id,
-                text_tile_id: props.textTileId === 'new' ? null : props.textTileId,
-                is_new: props.textTileId === 'new',
+                text_tile_id: props.textTileId,
+                is_new: props.textTileId === null,
                 body_length: textTile.body.length,
+                agent_context_length: textTile.agent_context.length,
+                has_agent_context: textTile.agent_context.trim().length > 0,
+                content_type: getImageOnlyTextCardImage(textCardConverter, textTile.body) ? 'image' : 'text',
             })
         },
     })),
     forms(({ props, actions }) => ({
         textTile: {
-            defaults: (props.textTileId && props.textTileId !== 'new'
+            defaults: (props.textTileId !== null
                 ? getExistingTextTile(props.dashboard, props.textTileId)
-                : { body: '', transparent_background: false }) as TextTileForm,
-            errors: ({ body }) => {
+                : { body: '', agent_context: '', transparent_background: props.tileType === 'image' }) as TextTileForm,
+            errors: ({ body, agent_context }) => {
                 return {
                     body: !body.trim()
                         ? 'This card would be empty! Type something first'
                         : body.length > MAX_TEXT_CARD_BODY_LENGTH
                           ? `Text is too long (${MAX_TEXT_CARD_BODY_LENGTH} characters max)`
                           : null,
+                    agent_context:
+                        agent_context.length > MAX_AGENT_CONTEXT_LENGTH
+                            ? `Agent context is too long (${MAX_AGENT_CONTEXT_LENGTH} characters max)`
+                            : null,
                 }
             },
             submit: (formValues) => {
-                // only id and body, layout and color could be out-of-date
-                const textTiles = (props.dashboard.tiles || []).map((t) => ({
-                    id: t.id,
-                    text: t.text,
-                    transparent_background: t.transparent_background,
-                }))
-
-                if (props.textTileId === 'new') {
+                if (props.textTileId === null) {
                     actions.updateDashboard({
                         id: props.dashboard.id,
                         tiles: [
                             {
-                                text: { body: formValues.body },
+                                text: { body: formValues.body, agent_context: formValues.agent_context },
                                 transparent_background: formValues.transparent_background,
                             },
                         ],
                     })
                 } else {
-                    const updatedTiles = [...textTiles].reduce((acc, tile) => {
+                    const updatedTiles = (props.dashboard.tiles || []).reduce((acc, tile) => {
                         if (tile.id === props.textTileId && tile.text) {
-                            tile.text.body = formValues.body
-                            ;(tile as Partial<DashboardTile>).transparent_background = formValues.transparent_background
-                            acc.push(tile)
+                            acc.push({
+                                id: tile.id,
+                                text: {
+                                    ...tile.text,
+                                    body: formValues.body,
+                                    agent_context: formValues.agent_context,
+                                },
+                                transparent_background: formValues.transparent_background,
+                            })
                         }
                         return acc
                     }, [] as Partial<DashboardTile>[])

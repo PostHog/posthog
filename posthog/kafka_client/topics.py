@@ -1,4 +1,4 @@
-# Keep this in sync with plugin-server/src/config/kafka-topics.ts
+# Keep this in sync with nodejs/src/common/config/kafka-topics.ts
 
 from posthog.settings.data_stores import SUFFIX
 from posthog.settings.kafka import KAFKA_PREFIX
@@ -39,6 +39,7 @@ KAFKA_MESSAGE_ASSETS = f"{KAFKA_PREFIX}clickhouse_message_assets{SUFFIX}"
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
 KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = f"{KAFKA_PREFIX}clickhouse_flag_evaluations{SUFFIX}"
+KAFKA_REALTIME_ONLY_EVENTS_JSON = f"{KAFKA_PREFIX}realtime_only_events_json{SUFFIX}"
 
 # Legacy session recording topic — only retained because clickhouse migration 0063 still
 # DROPs the old materialized view by name. Producers/consumers live in the Node.js services.
@@ -69,6 +70,7 @@ KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}data_warehouse_source_webhooks
 KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ = f"{KAFKA_PREFIX}data_warehouse_source_webhooks_dlq{SUFFIX}"
 
 KAFKA_CLICKHOUSE_TOPHOG = f"{KAFKA_PREFIX}clickhouse_tophog{SUFFIX}"
+KAFKA_BILLING_USAGE_RECORDS = f"{KAFKA_PREFIX}clickhouse_billing_usage_records{SUFFIX}"
 
 # Distinct ID usage - pre-processed by WarpStream pipeline from clickhouse_events_json
 KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON = f"{KAFKA_PREFIX}distinct_id_usage_events_json{SUFFIX}"
@@ -90,3 +92,9 @@ KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dl
 # Consumer: a dedicated throttling consumer that rate-limits $set events into capture-internal.
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES = f"{KAFKA_PREFIX}warehouse_person_property_updates{SUFFIX}"
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ = f"{KAFKA_PREFIX}warehouse_person_property_updates_dlq{SUFFIX}"
+
+KAFKA_LOGS_INGESTION = f"{KAFKA_PREFIX}logs_ingestion{SUFFIX}"
+KAFKA_LOGS_INGESTION_DLQ = f"{KAFKA_PREFIX}logs_ingestion_dlq{SUFFIX}"
+
+KAFKA_TRACES_INGESTION = f"{KAFKA_PREFIX}ingestion-traces{SUFFIX}"
+KAFKA_TRACES_INGESTION_DLQ = f"{KAFKA_PREFIX}ingestion-traces-dlq{SUFFIX}"

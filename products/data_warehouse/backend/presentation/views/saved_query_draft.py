@@ -1,3 +1,5 @@
+import uuid
+
 from rest_framework import pagination, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -18,17 +20,21 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
         fields = ["id", "created_at", "updated_at", "query", "saved_query_id", "name", "edited_history_id"]
         read_only_fields = ["id", "created_at", "updated_at", "name"]
 
+    def validate_saved_query_id(self, value: uuid.UUID | None) -> uuid.UUID | None:
+        if value is None:
+            return None
+        if not DataWarehouseSavedQuery.objects.filter(id=value, team_id=self.context["get_team"]().id).exists():
+            raise serializers.ValidationError("Saved query not found.")
+        return value
+
     def create(self, validated_data):
-        validated_data["team_id"] = self.context["team_id"]
+        validated_data["team_id"] = self.context["get_team"]().id
         validated_data["created_by"] = self.context["request"].user
         saved_query_id = validated_data.get("saved_query_id")
 
         name = "Untitled"
         if saved_query_id:
-            try:
-                saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=validated_data["team_id"])
-            except DataWarehouseSavedQuery.DoesNotExist:
-                raise serializers.ValidationError({"saved_query_id": "Saved query not found."})
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=validated_data["team_id"])
             count = DataWarehouseSavedQueryDraft.objects.filter(
                 saved_query_id=saved_query_id,
                 team_id=validated_data["team_id"],

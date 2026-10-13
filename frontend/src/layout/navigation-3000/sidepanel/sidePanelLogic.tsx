@@ -33,6 +33,9 @@ const TABS_REQUIRING_A_TEAM = [
  */
 export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks]
 
+/** The tabs a canvas scene shows instead of the general ones, in order. */
+export const CANVAS_SIDE_PANEL_TABS = [SidePanelTab.CanvasChat, SidePanelTab.CanvasBlocks, SidePanelTab.CanvasTimeline]
+
 /**
  * Closes the panel when the context it described goes away — a tab like activity logs or access
  * control left open after navigating elsewhere would otherwise stay up showing stale content and
@@ -106,7 +109,11 @@ export interface sidePanelLogicMeta {
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
             isAccessControlSettings: boolean
         ) => SidePanelTab[]
-        visibleTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
+        visibleTabs: (
+            enabledTabs: SidePanelTab[],
+            sceneSidePanelContext: SidePanelSceneContext,
+            featureFlags: FeatureFlagsSet
+        ) => SidePanelTab[]
     }
 }
 
@@ -167,6 +174,17 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
                 isAccessControlSettings: boolean
             ) => {
+                if (sceneSidePanelContext.canvas_id && currentTeam) {
+                    // Support stays openable from the help menu, but the canvas tabs take the bar.
+                    return [
+                        ...CANVAS_SIDE_PANEL_TABS.filter(
+                            (tab) => tab !== SidePanelTab.CanvasBlocks || sceneSidePanelContext.canvas_blocks
+                        ),
+                        SidePanelTab.Exports,
+                        ...(isCloudOrDev ? [SidePanelTab.Support] : []),
+                    ]
+                }
+
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -176,10 +194,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Max)
                 tabs.push(SidePanelTab.Notebooks)
 
-                if (sceneSidePanelContext?.activity_scope && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
-                    tabs.push(SidePanelTab.Activity)
+                // Activity entries and comments are both stored against the scene's activity scope. A
+                // scene that declares none has nothing to show, and the discussion panel can only
+                // render its "not supported here" state.
+                if (sceneSidePanelContext?.activity_scope) {
+                    if (hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
+                        tabs.push(SidePanelTab.Activity)
+                    }
+                    tabs.push(SidePanelTab.Discussion)
                 }
-                tabs.push(SidePanelTab.Discussion)
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
@@ -213,10 +236,20 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs],
-            (enabledTabs: SidePanelTab[]): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.sceneSidePanelContext, s.featureFlags],
+            (
+                enabledTabs: SidePanelTab[],
+                sceneSidePanelContext: SidePanelSceneContext,
+                featureFlags: FeatureFlagsSet
+            ): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
-                const hiddenTabs: SidePanelTab[] = [SidePanelTab.Exports]
+                const hiddenTabs: SidePanelTab[] = sceneSidePanelContext.canvas_id
+                    ? [SidePanelTab.Exports, SidePanelTab.Support]
+                    : [SidePanelTab.Exports]
+                // The Today layout has no home for these tabs yet. They stay openable from their entry points.
+                if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                    hiddenTabs.push(SidePanelTab.Discussion, SidePanelTab.Notebooks)
+                }
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],

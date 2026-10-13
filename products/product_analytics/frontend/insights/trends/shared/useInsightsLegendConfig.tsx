@@ -6,10 +6,11 @@ import type { ChartLegendConfig } from '@posthog/quill-charts'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightLogicProps } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 interface UseInsightsLegendConfigOptions {
     insightProps: InsightLogicProps

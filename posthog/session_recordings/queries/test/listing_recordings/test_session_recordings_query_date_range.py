@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
@@ -10,7 +10,7 @@ from posthog.schema import DateRange
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsQueryDateRange(APIBaseTest):
     @parameterized.expand(
         [

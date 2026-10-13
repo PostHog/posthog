@@ -4,13 +4,20 @@ export function makeDelay(ms: number): () => Promise<void> {
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(resolve, ms)
-        if (signal) {
-            signal.addEventListener('abort', () => {
-                clearTimeout(timeoutId)
-                reject(new DOMException('Aborted', 'AbortError'))
-            })
+        if (signal?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'))
+            return
         }
+        const onAbort = (): void => {
+            clearTimeout(timeoutId)
+            reject(new DOMException('Aborted', 'AbortError'))
+        }
+        // Remove the listener on resolve: pollForResults reuses one signal across many delay() calls
+        const timeoutId = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort)
+            resolve()
+        }, ms)
+        signal?.addEventListener('abort', onAbort, { once: true })
     })
 }
 
@@ -39,7 +46,17 @@ export interface RetryOptions {
      * }
      */
     shouldRetry?: (error: unknown) => boolean
+    /**
+     * Milliseconds to wait before the next attempt, read from the error that ended this one.
+     * Return undefined to wait the backoff that `initialDelayMs` and `backoffMultiplier` give.
+     * Use it when the server says how long to wait, for example in a `Retry-After` header.
+     */
+    getDelayMs?: (error: unknown) => number | undefined
+    /** Retry-start budget from the first retryable failure. Does not cancel an in-flight attempt. */
+    maxRetryTimeMs?: number
 }
+
+const RETRY_TIMER_TOLERANCE_MS = 100
 
 /**
  * Retries a function with exponential backoff on failure.
@@ -58,7 +75,15 @@ export interface RetryOptions {
  * // Delays: 1000ms after 1st failure, 1500ms after 2nd failure
  */
 export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
-    const { maxAttempts = 3, initialDelayMs = 1000, backoffMultiplier = 1.5, signal, shouldRetry } = options
+    const {
+        maxAttempts = 3,
+        initialDelayMs = 1000,
+        backoffMultiplier = 1.5,
+        signal,
+        shouldRetry,
+        getDelayMs,
+        maxRetryTimeMs,
+    } = options
 
     if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
@@ -67,6 +92,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
     const attempts = Math.max(maxAttempts, 1)
 
     let lastError: unknown
+    let retryDeadline: number | undefined
     for (let attempt = 0; attempt < attempts; attempt++) {
         try {
             return await fn()
@@ -80,8 +106,17 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
             if (isLastAttempt || !canRetry) {
                 throw e
             }
-            const delayMs = initialDelayMs * Math.pow(backoffMultiplier, attempt)
+            const delayMs = getDelayMs?.(e) ?? initialDelayMs * Math.pow(backoffMultiplier, attempt)
+            const now = performance.now()
+            retryDeadline ??= now + (maxRetryTimeMs ?? Infinity)
+            if (now + delayMs > retryDeadline) {
+                throw e
+            }
             await delay(delayMs, signal)
+            // Allow timer jitter at the deadline, but reject retries delayed by a suspended tab.
+            if (performance.now() > retryDeadline + RETRY_TIMER_TOLERANCE_MS) {
+                throw e
+            }
         }
     }
     throw lastError
@@ -162,5 +197,30 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
     return (...args: Parameters<F>): void => {
         clearTimeout(timeout)
         timeout = setTimeout(() => func(...args), waitFor)
+    }
+}
+
+export function yieldToMain(): Promise<void> {
+    return new Promise((resolve) => {
+        if (typeof (window as any).scheduler?.yield === 'function') {
+            ;(window as any).scheduler.yield().then(resolve)
+        } else if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(() => resolve(), { timeout: 50 })
+        } else {
+            setTimeout(resolve, 0)
+        }
+    })
+}
+
+export function createSliceYielder(budgetMs: number = 10): (beforeYield?: () => void) => Promise<boolean> {
+    let sliceStart = performance.now()
+    return async (beforeYield?: () => void): Promise<boolean> => {
+        if (performance.now() - sliceStart <= budgetMs) {
+            return false
+        }
+        beforeYield?.()
+        await yieldToMain()
+        sliceStart = performance.now()
+        return true
     }
 }

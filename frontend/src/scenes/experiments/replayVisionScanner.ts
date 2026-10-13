@@ -1,20 +1,16 @@
-import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
-
-import {
-    FilterLogicalOperator,
-    type Experiment,
-    type RecordingUniversalFilters,
-    type UniversalFiltersGroupValue,
-} from '~/types'
+import type { Experiment } from '~/types'
 
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
+import {
+    buildExperimentTargeting,
+    experimentScannerConfig,
+    experimentScannerQuery,
+} from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import {
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
     scannerToApiBody,
 } from 'products/replay_vision/frontend/replay_scanners/types'
-
-import { applySessionLinkability, getExposureFallbackFilter, getViewRecordingFiltersForVariant } from './utils'
 
 const SCANNER_NAME_MAX_LENGTH = 255
 
@@ -37,7 +33,7 @@ export const EXPERIMENT_SCANNER_TAGS = [
  * to, and a prompt that names them gets confident, wrong variant labels attached to observations.
  * Attribution comes from joining observations back to the exposure event at readout instead.
  */
-export function experimentScannerPrompt(experiment: Experiment): string {
+function experimentClassifierPrompt(experiment: Experiment): string {
     const hypothesis = experiment.description?.trim()
     return [
         'Classify what this participant did after the point where the experiment change would first be visible to them. Ignore anything earlier in the session.',
@@ -57,61 +53,45 @@ export function experimentScannerPrompt(experiment: Experiment): string {
 }
 
 /**
- * The scanner's population: the experiment's exposed sessions, with the same session-linkability
- * handling the recordings surfaces use. A server-side exposure event carries no `$session_id`, so
- * without this the query matches zero sessions forever while the scanner looks healthy.
- *
- * Advisory only here, unlike on the recordings surfaces: the check reports "never seen with a
- * session id", which at creation time is mostly "never seen at all" — the flag is minutes old. So
- * an unlinkable exposure downgrades to the fallback filter where one exists, and otherwise keeps
- * the exposure filter. It must never fall through to the empty filter list `applySessionLinkability`
- * returns for that case, which would scan every recording in the project.
+ * An experiment scanner on the experiment the wizard just created. That experiment is a draft, so
+ * the scanner is saved off with `start_on_launch`, and the backend turns it on when the experiment
+ * launches. `query` carries only the experiment's test-account setting: the API derives the
+ * exposed population from the experiment at scan time.
  */
-export function experimentScannerFilters(
-    experiment: Experiment,
-    unlinkableEventNames: Set<string>
-): { filters: UniversalFiltersGroupValue[]; usedExposureFallback: boolean } {
-    const exposureFilters = getViewRecordingFiltersForVariant(experiment)
-    const { filters, usedExposureFallback, exposureUnlinkable } = applySessionLinkability(
-        exposureFilters,
-        unlinkableEventNames,
-        getExposureFallbackFilter(experiment)
-    )
-    return { filters: exposureUnlinkable ? exposureFilters : filters, usedExposureFallback }
-}
-
-export function experimentScannerBody(
-    experiment: Experiment,
-    filters: UniversalFiltersGroupValue[],
-    usedExposureFallback: boolean
-): ReplayScannerApi {
+export function experimentScannerBody(experiment: Experiment, asExperimentScanner: boolean): ReplayScannerApi {
     const nameSuffix = ` (#${experiment.id})`
     const name = `${experiment.name.slice(0, SCANNER_NAME_MAX_LENGTH - nameSuffix.length)}${nameSuffix}`
-    const universalFilters: RecordingUniversalFilters = {
-        filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
-        duration: [],
-        filter_group: {
-            type: FilterLogicalOperator.And,
-            values: [{ type: FilterLogicalOperator.And, values: filters }],
-        },
+
+    if (!asExperimentScanner) {
+        // Without the experiment type: a classifier with legacy targeting, created off.
+        return scannerToApiBody({
+            name,
+            description: 'Classifies what participants do after they are exposed to this experiment.',
+            scanner_type: 'classifier',
+            scanner_config: {
+                prompt: experimentClassifierPrompt(experiment),
+                tags: [...EXPERIMENT_SCANNER_TAGS],
+                multi_label: false,
+            },
+            provider: DEFAULT_PROVIDER,
+            model: DEFAULT_MODEL,
+            // A null variant watches every variant of the experiment.
+            experiment_targeting: buildExperimentTargeting({ experiment, variantKey: null }),
+            query: experimentScannerQuery(experiment),
+            // Enabling starts real credit spend, so that stays a human decision on the scanner itself.
+            enabled: false,
+        })
     }
 
     return scannerToApiBody({
         name,
-        description: usedExposureFallback
-            ? "Classifies what participants do in sessions where this experiment's feature flag was active."
-            : 'Classifies what participants do after they are exposed to this experiment.',
-        scanner_type: 'classifier',
-        scanner_config: {
-            prompt: experimentScannerPrompt(experiment),
-            tags: [...EXPERIMENT_SCANNER_TAGS],
-            multi_label: false,
-        },
+        description: 'Summarizes what participants do after they are exposed to this experiment, for each variant.',
+        scanner_type: 'experiment',
+        scanner_config: { ...experimentScannerConfig(experiment, null), start_on_launch: true },
         // `model` is required by the create serializer; the rest of the product picks the same defaults.
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
-        query: convertUniversalFiltersToRecordingsQuery(universalFilters),
-        // Enabling starts real credit spend, so that stays a human decision on the scanner itself.
+        query: experimentScannerQuery(experiment),
         enabled: false,
     })
 }

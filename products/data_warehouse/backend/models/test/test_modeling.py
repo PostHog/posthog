@@ -12,6 +12,8 @@ from posthog.hogql.parser import parse_select
 from products.data_modeling.backend.facade.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+    RESOLUTION_SOURCE_LINEAGE,
+    RESOLUTION_SOURCE_MATERIALIZATION,
     BoundedResolver,
     DataWarehouseModelPath,
     NodeType,
@@ -127,6 +129,34 @@ GET_PARENTS_TEST_CASES = [
         """,
         set(),
     ),
+    (
+        "select event from events where person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select event, (select count() from persons) as total from events",
+        {"events", "persons"},
+    ),
+    (
+        "select event, count() as c from events group by event having count() > (select count() from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select event from events order by (select count() from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "with cte as (select id from persons) select event from events where person_id in (select id from cte)",
+        {"events", "persons"},
+    ),
+    (
+        "select event from events prewhere person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select a.event from events a join events b on a.person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
 ]
 
 
@@ -164,7 +194,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -273,7 +303,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -308,7 +338,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -356,7 +386,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -449,7 +479,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -542,20 +572,43 @@ class TestBoundedResolver(BaseTest):
 
         assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
 
-    def test_cycle_raises_typed_error_with_initial_view(self):
+    @parameterized.expand(
+        [
+            ("where", "select * from shared where event in (select event from mid)", {"shared", "mid"}),
+            (
+                "nested_in_from_subquery",
+                "select * from (select * from shared where event in (select event from mid))",
+                {"shared", "mid"},
+            ),
+        ],
+    )
+    def test_view_read_from_a_subquery_is_a_parent(self, _name: str, query: str, expected_parents: set[str]):
+        self._make_diamond()
+
+        assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
+
+    @parameterized.expand(
+        [
+            ("bare_names", "a", "b"),
+            ("caller_reaches_back_under_models_root", "models.a", "b"),
+            ("callee_named_under_models_root", "a", "models.b"),
+            ("both_under_models_root", "models.a", "models.b"),
+        ]
+    )
+    def test_cycle_raises_typed_error_with_initial_view(self, _name: str, ref_to_a: str, ref_to_b: str):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="a",
-            query={"query": "select * from b"},
+            query={"query": f"select * from {ref_to_b}"},
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="b",
-            query={"query": "select * from a"},
+            query={"query": f"select * from {ref_to_a}"},
         )
 
         with pytest.raises(ResolutionCycleError) as exc_info:
-            get_parents_from_model_query(self.team, "a", "select * from b")
+            get_parents_from_model_query(self.team, "a", f"select * from {ref_to_b}")
 
         # the inner view where the cycle was detected is `a` (already on the stack), and the caller is also `a`
         assert exc_info.value.view_name == "a"
@@ -780,8 +833,15 @@ class TestBoundedResolver(BaseTest):
 
 
 class TestResolutionMetrics(BaseTest):
-    def _counter(self, status: str) -> float:
-        return REGISTRY.get_sample_value("data_modeling_dag_resolution_total", {"status": status}) or 0.0
+    def _counter(self, status: str, source: str = RESOLUTION_SOURCE_LINEAGE) -> float:
+        return (
+            REGISTRY.get_sample_value("data_modeling_dag_resolution_total", {"status": status, "source": source}) or 0.0
+        )
+
+    def _duration_count(self, source: str = RESOLUTION_SOURCE_LINEAGE) -> float:
+        return (
+            REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count", {"source": source}) or 0.0
+        )
 
     def test_ok_path_increments_counter_and_records_depth(self):
         DataWarehouseSavedQuery.objects.create(
@@ -790,15 +850,17 @@ class TestResolutionMetrics(BaseTest):
             query={"query": "select event from events"},
         )
         before_ok = self._counter("ok")
-        before_count = REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count") or 0.0
+        before_count = self._duration_count()
+        before_materialization_ok = self._counter("ok", RESOLUTION_SOURCE_MATERIALIZATION)
 
         parents = get_parents_from_model_query(self.team, "caller", "select * from leaf")
 
         assert parents == {"leaf"}
         assert self._counter("ok") - before_ok == 1.0
-        assert (
-            REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count") or 0.0
-        ) - before_count == 1.0
+        assert self._duration_count() - before_count == 1.0
+        # A lineage resolution must not move the materialization counter: without the label the
+        # two share one series, and the rarer source is the one that gets hidden.
+        assert self._counter("ok", RESOLUTION_SOURCE_MATERIALIZATION) - before_materialization_ok == 0.0
 
     def test_cycle_increments_cycle_status(self):
         DataWarehouseSavedQuery.objects.create(

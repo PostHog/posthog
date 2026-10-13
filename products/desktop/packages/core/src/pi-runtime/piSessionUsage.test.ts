@@ -2,10 +2,7 @@ import type { PiSessionStats } from "@posthog/agent/pi/types";
 import { describe, expect, it } from "vitest";
 import { toPiContextUsage } from "./piSessionUsage";
 
-function stats(
-  contextUsage: PiSessionStats["contextUsage"],
-  cost = 0,
-): PiSessionStats {
+function stats(contextUsage: PiSessionStats["contextUsage"]): PiSessionStats {
   return {
     sessionFile: undefined,
     sessionId: "session-1",
@@ -21,25 +18,21 @@ function stats(
       cacheWrite: 50,
       total: 1_650,
     },
-    cost,
+    cost: 0,
     contextUsage,
   };
 }
 
 describe("toPiContextUsage", () => {
-  it("maps native Pi context and cost statistics to shared context usage", () => {
+  it("maps native Pi context statistics to shared context usage", () => {
     expect(
       toPiContextUsage(
-        stats(
-          { tokens: 38_323, contextWindow: 1_000_000, percent: 3.8323 },
-          0.42,
-        ),
+        stats({ tokens: 38_323, contextWindow: 1_000_000, percent: 3.8323 }),
       ),
     ).toEqual({
       used: 38_323,
       size: 1_000_000,
       percentage: 4,
-      cost: { amount: 0.42, currency: "USD" },
       breakdown: null,
       breakdownAvailable: false,
     });

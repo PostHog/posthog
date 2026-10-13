@@ -1,17 +1,25 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+import structlog
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_INVALID_REPORT_ERROR,
+    APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
+    APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR,
+    APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR,
     AppStoreConnectResumeConfig,
     app_store_connect_source,
+    check_app_ids,
     check_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
@@ -36,6 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+logger = structlog.get_logger(__name__)
+
+_UNEXPECTED_PROBE_STATUS = "App Store Connect is not answering correctly right now. Wait a few minutes, then try again."
+
 _MISSING_VENDOR_NUMBER = (
     "Add your vendor number in the source settings to sync sales and subscription reports. "
     "You can find it in App Store Connect under Payments and Financial Reports."
@@ -53,17 +65,30 @@ class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStor
 
     @property
     def get_source_config(self) -> SourceConfig:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+            restatement_caption,
+        )
+
+        caption = """Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
+
+An **Account Holder** or **Admin** creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Set the key's access role there — it decides which tables sync. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
+
+Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the **Finance**, **Sales**, or **Admin** role. Leave it blank if you only want app, review and build data.
+
+The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report.
+
+Leave **app IDs** blank to sync every app the key can read. To sync only some of your apps, list their Apple IDs, separated by commas. You can find an app's Apple ID in App Store Connect under **App Information → General Information**. The filter covers the apps, versions, reviews, review responses, in-app purchases, subscription groups and analytics tables. Builds, TestFlight groups and the sales reports cover your whole account, so they are not filtered."""
+        restatement_note = restatement_caption()
+        if restatement_note:
+            caption = f"{caption}\n\n{restatement_note}"
+
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APP_STORE_CONNECT,
+            name=ExternalDataSourceType.APPSTORECONNECT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Apple (App Store Connect)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["app store", "ios", "apple", "mobile analytics"],
-            caption="""Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
-
-An Account Holder or Admin creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
-
-Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Finance, Sales, or Admin role. Leave it blank if you only want app, review and build data.""",
+            caption=caption,
             iconPath="/static/services/app_store_connect.png",
             docsUrl="https://posthog.com/docs/cdp/sources/app-store-connect",
             fields=cast(
@@ -101,6 +126,14 @@ Sales and subscription reports also need your vendor number (App Store Connect �
                         placeholder="85234567",
                         secret=False,
                     ),
+                    SourceFieldInputConfig(
+                        name="app_ids",
+                        label="App IDs (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="1234567890, 9876543210",
+                        secret=False,
+                    ),
                 ],
             ),
         )
@@ -109,14 +142,48 @@ Sales and subscription reports also need your vendor number (App Store Connect �
         from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+            with_restatement_guidance,
+        )
 
-        return CANONICAL_DESCRIPTIONS
+        # Applied at read time so every analytics stream in the catalog carries its restatement
+        # dedup query, wherever in the module its entry was added.
+        return with_restatement_guidance(CANONICAL_DESCRIPTIONS)
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+            with_restatement_guidance,
+        )
+
+        # The dedup queries name a physical table, so they are rebuilt for this source's prefix.
+        return with_restatement_guidance(CANONICAL_DESCRIPTIONS, table_prefix=table_prefix)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Match the stable status text plus the base host, not the per-request path and cursor.
         return {
             "401 Client Error: Unauthorized for url: https://api.appstoreconnect.apple.com": "App Store Connect rejected your API key. Check the issuer ID, key ID and private key, or generate a new key, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.appstoreconnect.apple.com": "Your App Store Connect API key does not have access to this data. Give the key a role that can read it (Finance or Sales for reports), then reconnect.",
+            # A 403 on the analytics report request create. Apple gates it on Admin, not the read
+            # roles. Kept before the read message so the create case never inherits the read wording.
+            APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR: APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
+            # A 403 on the create where the app's ongoing request had stopped for inactivity.
+            APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR: APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+            # A 403 on a read. The key's role genuinely can't read this table.
+            APP_STORE_CONNECT_READ_FORBIDDEN_ERROR: APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+            # Any 403 that didn't come through the custom raises still fails fast with the read message.
+            "403 Client Error: Forbidden for url: https://api.appstoreconnect.apple.com": APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+            # A report sync selected without a vendor number can never read `/v1/salesReports`, so fail
+            # fast instead of retrying the activity's whole budget until the user adds the number.
+            APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR: APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
+            # Apple rejected the report request itself. Retrying can't change the answer, and the fix
+            # is a source update rather than anything the user can do.
+            APP_STORE_CONNECT_INVALID_REPORT_ERROR: "App Store Connect rejected this report request. The report type or version it asks for may no longer be valid. This usually needs a source update — contact support if it keeps failing.",
+            # A vendor number Apple doesn't know. Every retry fails identically until it is corrected.
+            APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR: "App Store Connect does not recognize your vendor number. Find it in App Store Connect under Payments and Financial Reports, update it in this source's settings, then run the sync again.",
+            # Retrying only delays the message that tells the user to fix the field.
+            APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR: APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -188,10 +255,20 @@ Sales and subscription reports also need your vendor number (App Store Connect �
             # reports what it can't reach, so don't block source creation on it.
             return True, None
         if status == 403:
-            return False, "Your App Store Connect API key does not have permission to read this data."
-        if status == 200:
-            return True, None
-        return False, f"App Store Connect returned status {status}"
+            return False, APP_STORE_CONNECT_READ_FORBIDDEN_ERROR
+        if status != 200:
+            # Apple answers a signed probe with 429 or a 5xx when it is busy. The status itself means
+            # nothing to the user, so keep it in the log and tell them what to do instead.
+            logger.warning("app_store_connect_credential_probe_unexpected_status", status=status)
+            return False, _UNEXPECTED_PROBE_STATUS
+
+        # Create and edit only: the per-schema call runs once per table in the picker, and each
+        # would list every app again.
+        if schema_name is None:
+            unreadable_app_ids = check_app_ids(config.issuer_id, config.key_id, config.private_key, config.app_ids)
+            if unreadable_app_ids:
+                return False, unreadable_app_ids
+        return True, None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AppStoreConnectResumeConfig]:
         return ResumableSourceManager[AppStoreConnectResumeConfig](inputs, AppStoreConnectResumeConfig)
@@ -207,6 +284,7 @@ Sales and subscription reports also need your vendor number (App Store Connect �
             key_id=config.key_id,
             private_key=config.private_key,
             vendor_number=config.vendor_number,
+            app_ids=config.app_ids,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,

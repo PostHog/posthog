@@ -2,7 +2,6 @@
 
 use crate::cascade::CascadeMessage;
 use crate::consumers::events::CohortStreamEvent;
-use crate::consumers::seeds::SeedWork;
 use crate::merge::transfer::{MergeStateTransfer, PersonMergeEvent};
 
 /// A unit of work routed to the partition worker that owns its `(team_id, person_id)` key.
@@ -53,21 +52,10 @@ pub enum ShuffleMessage {
     },
     /// Periodic bounded-progress tick for the partition's reconcile queue.
     ReconcileDrain,
-    /// A backfill day-tile (or its consume-side skip), paired with its topic offset. Marked on
-    /// the seed tracker, never the events tracker. Boxed so the tile doesn't inflate every
-    /// `ShuffleMessage`.
-    Seed {
-        work: Box<SeedWork>,
-        offset: i64,
-        /// Broker timestamp of the consumed seed message — the oldest-held age gauge's input.
-        /// Rides the round trip so a channel-full bounce keeps it; `None` reads as age 0.
-        broker_ts_ms: Option<i64>,
-    },
 }
 
 impl ShuffleMessage {
-    /// The offset an [`Event`](Self::Event) carries; `None` for every other variant, including
-    /// [`Seed`](Self::Seed) (its offset belongs to the seed tracker).
+    /// The offset an [`Event`](Self::Event) carries; `None` for every other variant.
     pub fn event_offset(&self) -> Option<i64> {
         match self {
             ShuffleMessage::Event { cse_offset, .. } => Some(*cse_offset),
@@ -77,31 +65,16 @@ impl ShuffleMessage {
             | ShuffleMessage::Cascade { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
-            | ShuffleMessage::ReconcileDrain
-            | ShuffleMessage::Seed { .. } => None,
-        }
-    }
-
-    /// The seed-topic offset a [`Seed`](Self::Seed) carries; `None` for every other variant.
-    pub fn seed_offset(&self) -> Option<i64> {
-        match self {
-            ShuffleMessage::Seed { offset, .. } => Some(*offset),
-            ShuffleMessage::Event { .. }
-            | ShuffleMessage::Sweep { .. }
-            | ShuffleMessage::Merge { .. }
-            | ShuffleMessage::Transfer { .. }
-            | ShuffleMessage::Cascade { .. }
-            | ShuffleMessage::RedrivePendingTransfers
-            | ShuffleMessage::MergeCfGc { .. }
             | ShuffleMessage::ReconcileDrain => None,
         }
     }
 
-    /// Whether this message reserves an intake-budget slot; maintenance/control messages must
-    /// always flow.
+    /// Whether this message reserves a live-intake budget slot; maintenance/control messages must
+    /// always flow. Only an [`Event`](Self::Event) counts — seeds ride their own lane, whose
+    /// capacity is their cap.
     pub fn counts_toward_intake(&self) -> bool {
         match self {
-            ShuffleMessage::Event { .. } | ShuffleMessage::Seed { .. } => true,
+            ShuffleMessage::Event { .. } => true,
             ShuffleMessage::Sweep { .. }
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::Transfer { .. }
@@ -189,6 +162,11 @@ mod tests {
             cse_offset: 7,
             broker_ts_ms: Some(1_700_000_000_000),
         };
+        assert_eq!(message.event_offset(), Some(7));
+        assert!(message.counts_toward_intake());
+        assert!(!ShuffleMessage::RedrivePendingTransfers.counts_toward_intake());
+        assert!(!ShuffleMessage::ReconcileDrain.counts_toward_intake());
+        assert_eq!(ShuffleMessage::ReconcileDrain.event_offset(), None);
 
         // No wildcard, so a new variant forces this test to be revisited.
         match message {
@@ -208,55 +186,8 @@ mod tests {
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
             | ShuffleMessage::ReconcileDrain
-            | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed an Event"),
         }
-    }
-
-    fn sample_seed_work() -> SeedWork {
-        use std::num::NonZeroU32;
-
-        use cohort_core::seed::{ClaimEpoch, ConditionHash, RunId, SChunkMs, SeedTile};
-
-        SeedWork::Tile(SeedTile::new(
-            crate::filters::TeamId(1),
-            Uuid::from_u128(9),
-            ConditionHash::parse("0123456789abcdef").unwrap(),
-            NonZeroU32::new(3).unwrap(),
-            20_614,
-            SChunkMs(1_700_000_000_000),
-            RunId(Uuid::nil()),
-            ClaimEpoch(1),
-        ))
-    }
-
-    #[test]
-    fn seed_variant_carries_its_own_offset_and_never_an_event_offset() {
-        let message = ShuffleMessage::Seed {
-            work: Box::new(sample_seed_work()),
-            offset: 17,
-            broker_ts_ms: Some(1_700_000_000_000),
-        };
-
-        assert_eq!(
-            message.event_offset(),
-            None,
-            "a seed offset must never reach the events tracker",
-        );
-        assert_eq!(message.seed_offset(), Some(17));
-        assert!(message.counts_toward_intake());
-
-        let event = ShuffleMessage::Event {
-            event: Box::new(sample_event(1)),
-            cse_offset: 3,
-            broker_ts_ms: None,
-        };
-        assert_eq!(event.seed_offset(), None);
-        assert!(event.counts_toward_intake());
-        assert!(!ShuffleMessage::RedrivePendingTransfers.counts_toward_intake());
-        assert!(!ShuffleMessage::ReconcileDrain.counts_toward_intake());
-        assert_eq!(ShuffleMessage::ReconcileDrain.event_offset(), None);
-        assert_eq!(ShuffleMessage::ReconcileDrain.seed_offset(), None);
     }
 
     #[test]
@@ -272,7 +203,6 @@ mod tests {
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
             | ShuffleMessage::ReconcileDrain
-            | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Sweep"),
         }
     }
@@ -297,7 +227,6 @@ mod tests {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::ReconcileDrain
-            | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a MergeCfGc"),
         }
     }
@@ -319,7 +248,6 @@ mod tests {
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
             | ShuffleMessage::ReconcileDrain
-            | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Merge"),
         }
 
@@ -338,7 +266,6 @@ mod tests {
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
             | ShuffleMessage::ReconcileDrain
-            | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Transfer"),
         }
     }
@@ -362,8 +289,7 @@ mod tests {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
-            | ShuffleMessage::ReconcileDrain
-            | ShuffleMessage::Seed { .. } => unreachable!("constructed a Cascade"),
+            | ShuffleMessage::ReconcileDrain => unreachable!("constructed a Cascade"),
         }
     }
 }

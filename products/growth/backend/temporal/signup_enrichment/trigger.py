@@ -10,7 +10,7 @@ for every signup so consumers can read it either way.
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from email.utils import parseaddr
+from typing import Literal
 
 from django.conf import settings
 from django.db import transaction
@@ -23,12 +23,16 @@ from temporalio.service import RPCError
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import GenericEmails, get_instance_region
+from posthog.utils import GenericEmails
 
+from products.growth.backend.enrichment import gates
 from products.growth.backend.enrichment.writer import record_signup_work_email
+from products.growth.backend.temporal.signup_enrichment.rescore import WizardStampRescoreInputs
 from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
 logger = structlog.get_logger(__name__)
+
+RescoreDispatchFailure = Literal["dispatch_backlog_full", "dispatch_failed"]
 
 _generic_emails = GenericEmails()
 
@@ -43,14 +47,6 @@ _dispatch_executor = ThreadPoolExecutor(
 _dispatch_slots = threading.BoundedSemaphore(_DISPATCH_MAX_PENDING)
 
 
-def domain_from_email(email: str) -> str | None:
-    _, address = parseaddr(email or "")
-    if "@" not in address:
-        return None
-    domain = address.rsplit("@", 1)[1].strip().lower()
-    return domain or None
-
-
 def start_signup_enrichment_workflow(
     *,
     organization_id: str,
@@ -63,19 +59,21 @@ def start_signup_enrichment_workflow(
     # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
     # only on the workers, and a keyless worker fails loudly into the launch alert instead of
     # web pods silently never dispatching (also keeps the key off the public web fleet).
-    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+    if not _enrichment_enabled():
         return
     # Cloud only — self-hosted has no Harmonic key or internal project to score against. The
-    # flag above is the real per-region toggle; it stays unset in EU until enabled there.
-    if get_instance_region() not in ("US", "EU"):
+    # instance setting above is the real per-region toggle.
+    if not gates.region_allowed():
         return
 
-    domain = domain_from_email(email)
+    domain = gates.domain_from_email(email)
     if not domain:
         return
 
     work_email = not _generic_emails.is_generic(email)
-    _record_work_email(organization_id=str(organization_id), work_email=work_email)
+    _record_work_email(
+        organization_id=str(organization_id), work_email=work_email, signup_role=role_at_organization or None
+    )
     if not work_email or not distinct_id:
         return
 
@@ -91,6 +89,56 @@ def start_signup_enrichment_workflow(
     # so dispatch goes to the bounded pool: building the Temporal client must not add latency to
     # the signup response, and the pool caps how much a Temporal outage can pile up.
     transaction.on_commit(lambda: _submit_dispatch(inputs))
+
+
+def dispatch_wizard_stamp_rescore(organization_id: str) -> RescoreDispatchFailure | None:
+    """Shares the bounded dispatch pool with signup dispatch so an unreachable Temporal can't pile up threads on the web pod, same as it does for signups. Returns None once the run is submitted, otherwise why it was not."""
+    return _submit_rescore_dispatch(organization_id)
+
+
+def _submit_rescore_dispatch(organization_id: str) -> RescoreDispatchFailure | None:
+    if not _dispatch_slots.acquire(blocking=False):
+        logger.warning(
+            "wizard_stamp_rescore_dispatch_dropped", organization_id=organization_id, reason="dispatch_backlog_full"
+        )
+        return "dispatch_backlog_full"
+    try:
+        _dispatch_executor.submit(_rescore_dispatch_and_release, organization_id)
+    except Exception as e:
+        _dispatch_slots.release()
+        capture_exception(e)
+        return "dispatch_failed"
+    return None
+
+
+def _rescore_dispatch_and_release(organization_id: str) -> None:
+    try:
+        _rescore_dispatch(organization_id)
+    finally:
+        _dispatch_slots.release()
+
+
+def _rescore_dispatch(organization_id: str) -> None:
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "wizard-stamp-rescore",
+                WizardStampRescoreInputs(organization_id=organization_id),
+                id=f"wizard-stamp-rescore-{organization_id}",
+                task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        # A stamp landing while the previous run is still in flight hits the same workflow id and is dropped, collapsing near-simultaneous stamps into one run.
+        logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id)
+    except RPCError as e:
+        logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id, error=str(e))
+    except Exception as e:
+        capture_exception(e)
+    else:
+        logger.info("wizard_stamp_rescore_dispatch_started", organization_id=organization_id)
 
 
 def dispatch_signup_enrichment(inputs: SignupEnrichmentInputs) -> None:
@@ -127,6 +175,16 @@ def _dispatch_and_release(inputs: SignupEnrichmentInputs) -> None:
         _dispatch_slots.release()
 
 
+def _enrichment_enabled() -> bool:
+    # Reading the instance setting hits the database on a cache miss, and signup must never fail
+    # or stall on it. A failed read means enrichment does not run for that signup.
+    try:
+        return gates.enrichment_enabled()
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 def _geoip_country_code(ip_address: str | None) -> str | None:
     # get_geoip_properties already swallows lookup failures, but nothing geoip-related may ever
     # surface to signup — so guard the whole call anyway.
@@ -137,10 +195,10 @@ def _geoip_country_code(ip_address: str | None) -> str | None:
         return None
 
 
-def _record_work_email(*, organization_id: str, work_email: bool) -> None:
+def _record_work_email(*, organization_id: str, work_email: bool, signup_role: str | None = None) -> None:
     # The write runs in its own savepoint; a failure here must never surface to signup.
     try:
-        record_signup_work_email(organization_id=organization_id, work_email=work_email)
+        record_signup_work_email(organization_id=organization_id, work_email=work_email, signup_role=signup_role)
     except Exception as e:
         capture_exception(e)
 

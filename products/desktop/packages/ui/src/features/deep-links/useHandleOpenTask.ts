@@ -1,4 +1,7 @@
-import type { CommentTarget } from "@posthog/core/comments/anchors";
+import {
+  type CommentTarget,
+  commentScopeFromWire,
+} from "@posthog/core/comments/anchors";
 import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
 import {
   TASK_SERVICE,
@@ -7,8 +10,6 @@ import {
 import { useService } from "@posthog/di/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChannelMap";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
@@ -17,7 +18,7 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { openTask as openTaskHelper } from "@posthog/ui/router/useOpenTask";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 const log = logger.scope("open-task");
 
@@ -32,11 +33,9 @@ function commentTargetFromAnchor(
   taskId: string,
   anchor: TaskLinkCommentAnchor,
 ): CommentTarget {
-  if (
-    (anchor.scope === "desktop_canvas" || anchor.scope === "task_artifact") &&
-    anchor.itemId
-  ) {
-    return { scope: anchor.scope, itemId: anchor.itemId };
+  const scope = commentScopeFromWire(anchor.scope);
+  if ((scope === "canvas" || scope === "task_artifact") && anchor.itemId) {
+    return { scope, itemId: anchor.itemId };
   }
   return { scope: "task", itemId: taskId };
 }
@@ -50,20 +49,10 @@ export function useHandleOpenTask(): (
   const { markAsViewed } = useTaskViewed();
   const queryClient = useQueryClient();
 
-  // A task filed to a Project Bluebird channel opens in the channel-organized
-  // view under /website. Gate the channel fetches behind the flag.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
-  const channelMap = useTaskChannelMap(channels, { enabled: bluebirdEnabled });
-  // Mirror the latest map into a ref so the stable callback can read it without
-  // listing the map in its deps — otherwise it'd be recreated on every poll.
-  const channelMapRef = useRef(channelMap);
-  useEffect(() => {
-    channelMapRef.current = channelMap;
-  }, [channelMap]);
 
   return useCallback(
     async (
@@ -101,13 +90,11 @@ export function useHandleOpenTask(): (
         queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
 
         markAsViewed(taskId);
-        const channel = bluebirdEnabled
-          ? channelMapRef.current.get(task.id)
-          : undefined;
-        void openTaskHelper(
-          task,
-          channel ? { channelId: channel.id } : undefined,
-        );
+        const channelTarget =
+          bluebirdEnabled && task.channel
+            ? { channelId: task.channel, newTab: true }
+            : { newTab: true };
+        void openTaskHelper(task, channelTarget);
         if (comment) {
           useCommentNavigationStore
             .getState()

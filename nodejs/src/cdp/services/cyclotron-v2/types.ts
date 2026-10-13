@@ -1,7 +1,15 @@
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 
+import { StepResume, StepResumeOutcome } from '~/cdp/services/hogflows/step-resume.service'
+
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
+
+// SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
+export const CYCLOTRON_COUNTER_MAX = 32767
+
+// Past this a job is in a retry loop it will not leave on its own. Set above normal work: live p99 is ~5k and the highest row ~19.5k.
+export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
 
 export type CyclotronV2PoolConfig = {
     dbUrl: string
@@ -38,6 +46,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
     queueName: z.string().optional(),
+    priority: z.number().int().optional(),
 })
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>
@@ -89,7 +98,16 @@ export interface CyclotronV2DequeuedJob {
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
-    bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }>
+    // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this
+    // job (CyclotronV2Manager.cancelJobs) before the transaction took its row lock, so
+    // nothing was inserted and the job is STILL HELD — the caller must dispose of it
+    // (normally via cancel()). The refusal is checked inside the same transaction that
+    // inserts the new jobs, so a cancel sweep can never lose a page to this race: either
+    // the page committed before the flag (and the sweep's remaining-count sees its jobs),
+    // or the flag landed first and the page is refused.
+    bulkCreateAndCheckIn(
+        input: CyclotronV2BulkCreateAndCheckInInput
+    ): Promise<{ newJobIds: string[]; cancelRequested?: boolean }>
 }
 
 export type CyclotronV2ManagerConfig = {
@@ -137,6 +155,9 @@ export type CyclotronV2CancelJobsOptions = {
     jobIds?: string[]
     // Every in-flight job of the function:
     all?: boolean
+    // Every in-flight job of one parent run (a batch job): the resolver orchestration
+    // job and all child runs it enqueued. Must be non-empty when provided.
+    parentRunId?: string
     // Queues whose jobs are never flagged (or counted as remaining), e.g. internal
     // orchestration jobs that are not runs. Applies to both selectors.
     excludeQueueNames?: string[]
@@ -173,6 +194,7 @@ export interface CyclotronV2JobProducer {
     countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
+    resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     disconnect(): Promise<void>
 }
 

@@ -1,3 +1,4 @@
+import os
 import tempfile
 import subprocess
 from pathlib import Path
@@ -534,6 +535,9 @@ class TestGolangGeneratorAPI(APIBaseTest):
         4. Runs Go compiler to verify no errors
 
         This ensures the generated code is syntactically correct and type-safe.
+
+        The posthog-go dependency is a local stub resolved through a `replace`
+        directive, so the compiler never reaches the network.
         """
         special_event = EventDefinition.objects.create(
             team=self.team, project=self.project, name="user'event\"with\\quotes"
@@ -556,21 +560,14 @@ class TestGolangGeneratorAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             go_content = response.json()["content"]
 
-            subprocess.run(["go", "mod", "init", "testmodule"], cwd=str(tmpdir_path), check=True, capture_output=True)
-            # Install posthog-go dependency
-            install_result = subprocess.run(
-                ["go", "get", "github.com/posthog/posthog-go"],
-                cwd=str(tmpdir_path),
-                capture_output=True,
-                text=True,
-                timeout=60,
+            self._write_posthog_go_stub(tmpdir_path)
+
+            (tmpdir_path / "go.mod").write_text(
+                "module testmodule\n\n"
+                "go 1.21\n\n"
+                "require github.com/posthog/posthog-go v0.0.0\n\n"
+                "replace github.com/posthog/posthog-go => ./posthog-go\n"
             )
-            if install_result.returncode != 0:
-                self.fail(
-                    f"Failed to install posthog-go dependency:\n"
-                    f"STDOUT: {install_result.stdout}\n"
-                    f"STDERR: {install_result.stderr}"
-                )
 
             # Write generated types
             typed_dir = tmpdir_path / "typed"
@@ -634,13 +631,14 @@ func main() {
 """
             )
 
-            # Run Go compiler
+            # Run Go compiler offline; the local stub resolves posthog-go.
             build_result = subprocess.run(
                 ["go", "build", "-o", "test", "main.go"],
                 cwd=str(tmpdir_path),
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env={**os.environ, "GOPROXY": "off", "GOFLAGS": "-mod=mod"},
             )
 
             # Assert compilation succeeded
@@ -675,6 +673,39 @@ func main() {
         code = response.json()["content"]
 
         self.assertIn("VerifiedNoSchemaCapture", code)
+
+    def _write_posthog_go_stub(self, tmpdir_path: Path) -> None:
+        """Write a minimal local posthog-go module so the compile check needs no network.
+
+        It provides only the symbols the generated code and main.go reference:
+        the Properties map, its Merge method, and the Capture struct.
+        """
+        stub_dir = tmpdir_path / "posthog-go"
+        stub_dir.mkdir()
+        (stub_dir / "go.mod").write_text("module github.com/posthog/posthog-go\n\ngo 1.21\n")
+        (stub_dir / "posthog.go").write_text(
+            """package posthog
+
+type Properties map[string]interface{}
+
+func (p Properties) Merge(other Properties) Properties {
+\tresult := Properties{}
+\tfor k, v := range p {
+\t\tresult[k] = v
+\t}
+\tfor k, v := range other {
+\t\tresult[k] = v
+\t}
+\treturn result
+}
+
+type Capture struct {
+\tDistinctId string
+\tEvent      string
+\tProperties Properties
+}
+"""
+        )
 
     def _test_telemetry_called(self, mock_report) -> None:
         # Verify telemetry was called

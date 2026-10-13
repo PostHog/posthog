@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +9,7 @@ from products.reminders.backend.models import Reminder
 
 
 class TestProcessDueReminders(BaseTest):
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     @patch("products.reminders.backend.firing.create_notification")
     def test_one_off_fires_and_completes(self, mock_create: MagicMock) -> None:
         reminder = Reminder.objects.create(
@@ -26,7 +26,7 @@ class TestProcessDueReminders(BaseTest):
         self.assertEqual(reminder.status, Reminder.Status.COMPLETED)
         self.assertEqual(reminder.last_fired_at, datetime(2026, 6, 15, 9, 0, tzinfo=UTC))
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     @patch("products.reminders.backend.firing.create_notification")
     def test_recurring_advances_and_stays_active(self, mock_create: MagicMock) -> None:
         reminder = Reminder.objects.create(
@@ -42,7 +42,7 @@ class TestProcessDueReminders(BaseTest):
         self.assertEqual(reminder.status, Reminder.Status.ACTIVE)
         self.assertEqual(reminder.next_fire_at, datetime(2026, 6, 16, 8, 59, tzinfo=UTC))
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     @patch("products.reminders.backend.firing.create_notification")
     def test_not_yet_due_is_skipped(self, mock_create: MagicMock) -> None:
         Reminder.objects.create(
@@ -56,7 +56,7 @@ class TestProcessDueReminders(BaseTest):
         process_due_reminders()
         mock_create.assert_not_called()
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     @patch("products.reminders.backend.firing.create_notification")
     def test_recurring_catch_up_fires_once(self, mock_create: MagicMock) -> None:
         reminder = Reminder.objects.create(
@@ -73,7 +73,7 @@ class TestProcessDueReminders(BaseTest):
         assert reminder.next_fire_at is not None
         self.assertGreater(reminder.next_fire_at, datetime(2026, 6, 15, 9, 0, tzinfo=UTC))
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     @patch("products.reminders.backend.firing.create_notification", side_effect=RuntimeError("boom"))
     def test_one_off_errors_after_retries(self, mock_create: MagicMock) -> None:
         reminder = Reminder.objects.create(
@@ -90,7 +90,7 @@ class TestProcessDueReminders(BaseTest):
         self.assertEqual(reminder.status, Reminder.Status.ERRORED)
         self.assertIn("boom", reminder.last_error or "")
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     @patch("products.reminders.backend.firing.create_notification", side_effect=RuntimeError("boom"))
     def test_recurring_resets_retry_budget_after_advance(self, mock_create: MagicMock) -> None:
         reminder = Reminder.objects.create(
@@ -110,7 +110,7 @@ class TestProcessDueReminders(BaseTest):
         self.assertIsNone(reminder.last_error)
         self.assertEqual(reminder.next_fire_at, datetime(2026, 6, 16, 8, 59, tzinfo=UTC))
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     @patch("products.reminders.backend.firing.create_notification")
     def test_org_level_fires_and_completes(self, mock_create: MagicMock) -> None:
         reminder = Reminder.objects.create(

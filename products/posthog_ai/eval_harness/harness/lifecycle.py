@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
 import time
 import atexit
 import asyncio
 import logging
+import subprocess
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
+from dataclasses import replace
+from functools import partial
 
 from unittest.mock import patch
 
@@ -17,14 +21,25 @@ from posthoganalytics import Posthog
 
 from posthog.ph_client import get_client
 
+from products.tasks.backend.constants import (
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
+)
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
 from ..engines.base import EvalEngine
 from ..engines.registry import resolve_engine
-from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, HarnessOptions
+from .cli import (
+    DEFAULT_ONE_SHOT_CONCURRENCY,
+    DEFAULT_SKILL_DELIVERY,
+    MULTI_TURN_CASE_TIMEOUT_MULTIPLIER,
+    HarnessOptions,
+    SkillDelivery,
+)
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
-from .discovery import EvalSuite, discover_suites
+from .discovery import MULTI_TURN_MODULE_MARKER, REPO_ROOT, EvalSuite, discover_suites
 from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
@@ -36,9 +51,11 @@ from .requirements import Infra, infra_union
 from .services import (
     build_local_skills,
     ensure_personhog_binaries,
+    package_local_skills_archive,
     start_llm_gateway,
     start_mcp_server,
     start_personhog,
+    start_skill_archive_server,
     stop_all_subprocesses,
 )
 from .temporal_env import (
@@ -50,6 +67,45 @@ from .temporal_env import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Exceptions to the blanket "every flag is on" stub the run installs below. These two hand a
+# task run to `run_task_workflow_dispatcher` instead of starting its Temporal workflow inline,
+# and the harness never starts that command — so a forced-on flag leaves every case parked in
+# QUEUED, with nothing to fail it, until the case's poll budget runs out.
+FORCED_OFF_FEATURE_FLAGS = frozenset(
+    {
+        WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+        WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
+    }
+)
+
+
+def eval_feature_enabled(
+    key: str, *_args: object, skill_delivery: SkillDelivery = DEFAULT_SKILL_DELIVERY, **_kwargs: object
+) -> bool:
+    """Stands in for `posthoganalytics.feature_enabled` so evals exercise flagged code paths."""
+    if key == MCP_EXEC_SKILLS_FEATURE_FLAG:
+        return skill_delivery == "exec"
+    return key not in FORCED_OFF_FEATURE_FLAGS
+
+
+def _git(*args: str) -> str | None:
+    """Stdout of a git command run in the checkout under test; ``None`` when git fails."""
+    # GIT_DIR, GIT_WORK_TREE and friends would point git away from REPO_ROOT.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, env=env, check=True, capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip()
+
+
+def _worktree_dirty() -> bool | None:
+    """Whether tracked files differ from ``HEAD``; ``None`` when git can't tell."""
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    return None if status is None else bool(status)
 
 
 class SandboxedEvalHarness:
@@ -71,7 +127,11 @@ class SandboxedEvalHarness:
         self._database: EvalDatabase | None = None
         self._live_server: EvalLiveServer | None = None
         self._posthog_client: Posthog | None = None
+        self._posthog_evaluation_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
+        # Read before asyncio.run so the git subprocesses never block the event loop.
+        self._git_sha = _git("rev-parse", "HEAD")
+        self._git_dirty = _worktree_dirty()
 
     def run(self) -> int:
         # Discover before anything is provisioned: a typo'd selector should cost a
@@ -82,6 +142,22 @@ class SandboxedEvalHarness:
             for suite in suites:
                 print(f"{suite.id}  [{suite.kind.value}]")  # noqa: T201
             return 0
+
+        # Multi-turn cases poll once per turn, each poll with its own budget, so
+        # their per-case budget must scale with the turn count. Multi-turn modules
+        # declare the marker at module level (see discovery._collect_suites).
+        multi_turn_modules = {
+            suite.module_name for suite in suites if getattr(suite.fn, MULTI_TURN_MODULE_MARKER, False)
+        }
+        if multi_turn_modules:
+            scaled = self.options.per_case_timeout_seconds * MULTI_TURN_CASE_TIMEOUT_MULTIPLIER
+            logger.warning(
+                "Multi-turn eval module(s) %s selected: scaling --case-timeout from %ds to %ds",
+                sorted(multi_turn_modules),
+                self.options.per_case_timeout_seconds,
+                scaled,
+            )
+            self.options = replace(self.options, per_case_timeout_seconds=scaled)
 
         # Boot only what the selected suites' kinds require: a one-shot-only run
         # never pays for (or fails on) sandbox infrastructure.
@@ -99,6 +175,7 @@ class SandboxedEvalHarness:
             agent_model=self.options.agent_model,
             max_sandboxes=self.options.max_sandboxes,
             trials=self.options.trials,
+            case_timeout_seconds=self.options.per_case_timeout_seconds,
         )
 
         started = time.monotonic()
@@ -198,7 +275,24 @@ class SandboxedEvalHarness:
             self._stack.callback(start_llm_gateway(self._live_server.url, self.options.agent_model))
         if Infra.MCP_SERVER in required:
             assert self._live_server is not None
-            self._stack.callback(start_mcp_server(self._live_server.url))
+
+            # Both delivery modes use rendered skills from this checkout, never a
+            # previously published bundle. DockerSandbox bind-mounts the built skills;
+            # ModalSandbox bakes them into the image it builds from the local context,
+            # so it wants no host path.
+            skills_dir = build_local_skills(set_bind_mount_env=self.options.provider == "docker")
+            skill_archive_url: str | None = None
+            if self.options.skill_delivery == "exec":
+                skill_archive = package_local_skills_archive(skills_dir)
+                skill_archive_url, stop_skill_archive = start_skill_archive_server(skill_archive)
+                self._stack.callback(stop_skill_archive)
+            self._stack.callback(
+                start_mcp_server(
+                    self._live_server.url,
+                    skill_archive_url,
+                    exec_skills_enabled=self.options.skill_delivery == "exec",
+                )
+            )
 
         if Infra.SANDBOX in required:
             assert self.provider is not None
@@ -206,13 +300,14 @@ class SandboxedEvalHarness:
             # publicly reachable before any settings pointing at them are computed.
             self.provider.start(self._stack)
 
-            # DockerSandbox bind-mounts the built skills; ModalSandbox bakes them into
-            # the image it builds from the local context, so it wants no host path.
-            build_local_skills(set_bind_mount_env=self.options.provider == "docker")
-
         self._posthog_client = get_client("US")
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
+
+        # Each suite's no_send_logs setting controls result uploads to both services.
+        self._posthog_evaluation_client = get_client("US", disabled=False)
+        if self._posthog_evaluation_client is not None:
+            self._stack.callback(self._posthog_evaluation_client.shutdown)
 
         if Infra.DEMO_DATA in required:
             assert self._database is not None
@@ -264,7 +359,13 @@ class SandboxedEvalHarness:
 
             if overrides:
                 stack.enter_context(override_settings(**overrides))
-            stack.enter_context(patch.object(posthoganalytics, "feature_enabled", return_value=True))
+            stack.enter_context(
+                patch.object(
+                    posthoganalytics,
+                    "feature_enabled",
+                    partial(eval_feature_enabled, skill_delivery=self.options.skill_delivery),
+                )
+            )
 
             if Infra.SANDBOX in required:
                 # Stale workflows from a prior run make the worker provision sandboxes for
@@ -283,9 +384,10 @@ class SandboxedEvalHarness:
 
             if Infra.SANDBOX in required:
                 logger.info(
-                    "Running %d suite(s) on provider=%s with %d sandbox slot(s)",
+                    "Running %d suite(s) on provider=%s with skill_delivery=%s and %d sandbox slot(s)",
                     len(suites),
                     self.options.provider,
+                    self.options.skill_delivery,
                     self.options.max_sandboxes,
                 )
             else:
@@ -312,10 +414,12 @@ class SandboxedEvalHarness:
             provider_strategy=self.provider,
             agent_model=self.options.agent_model,
             agent_runtime=self.options.agent_runtime,
+            skill_delivery=self.options.skill_delivery,
             reasoning_effort=self.options.reasoning_effort,
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,
+            posthog_evaluation_client=self._posthog_evaluation_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes) if Infra.SANDBOX in required else None,
             team_setup_slots=asyncio.Semaphore(self.options.team_setup_concurrency),
             one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),
@@ -323,6 +427,8 @@ class SandboxedEvalHarness:
             engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
+            git_sha=self._git_sha,
+            git_dirty=self._git_dirty,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:

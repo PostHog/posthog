@@ -17,7 +17,7 @@ rules:
           - metavariable-regex:
                 metavariable: $MODEL
                 regex: >-
-                    ^(Person|PersonDistinctId|PersonlessDistinctId|PersonOverrideMapping|PersonOverride|PendingPersonOverride|FlatPersonOverride|FeatureFlagHashKeyOverride|CohortPeople|Group|GroupTypeMapping)$
+                    ^(Person|PersonDistinctId|PersonOverrideMapping|PersonOverride|PendingPersonOverride|FlatPersonOverride|FeatureFlagHashKeyOverride|CohortPeople|Group|GroupTypeMapping)$
       paths:
           exclude:
               # personhog client implementation

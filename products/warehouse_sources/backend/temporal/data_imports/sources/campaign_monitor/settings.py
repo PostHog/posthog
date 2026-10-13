@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class CampaignMonitorEndpointConfig:
     name: str
     # Path relative to the API base URL. May contain `{client_id}` (filled from the
@@ -21,15 +21,38 @@ class CampaignMonitorEndpointConfig:
     # Whether this endpoint must be fetched once per sent campaign (fan-out over the
     # client's campaigns). Each emitted row is annotated with its `CampaignID`.
     fan_out_over_campaigns: bool = False
+    # Whether this endpoint must be fetched once per journey (fan-out over the client's
+    # journeys). Each emitted row is annotated with its `JourneyID`.
+    fan_out_over_journeys: bool = False
+    # Whether this is a journey report endpoint: fetched once per journey email, reached through a
+    # two-level fan-out (journeys -> journey summary, the only place an `EmailID` is exposed).
+    # Each emitted row is annotated with its `JourneyID` and `EmailID`. These endpoints speak a
+    # slightly different param dialect to the campaign reports: `date` carries a time component,
+    # and they accept `orderdirection` but no `orderfield` (they always order by their own date
+    # column). Their `date` defaults to the last 30 days, so it must always be sent explicitly.
+    journey_report: bool = False
     # Subscriber-state endpoints accept a `date` query param that filters records to those
     # added/changed at-or-after that date. We pass a very early date to fetch full history.
     uses_date_filter: bool = False
+    # Key holding the row array in a non-paginated response body. Set where one endpoint returns
+    # several collections and each becomes its own table (the campaign lists-and-segments body).
+    data_selector: Optional[str] = None
+    # Non-paginated endpoint returning a bare JSON array rather than a single object. Anything
+    # else on a 200 is a shape change, so the sync fails loud instead of syncing a stray object
+    # as a row.
+    returns_array: bool = False
     # Stable datetime field used for datetime partitioning. Must not change over time
     # (so never `*Updated`/`*Modified` style fields).
     partition_key: Optional[str] = None
     # `orderfield` passed to paged endpoints so pagination is stable across the sync.
     order_field: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+
+    @property
+    def is_fanned_out(self) -> bool:
+        return (
+            self.fan_out_over_lists or self.fan_out_over_campaigns or self.fan_out_over_journeys or self.journey_report
+        )
 
 
 # Campaign Monitor (CreateSend) API v3.3 endpoints.
@@ -38,11 +61,13 @@ class CampaignMonitorEndpointConfig:
 # account-level `clients` endpoint is included for reference/joins.
 #
 # Incremental note: the subscriber-state endpoints (`active`/`unsubscribed`/`bounced`) and the
-# campaign report endpoints expose a server-side `date` filter that is the canonical incremental
-# mechanism for this API. It is documented but could not be verified against a live account here
-# (no credentials), so every endpoint currently ships as full refresh. Enabling incremental is a
+# campaign and journey report endpoints expose a server-side `date` filter that is the canonical
+# incremental mechanism for this API. It is documented but could not be verified against a live
+# account here (no credentials), so every endpoint currently ships as full refresh. Enabling incremental is a
 # matter of populating `incremental_fields`, flipping `supports_incremental`, and mapping the
-# user's cursor value into the `date` param in `campaign_monitor.py` once verified live.
+# user's cursor value into the `date` param in `campaign_monitor.py` once verified live. That is
+# worth prioritizing: the API serves no journey reporting data older than a year, so a full
+# refresh drops rows once they age out of that window, where a merge would keep them.
 CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
     "clients": CampaignMonitorEndpointConfig(
         name="clients",
@@ -53,6 +78,8 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         name="campaigns",
         path="clients/{client_id}/campaigns.json",
         primary_keys=["CampaignID"],
+        # Sent campaigns come back in the paged envelope, unlike the draft/scheduled endpoints.
+        paginated=True,
         partition_key="SentDate",
     ),
     "scheduled_campaigns": CampaignMonitorEndpointConfig(
@@ -118,6 +145,24 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         partition_key="Date",
         order_field="date",
     ),
+    # List-scoped lookups — one request per subscriber list, no pagination.
+    "list_custom_fields": CampaignMonitorEndpointConfig(
+        name="list_custom_fields",
+        # Resolves the `[key]` custom fields carried on every subscriber row. Keys are unique
+        # within a list, not across the client's lists.
+        path="lists/{list_id}/customfields.json",
+        primary_keys=["ListID", "Key"],
+        fan_out_over_lists=True,
+        returns_array=True,
+    ),
+    "list_stats": CampaignMonitorEndpointConfig(
+        name="list_stats",
+        # A point-in-time snapshot of the list's subscriber, unsubscribe, deletion and bounce
+        # counters — the API exposes no history, so each sync replaces the previous snapshot.
+        path="lists/{list_id}/stats.json",
+        primary_keys=["ListID"],
+        fan_out_over_lists=True,
+    ),
     # Campaign report endpoints — one request (or paginated walk) per sent campaign. The
     # summary endpoint returns a single JSON object per campaign; the detail endpoints use the
     # standard paged envelope. Their optional `date` filter is omitted so an unfiltered request
@@ -174,6 +219,102 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         fan_out_over_campaigns=True,
         partition_key="Date",
         order_field="date",
+    ),
+    "campaign_recipients": CampaignMonitorEndpointConfig(
+        name="campaign_recipients",
+        # The denominator for every campaign engagement rate. Rows carry only an email address and
+        # the list it came from, so there is no timestamp to partition on. A campaign can target
+        # several lists, so the list is part of the key.
+        path="campaigns/{campaign_id}/recipients.json",
+        primary_keys=["CampaignID", "ListID", "EmailAddress"],
+        paginated=True,
+        fan_out_over_campaigns=True,
+        # This endpoint's `orderfield` enum is `email|list`, not the `date` the report endpoints
+        # take — its rows have no date.
+        order_field="email",
+    ),
+    "campaign_lists": CampaignMonitorEndpointConfig(
+        name="campaign_lists",
+        # `listsandsegments.json` returns one body holding two independent collections, so it
+        # feeds two join tables rather than one row of nested arrays.
+        path="campaigns/{campaign_id}/listsandsegments.json",
+        primary_keys=["CampaignID", "ListID"],
+        fan_out_over_campaigns=True,
+        data_selector="Lists",
+    ),
+    "campaign_segments": CampaignMonitorEndpointConfig(
+        name="campaign_segments",
+        path="campaigns/{campaign_id}/listsandsegments.json",
+        primary_keys=["CampaignID", "SegmentID"],
+        fan_out_over_campaigns=True,
+        data_selector="Segments",
+    ),
+    "campaign_email_client_usage": CampaignMonitorEndpointConfig(
+        name="campaign_email_client_usage",
+        # One row per email client family and version that opened the campaign. A client appears
+        # once per version, so both are part of the key.
+        path="campaigns/{campaign_id}/emailclientusage.json",
+        primary_keys=["CampaignID", "Client", "Version"],
+        fan_out_over_campaigns=True,
+        returns_array=True,
+    ),
+    # Journeys (automations). The journeys list carries no email ids, so every per-email report
+    # below hangs off the journey summary, which is the only endpoint that exposes them.
+    "journeys": CampaignMonitorEndpointConfig(
+        name="journeys",
+        path="clients/{client_id}/journeys.json",
+        primary_keys=["JourneyID"],
+    ),
+    "journey_email_summary": CampaignMonitorEndpointConfig(
+        name="journey_email_summary",
+        # The journey summary object nests its vendor-computed counters under `Emails`; one row per
+        # journey email, which is also the lookup resolving the `EmailID` on every table below.
+        path="journeys/{journey_id}.json",
+        primary_keys=["JourneyID", "EmailID"],
+        fan_out_over_journeys=True,
+    ),
+    # Journey report endpoints. Unlike a campaign, a journey can send the same email to a
+    # subscriber more than once (re-entry), so the event timestamp is part of every key.
+    "journey_email_recipients": CampaignMonitorEndpointConfig(
+        name="journey_email_recipients",
+        path="journeys/email/{email_id}/recipients.json",
+        primary_keys=["JourneyID", "EmailID", "EmailAddress", "SentDate"],
+        paginated=True,
+        journey_report=True,
+        partition_key="SentDate",
+    ),
+    "journey_email_opens": CampaignMonitorEndpointConfig(
+        name="journey_email_opens",
+        path="journeys/email/{email_id}/opens.json",
+        primary_keys=["JourneyID", "EmailID", "EmailAddress", "Date"],
+        paginated=True,
+        journey_report=True,
+        partition_key="Date",
+    ),
+    "journey_email_clicks": CampaignMonitorEndpointConfig(
+        name="journey_email_clicks",
+        # A recipient can click several links (and the same link several times) per journey email.
+        path="journeys/email/{email_id}/clicks.json",
+        primary_keys=["JourneyID", "EmailID", "EmailAddress", "URL", "Date"],
+        paginated=True,
+        journey_report=True,
+        partition_key="Date",
+    ),
+    "journey_email_bounces": CampaignMonitorEndpointConfig(
+        name="journey_email_bounces",
+        path="journeys/email/{email_id}/bounces.json",
+        primary_keys=["JourneyID", "EmailID", "EmailAddress", "Date"],
+        paginated=True,
+        journey_report=True,
+        partition_key="Date",
+    ),
+    "journey_email_unsubscribes": CampaignMonitorEndpointConfig(
+        name="journey_email_unsubscribes",
+        path="journeys/email/{email_id}/unsubscribes.json",
+        primary_keys=["JourneyID", "EmailID", "EmailAddress", "Date"],
+        paginated=True,
+        journey_report=True,
+        partition_key="Date",
     ),
 }
 

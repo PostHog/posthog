@@ -93,10 +93,18 @@ export interface ParsedPrUrlParts {
     repoSlug: string
 }
 
-/** Parse a canonical GitHub PR URL into its owner / repo / number / repoSlug parts. */
+/**
+ * Parse a canonical GitHub PR URL (`https://github.com/<owner>/<repo>/pull/<number>`) into its parts.
+ * Any other host returns null: `implementation_pr_url` comes from task-run output, so a PR-shaped path
+ * on an arbitrary host would otherwise let a task label an attacker's site "Open in GitHub".
+ */
 export function parsePrUrlParts(prUrl: string): ParsedPrUrlParts | null {
     try {
-        const match = new URL(prUrl).pathname.match(PR_URL_PATH)
+        const url = new URL(prUrl)
+        if (url.protocol !== 'https:' || url.hostname !== 'github.com') {
+            return null
+        }
+        const match = url.pathname.match(PR_URL_PATH)
         if (!match) {
             return null
         }

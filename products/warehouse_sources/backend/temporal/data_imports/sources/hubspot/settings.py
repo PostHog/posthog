@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 STARTDATE = datetime(year=2000, month=1, day=1)
@@ -12,10 +14,11 @@ STARTDATE = datetime(year=2000, month=1, day=1)
 # Vendor API version labels. HubSpot moved to date-based versioning ("YYYY-MM"); the legacy
 # "v3" pin keeps the historical /crm/v3/ (objects, properties) + /crm/v4/ (association
 # batch-read) URL split. Under a date version the version segment moves to *after* the API
-# resource name, so /crm/v3/objects/... becomes /crm/objects/2026-03/... and
-# /crm/v4/associations/... becomes /crm/associations/2026-03/... .
+# resource name, so for 2026-09, /crm/v3/objects/... becomes /crm/objects/2026-09/... and
+# /crm/v4/associations/... becomes /crm/associations/2026-09/... .
 HUBSPOT_API_VERSION_V3 = "v3"
 HUBSPOT_API_VERSION_2026_03 = "2026-03"
+HUBSPOT_API_VERSION_2026_09 = "2026-09"
 
 # Matches the leading "/crm/<v3|v4>/<resource>" of a CRM path, capturing the resource name
 # (objects, properties, associations, pipelines, owners) so the version can be re-inserted after
@@ -33,6 +36,10 @@ def apply_crm_api_version(path: str, api_version: str) -> str:
         return path
     return _CRM_VERSION_SEGMENT.sub(rf"/crm/\1/{api_version}\2", path)
 
+
+# Reading leads requires Sales Hub Professional or above, so `OauthIntegration.oauth_config_for_kind`
+# asks HubSpot for this scope as an optional one and a connection can be authorized without it.
+LEADS_SCOPE = "crm.objects.leads.read"
 
 CONTACT = "contact"
 COMPANY = "company"
@@ -248,7 +255,7 @@ def _incremental_field(name: str) -> IncrementalField:
     )
 
 
-@dataclass
+@frozen
 class HubspotEndpointConfig:
     name: str
     path: str
@@ -261,6 +268,11 @@ class HubspotEndpointConfig:
     # Whether this endpoint is selected for sync by default. False keeps a table off unless the
     # user opts in — used for objects that need an OAuth scope existing connections lack (leads).
     should_sync_default: bool = True
+    # OAuth scope this endpoint needs beyond the mandatory set, when we request that scope as an
+    # `optional_scope` because it only exists on some HubSpot plans. HubSpot grants optional scopes
+    # silently, so the source checks the connection's granted scopes before offering or syncing
+    # these endpoints instead of finding out via a 403 mid-sync.
+    required_scope: Optional[str] = None
     # Request every property HubSpot defines for the object rather than only the non-hs_ ones.
     # Objects whose useful properties are all hs_-prefixed (engagements, commerce) would otherwise
     # sync near-empty rows, and listing those names by hand risks requesting properties a portal
@@ -336,6 +348,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
         should_sync_default=False,
+        required_scope=LEADS_SCOPE,
     ),
     # Engagement objects. HubSpot authorizes all of them (and feedback submissions) under
     # `crm.objects.contacts.read`, which every connection already holds, so they can default on.

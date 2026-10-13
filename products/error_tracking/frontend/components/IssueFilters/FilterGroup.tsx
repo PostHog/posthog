@@ -55,7 +55,6 @@ export const FilterGroup = ({
                 iconOnly={iconOnly}
                 filterAddedFromPreview={filterAddedFromPreview}
                 renderControls={renderControls}
-                hasActiveFilters={displayGroup.values.length > 0}
             />
         </UniversalFilters>
     )
@@ -68,7 +67,6 @@ const FilterControls = ({
     iconOnly = false,
     filterAddedFromPreview = 0,
     renderControls,
-    hasActiveFilters = false,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     nested?: boolean
@@ -76,7 +74,6 @@ const FilterControls = ({
     iconOnly?: boolean
     filterAddedFromPreview?: number
     renderControls?: (controls: { filterPicker: ReactNode; activeFilters: ReactNode }) => ReactNode
-    hasActiveFilters?: boolean
 }): JSX.Element => {
     const filterRow = (
         <div className={`relative flex shrink-0 items-center ${activeFiltersInline ? 'gap-2' : 'gap-1'}`}>
@@ -104,7 +101,7 @@ const FilterControls = ({
                             <FilterPicker taxonomicGroupTypes={taxonomicGroupTypes} iconOnly={iconOnly} />
                         </div>
                     ),
-                    activeFilters: hasActiveFilters ? (
+                    activeFilters: (
                         <UniversalFilterGroup
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             filterAddedFromPreview={filterAddedFromPreview}
@@ -112,7 +109,7 @@ const FilterControls = ({
                             className="flex w-full flex-wrap items-center gap-1"
                             dataAttr="error-tracking-active-filters"
                         />
-                    ) : null,
+                    ),
                 })}
             </>
         )

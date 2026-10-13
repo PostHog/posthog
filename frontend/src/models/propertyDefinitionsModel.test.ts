@@ -226,6 +226,50 @@ describe('the property definitions model', () => {
                 })
         })
 
+        it('drops a definitions response that arrives after the logic is gone', async () => {
+            let releaseRequest: (() => void) | undefined
+            let requestStarted: () => void
+            let requestAnswered: () => void
+            const inFlight = new Promise<void>((resolve) => (requestStarted = resolve))
+            const answered = new Promise<void>((resolve) => (requestAnswered = resolve))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/property_definitions/': async () => {
+                        requestStarted()
+                        await new Promise<void>((release) => (releaseRequest = release))
+                        requestAnswered()
+                        return [200, { count: 0, results: [], next: undefined }]
+                    },
+                },
+            })
+
+            const detachedPathErrors: unknown[] = []
+            const captureRejection = (reason: unknown): void => {
+                if (String((reason as Error)?.message).includes('Can not find path')) {
+                    detachedPathErrors.push(reason)
+                }
+            }
+            process.on('unhandledRejection', captureRejection)
+            try {
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
+                await inFlight
+                // permanentlyMount() holds a reference of its own, so one unmount leaves it mounted.
+                while (propertyDefinitionsModel.findMounted()) {
+                    logic.unmount()
+                }
+                releaseRequest?.()
+                await answered
+                // The listener resumes on the turn the response lands, and node reports an
+                // unhandled rejection at the end of the turn that produced it.
+                await new Promise((resolve) => setImmediate(resolve))
+                await new Promise((resolve) => setImmediate(resolve))
+            } finally {
+                process.off('unhandledRejection', captureRejection)
+            }
+
+            expect(detachedPathErrors).toEqual([])
+        })
+
         it('handles local definitions', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(['$session_duration'], PropertyDefinitionType.Event)
@@ -491,35 +535,56 @@ describe('the property definitions model', () => {
         })
     })
 
-    describe('log_entry property values', () => {
-        it('returns local options for log_entry/level without a network request', async () => {
-            let networkCalled = false
+    describe('local property values', () => {
+        it.each([
+            [
+                'log_entry/level',
+                PropertyDefinitionType.LogEntry,
+                'level',
+                [
+                    { id: 0, name: 'info' },
+                    { id: 1, name: 'warn' },
+                    { id: 2, name: 'error' },
+                ],
+            ],
+            [
+                'resource/severity',
+                PropertyDefinitionType.Resource,
+                'severity',
+                [
+                    { id: 0, name: 'low' },
+                    { id: 1, name: 'medium' },
+                    { id: 2, name: 'high' },
+                    { id: 3, name: 'critical' },
+                ],
+            ],
+        ] as const)(
+            'returns local options for %s without a network request',
+            async (_, type, propertyKey, expectedValues) => {
+                let networkCalled = false
 
-            useMocks({
-                get: {
-                    '/api/log_entry/values': () => {
-                        networkCalled = true
-                        return [200, { results: [], refreshing: false }]
+                useMocks({
+                    get: {
+                        [`/api/${type}/values`]: () => {
+                            networkCalled = true
+                            return [200, { results: [], refreshing: false }]
+                        },
                     },
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadPropertyValues({
-                    endpoint: undefined,
-                    type: PropertyDefinitionType.LogEntry,
-                    propertyKey: 'level',
-                    newInput: undefined,
                 })
-            }).toFinishAllListeners()
 
-            expect(networkCalled).toBe(false)
-            expect(logic.values.options['level'].values).toEqual([
-                { id: 0, name: 'info' },
-                { id: 1, name: 'warn' },
-                { id: 2, name: 'error' },
-            ])
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.loadPropertyValues({
+                        endpoint: undefined,
+                        type,
+                        propertyKey,
+                        newInput: undefined,
+                    })
+                }).toFinishAllListeners()
+
+                expect(networkCalled).toBe(false)
+                expect(logic.values.options[propertyKey].values).toEqual(expectedValues)
+            }
+        )
 
         it('does not fetch from a nonexistent endpoint for log_entry properties without local options', async () => {
             let networkCalled = false

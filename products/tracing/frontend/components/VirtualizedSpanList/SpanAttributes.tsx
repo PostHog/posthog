@@ -1,17 +1,32 @@
-import { useActions } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { IconCheck, IconColumns, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import ViewRecordingButton, {
+    RecordingPlayerType,
+    ViewRecordingButtonVariant,
+} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+// The key-matching helpers and their convention lists are shared with Logs, because both
+// products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
+import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { tracingConfigLogic } from 'products/tracing/frontend/tracingConfigLogic'
+import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
 import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 
+import { spanColumnKey, toggleSpanAttributeColumn } from './spanColumns'
+
 const APPLIED_INDICATOR_MS = 2000
+
+// The indicator names the state the click leaves behind, not the write, because a click on a value
+// already filtered reconciles to the same group and writes nothing (see spanFilterAdd.ts).
 
 interface AttributeRow {
     key: string
@@ -30,6 +45,22 @@ export interface SpanAttributesProps {
     propertyType?: PropertyFilterType.SpanAttribute | PropertyFilterType.SpanResourceAttribute
 }
 
+function ToggleColumnButton({ isColumn, onToggle }: { isColumn: boolean; onToggle: () => void }): JSX.Element {
+    return (
+        <LemonButton
+            tooltip={isColumn ? 'Remove the column for this attribute' : 'Show this attribute as a column'}
+            size="xsmall"
+            onClick={(e) => {
+                e.stopPropagation()
+                onToggle()
+            }}
+            data-attr="tracing-attribute-toggle-column"
+        >
+            <IconColumns className={isColumn ? 'text-success' : undefined} />
+        </LemonButton>
+    )
+}
+
 export function SpanAttributes({
     attributes,
     title,
@@ -38,8 +69,17 @@ export function SpanAttributes({
     propertyType,
 }: SpanAttributesProps): JSX.Element {
     const { addFilter } = useActions(tracingFiltersLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys, correlationLinksEnabled } =
+        useValues(tracingCorrelationConfigLogic)
+    const { spanColumns } = useValues(tracingConfigLogic)
+    const { setSpanColumns } = useActions(tracingConfigLogic)
+    const columnKeys = useMemo(() => new Set(spanColumns.map(spanColumnKey)), [spanColumns])
     const [appliedFilter, setAppliedFilter] = useState<{ key: string; direction: FilterDirection } | null>(null)
     const appliedFilterTimeoutRef = useRef<number | null>(null)
+
+    // Person/replay links only apply to real OTel attribute tables (propertyType set), because
+    // the synthetic "Span details" table repeats span metadata under conventional-looking keys.
+    const showCorrelationLinks = correlationLinksEnabled && propertyType !== undefined
 
     useEffect(
         () => () => {
@@ -69,7 +109,7 @@ export function SpanAttributes({
                       render: (_: unknown, record: AttributeRow) => (
                           <div className="flex gap-x-0">
                               {appliedFilter?.key === record.key && appliedFilter.direction === 'include' ? (
-                                  <LemonButton size="xsmall" tooltip="Filter added">
+                                  <LemonButton size="xsmall" tooltip="Filter applied">
                                       <IconCheck className="text-success" />
                                   </LemonButton>
                               ) : (
@@ -86,7 +126,7 @@ export function SpanAttributes({
                                   </LemonButton>
                               )}
                               {appliedFilter?.key === record.key && appliedFilter.direction === 'exclude' ? (
-                                  <LemonButton size="xsmall" tooltip="Filter added">
+                                  <LemonButton size="xsmall" tooltip="Filter applied">
                                       <IconCheck className="text-success" />
                                   </LemonButton>
                               ) : (
@@ -102,6 +142,12 @@ export function SpanAttributes({
                                       <IconMinusSquare />
                                   </LemonButton>
                               )}
+                              <ToggleColumnButton
+                                  isColumn={columnKeys.has(
+                                      spanColumnKey({ type: 'attribute', attributeKey: record.key })
+                                  )}
+                                  onToggle={() => setSpanColumns(toggleSpanAttributeColumn(spanColumns, record.key))}
+                              />
                           </div>
                       ),
                   },
@@ -124,6 +170,26 @@ export function SpanAttributes({
                 if (record.value === '') {
                     return <span className="font-mono text-xs text-muted italic">(empty)</span>
                 }
+                // The stopPropagation wrapper keeps a link click from also triggering any
+                // ancestor row handler, matching SpanRowActions' convention.
+                const correlationLink = !showCorrelationLinks ? null : isDistinctIdKey(
+                      record.key,
+                      configuredDistinctIdKeys
+                  ) ? (
+                    <span onClick={(e) => e.stopPropagation()}>
+                        <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
+                    </span>
+                ) : isSessionIdKey(record.key, configuredSessionIdKeys) ? (
+                    <span onClick={(e) => e.stopPropagation()}>
+                        <ViewRecordingButton
+                            sessionId={record.value}
+                            openPlayerIn={RecordingPlayerType.Modal}
+                            label={record.value}
+                            variant={ViewRecordingButtonVariant.Link}
+                            checkRecordingExists
+                        />
+                    </span>
+                ) : null
                 return (
                     <CopyToClipboardInline
                         explicitValue={record.value}
@@ -133,7 +199,7 @@ export function SpanAttributes({
                         selectable
                         className="gap-1 font-mono text-xs"
                     >
-                        {record.value}
+                        {correlationLink ?? <span>{record.value}</span>}
                     </CopyToClipboardInline>
                 )
             },

@@ -11,7 +11,7 @@ import { useThemeColors } from "@/lib/theme";
 const EDGE_SWIPE_HIT_WIDTH = 22;
 
 const HOME_ROUTE = "/tasks";
-const TAB_ROUTES = new Set(["/tasks", "/inbox", "/automations"]);
+const TAB_ROUTES = new Set(["/tasks", "/inbox"]);
 
 export default function TabsLayout() {
   const themeColors = useThemeColors();
@@ -53,7 +53,7 @@ export default function TabsLayout() {
           return true;
         }
         // Only intercept when we're actually on a tab destination. Modals
-        // pushed on top of the tabs (e.g. /automation, /task) keep this
+        // pushed on top of the tabs (e.g. /task) keep this
         // handler mounted; without the guard we'd redirect to /tasks instead
         // of letting the modal dismiss naturally.
         if (!TAB_ROUTES.has(pathname)) return false;
@@ -75,7 +75,6 @@ export default function TabsLayout() {
       >
         <Stack.Screen name="tasks" />
         <Stack.Screen name="inbox" />
-        <Stack.Screen name="automations" />
       </Stack>
       {/* Invisible left-edge strip that captures the open-drawer gesture. */}
       <View

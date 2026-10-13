@@ -1,6 +1,6 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
-
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { type AggregatedDisplayLabelDeps, getAggregatedDisplayLabel } from './getAggregatedDisplayLabel'
 

@@ -17,12 +17,14 @@ from posthog.sync import database_sync_to_async
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
 )
+from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_teams_webhook
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
     build_insight_delivery_snapshot,
@@ -42,7 +44,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     RecipientResult,
     UpdateDeliveryRecordInputs,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
@@ -57,6 +59,7 @@ from ee.tasks.subscriptions.failure_notifications import (
 )
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card
 
 LOGGER = get_logger(__name__)
 
@@ -246,7 +249,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAb
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliveryAbort(
         failed_recipient=RecipientResult(
-            recipient=subscription.target_value,
+            recipient=subscription.recipient_label,
             status="failed",
             error={"message": reason.description, "type": reason.key},
             human_readable_error=reason.description,
@@ -319,6 +322,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             target_type=subscription.target_type,
             available_insight_count=resolved_insights.available_insight_count,
             selected_insight_count=resolved_insights.selected_insight_count,
+            insight_limit=max_asset_count,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
             failure_context=failure_context,
         )
@@ -390,6 +394,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         target_type=subscription.target_type,
         available_insight_count=resolved_insights.available_insight_count,
         selected_insight_count=resolved_insights.selected_insight_count,
+        insight_limit=max_asset_count,
     )
 
 
@@ -462,7 +467,11 @@ async def _deliver_insight_dashboard_subscription(
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
-        return await auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
+        return await auto_disable_and_return(
+            subscription,
+            UNSUPPORTED_TARGET_DISABLE_REASON,
+            recipient_results,
+        )
 
     assets_by_id = await database_sync_to_async(
         lambda: {
@@ -486,7 +495,7 @@ async def _deliver_insight_dashboard_subscription(
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
         recipient_results.append(
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=subscription.recipient_label,
                 status="failed",
                 error={"message": NO_ASSETS_REASON, "type": "no_assets"},
                 human_readable_error=NO_ASSETS_HUMAN_READABLE_REASON,
@@ -528,6 +537,16 @@ async def _deliver_insight_dashboard_subscription(
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             ),
         )
+    elif subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
+        card = build_teams_subscription_card(
+            subscription,
+            assets,
+            inputs.total_insight_count,
+            is_new_subscription=send_only_to_new_recipients,
+            change_summary=inputs.change_summary,
+            summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+        )
+        result = await deliver_teams_webhook(subscription, recipient_results, body=card)
     else:
         raise ApplicationError(
             f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
@@ -555,6 +574,10 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
             )
 
         content_snapshot = build_initial_content_snapshot(subscription)
+        context_refs = sorted(
+            context.ref
+            for context in SubscriptionContext.objects.for_team(subscription.team_id).filter(subscription=subscription)
+        )
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
             idempotency_key=inputs.idempotency_key,
@@ -565,8 +588,9 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
                 "trigger_type": inputs.trigger_type,
                 "scheduled_at": scheduled_at,
                 "target_type": subscription.target_type,
-                "target_value": subscription.target_value,
+                "target_value": subscription.recipient_label,
                 "content_snapshot": content_snapshot,
+                "context_refs": context_refs,
                 "status": SubscriptionDelivery.Status.STARTING,
             },
         )

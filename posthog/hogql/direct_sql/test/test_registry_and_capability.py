@@ -6,6 +6,7 @@ from posthog.hogql.direct_sql import (
     ClickHouseAdapter,
     MySQLAdapter,
     PostgresAdapter,
+    TrinoAdapter,
     registry as registry_module,
 )
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
@@ -20,14 +21,16 @@ class TestDirectSQLRegistry(SimpleTestCase):
         self.assertIsInstance(get_adapter("postgres"), PostgresAdapter)
         self.assertIsInstance(get_adapter("mysql"), MySQLAdapter)
         self.assertIsInstance(get_adapter("clickhouse"), ClickHouseAdapter)
+        self.assertIsInstance(get_adapter("trino"), TrinoAdapter)
 
-    @parameterized.expand([("none", None), ("unregistered", "bigquery")])
+    @parameterized.expand([("none", None), ("unregistered", "sqlite")])
     def test_get_adapter_returns_none_for_unknown_engine(self, _name, engine):
         self.assertIsNone(get_adapter(engine))
 
     def test_registered_engines_includes_all_engines(self):
         self.assertEqual(
-            {"postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"}, set(registered_engines())
+            {"postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck", "trino", "bigquery"},
+            set(registered_engines()),
         )
 
     def test_clickhouse_adapter_compiles_hogql(self):
@@ -35,6 +38,17 @@ class TestDirectSQLRegistry(SimpleTestCase):
         assert adapter is not None
         # dialect is non-None, so direct_supports_hogql is True (not raw-only).
         self.assertEqual(adapter.dialect, "clickhouse")
+
+    def test_trino_adapter_compiles_hogql(self):
+        adapter = get_adapter("trino")
+        assert adapter is not None
+        self.assertEqual(adapter.dialect, "trino")
+
+    def test_bigquery_adapter_is_raw_only(self):
+        adapter = get_adapter("bigquery")
+        assert adapter is not None
+        # No BigQuery printer dialect exists; a non-None dialect would route HogQL to a wrong printer.
+        self.assertIsNone(adapter.dialect)
 
     def test_register_adapter_round_trips(self):
         class FakeAdapter:
@@ -61,7 +75,10 @@ class TestDirectSQLCapability(SimpleTestCase):
             ("clickhouse_synced_disabled", ExternalDataSourceType.CLICKHOUSE, "warehouse", False, False),
             ("clickhousecloud_direct", ExternalDataSourceType.CLICKHOUSECLOUD, "direct", False, True),
             ("motherduck_direct_ignores_toggle", ExternalDataSourceType.MOTHERDUCK, "direct", False, True),
+            ("trino_direct_ignores_toggle", ExternalDataSourceType.TRINO, "direct", False, True),
             ("motherduck_synced_enabled", ExternalDataSourceType.MOTHERDUCK, "warehouse", True, True),
+            ("bigquery_direct_ignores_toggle", ExternalDataSourceType.BIGQUERY, "direct", False, True),
+            ("bigquery_synced_enabled", ExternalDataSourceType.BIGQUERY, "warehouse", True, True),
             ("unmapped_engine_synced", ExternalDataSourceType.STRIPE, "warehouse", True, False),
             ("unmapped_engine_direct", ExternalDataSourceType.STRIPE, "direct", True, False),
         ]
@@ -84,6 +101,8 @@ class TestDirectSQLCapability(SimpleTestCase):
                 ExternalDataSourceType.CLICKHOUSE,
                 ExternalDataSourceType.CLICKHOUSECLOUD,
                 ExternalDataSourceType.MOTHERDUCK,
+                ExternalDataSourceType.TRINO,
+                ExternalDataSourceType.BIGQUERY,
             },
             set(direct_capable_source_types()),
         )

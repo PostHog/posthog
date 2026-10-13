@@ -16,9 +16,14 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.models import Team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_notebook_content
+from .markdown_migration import to_markdown_notebook_content
 from .models import Notebook, ResourceNotebook
+from .sql_v2_state import validate_cell_count
 
 
 def _base_queryset(team_id: int, *, include_deleted: bool = False) -> Any:
@@ -67,6 +72,10 @@ async def aupdate_notebook_content(
     notebook = await aget_notebook(team_id, short_id, include_deleted=True)
     if notebook is None:
         return None
+    # Enforced here rather than only at the HTTP layer: this writer bypasses the serializer
+    # entirely (it is a queryset update, so no save() hook or signal fires either), and it is
+    # how Max saves a notebook. A ceiling only the API respects is not a ceiling.
+    validate_cell_count(notebook.content, content)
     await Notebook.objects.filter(pk=notebook.pk).aupdate(
         content=content,
         title=title,
@@ -89,6 +98,11 @@ async def aupsert_notebook(
     content: dict[str, Any],
     text_content: str | None = None,
 ) -> tuple[Notebook, bool]:
+    # Checked before the upsert, not after: aget_or_create would otherwise have already
+    # written the over-limit row by the time the ceiling rejected it. Like the rest of this
+    # writer, the read and the write are not atomic — the path has no version CAS at all.
+    existing = await aget_notebook(team_id, short_id, include_deleted=True)
+    validate_cell_count(existing.content if existing is not None else None, content)
     notebook, created = await Notebook.objects.aget_or_create(
         team_id=team_id,
         short_id=short_id,
@@ -178,6 +192,13 @@ def create_account_notebook(
     created_by_id: int | None = None,
     last_modified_by_id: int | None = None,
 ) -> Notebook:
+    if not is_markdown_notebook_content(content):
+        organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        content = to_markdown_notebook_content(content, organization_id=organization_id)
+    # A converted or synthesized document can hold more cells than the editor allows, so count it before saving.
+    validate_cell_count(None, content)
+    # Search reads text_content, so it mirrors the stored markdown.
+    text_content = get_markdown_notebook_markdown(content)
     with transaction.atomic():
         notebook = Notebook.objects.create(
             team_id=team_id,

@@ -1,14 +1,24 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Aircall caps list pages at 50 items.
+PAGE_SIZE = 50
 
-@dataclass
+
+# frozen=False: the shared FanoutEndpointLike protocol declares mutable attributes, which a
+# frozen dataclass cannot satisfy. The instances are treated as immutable by convention.
+@dataclass(frozen=False)
 class AircallEndpointConfig:
     name: str
     path: str
-    # Key the list of objects is nested under in the response body (e.g. {"calls": [...]}).
+    # For a list endpoint, the key the objects are nested under (e.g. {"calls": [...]}). For a
+    # per-call Conversation Intelligence sub-resource, "$" — the whole body is the single row.
     data_key: str
     primary_key: str = "id"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -20,6 +30,30 @@ class AircallEndpointConfig:
     # calls/contacts. Must be the same stable creation-time field the API's `from` filter
     # applies to.
     reanchor_field: Optional[str] = None
+    page_size: int = PAGE_SIZE
+    # Unused by the full-refresh CI children; kept so the config satisfies FanoutEndpointLike.
+    default_incremental_field: Optional[str] = None
+    fanout: Optional[DependentEndpointConfig] = None
+
+
+# The Conversation Intelligence sub-resources (transcription, sentiments, topics, evaluations)
+# are all fetched per call, so they fan out over the calls list. The fan-out shape is identical
+# for every one — only the path and table name differ — so a single shared config drives them.
+# A call with no AI data (or a call deleted between the parent listing and this fetch) answers
+# 404; ignoring it keeps the fan-out going instead of failing the whole table.
+_CI_404_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+_CALL_CI_FANOUT = DependentEndpointConfig(
+    parent_name="calls",
+    resolve_param="call_id",
+    resolve_field="id",
+    # Inject the parent call's id as `call_id` so the primary key is always present and unique
+    # (one CI object per call), regardless of what the sub-resource body itself carries.
+    include_from_parent=["id"],
+    parent_field_renames={"id": "call_id"},
+    # Walk the parent calls list ascending so its paginator can page past Aircall's 10k cap.
+    parent_params={"order": "asc"},
+    child_response_actions=_CI_404_IGNORE,
+)
 
 
 # Aircall timestamps are UNIX epoch seconds, so candidate incremental fields are stored as
@@ -79,6 +113,38 @@ AIRCALL_ENDPOINTS: dict[str, AircallEndpointConfig] = {
         name="tags",
         path="/tags",
         data_key="tags",
+    ),
+    # Conversation Intelligence sub-resources, one object per call, fanned out over calls. Each
+    # returns a flat per-call object, so "$" selects the whole body as the single row. These need
+    # the AI Assist add-on on the account; without it every fetch is denied, which surfaces as an
+    # auth error rather than an empty table.
+    "call_transcriptions": AircallEndpointConfig(
+        name="call_transcriptions",
+        path="/calls/{call_id}/transcription",
+        data_key="$",
+        primary_key="call_id",
+        fanout=_CALL_CI_FANOUT,
+    ),
+    "call_sentiments": AircallEndpointConfig(
+        name="call_sentiments",
+        path="/calls/{call_id}/sentiments",
+        data_key="$",
+        primary_key="call_id",
+        fanout=_CALL_CI_FANOUT,
+    ),
+    "call_topics": AircallEndpointConfig(
+        name="call_topics",
+        path="/calls/{call_id}/topics",
+        data_key="$",
+        primary_key="call_id",
+        fanout=_CALL_CI_FANOUT,
+    ),
+    "call_evaluations": AircallEndpointConfig(
+        name="call_evaluations",
+        path="/calls/{call_id}/evaluations",
+        data_key="$",
+        primary_key="call_id",
+        fanout=_CALL_CI_FANOUT,
     ),
 }
 

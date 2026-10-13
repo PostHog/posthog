@@ -1,0 +1,21 @@
+{
+  "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
+  "source_path": "contracts/feature_flag_rules_v2",
+  "source_revision": "3de40b77efbe978057ea1d16a519b72cf6ec8e16",
+  "contract_version": "1.2.0",
+  "corpus_version": "1.1.0",
+  "source_sha256sums_digest": "b3457d860277f89407762abcf48774e3ef37bbf7c45693fee35cb4096a343e71",
+  "files": {
+    "manifest.json": "822b6d654bea1d928068c30477a9d437094d5a36edd8ad14cba94b5871bcbbfa",
+    "corpus/hash_sha1_60_v1.json": "e9bea9cff58bac0c6c1021e9c8842c53594055b6874a2c58bc4350d0c28a93ca",
+    "corpus/legacy_projection.json": "536c8386eefa75721d113bd8718ddeb7fb1aad3b4f2cce1fbcf516a346a16e26",
+    "corpus/v1_evaluation.json": "752ff88dcb943ab1e21f9552b0c4ec606029393fca2b565b01a497da89cd8675"
+  },
+  "update_procedure": [
+    "Never edit a vendored file in place. A changed expectation needs a new corpus version upstream and a review explanation there.",
+    "To move to a new version: check out the harness at the revision to vendor, copy manifest.json and corpus/*.json from source_path into a sibling directory named after the new contract version, and delete this one.",
+    "Record the revision, versions, and the SHA-256 of the upstream SHA256SUMS file (shasum -a 256 SHA256SUMS) in the new SOURCE.json.",
+    "Regenerate files with: (cd <new directory> && shasum -a 256 manifest.json corpus/*.json).",
+    "Point CORPUS_DIR in tests/test_rules_v2_v1_contract.rs at the new directory and reconcile UNSUPPORTED_CASE_IDS with the new manifest."
+  ]
+}

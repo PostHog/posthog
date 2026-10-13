@@ -1,4 +1,3 @@
-import os
 import uuid
 import datetime as dt
 
@@ -26,6 +25,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.tests.temporal.destinations.redshift.utils import (
     MISSING_REQUIRED_ENV_VARS,
+    REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
 )
@@ -37,12 +37,9 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("S3_TEST_BUCKET", *REQUIRED_ENV_VARS, check=has_valid_credentials),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials() or MISSING_REQUIRED_ENV_VARS,
-        reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
-    ),
 ]
 
 

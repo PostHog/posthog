@@ -2,6 +2,7 @@ use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
+    metric_consts::SOURCEMAP_IGNORED_FRAME,
     sanitize_string,
     symbolication::symbol_store::{
         chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog,
@@ -87,10 +88,14 @@ impl RawNodeFrame {
             let sourcemap = catalog.lookup(team_id, chunk_ref).await?;
             let smc = sourcemap.get_smc();
             // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
-            if let Some(location) =
-                smc.lookup(SourcePosition::new(location.line - 1, location.column))
-            {
-                Ok(Frame::from((self, location, context_lines)))
+            let generated_position = SourcePosition::new(location.line - 1, location.column);
+            if let Some(location) = smc.lookup(generated_position) {
+                let mut frame = Frame::from((self, location, context_lines));
+                if sourcemap.is_source_ignored(generated_position) {
+                    frame.in_app = false;
+                    metrics::counter!(SOURCEMAP_IGNORED_FRAME, "runtime" => "node").increment(1);
+                }
+                Ok(frame)
             } else {
                 Err(JsResolveErr::TokenNotFound(
                     self.function.clone(),
@@ -123,6 +128,10 @@ impl RawNodeFrame {
         hasher.update(self.filename.as_bytes());
         hasher.update(self.function.as_bytes());
         hasher.update(self.lineno.unwrap_or_default().to_be_bytes());
+        // In a minified bundle every frame shares the file, the line (1), an anonymized
+        // function name, and the context line — the column is the only discriminator, so
+        // leaving it out of the id collapses distinct frames into one cached resolution.
+        hasher.update(self.colno.unwrap_or_default().to_be_bytes());
         self.module
             .as_ref()
             .inspect(|m| hasher.update(m.as_bytes()));
@@ -321,7 +330,64 @@ fn is_dependency_source(source: &str) -> bool {
 
 #[cfg(test)]
 mod test {
+    use crate::symbolication::symbol_store::sourcemap::test_support::source_map_catalog;
+
     use super::RawNodeFrame;
+
+    fn resolvable_frame(column: u32) -> RawNodeFrame {
+        serde_json::from_value(serde_json::json!({
+            "filename": "bundle.js",
+            "function": "minified",
+            "lineno": 1,
+            "colno": column,
+            "chunk_id": "test-chunk",
+            "in_app": true,
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn source_map_ignore_list_demotes_only_ignored_sources() {
+        let catalog = source_map_catalog();
+
+        let vendor = resolvable_frame(0)
+            .resolve_frame(1, &catalog, 0)
+            .await
+            .unwrap();
+        assert!(vendor.resolved);
+        assert_eq!(vendor.source.as_deref(), Some("vendor.js"));
+        assert!(!vendor.in_app);
+
+        let app = resolvable_frame(10)
+            .resolve_frame(1, &catalog, 0)
+            .await
+            .unwrap();
+        assert!(app.resolved);
+        assert_eq!(app.source.as_deref(), Some("app.js"));
+        assert!(app.in_app);
+    }
+
+    #[test]
+    fn frame_id_distinguishes_columns_on_the_same_line() {
+        // Minified bundles put every frame on line 1 of the same file with an anonymized
+        // function name and an identical context line, so the column is the only field
+        // separating distinct frames. An id that ignores it collapses them into one
+        // cached resolution.
+        let frame = |colno: u32| -> RawNodeFrame {
+            serde_json::from_value(serde_json::json!({
+                "filename": "dist/index.js",
+                "function": "?",
+                "lineno": 1,
+                "colno": colno,
+                "module": "index",
+                "context_line": "!function(){try{var e=global}catch(e){}}();(()=>{\"use strict\"})();",
+            }))
+            .unwrap()
+        };
+
+        assert_ne!(frame(1345).frame_id(), frame(1453).frame_id());
+        assert_eq!(frame(1345).frame_id(), frame(1345).frame_id());
+    }
 
     #[test]
     fn test_in_app_normalization() {

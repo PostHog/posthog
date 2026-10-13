@@ -7,7 +7,10 @@ import {
 } from '~/ingestion/common/persons/flag-called-personless'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config'
+import {
+    DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+    DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
+} from '~/ingestion/config'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -41,9 +44,13 @@ export type ProcessPersonlessOutput = {
  * 3. Returns person (real or fake) with potential force_upgrade flag
  */
 export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
-    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
+    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+    flagCalledPersonlessExcludedTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS
 ): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
-    const flagCalledDefaultEnabledForTeam = buildFlagCalledPersonlessMatcher(flagCalledPersonlessDefaultTeams)
+    const flagCalledDefaultEnabledForTeam = buildFlagCalledPersonlessMatcher(
+        flagCalledPersonlessDefaultTeams,
+        flagCalledPersonlessExcludedTeams
+    )
 
     return async function processPersonlessStep(
         input: TInput

@@ -87,6 +87,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "Authentication status applied to the group's users: active, bypass, or disabled.",
         },
     },
+    "group_users": {
+        "description": "One row per user-to-group membership: the group, plus the user object Duo returns for it. A user appears once for every group they belong to.",
+        "docs_url": "https://duo.com/docs/adminapi#retrieve-users-by-group-id",
+        "columns": {
+            "group_id": "Unique identifier of the group the membership is for.",
+            "user_id": "Unique identifier of the member.",
+            "username": "The member's login name.",
+            "email": "The member's email address.",
+            "realname": "The member's real name.",
+            "status": "Enrollment/access status: active, bypass, disabled, locked out, or pending deletion.",
+        },
+    },
     "phones": {
         "description": "Phones and tablets registered with Duo, including platform, capabilities, and attached users.",
         "docs_url": "https://duo.com/docs/adminapi#phones",
@@ -100,6 +112,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "capabilities": "Authentication methods the phone can use, such as push or sms.",
             "last_seen": "ISO 8601 timestamp of the last contact from Duo Mobile on this phone.",
             "users": "Users the phone is attached to.",
+        },
+    },
+    "endpoints": {
+        "description": "Managed endpoints (computers and devices) seen authenticating to Duo, with their operating system and browser versions. Duo purges a record after 30 days of inactivity.",
+        "docs_url": "https://duo.com/docs/adminapi#endpoints",
+        "columns": {
+            "epkey": "Unique identifier of the endpoint. Also appears as the access device key on authentication log rows.",
+            "username": "The Duo username the endpoint authenticated as.",
+            "email": "Email address of the user the endpoint belongs to.",
+            "os_family": "The endpoint's operating system family, such as Windows or Mac OS X.",
+            "os_version": "The endpoint's operating system version.",
+            "model": "The endpoint's hardware model.",
+            "type": "The endpoint type, such as computer or phone.",
+            "browsers": "Browsers seen on the endpoint, each with its browser family, browser version, flash version, and java version.",
         },
     },
     "admins": {
@@ -123,6 +149,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "type": "The integration type, such as websdk, adminapi, or authapi.",
             "greeting": "Voice greeting read at the start of authentication calls.",
             "notes": "Free-form notes about the integration.",
+        },
+    },
+    "policies": {
+        "description": "Policies defining the access and authentication requirements Duo applies, and the settings each one overrides.",
+        "docs_url": "https://duo.com/docs/adminapi#policies",
+        "columns": {
+            "policy_key": "Unique identifier of the policy. Authentication and activity log rows reference these keys.",
+            "sections": "The policy settings this policy sets, grouped by section, such as browsers or authentication methods.",
         },
     },
 }

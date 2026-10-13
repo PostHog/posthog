@@ -1,14 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { ReactNode, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
-
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import type { ComposerOverride } from '../../../logics/composerOverrideLogic'
+import type { AttachedContextItem } from '../../../types/contextTypes'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { StartupRunChat } from './StartupRunChat'
 import { TaskComposer } from './TaskComposer'
 import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
 import { TaskRunChat } from './TaskRunChat'
@@ -16,6 +18,12 @@ import { TaskRunChat } from './TaskRunChat'
 export interface SidePanelRunnerImplProps {
     /** Embedded `taskTrackerSceneLogic` key — keeps this instance independent of the `/tasks` scene singleton. */
     panelId: string
+    composer?: ReactNode
+    attachApplyBackInstructions?: boolean
+    /** Context exclusive to this runner, rather than the app-wide attached-context registry. */
+    contextItems?: AttachedContextItem[]
+    composerOverride?: ComposerOverride
+    welcomeHeadlines?: string[]
 }
 
 /**
@@ -25,17 +33,41 @@ export interface SidePanelRunnerImplProps {
  * `TaskTrackerSceneLogicProps`) so `TaskComposer` — which reads the unbound `taskTrackerSceneLogic` — resolves
  * this instance instead of the scene's own singleton.
  */
-export function SidePanelRunnerImpl({ panelId }: SidePanelRunnerImplProps): JSX.Element {
+export function SidePanelRunnerImpl({
+    panelId,
+    composer,
+    attachApplyBackInstructions = true,
+    contextItems,
+    composerOverride,
+    welcomeHeadlines,
+}: SidePanelRunnerImplProps): JSX.Element {
     return (
-        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId }}>
-            <SidePanelRunnerContent />
+        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId, contextItems, composerOverride, welcomeHeadlines }}>
+            <SidePanelRunnerContent
+                composer={composer}
+                attachApplyBackInstructions={attachApplyBackInstructions}
+                contextItems={contextItems}
+            />
         </BindLogic>
     )
 }
 
-function SidePanelRunnerContent(): JSX.Element {
-    const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
-    const { toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
+function SidePanelRunnerContent({
+    composer,
+    attachApplyBackInstructions,
+    contextItems,
+}: {
+    composer?: ReactNode
+    attachApplyBackInstructions: boolean
+    contextItems?: AttachedContextItem[]
+}): JSX.Element {
+    const {
+        activeCreation,
+        historyExpanded,
+        effectiveComposerOverride: composerOverride,
+    } = useValues(taskTrackerSceneLogic)
+    const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
+    const startupFocusedRef = useRef(false)
 
     // This compact surface renders only in Max's side panel, so the run it shows is a foreground
     // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
@@ -43,12 +75,14 @@ function SidePanelRunnerContent(): JSX.Element {
     // `TaskRunChat`; registrations are provider-keyed, so co-mounted surfaces don't clobber each other.
     useForegroundStream(activeCreation?.streamKey ?? null)
 
-    // While this side-panel surface is mounted, tell the agent its tool calls are applied back into
-    // whatever the user has open (see `useMcpToolApplyBack` consumers). Attached unconditionally —
-    // unlike the foreground stream above, the instruction must ride the FIRST send, before a run exists.
-    useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM])
+    // Edit-capable hosts attach this before the first send, before a run exists. Question-only
+    // hosts provide their own instructions instead of advertising edits to the open page.
+    useAttachedContext(attachApplyBackInstructions ? [AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM] : null)
 
-    if (!activeCreation && historyExpanded) {
+    // `!composer`: a host that supplies its own composer offers no way into the history list, and the
+    // panel state is shared across hosts — so an expanded history left behind by another one must not
+    // take the place of that composer.
+    if (!activeCreation && historyExpanded && !composer) {
         return (
             <div className="flex flex-col h-full min-h-0">
                 <div className="flex items-center shrink-0 border-b border-primary px-2 py-1">
@@ -64,6 +98,9 @@ function SidePanelRunnerContent(): JSX.Element {
     }
 
     if (!activeCreation) {
+        if (composer) {
+            return <div className="flex-1 min-h-0 overflow-y-auto">{composer}</div>
+        }
         // Mirrors the legacy Max welcome layout: a centered composer with the recent-tasks
         // history pinned as a sibling at the bottom of the panel, not inside the composer column.
         return (
@@ -73,7 +110,7 @@ function SidePanelRunnerContent(): JSX.Element {
                 <div className="grow min-h-0 flex flex-col">
                     <TaskComposer />
                 </div>
-                <TaskHistoryPreview />
+                {!composerOverride?.hideRecentTasks && <TaskHistoryPreview />}
             </div>
         )
     }
@@ -90,14 +127,22 @@ function SidePanelRunnerContent(): JSX.Element {
                         taskId={activeCreation.taskId}
                         runId={activeCreation.runId}
                         streamKey={activeCreation.streamKey}
+                        interactionKey={activeCreation.interactionKey}
                         onRunStarted={updateActiveCreationRun}
+                        escapeScope="composer"
+                        initialDraft={activeCreation.draft}
+                        onDraftAdopted={() => setStartupDraft('')}
+                        autoFocus={startupFocusedRef.current}
+                        contextItems={contextItems}
                     />
                 </div>
             ) : (
-                <div className="@container/thread flex flex-col flex-1 min-h-0">
-                    <RunSurface.Root taskId="" runId={null} streamKey={activeCreation.streamKey} interaction="live">
-                        <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
-                    </RunSurface.Root>
+                <div className="flex-1 min-h-0 px-4">
+                    <StartupRunChat
+                        streamKey={activeCreation.streamKey}
+                        focusedRef={startupFocusedRef}
+                        contextItems={contextItems}
+                    />
                 </div>
             )}
         </div>

@@ -114,7 +114,7 @@
                           },
                           event_person_id: {
                             description: None,
-                            hidden: False
+                            hidden: True
                           },
                           exception_issue_override: {
                             description: None,
@@ -192,6 +192,10 @@
                             description: None,
                             hidden: False
                           },
+                          issue_severity: {
+                            description: None,
+                            hidden: True
+                          },
                           issue_status: {
                             description: None,
                             hidden: False
@@ -242,6 +246,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -363,13 +368,6 @@
                     }
                   }
                 },
-                event_person_id: {
-                  alias: "event_person_id"
-                  type: {
-                    name: "event_person_id"
-                    table_type: <recursion ...>
-                  }
-                },
                 issue_assigned_role_id: {
                   alias: "issue_assigned_role_id"
                   type: {
@@ -419,6 +417,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -429,6 +431,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -491,6 +494,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -501,6 +508,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -563,6 +571,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -573,6 +585,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -635,6 +648,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -645,6 +662,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -707,6 +725,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -717,6 +739,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -779,6 +802,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -789,6 +816,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -851,6 +879,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -861,6 +893,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -923,6 +956,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -933,6 +970,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -1376,25 +1414,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           chain: [
@@ -1746,6 +1765,7 @@
                                       }
                                     },
                                     hidden: False,
+                                    inherit_profile_spill: False,
                                     name: None,
                                     top_level_settings: None,
                                     workload: None
@@ -1832,6 +1852,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -1988,19 +2009,6 @@
             expr: {
               chain: [
                 "elements_chain_elements"
-              ]
-              from_asterisk: True
-              type: <recursion ...>
-            }
-            from_asterisk: False
-            hidden: True
-            type: <recursion ...>
-          },
-          {
-            alias: "event_person_id"
-            expr: {
-              chain: [
-                "event_person_id"
               ]
               from_asterisk: True
               type: <recursion ...>
@@ -2248,7 +2256,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -2377,7 +2384,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -2459,6 +2466,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -2509,6 +2520,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -2741,6 +2753,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -2830,6 +2843,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -3069,25 +3083,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -3199,6 +3194,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3209,6 +3208,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3290,6 +3290,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3300,6 +3304,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3381,6 +3386,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3391,6 +3400,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3472,6 +3482,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3482,6 +3496,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3563,6 +3578,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3573,6 +3592,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3654,6 +3674,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3664,6 +3688,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3745,6 +3770,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3755,6 +3784,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3836,6 +3866,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3846,6 +3880,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3903,7 +3938,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -4077,6 +4111,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -4774,6 +4809,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -5192,10 +5228,6 @@
                   data_type: "uuid"
                   nullable: True
                 },
-                event_person_id: {
-                  data_type: "uuid"
-                  nullable: False
-                },
                 issue_assigned_role_id: {
                   data_type: "uuid"
                   nullable: True
@@ -5352,7 +5384,7 @@
                               },
                               event_person_id: {
                                 description: None,
-                                hidden: False
+                                hidden: True
                               },
                               exception_issue_override: {
                                 description: None,
@@ -5430,6 +5462,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
+                              },
                               issue_status: {
                                 description: None,
                                 hidden: False
@@ -5480,6 +5516,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -5601,13 +5638,6 @@
                         }
                       }
                     },
-                    event_person_id: {
-                      alias: "event_person_id"
-                      type: {
-                        name: "event_person_id"
-                        table_type: <recursion ...>
-                      }
-                    },
                     issue_assigned_role_id: {
                       alias: "issue_assigned_role_id"
                       type: {
@@ -5657,6 +5687,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -5667,6 +5701,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5729,6 +5764,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -5739,6 +5778,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5801,6 +5841,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -5811,6 +5855,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5873,6 +5918,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -5883,6 +5932,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5945,6 +5995,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -5955,6 +6009,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6017,6 +6072,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6027,6 +6086,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6089,6 +6149,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6099,6 +6163,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6161,6 +6226,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6171,6 +6240,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6345,7 +6415,7 @@
                               },
                               event_person_id: {
                                 description: None,
-                                hidden: False
+                                hidden: True
                               },
                               exception_issue_override: {
                                 description: None,
@@ -6423,6 +6493,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
+                              },
                               issue_status: {
                                 description: None,
                                 hidden: False
@@ -6473,6 +6547,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -6594,13 +6669,6 @@
                         }
                       }
                     },
-                    event_person_id: {
-                      alias: "event_person_id"
-                      type: {
-                        name: "event_person_id"
-                        table_type: <recursion ...>
-                      }
-                    },
                     issue_assigned_role_id: {
                       alias: "issue_assigned_role_id"
                       type: {
@@ -6650,6 +6718,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6660,6 +6732,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6722,6 +6795,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6732,6 +6809,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6794,6 +6872,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6804,6 +6886,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6866,6 +6949,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6876,6 +6963,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6938,6 +7026,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6948,6 +7040,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7010,6 +7103,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7020,6 +7117,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7082,6 +7180,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7092,6 +7194,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7154,6 +7257,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7164,6 +7271,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7609,25 +7717,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           chain: [
@@ -7980,6 +8069,7 @@
                                         }
                                       },
                                       hidden: False,
+                                      inherit_profile_spill: False,
                                       name: None,
                                       top_level_settings: None,
                                       workload: None
@@ -8066,6 +8156,7 @@
                                 }
                               },
                               hidden: False,
+                              inherit_profile_spill: False,
                               name: None,
                               top_level_settings: None,
                               workload: None
@@ -8222,19 +8313,6 @@
               expr: {
                 chain: [
                   "elements_chain_elements"
-                ]
-                from_asterisk: True
-                type: <recursion ...>
-              }
-              from_asterisk: False
-              hidden: True
-              type: <recursion ...>
-            },
-            {
-              alias: "event_person_id"
-              expr: {
-                chain: [
-                  "event_person_id"
                 ]
                 from_asterisk: True
                 type: <recursion ...>
@@ -8639,6 +8717,7 @@
                                             }
                                           },
                                           hidden: False,
+                                          inherit_profile_spill: False,
                                           name: None,
                                           top_level_settings: None,
                                           workload: None
@@ -8725,6 +8804,7 @@
                                     }
                                   },
                                   hidden: False,
+                                  inherit_profile_spill: False,
                                   name: None,
                                   top_level_settings: None,
                                   workload: None
@@ -8881,19 +8961,6 @@
                   expr: {
                     chain: [
                       "elements_chain_elements"
-                    ]
-                    from_asterisk: True
-                    type: <recursion ...>
-                  }
-                  from_asterisk: False
-                  hidden: True
-                  type: <recursion ...>
-                },
-                {
-                  alias: "event_person_id"
-                  expr: {
-                    chain: [
-                      "event_person_id"
                     ]
                     from_asterisk: True
                     type: <recursion ...>
@@ -9146,7 +9213,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -9505,7 +9571,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -9583,6 +9649,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -9633,6 +9703,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -9865,6 +9936,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -9954,6 +10026,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -10193,25 +10266,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -10323,6 +10377,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10333,6 +10391,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10414,6 +10473,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10424,6 +10487,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10505,6 +10569,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10515,6 +10583,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10596,6 +10665,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10606,6 +10679,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10687,6 +10761,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10697,6 +10775,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10778,6 +10857,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10788,6 +10871,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10869,6 +10953,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10879,6 +10967,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10960,6 +11049,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10970,6 +11063,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -11027,7 +11121,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -11160,7 +11253,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -11238,6 +11331,10 @@
                       description: None,
                       hidden: False
                     },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
+                    },
                     issue_status: {
                       description: None,
                       hidden: False
@@ -11288,6 +11385,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -11521,6 +11619,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -11610,6 +11709,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -11849,25 +11949,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -11979,6 +12060,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -11989,6 +12074,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12070,6 +12156,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12080,6 +12170,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12161,6 +12252,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12171,6 +12266,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12252,6 +12348,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12262,6 +12362,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12343,6 +12444,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12353,6 +12458,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12434,6 +12540,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12444,6 +12554,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12525,6 +12636,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12535,6 +12650,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12616,6 +12732,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12626,6 +12746,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12684,7 +12805,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -12817,7 +12937,7 @@
                       },
                       event_person_id: {
                         description: None,
-                        hidden: False
+                        hidden: True
                       },
                       exception_issue_override: {
                         description: None,
@@ -12895,6 +13015,10 @@
                         description: None,
                         hidden: False
                       },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
+                      },
                       issue_status: {
                         description: None,
                         hidden: False
@@ -12945,6 +13069,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -13113,7 +13238,7 @@
                       },
                       event_person_id: {
                         description: None,
-                        hidden: False
+                        hidden: True
                       },
                       exception_issue_override: {
                         description: None,
@@ -13191,6 +13316,10 @@
                         description: None,
                         hidden: False
                       },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
+                      },
                       issue_status: {
                         description: None,
                         hidden: False
@@ -13245,6 +13374,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -13339,6 +13469,7 @@
                     },
                     filter: None,
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -13756,7 +13887,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -13834,6 +13965,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -13884,6 +14019,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -14088,7 +14224,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -14166,6 +14302,10 @@
                       description: None,
                       hidden: False
                     },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
+                    },
                     issue_status: {
                       description: None,
                       hidden: False
@@ -14216,6 +14356,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -14424,7 +14565,7 @@
                       },
                       event_person_id: {
                         description: None,
-                        hidden: False
+                        hidden: True
                       },
                       exception_issue_override: {
                         description: None,
@@ -14502,6 +14643,10 @@
                         description: None,
                         hidden: False
                       },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
+                      },
                       issue_status: {
                         description: None,
                         hidden: False
@@ -14552,6 +14697,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -14800,7 +14946,7 @@
                               },
                               event_person_id: {
                                 description: None,
-                                hidden: False
+                                hidden: True
                               },
                               exception_issue_override: {
                                 description: None,
@@ -14878,6 +15024,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
+                              },
                               issue_status: {
                                 description: None,
                                 hidden: False
@@ -14928,6 +15078,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -15182,7 +15333,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -15260,6 +15411,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -15310,6 +15465,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -15377,6 +15533,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -15533,7 +15690,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -15611,6 +15768,10 @@
                       description: None,
                       hidden: False
                     },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
+                    },
                     issue_status: {
                       description: None,
                       hidden: False
@@ -15661,6 +15822,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -15730,6 +15892,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -15885,7 +16048,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -15963,6 +16126,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -16013,6 +16180,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -16066,6 +16234,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -16221,7 +16390,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -16299,6 +16468,10 @@
                       description: None,
                       hidden: False
                     },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
+                    },
                     issue_status: {
                       description: None,
                       hidden: False
@@ -16349,6 +16522,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -16404,6 +16578,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -16486,6 +16661,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -16669,7 +16845,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -16747,6 +16923,10 @@
                       description: None,
                       hidden: False
                     },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
+                    },
                     issue_status: {
                       description: None,
                       hidden: False
@@ -16797,6 +16977,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -16962,7 +17143,7 @@
                         },
                         event_person_id: {
                           description: None,
-                          hidden: False
+                          hidden: True
                         },
                         exception_issue_override: {
                           description: None,
@@ -17040,6 +17221,10 @@
                           description: None,
                           hidden: False
                         },
+                        issue_severity: {
+                          description: None,
+                          hidden: True
+                        },
                         issue_status: {
                           description: None,
                           hidden: False
@@ -17090,6 +17275,7 @@
                         }
                       },
                       hidden: False,
+                      inherit_profile_spill: False,
                       name: None,
                       top_level_settings: None,
                       workload: None
@@ -17277,7 +17463,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -17355,6 +17541,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -17405,6 +17595,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -17422,57 +17613,198 @@
       {
         alias: "id"
         expr: {
-          chain: [
-            "poe",
-            "id"
-          ]
-          from_asterisk: False
-          type: {
-            name: "id"
-            table_type: {
-              field: "poe"
-              table_type: <recursion ...>
-              virtual_table: {
-                description: None,
-                fields: {
-                  $virt_initial_channel_type: {
-                    description: None,
-                    hidden: False
-                  },
-                  $virt_initial_referring_domain_type: {
-                    description: None,
-                    hidden: False
-                  },
-                  $virt_mrr: {
-                    description: None,
-                    hidden: False
-                  },
-                  $virt_revenue: {
-                    description: None,
-                    hidden: False
-                  },
-                  created_at: {
-                    description: None,
-                    hidden: False
-                  },
-                  id: {
-                    description: None,
-                    hidden: False
-                  },
-                  properties: {
-                    description: None,
-                    hidden: False
-                  },
-                  revenue_analytics: {
-                    description: None,
-                    hidden: False
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "distinct_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "distinct_id"
+                        ]
+                        from_asterisk: False
+                        type: {
+                          name: "distinct_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              description: None,
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
+                                fields: {
+                                  distinct_id: {
+                                    description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
+                                    hidden: False
+                                  },
+                                  person: {
+                                    description: None,
+                                    hidden: False
+                                  },
+                                  person_id: {
+                                    description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    description: None,
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                inherit_profile_spill: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      from_asterisk: False
+                      hidden: True
+                      type: {
+                        alias: "distinct_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "int"
+                      nullable: False
+                    }
                   }
-                },
-                hidden: False,
-                name: None,
-                top_level_settings: None,
-                workload: None
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "bool"
+                  nullable: False
+                }
               }
+            },
+            {
+              alias: "person_id"
+              expr: {
+                chain: [
+                  "override",
+                  "person_id"
+                ]
+                from_asterisk: False
+                type: {
+                  name: "person_id"
+                  table_type: {
+                    field: "override"
+                    lazy_join: {
+                      description: None,
+                      from_field: [
+                        "distinct_id"
+                      ],
+                      hidden: False,
+                      join_table: {
+                        description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
+                        fields: {
+                          distinct_id: {
+                            description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
+                            hidden: False
+                          },
+                          person: {
+                            description: None,
+                            hidden: False
+                          },
+                          person_id: {
+                            description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
+                            hidden: False
+                          },
+                          team_id: {
+                            description: None,
+                            hidden: False
+                          }
+                        },
+                        hidden: False,
+                        inherit_profile_spill: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
+                      },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              from_asterisk: False
+              hidden: True
+              type: {
+                alias: "person_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_person_id"
+              expr: {
+                chain: [
+                  "event_person_id"
+                ]
+                from_asterisk: False
+                type: {
+                  name: "event_person_id"
+                  table_type: <recursion ...>
+                }
+              }
+              from_asterisk: False
+              hidden: True
+              type: {
+                alias: "event_person_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "uuid"
+                nullable: False
+              },
+              {
+                data_type: "uuid"
+                nullable: False
+              }
+            ]
+            name: "if"
+            return_type: {
+              data_type: "uuid"
+              nullable: False
             }
           }
         }

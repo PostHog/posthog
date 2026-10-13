@@ -2,9 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { clickAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings } from '~/queries/schema/schema-general'
+import { BIConfig } from '~/queries/schema/schema-business-intelligence'
+import { NodeKind, ChartSettings } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
@@ -15,6 +16,8 @@ import {
     sqlChart,
 } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
+
+import { buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
 
 // Neither timeout is set globally (jest.setup leaves asyncUtilTimeout at 1s, jest.config has no
 // testTimeout → 5s): this heavy ~7-logic mount needs findBy* headroom beyond 1s on CI, and
@@ -64,9 +67,69 @@ const renderBar = (
     })
 
 describe('SqlBarGraph', () => {
+    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsStackedBar, ChartDisplayType.ActionsBarValue])(
+        'opens the BI drilldown on the first click with multiple series in %s',
+        async (chartType) => {
+            const config: BIConfig = {
+                source: { table: 'events' },
+                rows: [
+                    {
+                        id: 'month',
+                        name: 'month',
+                        expression: 'timestamp',
+                        type: 'datetime',
+                        source: { table: 'events' },
+                        dateBucket: 'month',
+                    },
+                ],
+                columns: [],
+                values: [
+                    {
+                        field: { id: 'a', name: 'a', expression: 'a', type: 'integer', source: { table: 'events' } },
+                        aggregation: 'sum',
+                    },
+                    {
+                        field: { id: 'b', name: 'b', expression: 'b', type: 'integer', source: { table: 'events' } },
+                        aggregation: 'sum',
+                    },
+                ],
+                filters: [],
+                chartType,
+                limit: 100,
+            }
+            const node = buildBIQuery(config)!.node
+            renderDataVisualization({
+                query: {
+                    ...node,
+                    kind: NodeKind.BIVisualizationNode,
+                    config,
+                    chartSettings: {
+                        xAxis: { column: 'toStartOfMonth(timestamp)' },
+                        yAxis: [{ column: 'sum_a' }, { column: 'sum_b_2' }],
+                    },
+                },
+                response: {
+                    columns: ['toStartOfMonth(timestamp)', 'sum_a', 'sum_b_2'],
+                    types: [
+                        ['toStartOfMonth(timestamp)', 'DateTime'],
+                        ['sum_a', 'UInt64'],
+                        ['sum_b_2', 'UInt64'],
+                    ],
+                    results: MONTHS.map((month, index) => [month, (index + 1) * 100, (index + 1) * 10]),
+                },
+            })
+            const canvas = await screen.findByLabelText(/chart with 2 data series/i)
+            await clickAtIndex(canvas.parentElement!, HOVER, MONTHS.length)
+            expect(await screen.findByText('Explore this result')).toBeVisible()
+            expect(screen.getByText('View underlying rows')).toBeVisible()
+            expect(screen.getByText(/month: 202[56]-/)).toBeVisible()
+        }
+    )
+
     describe('bar layouts', () => {
         it.each([
             { name: 'grouped', display: ChartDisplayType.ActionsBar, extra: {} },
+            { name: 'horizontal', display: ChartDisplayType.ActionsBarValue, extra: {} },
             { name: 'stacked', display: ChartDisplayType.ActionsStackedBar, extra: {} },
             {
                 name: 'percent (100% stacked)',
@@ -78,6 +141,23 @@ describe('SqlBarGraph', () => {
 
             await screen.findByLabelText(/chart with 2 data series/i)
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
+        })
+
+        it('renders category labels on the vertical axis for horizontal bars', async () => {
+            renderBar(
+                ChartDisplayType.ActionsBarValue,
+                { yAxis: [{ column: 'a', settings: { formatting: { prefix: '$' } } }] },
+                barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 1000 }])
+            )
+
+            await screen.findByLabelText(/chart with/i)
+            await waitFor(() => expect(getHogChart().xTicks().length).toBeGreaterThan(0))
+            expect(getHogChart().yTicks()).toContain('Oct 1, 2025')
+            expect(
+                getHogChart()
+                    .xTicks()
+                    .map((tick) => tick.startsWith('$'))
+            ).not.toContain(false)
         })
 
         it('renders percentage y-axis ticks for the 100%-stacked layout', async () => {
@@ -191,9 +271,12 @@ describe('SqlBarGraph', () => {
     })
 
     describe('goal lines', () => {
-        it('renders a goal line as a horizontal reference line', async () => {
+        it.each([
+            [ChartDisplayType.ActionsBar, 'horizontal'],
+            [ChartDisplayType.ActionsBarValue, 'vertical'],
+        ] as const)('renders a goal line on the value axis for %s', async (display, orientation) => {
             renderBar(
-                ChartDisplayType.ActionsBar,
+                display,
                 { yAxis: [{ column: 'a' }], goalLines: [{ label: 'Target', value: 250, displayIfCrossed: true }] },
                 barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
             )
@@ -201,7 +284,7 @@ describe('SqlBarGraph', () => {
             await screen.findByLabelText(/chart with/i)
             const lines = getHogChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(['Target'])
-            expect(lines[0].orientation).toBe('horizontal')
+            expect(lines[0].orientation).toBe(orientation)
         })
     })
 })

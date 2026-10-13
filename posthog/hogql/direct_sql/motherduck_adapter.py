@@ -11,7 +11,7 @@ from sqlparse.sql import Token
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
@@ -212,7 +212,7 @@ class MotherDuckAdapter:
             raise ExposedHogQLError("Invalid direct MotherDuck connection.")
 
         motherduck_source = cast("MotherduckSource", SourceRegistry.get_source(ExternalDataSourceType.MOTHERDUCK))
-        config = motherduck_source.parse_config(source.job_inputs or {})
+        config = parse_direct_source_config(motherduck_source, source)
 
         # No host/SSH-tunnel config to validate: the driver always dials MotherDuck's fixed
         # SaaS endpoint, so there is no SSRF surface equivalent to the Postgres/MySQL hosts.

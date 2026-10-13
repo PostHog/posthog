@@ -15,6 +15,10 @@ import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { WatchPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/WatchPicksListColumn'
+import { watchPicksLogic } from 'products/replay_vision/frontend/replay_scanners/watchPicksLogic'
+import { WatchPicksVariant } from 'products/replay_vision/frontend/replay_scanners/watchPicksVariant'
+
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
@@ -23,13 +27,19 @@ import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } fr
 
 const HedgehogDirector = pngHoggie(directorPng)
 
-export function SessionRecordingsPlaylist({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
+type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
     isSynthetic?: boolean
     description?: string
-}): JSX.Element {
+    /** Replaces the shared replay troubleshooting panel when the list comes back empty. */
+    listEmptyState?: JSX.Element
+    watchPicksVariant?: WatchPicksVariant | null
+}
+
+export function SessionRecordingsPlaylist({
+    watchPicksVariant,
+    ...props
+}: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -47,22 +57,44 @@ export function SessionRecordingsPlaylist({
     }
     const isVerticalLayout = layoutRef.current
 
+    const picksInList = watchPicksVariant === 'in-list' || watchPicksVariant === 'both'
+    const layout = (
+        <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
+            {isVerticalLayout ? (
+                <VerticalLayout {...props} picksInList={picksInList} />
+            ) : (
+                <HorizontalLayout {...props} picksInList={picksInList} />
+            )}
+        </div>
+    )
+
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
-                {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
-            </div>
+            {picksInList ? (
+                <BindLogic
+                    logic={watchPicksLogic}
+                    props={{ logicKey: logicProps.logicKey ?? 'playlist', playlistLogicProps: logicProps }}
+                >
+                    {layout}
+                </BindLogic>
+            ) : (
+                layout
+            )}
         </BindLogic>
     )
 }
 
-function HorizontalLayout({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
-    showContent?: boolean
-    isSynthetic?: boolean
-    description?: string
-}): JSX.Element {
+type LayoutProps = Omit<SessionRecordingsPlaylistProps, 'watchPicksVariant'> & { picksInList: boolean }
+
+function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    if (picksInList && !isPlaylistCollapsed) {
+        return <WatchPicksListColumn recordingsList={<Playlist {...props} />} />
+    }
+    return <Playlist {...props} />
+}
+
+function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -97,7 +129,7 @@ function HorizontalLayout({
                           }
                 }
             >
-                <Playlist {...props} />
+                <PlaylistColumn {...props} picksInList={picksInList} />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
@@ -107,13 +139,7 @@ function HorizontalLayout({
     )
 }
 
-function VerticalLayout({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
-    showContent?: boolean
-    isSynthetic?: boolean
-    description?: string
-}): JSX.Element {
+function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -150,7 +176,7 @@ function VerticalLayout({
                 }
             />
             <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
-                <Playlist {...props} />
+                <PlaylistColumn {...props} picksInList={picksInList} />
             </div>
         </>
     )
@@ -177,6 +203,7 @@ function PlayerWrapper({
         filters,
         visiblePinnedRecordings: pinnedRecordings,
         matchingEventsMatchType,
+        exposureSkipExperimentId,
         activeSessionRecording,
         allowHogQLFilters,
         totalFiltersCount,
@@ -220,6 +247,7 @@ function PlayerWrapper({
                         playerKey={props.logicKey ?? 'playlist'}
                         sessionRecordingId={activeSessionRecording.id}
                         matchingEventsMatchType={matchingEventsMatchType}
+                        exposureSkipExperimentId={exposureSkipExperimentId}
                         autoPlay={props.autoPlay}
                         onRecordingDeleted={() => {
                             loadAllRecordings()

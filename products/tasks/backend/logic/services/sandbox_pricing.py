@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import ROUND_UP, Decimal
 
 from django.utils import timezone
@@ -49,7 +49,15 @@ class SandboxComputeCost:
         return self.cpu_cost_usd + self.memory_cost_usd
 
 
-COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = ()
+COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = (
+    ComputeRateCard(
+        version="v1",
+        effective_at=datetime(2026, 8, 21, 16, tzinfo=UTC),
+        expires_at=None,
+        cpu_core_second_usd=Decimal("0.000075"),
+        memory_gib_second_usd=Decimal("0.000008"),
+    ),
+)
 
 
 @dataclass(frozen=True)

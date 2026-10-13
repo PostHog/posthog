@@ -21,16 +21,37 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
-from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from .enums import (
+    AttributeScope,
+    DashboardImportPhase,
+    DashboardImportSource,
+    DashboardImportState,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+    PanelImportOutcome,
+    PanelProgressState,
+    PanelQueryLanguage,
+)
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+MAX_SPARKLINE_BATCH_SIZE = 20
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
+
+# Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
+# Staff-only while it is a proof of concept.
+METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
+
+# Gates the Grafana and screenshot dashboard import, on top of METRICS_FEATURE_FLAG.
+METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +87,14 @@ class MetricQueryClause:
     quantile: float | None = None
     # Constrains rows to one metric type; None keeps all types (legacy).
     metric_type: MetricType | None = None
+    # Applied to each series before `aggregation` combines them.
+    range_function: MetricRangeFunction | None = None
 
     def __post_init__(self) -> None:
+        if self.aggregation.is_raw and self.group_by:
+            raise ValueError("group_by needs an aggregation; without one every series stays separate")
+        if self.range_function is not None and self.aggregation.is_counter_function:
+            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")
@@ -127,6 +154,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
+    # did not set one. Set by `run_metric_query`, not by callers.
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +199,7 @@ class MetricAnomalyReport:
 
 @dataclass(frozen=True, slots=True)
 class MetricEventSample:
-    """A single raw metric emission: one `metric_samples` row enriched with its
+    """A single raw metric emission: one `metrics` row enriched with its
     `metric_series` labels. Backs the Samples view and the metric->trace pivot.
     Distinct from `MetricSeries`, which is aggregated at query time.
     """
@@ -189,6 +219,27 @@ class MetricEventSample:
     span_id: str
     attributes: dict[str, str]
     resource_attributes: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricErrorSpike:
+    """An Error Tracking issue spike detected in a time window.
+
+    PoC for the metrics chart's error-spike overlay: team-wide, not yet
+    scoped to a specific metric's service (Error Tracking issues carry no
+    service attribution today; scoping needs a service attribute on spikes
+    or a trace_id join against $exception events).
+
+    Deliberately narrower than error_tracking's own ErrorTrackingSpikeEvent
+    contract (fewer fields, string timestamps instead of datetime) since the
+    chart overlay only needs enough to render and link a marker. Keep it
+    narrow rather than reusing that contract directly, so metrics isn't
+    coupled to error_tracking's internal shape.
+    """
+
+    detected_at: str  # ISO 8601
+    issue_id: str
+    issue_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,3 +358,115 @@ class IncidentContext:
         if self.fired_at.tzinfo is None:
             raise ValueError("fired_at must be timezone-aware")
         object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsServiceOverview:
+    """One service's ingestion rollup inside the overview window."""
+
+    service_name: str
+    metric_names: int
+    series: int
+    last_seen: str  # ISO 8601
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsOverview:
+    """The landing-page answer to "is anything ingesting": how fresh the
+    newest datapoint is, plus window-scoped inventory counts per service.
+
+    `last_seen` deliberately ignores the window — when ingestion stops, the
+    window-scoped numbers go to zero but the status strip still needs to say
+    how long ago the last datapoint arrived. None means never ingested (or
+    everything aged past the series table's retention).
+    """
+
+    last_seen: str | None  # ISO 8601
+    metric_names: int
+    series: int
+    lookback_seconds: int
+    services: tuple[MetricsServiceOverview, ...]
+
+
+class DashboardImportError(ValueError):
+    """A dashboard import cannot start or continue. The message is safe to show to the user."""
+
+
+class DashboardImportInProgress(DashboardImportError):
+    """The user already has a dashboard import that has not finished."""
+
+
+class DashboardImportNotAllowed(DashboardImportError):
+    """The organization does not allow the import: AI data processing is off, or the AI credits ran out."""
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportRequest:
+    source: DashboardImportSource
+    name: str | None = None
+    grafana_json: str | None = None
+    image: bytes | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportPanel:
+    key: str
+    title: str
+    outcome: PanelImportOutcome
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportPanelProgress:
+    key: str
+    title: str
+    state: PanelProgressState
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportSummary:
+    total: int
+    imported: int
+    approximated: int
+    failed: int
+    skipped: int
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportStatus:
+    """Where an import is. `id` is None for an import that needed no agent and finished in the request."""
+
+    id: str | None
+    source: DashboardImportSource
+    status: DashboardImportState
+    dashboard_name: str
+    phase: DashboardImportPhase | None = None
+    panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
+    # The import compares at most `layout_rounds` pictures of the dashboard with the screenshot. None when it does not.
+    layout_rounds: int | None = None
+    layout_round: int | None = None
+    dashboard_id: int | None = None
+    error: str | None = None
+    summary: DashboardImportSummary | None = None
+    panels: tuple[DashboardImportPanel, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckRequest:
+    """One panel query for the import agent to check. `builder` holds the builder query as JSON."""
+
+    key: str
+    language: PanelQueryLanguage
+    title: str = ""
+    promql: str | None = None
+    builder: dict[str, Any] | None = None
+    histogram_metric: str | None = None
+    hogql: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckResult:
+    key: str
+    valid: bool
+    error: str | None = None
+    notes: tuple[str, ...] = ()

@@ -1,10 +1,24 @@
 """Payloads for workflow/run/job-scoped reads: health, activity, jobs, costs, and master state."""
 
+from typing import Any
+
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CI_TIMING_MAX_JOB_IDS,
+    CIDataFreshness,
+    CIEngine,
+    CITimingContext,
+    CITimingKind,
+    CITimingSample,
     CostPerMergeBucket,
     CurrentBranchHealth,
+    DeliveryPipeline,
+    DeliveryStageTiming,
+    JobLogBadge,
+    JobLogInsights,
+    JobStepLogBadges,
     MasterFailureGroup,
     OpenToMergeBucket,
     PassRateBucket,
@@ -16,6 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowJobAggregate,
+    WorkflowJobStep,
     WorkflowRunActivity,
     WorkflowRunActivityPoint,
     WorkflowRunDetail,
@@ -33,8 +48,11 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowRunDetail
         extra_kwargs = {
-            "id": {"help_text": "GitHub Actions run id."},
-            "workflow_name": {"help_text": "GitHub Actions workflow name."},
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
+            "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
+            "id": {"help_text": "Integer run id; unique only together with ci_engine."},
+            "workflow_name": {"help_text": "CI workflow name."},
             "head_sha": {"help_text": "Commit SHA the run was triggered on."},
             "head_branch": {"help_text": "Git branch the run was triggered on."},
             "status": {"help_text": "Raw run status: 'queued', 'in_progress', 'completed', etc."},
@@ -67,6 +85,21 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "first and fall back to this.",
                 "allow_null": True,
             },
+            "is_merge_queue": {
+                "help_text": "True when a merge queue pushed this run to gate pr_number, rather than the author "
+                "pushing it. Count it when measuring CI; drop it when counting what the author did."
+            },
+            "workflow_id": {
+                "help_text": "GitHub's numeric id of the workflow. It stays the same when the workflow is renamed, "
+                "so use it to follow one workflow over time. Null for a Depot CI run, and for a run whose source "
+                "does not carry the id.",
+                "allow_null": True,
+            },
+            "event": {
+                "help_text": "Event that triggered the run, such as 'push', 'pull_request' or 'schedule'. Null when "
+                "unknown, as for a Depot CI run.",
+                "allow_null": True,
+            },
         }
 
 
@@ -74,7 +107,8 @@ class WorkflowRunActivityPointSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowRunActivityPoint
         extra_kwargs = {
-            "run_id": {"help_text": "GitHub Actions run id."},
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
+            "run_id": {"help_text": "Integer run id; unique only together with ci_engine."},
             "conclusion": {
                 "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
                 "or null while still in progress.",
@@ -110,11 +144,42 @@ class WorkflowRunActivitySerializer(DataclassSerializer):
         }
 
 
+class WorkflowJobStepSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowJobStep
+        extra_kwargs = {
+            "number": {"help_text": "1-based position of the step in the job."},
+            "name": {"help_text": "Step name."},
+            "status": {"help_text": "Raw step status: 'queued', 'in_progress', 'completed', etc."},
+            "conclusion": {
+                "help_text": "Step conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null until the "
+                "step finishes.",
+                "allow_null": True,
+            },
+            "started_at": {"help_text": "When the step started, or null if it has not started.", "allow_null": True},
+            "completed_at": {"help_text": "When the step finished, or null while it runs.", "allow_null": True},
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the step finishes.",
+                "allow_null": True,
+            },
+        }
+
+
 class WorkflowJobSerializer(DataclassSerializer):
+    steps = WorkflowJobStepSerializer(
+        many=True,
+        help_text="The job's steps in run order. Empty when the source reports no steps, as for a Depot CI job.",
+    )
+
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {
-            "id": {"help_text": "GitHub Actions job id."},
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
+            "native_attempt_id": {"help_text": "Source-native attempt id; use with ci_engine for identity."},
+            "native_job_id": {"help_text": "Source-native job id; use with ci_engine for identity."},
+            "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
+            "id": {"help_text": "Integer job id; unique only together with ci_engine."},
             "run_id": {"help_text": "The workflow run id this job belongs to."},
             "name": {"help_text": "Job name."},
             "status": {"help_text": "Raw job status: 'queued', 'in_progress', 'completed', etc."},
@@ -138,6 +203,229 @@ class WorkflowJobSerializer(DataclassSerializer):
             "estimated_cost_usd": {
                 "help_text": "Estimated cost in USD from runner tier + elapsed time; null when the tier is "
                 "unknown or the job hasn't finished.",
+                "allow_null": True,
+            },
+        }
+
+
+class JobLogInsightsQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="'owner/name' repository the job ran in.")
+    run_id = serializers.IntegerField(help_text="Workflow run id the job belongs to.")
+    job_id = serializers.IntegerField(help_text="Job id to read the log of; a row id from workflow_jobs.")
+    ci_engine = serializers.ChoiceField(
+        choices=CIEngine.choices,
+        required=False,
+        help_text="CI engine. Required when job_id exists in both engines. Only GitHub Actions job logs are read.",
+    )
+    source_id = serializers.UUIDField(
+        required=False,
+        help_text="Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.",
+    )
+
+
+class JobLogBadgeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = JobLogBadge
+        extra_kwargs = {
+            "kind": {"help_text": "What the badge is about: a dependency cache, or migrations."},
+            "state": {
+                "help_text": "What happened. For a cache: 'hit' (exact key restored), 'partial' (an older cache "
+                "restored from a restore key), 'miss' (nothing restored), 'failed' (the restore itself failed). For "
+                "migrations: 'none' (nothing to apply) or 'applied'.",
+            },
+            "count": {"help_text": "How many times the log reports this outcome."},
+            "detail": {
+                "help_text": "What each occurrence was about: a cache key or a migration name. Capped, so it can "
+                "hold fewer entries than `count`.",
+            },
+        }
+
+
+class JobStepLogBadgesSerializer(DataclassSerializer):
+    badges = JobLogBadgeSerializer(many=True, help_text="What the log says this step did.")
+
+    class Meta:
+        dataclass = JobStepLogBadges
+        extra_kwargs = {
+            "number": {"help_text": "The step's number in the job, matching `number` of the job's steps."},
+        }
+
+
+class JobLogInsightsSerializer(DataclassSerializer):
+    job = JobLogBadgeSerializer(many=True, help_text="Every badge found in the log, for the job as a whole.")
+    steps = JobStepLogBadgesSerializer(
+        many=True,
+        help_text="The same badges per step. Only steps with a badge are listed. Empty when `attributed_to_steps` "
+        "is false.",
+    )
+
+    class Meta:
+        dataclass = JobLogInsights
+        extra_kwargs = {
+            "log_read": {
+                "help_text": "False when no log was read: a Depot CI job, a job the source does not hold, a log "
+                "GitHub no longer keeps, or a failed fetch. Empty badges then mean 'unknown', not 'nothing found'.",
+            },
+            "attributed_to_steps": {
+                "help_text": "False when the log's step markers did not line up with the job's steps, so the "
+                "badges are reported for the job only.",
+            },
+            "log_truncated": {
+                "help_text": "True when only part of the log was parsed, because the log is too large or its "
+                "download took too long. The badges are then a lower bound: an outcome in the part that was not "
+                "parsed is missing.",
+            },
+        }
+
+
+class CIDataFreshnessQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="'owner/name' repository to report on.")
+    source_id = serializers.UUIDField(
+        required=False,
+        help_text="Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.",
+    )
+
+
+class CIDataFreshnessSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CIDataFreshness
+        extra_kwargs = {
+            "runs_synced_at": {
+                "help_text": "When the last completed sync of the stored workflow runs started. Every stored run is "
+                "at least this fresh. The older of the GitHub and Depot CI times when the repository syncs both. "
+                "Null when a runs table has never synced.",
+                "allow_null": True,
+            },
+            "jobs_synced_at": {
+                "help_text": "The same time for the stored workflow jobs. Null when jobs are not synced.",
+                "allow_null": True,
+            },
+        }
+
+
+class CITimingContextQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="'owner/name' repository the run belongs to.")
+    source_id = serializers.UUIDField(
+        required=False,
+        help_text="Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.",
+    )
+    ci_engine = serializers.ChoiceField(choices=CIEngine.choices, help_text="CI engine that ran the run.")
+    run_id = serializers.IntegerField(help_text="Integer run id of the run that holds the selection.")
+    run_attempt = serializers.IntegerField(min_value=1, help_text="Run attempt that holds the selection.")
+    kind = serializers.ChoiceField(
+        choices=CITimingKind.choices,
+        help_text="What to compare: the whole 'workflow', a 'matrix' (several jobs of the run), one 'job', or one "
+        "'step' of a job.",
+    )
+    job_ids = serializers.CharField(
+        required=False,
+        help_text=f"Comma-separated job ids from workflow_jobs, at most {CI_TIMING_MAX_JOB_IDS}. Required for 'matrix', 'job' "
+        "and 'step'. Give exactly one id for 'job' and 'step'. Ignored for 'workflow'.",
+    )
+    step_number = serializers.IntegerField(
+        required=False, help_text="Number of the step within the job. Required when kind is 'step'."
+    )
+
+    def validate_job_ids(self, value: str) -> list[int]:
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        if len(parts) > CI_TIMING_MAX_JOB_IDS:
+            raise serializers.ValidationError(f"Give at most {CI_TIMING_MAX_JOB_IDS} job ids.")
+        try:
+            return [int(part) for part in parts]
+        except ValueError:
+            raise serializers.ValidationError("Give job ids as comma-separated integers.") from None
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        kind = attrs["kind"]
+        job_ids = attrs.get("job_ids") or []
+        if kind != CITimingKind.WORKFLOW and not job_ids:
+            raise serializers.ValidationError({"job_ids": f"Give at least one job id when kind is '{kind}'."})
+        if kind in (CITimingKind.JOB, CITimingKind.STEP) and len(job_ids) != 1:
+            raise serializers.ValidationError({"job_ids": f"Give exactly one job id when kind is '{kind}'."})
+        if kind == CITimingKind.STEP and attrs.get("step_number") is None:
+            raise serializers.ValidationError({"step_number": "Give a step number when kind is 'step'."})
+        return attrs
+
+
+class CITimingSampleSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CITimingSample
+        extra_kwargs = {
+            "ci_engine": {"help_text": "CI engine that ran the sampled run."},
+            "status": {
+                "help_text": "'success' when every matched job succeeded, or the matched step did. Otherwise "
+                "'failure'.",
+            },
+            "run_id": {"help_text": "Integer run id of the sampled run; unique only together with ci_engine."},
+            "run_attempt": {"help_text": "Run attempt the sample was taken from, which is the run's latest."},
+            "job_id": {
+                "help_text": "Job id of the matched job. Null for a workflow or matrix sample, which spans jobs.",
+                "allow_null": True,
+            },
+            "step_number": {
+                "help_text": "Number of the matched step in the sampled job. Steps match by name, so it can differ "
+                "from the selected step's number. Null unless kind is 'step'.",
+                "allow_null": True,
+            },
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine to link to the run."},
+            "native_workflow_run_id": {
+                "help_text": "Source-native workflow run id; use with ci_engine to link to the run."
+            },
+            "native_job_id": {
+                "help_text": "Source-native job id of the matched job. Null for a workflow or matrix sample."
+            },
+            "native_attempt_id": {
+                "help_text": "Source-native job attempt id of the matched job. Null for a workflow or matrix sample."
+            },
+            "duration_seconds": {
+                "help_text": "For a workflow, matrix or job: seconds from the first matched job's start to the last "
+                "one's end. For a step: the step's own duration."
+            },
+            "completed_at": {"help_text": "When the last matched job finished."},
+            "head_sha": {"help_text": "Commit SHA the sampled run ran on."},
+        }
+
+
+class CITimingContextSerializer(DataclassSerializer):
+    recent = CITimingSampleSerializer(
+        many=True, help_text="The newest matched samples of any status, newest first. At most three."
+    )
+
+    class Meta:
+        dataclass = CITimingContext
+        extra_kwargs = {
+            "identity": {
+                "help_text": "How runs of the same workflow were found: by 'workflow_id', which a rename keeps, or "
+                "by 'workflow_name' when the run has no workflow id.",
+            },
+            "unavailable_reason": {
+                "help_text": "Why no comparison was made: 'default_branch_unknown' (no synced pull request names the "
+                "repository's default branch), 'jobs_not_synced', or 'not_executed' (every selected job was skipped, "
+                "so there is no duration to compare). Null when the comparison ran, even if it found no samples.",
+                "allow_null": True,
+            },
+            "default_branch": {
+                "help_text": "The repository's default branch, which the samples ran on. Null when unknown.",
+                "allow_null": True,
+            },
+            "window_days": {"help_text": "How many days back the comparison looks."},
+            "runs_scanned": {"help_text": "How many default-branch runs of the workflow were checked for a match."},
+            "sampled": {
+                "help_text": "True when the window held more eligible runs than were checked, so the figures cover "
+                "the newest runs only."
+            },
+            "sample_count": {"help_text": "How many checked runs matched the selection and succeeded."},
+            "average_seconds": {
+                "help_text": "Mean duration of the successful samples, in seconds. Null when there are none. A run "
+                "counts only when it ran the same jobs on the same runners, so a null means no comparable run.",
+                "allow_null": True,
+            },
+            "runs_synced_at": {
+                "help_text": "When the last completed sync of the stored workflow runs started. Null when unknown.",
+                "allow_null": True,
+            },
+            "jobs_synced_at": {
+                "help_text": "When the last completed sync of the stored workflow jobs started. Null when unknown.",
                 "allow_null": True,
             },
         }
@@ -169,8 +457,8 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
             "completed": {"help_text": "Runs that completed in this bucket."},
             "successes": {"help_text": "Completed runs with conclusion 'success' in this bucket."},
             "failures": {
-                "help_text": "Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); "
-                "excludes skipped, cancelled, and action_required runs."
+                "help_text": "Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. "
+                "Skipped, cancelled, neutral, and action_required runs are excluded."
             },
         }
 
@@ -184,30 +472,41 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowHealthItem
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
+            "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
+            "conclusive_run_count": {
+                "help_text": "Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. "
+                "This is the success_rate denominator."
+            },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1). Null if no completed runs.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, "
+                "startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. "
+                "Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
-                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
+                "help_text": "Median duration in seconds over successful runs only: cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are "
+                "excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if "
+                "no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
-                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
-                "in the window.",
+                "help_text": "95th-percentile duration in seconds over successful runs only: cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did "
+                "no work are excluded when longer successful runs exist. An all-fast workflow uses every successful "
+                "run. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
-                "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
+                "help_text": "When the most recent decisive failure started, or null.",
                 "allow_null": True,
             },
             "latest_run_failed": {
-                "help_text": "Whether the most recent completed run was a decisive failure (conclusion 'failure' "
-                "or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.",
+                "help_text": "Whether the most recent completed run ended in failure, timeout, startup failure, or "
+                "staleness. Null when no run has completed in the window. Powers the OK/RED status badge.",
                 "allow_null": True,
             },
             "latest_run_conclusion": {
@@ -232,9 +531,18 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "help_text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy."
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the equal-length window before date_from - the delta baseline. "
-                "Null when that window had no completed runs.",
+                "help_text": "Conclusive-run success rate over the equal-length window before date_from - the "
+                "delta baseline. Null when that window had no conclusive runs.",
                 "allow_null": True,
+            },
+            "percentile_run_count": {
+                "help_text": "Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to "
+                "shorter successful runs."
+            },
+            "merge_queue_run_count": {
+                "help_text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless "
+                "of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest "
+                "available proxy for a required check."
             },
         }
 
@@ -286,8 +594,9 @@ class PassRateBucketSerializer(DataclassSerializer):
                 "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
             },
             "success_rate": {
-                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
-                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "help_text": "Fraction (0-1) of conclusive runs started in this bucket that succeeded. "
+                "Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no "
+                "conclusive run (a gap, not a 0% pass rate).",
                 "allow_null": True,
             },
         }
@@ -324,6 +633,50 @@ class ReadyToMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class DeliveryStageTimingSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DeliveryStageTiming
+        extra_kwargs = {
+            "stage": {
+                "help_text": "Which leg this is: 'open_to_gate' (created_at to the PR's first "
+                "merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). "
+                "The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds."
+            },
+            "median_seconds": {
+                "help_text": "Median seconds for this leg. Null when no PR in the window has both "
+                "of its bounds observed.",
+                "allow_null": True,
+            },
+            "p90_seconds": {
+                "help_text": "90th-percentile seconds for this leg. Null when not observed.",
+                "allow_null": True,
+            },
+            "pr_count": {
+                "help_text": "PRs behind this leg's figures: those with an observed gate run. A PR "
+                "that skipped the merge queue has no gate legs, so read a median against this "
+                "count, not merged_pr_count."
+            },
+        }
+
+
+class DeliveryPipelineSerializer(DataclassSerializer):
+    stages = DeliveryStageTimingSerializer(
+        many=True,
+        help_text="The legs, ordered open to merge. A leg with nothing observed still appears, "
+        "with a zero pr_count and null timings. The leg medians do not sum to a cycle-time "
+        "median: a median of sums is not a sum of medians.",
+    )
+
+    class Meta:
+        dataclass = DeliveryPipeline
+        extra_kwargs = {
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window with bots and drafts excluded. A narrower "
+                "population than RepoOverview.merged_pr_count, which counts all authors."
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
@@ -338,15 +691,19 @@ class RepoOverviewSerializer(DataclassSerializer):
     )
     success_rate_series = PassRateBucketSerializer(
         many=True,
-        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
-        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole "
-        "series is empty when include_series=false.",
+        help_text="CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required "
+        "runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false.",
     )
     open_to_merge_series = OpenToMergeBucketSerializer(
         many=True,
         help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
         "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
         "the whole series is empty when include_series=false.",
+    )
+    delivery_pipeline = DeliveryPipelineSerializer(
+        help_text="Where a change's wall-clock time goes on the way to production, over PRs merged "
+        "in the window with bots and drafts excluded."
     )
     ready_to_merge_series = ReadyToMergeBucketSerializer(
         many=True,
@@ -361,21 +718,23 @@ class RepoOverviewSerializer(DataclassSerializer):
         extra_kwargs = {
             "run_count": {"help_text": "Workflow runs started in the window, all branches and workflows."},
             "run_count_prev": {
-                "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
+                "help_text": "Same count over the equal-length window immediately before date_from: the delta baseline."
             },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, "
+                "neutral, and action_required runs are excluded. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the previous window. Null if none completed.",
+                "help_text": "Conclusive-run success rate over the previous window. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
             "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
             "merged_pr_count": {
-                "help_text": "PRs merged in the window, all authors and bots included — the merge population "
-                "that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd."
+                "help_text": "PRs merged in the window, all authors and bots included. billable_minutes and "
+                "estimated_cost_usd cover every run in the window, including default-branch and unmerged PR runs, "
+                "so dividing them by this count spreads all CI spend over the merges."
             },
             "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
             "median_open_to_merge_seconds": {
@@ -416,6 +775,16 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
                 "allow_null": True,
             },
+            "cost_per_merge_usd": {
+                "help_text": "estimated_cost_usd divided by merged_pr_count: the window's CI cost per merged "
+                "PR. Null when the job-level source isn't synced or nothing merged.",
+                "allow_null": True,
+            },
+            "cost_per_merge_usd_prev": {
+                "help_text": "The same ratio over the previous window. Null when the job-level source isn't "
+                "synced or nothing merged.",
+                "allow_null": True,
+            },
             "merge_queue_billable_minutes": {
                 "help_text": "Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); "
                 "null when the job-level source isn't synced.",
@@ -424,6 +793,110 @@ class RepoOverviewSerializer(DataclassSerializer):
             "merge_queue_billable_minutes_prev": {
                 "help_text": "Merge-queue billable minutes over the previous window; null when the job-level "
                 "source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_merged_pr_count": {
+                "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run: "
+                "the population behind every merge_queue_* landing stat. All authors, bots included."
+            },
+            "merge_queue_merged_pr_count_prev": {"help_text": "Queue-landed merges over the previous window."},
+            "merge_queue_median_first_gate_to_merge_seconds": {
+                "help_text": "Median seconds from a PR's first observed merge-queue gate run starting to the PR "
+                "merging. Pending time before gate testing starts is not included. Null when no queue-landed "
+                "merges.",
+                "allow_null": True,
+            },
+            "merge_queue_median_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p90_first_gate_to_merge_seconds": {
+                "help_text": "p90 of the same first-gate-run-to-merge measure: the tail, where queue pain "
+                "concentrates. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p90_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p90 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p95_first_gate_to_merge_seconds": {
+                "help_text": "p95 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p95_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p95 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds": {
+                "help_text": "p99 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p99 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_avg_attempts_per_merge": {
+                "help_text": "Mean distinct gate attempts (distinct gate branches, flake-bisection branches "
+                "collapsed) per queue-landed merge. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_avg_attempts_per_merge_prev": {
+                "help_text": "The same mean over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_multi_attempt_merge_share": {
+                "help_text": "Fraction (0-1) of queue-landed merges that needed more than one gate attempt. "
+                "Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_multi_attempt_merge_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_gate_merge_share": {
+                "help_text": "Fraction (0-1) of queue-landed merges with at least one failed gate run before "
+                "merging. Derived from CI run conclusions, not the queue's own eviction records. Null when no "
+                "queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_gate_merge_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_trunk_available": {
+                "help_text": "Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint "
+                "synced and readable by the requesting user. When false, every "
+                "merge_queue_failed_or_cancelled_* and merge_queue_skip_the_line_* field is null; "
+                "fall back to merge_queue_failed_gate_merge_share."
+            },
+            "merge_queue_failed_or_cancelled_share": {
+                "help_text": "Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that "
+                "ended failed or cancelled, from the queue's own records. Windowed on each entry's last state "
+                "change. Null when the Trunk source isn't synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_or_cancelled_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when the Trunk source isn't "
+                "synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count": {
+                "help_text": "Queue entries flagged skip-the-line (prioritized past the queue order) in the "
+                "window, whatever state they reached. Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count_prev": {
+                "help_text": "Skip-the-line entries over the previous window. Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
+            "median_time_to_green_seconds": {
+                "help_text": "Median wall clock for a PR push round to settle fully green over the window: the "
+                "window-level twin of time_to_green_series, same population and exclusions. Null when no fully "
+                "green rounds.",
+                "allow_null": True,
+            },
+            "median_time_to_green_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when no fully green rounds.",
                 "allow_null": True,
             },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
@@ -470,16 +943,17 @@ class MasterFailureGroupSerializer(DataclassSerializer):
     class Meta:
         dataclass = MasterFailureGroup
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
             "failed_job": {
-                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure "
+                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped): the group's failure "
                 "signature together with the workflow. '' when the job-level source isn't synced and the group "
                 "degrades to workflow level."
             },
             "run_count": {"help_text": "Distinct failing default-branch runs in this group within the window."},
             "first_seen": {"help_text": "When the oldest failing run in the group started."},
             "last_seen": {"help_text": "When the newest failing run in the group started."},
-            "latest_run_id": {"help_text": "Run id of the newest failing run — the drill-down anchor."},
+            "latest_run_id": {"help_text": "Run id of the newest failing run: the drill-down anchor."},
         }
 
 
@@ -491,9 +965,10 @@ class RunFailureLogsSerializer(DataclassSerializer):
     class Meta:
         dataclass = RunFailureLogs
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Workflow run id the failure logs are for."},
             "logs_available": {
-                "help_text": "False when no failure logs were found — the run didn't fail, or its logs aged out of "
+                "help_text": "False when no failure logs were found: the run didn't fail, or its logs aged out of "
                 "the short Logs retention.",
             },
             "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
@@ -522,18 +997,18 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "help_text": "Median duration of successful job instances, in seconds: cancelled and failed "
                 "instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "help_text": "95th-percentile duration of successful job instances, in seconds: cancelled and "
                 "failed instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "failure_rate": {
-                "help_text": "Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if "
-                "none completed.",
+                "help_text": "Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, "
+                "cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.",
                 "allow_null": True,
             },
             "retry_job_count": {"help_text": "Job instances that ran on a 2nd+ run attempt - retry pressure."},

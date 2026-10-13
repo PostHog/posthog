@@ -1,12 +1,18 @@
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import { AlertState } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { AlertCheck, AlertCheckDelivery } from './types'
 
 export enum AlertsTab {
     INSIGHTS = 'insights',
     LOGS = 'logs',
+}
+
+export function hasEffectiveResourceAccess(resourceType: AccessControlResourceType): boolean {
+    return getAppContext()?.effective_resource_access_control?.[resourceType] !== AccessControlLevel.None
 }
 
 export function resolveSnoozeUntil(value: string): string {

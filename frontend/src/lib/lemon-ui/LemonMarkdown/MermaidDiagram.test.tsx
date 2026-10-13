@@ -86,6 +86,17 @@ describe('MermaidDiagram', () => {
         expect(initializeMock.mock.calls.length).toBe(initCallsAfterFirst)
     })
 
+    it('uses separate DOM ids for overlapping renders', async () => {
+        renderMock.mockReturnValue(new Promise(() => {}))
+        const { rerender } = render(<MermaidDiagram code="flowchart LR; A-->B" />)
+        await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1))
+
+        rerender(<MermaidDiagram code="flowchart LR; A-->" />)
+        await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(2))
+
+        expect(renderMock.mock.calls[0][0]).not.toEqual(renderMock.mock.calls[1][0])
+    })
+
     it('initializes mermaid at most once when multiple instances mount on the same theme', async () => {
         renderMock.mockResolvedValue({ svg: '<svg/>' })
         // Mount three siblings together. With module-scoped dedupe, mermaid.initialize fires at

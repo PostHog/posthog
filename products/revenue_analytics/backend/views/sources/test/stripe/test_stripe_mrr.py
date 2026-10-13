@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.mrr import build
@@ -13,7 +13,7 @@ class TestMRRStripeBuilder(StripeSourceBaseTest):
         self.setup_stripe_external_data_source()
 
     def test_build_mrr_query(self):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = build(self.stripe_handle)
 
             expected_key = f"{self.external_data_source.id}-mrr"

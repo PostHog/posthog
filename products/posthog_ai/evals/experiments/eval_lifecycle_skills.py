@@ -93,9 +93,9 @@ async def eval_lifecycle_skills(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-lifecycle-cli",
         cases=cases,
         scorers=[
-            # Agent must look up the named experiment (either tool counts).
+            # Agent must look up the named experiment.
             RequiredToolCall(
-                required={"experiment-list", "experiment-get-all"},
+                required={"experiment-list"},
                 name="resolved_experiment_by_name",
             ),
             # Case 1 specifically: agent must NOT ship without asking.

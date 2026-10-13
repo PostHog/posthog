@@ -586,4 +586,63 @@ describe('recentTaxonomicFiltersLogic', () => {
             expect(logic.values.recentFilters.map((f) => f.propertyFilter?.value)).toEqual(['baz', 'foobar'])
         })
     })
+
+    describe('one shared list, many groups', () => {
+        const personFilterFor = (key: string, value: string): PersonPropertyFilter => ({
+            type: PropertyFilterType.Person,
+            key,
+            operator: PropertyOperator.Exact,
+            value,
+        })
+
+        it('keeps event recents when property filters flood the list', () => {
+            for (let i = 0; i < 5; i++) {
+                logic.actions.recordRecentFilter({
+                    groupType: TaxonomicFilterGroupType.Events,
+                    groupName: 'Events',
+                    value: `event-${i}`,
+                    item: { name: `event-${i}` },
+                })
+            }
+            // A morning of person filtering: more writes on its own than the whole cap holds.
+            for (let i = 0; i < MAX_RECENT_FILTERS * 2; i++) {
+                logic.actions.recordRecentFilter({
+                    groupType: TaxonomicFilterGroupType.PersonProperties,
+                    groupName: 'Person properties',
+                    value: `person-key-${i}`,
+                    item: { name: `person-key-${i}` },
+                    propertyFilter: personFilterFor(`person-key-${i}`, 'x'),
+                })
+            }
+
+            const events = logic.values.recentFilters.filter((f) => f.groupType === TaxonomicFilterGroupType.Events)
+            expect(events.map((f) => f.value)).toEqual(['event-4', 'event-3', 'event-2', 'event-1', 'event-0'])
+            expect(logic.values.recentFilters).toHaveLength(MAX_RECENT_FILTERS)
+        })
+
+        it('drops the oldest entry of the busiest group, not the oldest overall', () => {
+            logic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: '$pageview',
+                item: { name: '$pageview' },
+            })
+            for (let i = 0; i < MAX_RECENT_FILTERS; i++) {
+                logic.actions.recordRecentFilter({
+                    groupType: TaxonomicFilterGroupType.PersonProperties,
+                    groupName: 'Person properties',
+                    value: `person-key-${i}`,
+                    item: { name: `person-key-${i}` },
+                    propertyFilter: personFilterFor(`person-key-${i}`, 'x'),
+                })
+            }
+
+            const filters = logic.values.recentFilters
+            expect(filters).toHaveLength(MAX_RECENT_FILTERS)
+            expect(filters.map((f) => f.value)).toContain('$pageview')
+            expect(filters.find((f) => f.value === 'person-key-0')).toBeUndefined()
+            // Newest-first order survives the trim.
+            expect(filters[0].value).toBe(`person-key-${MAX_RECENT_FILTERS - 1}`)
+        })
+    })
 })

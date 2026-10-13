@@ -12,9 +12,11 @@ from posthog.temporal.oauth import (
     ARRAY_APP_ID_DEV,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_AI_APP_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_ID_DEV,
 )
 
-DEV_CLIENT_IDS = [ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV]
+DEV_CLIENT_IDS = [ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV]
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
@@ -38,6 +40,20 @@ class TestSetupTasksOAuth(TestCase):
                 POSTHOG_AI_APP_ID_DEV,
                 {
                     "name": "PostHog AI Dev App",
+                    "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    "redirect_uris": "http://localhost:8000/authorize",
+                    "auth_brand": OAuthApplicationAuthBrand.POSTHOG.value,
+                    "is_verified": True,
+                    "is_first_party": True,
+                },
+            ),
+            (
+                "signals",
+                SIGNALS_APP_CLIENT_ID_DEV,
+                SIGNALS_APP_ID_DEV,
+                {
+                    "name": "Signals Dev App",
                     "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
                     "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                     "redirect_uris": "http://localhost:8000/authorize",

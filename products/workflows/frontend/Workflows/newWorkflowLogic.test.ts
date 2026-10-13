@@ -1,13 +1,136 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { maxMocks } from 'scenes/max/testUtils'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+
+const AI_FIRST_FLAGS = [
+    FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW,
+    FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN,
+    FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+]
 
 describe('newWorkflowLogic', () => {
+    const setFlags = (flags: string[], variants: Record<string, string | boolean> = {}): void => {
+        featureFlagLogic.actions.setFeatureFlags(flags, {
+            ...Object.fromEntries(flags.map((flag) => [flag, true])),
+            ...variants,
+        })
+    }
+
     beforeEach(() => {
+        useMocks(maxMocks)
         initKeaTests()
+    })
+
+    describe('AI-first new workflow', () => {
+        // The flag-off path must stay byte-identical, and exposure is recorded only for a click the composer could answer.
+        it.each([
+            { name: 'flag on', flags: AI_FIRST_FLAGS, routed: true, exposed: true },
+            {
+                name: 'flag off',
+                flags: [FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+                routed: false,
+                exposed: true,
+            },
+            {
+                name: 'scene integration off',
+                flags: [FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW],
+                routed: false,
+                exposed: false,
+            },
+        ])('startNewWorkflow routes to the composer only with $name', async ({ flags, routed, exposed }) => {
+            setFlags(flags)
+            const recordExposure = jest.spyOn(posthog, 'getFeatureFlag').mockReturnValue(undefined)
+            const logic = newWorkflowLogic()
+            logic.mount()
+            router.actions.push('/workflows', {}, {})
+
+            await expectLogic(logic, () => {
+                logic.actions.startNewWorkflow()
+            }).toFinishAllListeners()
+
+            expect(logic.values.newWorkflowModalVisible).toBe(!routed)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(
+                routed ? '/workflows/new/workflow' : '/workflows'
+            )
+            // The composer answers a marked entry only, so the click has to mark its own route.
+            expect(router.values.searchParams).toEqual(routed ? { mode: 'ai' } : {})
+            expect(recordExposure.mock.calls.map(([flag]) => flag)).toEqual(
+                exposed ? [FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW] : []
+            )
+            recordExposure.mockRestore()
+        })
+
+        // Deep links and the escape hatch must keep landing in the editor, or the composer swallows a chosen starting point.
+        it.each([
+            { name: 'an AI entry', path: '/workflows/new/workflow', search: { mode: 'ai' }, available: true },
+            // Other products open the plain URL for a specific job and tell the person the editor is there.
+            { name: 'a plain new URL', path: '/workflows/new/workflow', search: {}, available: false },
+            {
+                name: 'a template',
+                path: '/workflows/new/workflow',
+                search: { mode: 'ai', templateId: 'tpl-1' },
+                available: false,
+            },
+            {
+                name: 'a template edit',
+                path: '/workflows/new/workflow',
+                search: { mode: 'ai', editTemplateId: 'tpl-1' },
+                available: false,
+            },
+            {
+                name: 'a trigger prefill',
+                path: '/workflows/new/workflow',
+                search: { mode: 'ai', [TRIGGER_PREFILL_PARAM]: 'x' },
+                available: false,
+            },
+            {
+                name: 'the editor mode param',
+                path: '/workflows/new/workflow',
+                search: { mode: 'editor' },
+                available: false,
+            },
+            // The editor reads this for every workflow, so an existing one must answer false without reading the flag.
+            {
+                name: 'an existing workflow',
+                path: '/workflows/wf-1/workflow',
+                search: { mode: 'ai' },
+                available: false,
+            },
+        ])('aiComposerAvailable is $available for $name', ({ path, search, available }) => {
+            setFlags(AI_FIRST_FLAGS)
+            const logic = newWorkflowLogic()
+            logic.mount()
+
+            router.actions.push(path, search, {})
+
+            expect(logic.values.aiComposerAvailable).toBe(available)
+        })
+
+        it('createEmptyWorkflow marks the editor route so the composer does not render again', async () => {
+            setFlags(AI_FIRST_FLAGS)
+            const logic = newWorkflowLogic()
+            logic.mount()
+            router.actions.push('/workflows/new/workflow', {}, {})
+
+            await expectLogic(logic, () => {
+                logic.actions.openEditorFromAiComposer()
+                logic.actions.createEmptyWorkflow()
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({ mode: 'editor' })
+            expect(logic.values.aiComposerAvailable).toBe(false)
+        })
     })
 
     describe('urlToAction', () => {

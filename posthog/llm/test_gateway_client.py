@@ -1,22 +1,34 @@
 import json
+import asyncio
 from typing import get_args
+from uuid import UUID
 
 import pytest
 from unittest.mock import patch
 
 from django.test import override_settings
 
+from asgiref.sync import async_to_sync, sync_to_async
+
+from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.llm import gateway_client
 from posthog.llm.gateway_client import (
     AIGatewayConfig,
+    GatewayNotConfiguredError,
     Product,
+    build_ai_gateway_anthropic_client,
+    build_anthropic_client,
     build_async_anthropic_client,
     build_async_openai_client,
     build_openai_client,
+    get_anthropic_gateway_client,
     get_async_anthropic_gateway_client,
     get_async_llm_client,
     get_llm_client,
+    private_scout_gateway,
     resolve_ai_gateway_config,
     team_trace_id,
+    trace_id_from_seed,
 )
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
@@ -34,7 +46,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = ""
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and an API key must be configured"):
+        with pytest.raises(GatewayNotConfiguredError, match="LLM_GATEWAY_URL and an API key must be configured"):
             get_llm_client(product="django", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
@@ -42,7 +54,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
         mock_settings.LLM_GATEWAY_API_KEY = ""
 
-        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and an API key must be configured"):
+        with pytest.raises(GatewayNotConfiguredError, match="LLM_GATEWAY_URL and an API key must be configured"):
             get_llm_client(product="django", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
@@ -135,7 +147,9 @@ class TestGetAsyncAnthropicGatewayClient:
         mock_settings.LLM_GATEWAY_URL = ""
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
+        with pytest.raises(
+            GatewayNotConfiguredError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"
+        ):
             get_async_anthropic_gateway_client(product="signals", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
@@ -186,6 +200,23 @@ class TestGetAsyncAnthropicGatewayClient:
         assert client.default_headers.get("x-posthog-use-bedrock-fallback") == expected_header_value
 
 
+class TestGetAnthropicGatewayClient:
+    @patch("posthog.llm.gateway_client.settings")
+    def test_uses_the_python_gateway_native_messages_base(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080/"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_anthropic_gateway_client(
+            product="posthog_ai",
+            team_id=42,
+            default_headers={"x-posthog-property-source_product": "notebook_widget"},
+        )
+
+        assert str(client.base_url) == "http://gateway:8080/posthog_ai/"
+        assert client.default_headers["x-posthog-property-team_id"] == "42"
+        assert client.default_headers["x-posthog-property-source_product"] == "notebook_widget"
+
+
 class TestResolveAIGatewayConfig:
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     def test_returns_none_when_both_unset(self):
@@ -226,7 +257,10 @@ class TestBuildOpenAIClient:
         mock_openai.assert_called_once_with(
             api_key=AI_GATEWAY_KEY,
             base_url=AI_GATEWAY_URL,
-            default_headers={"X-PostHog-Properties": json.dumps({"ai_product": "aio_summarization"})},
+            default_headers={
+                "X-PostHog-Properties": json.dumps({"ai_product": "aio_summarization"}),
+                "X-PostHog-Product": "aio_summarization",
+            },
             http_client=mock_httpx.return_value,
         )
         assert result is mock_openai.return_value
@@ -251,7 +285,10 @@ class TestBuildAsyncOpenAIClient:
         mock_async_openai.assert_called_once_with(
             api_key=AI_GATEWAY_KEY,
             base_url=AI_GATEWAY_URL,
-            default_headers={"X-PostHog-Properties": json.dumps({"ai_product": "aio_eval_summary"})},
+            default_headers={
+                "X-PostHog-Properties": json.dumps({"ai_product": "aio_eval_summary"}),
+                "X-PostHog-Product": "aio_eval_summary",
+            },
             http_client=mock_httpx.return_value,
         )
         assert result is mock_async_openai.return_value
@@ -326,6 +363,17 @@ class TestTeamTraceId:
         assert team_trace_id(2) != team_trace_id(3)
 
 
+class TestTraceIdFromSeed:
+    # The Go route sends this value verbatim and the Python route hashes anything it cannot parse,
+    # so a non-UUID would give one call two different trace ids.
+    def test_result_parses_as_a_uuid_so_both_gateway_routes_agree(self):
+        derived = trace_id_from_seed("slack-thread-T123-1700000000.000100")
+        assert str(UUID(derived)) == derived
+
+    def test_distinct_seeds_do_not_share_a_trace(self):
+        assert trace_id_from_seed("slack-thread-T1-1.1") != trace_id_from_seed("slack-thread-T1-1.2")
+
+
 class TestBuildAsyncAnthropicClient:
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
@@ -336,21 +384,44 @@ class TestBuildAsyncAnthropicClient:
         )
 
         mock_httpx.assert_called_once_with(trust_env=False)
-        mock_anthropic.assert_called_once_with(
-            api_key=AI_GATEWAY_KEY,
-            # The Anthropic SDK appends /v1/messages, so the /v1 OpenAI suffix is stripped.
-            base_url="https://ai-gateway.example",
-            # team_id rides as a property (usage report reads it) since the Go gateway drops the
-            # per-key header form.
-            default_headers={
-                "X-PostHog-Properties": json.dumps(
-                    {"ai_product": "signals_grouping", "ai_stage": "match", "team_id": "42"}
-                ),
-                "X-PostHog-Trace-Id": TEAM_42_TRACE_ID,
-            },
-            http_client=mock_httpx.return_value,
-        )
+        mock_anthropic.assert_called_once()
+        kwargs = mock_anthropic.call_args.kwargs
+        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["base_url"] == "https://ai-gateway.example"
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "signals_grouping",
+            "ai_stage": "match",
+            "team_id": "42",
+        }
+        assert headers["X-PostHog-Product"] == "signals_grouping"
+        assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
         assert result is mock_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncAnthropic")
+    def test_gateway_mode_uses_the_callers_trace_and_properties(self, mock_anthropic, mock_httpx):
+        build_async_anthropic_client(
+            "signals",
+            ai_product="signals_safety",
+            ai_stage="signal_safety",
+            team_id=42,
+            trace_id="decision-1",
+            properties={"signals_decision_id": "decision-1", "source_product": "linear"},
+        )
+
+        _, kwargs = mock_anthropic.call_args
+        headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Trace-Id"] == "decision-1"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "signals_safety",
+            "ai_stage": "signal_safety",
+            "signals_decision_id": "decision-1",
+            "source_product": "linear",
+            "team_id": "42",
+        }
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
@@ -382,7 +453,10 @@ class TestBuildAsyncAnthropicClient:
         build_async_anthropic_client("signals", ai_product="signals")
 
         _, kwargs = mock_anthropic.call_args
-        assert kwargs["default_headers"] == {"X-PostHog-Properties": json.dumps({"ai_product": "signals"})}
+        assert kwargs["default_headers"] == {
+            "X-PostHog-Properties": json.dumps({"ai_product": "signals"}),
+            "X-PostHog-Product": "signals",
+        }
 
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     @patch("posthog.llm.gateway_client.get_async_anthropic_gateway_client")
@@ -403,3 +477,216 @@ class TestBuildAsyncAnthropicClient:
 
         mock_get_anthropic.assert_called_once_with("signals", team_id=None, use_bedrock_fallback=False)
         assert result is mock_get_anthropic.return_value
+
+
+class TestBuildAnthropicClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.Anthropic")
+    def test_gateway_mode_uses_native_messages_base_and_preserves_attribution(self, mock_anthropic, mock_httpx):
+        result = build_anthropic_client(
+            "posthog_ai",
+            ai_product="posthog_ai",
+            trace_id="notebook-widget-job-1",
+            properties={"source_product": "notebook_widget"},
+            distinct_id="team-42",
+            team_id=42,
+        )
+
+        kwargs = mock_anthropic.call_args.kwargs
+        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["base_url"] == "https://ai-gateway.example"
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Trace-Id"] == "notebook-widget-job-1"
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert headers["X-PostHog-Product"] == "posthog_ai"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "posthog_ai",
+            "source_product": "notebook_widget",
+            "team_id": "42",
+        }
+        assert result is mock_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.llm.gateway_client.get_anthropic_gateway_client")
+    def test_python_fallback_preserves_product_trace_and_properties(self, mock_get_anthropic):
+        result = build_anthropic_client(
+            "posthog_ai",
+            trace_id="notebook-widget-job-1",
+            properties={"source_product": "notebook_widget"},
+            team_id=42,
+        )
+
+        kwargs = mock_get_anthropic.call_args.kwargs
+        assert kwargs["team_id"] == 42
+        assert kwargs["use_bedrock_fallback"] is False
+        assert kwargs["default_headers"]["traceparent"].startswith("00-")
+        assert kwargs["default_headers"]["x-posthog-property-source_product"] == "notebook_widget"
+        assert result is mock_get_anthropic.return_value
+
+
+class TestBuildAIGatewayAnthropicClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.Anthropic")
+    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx):
+        result = build_ai_gateway_anthropic_client(
+            ai_product="aio_stamphog",
+            properties={"source_product": "stamphog_digest"},
+            distinct_id="team-42",
+            team_id=42,
+        )
+
+        kwargs = mock_anthropic.call_args.kwargs
+        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["base_url"] == "https://ai-gateway.example"
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "aio_stamphog",
+            "source_product": "stamphog_digest",
+            "team_id": "42",
+        }
+        assert result is mock_anthropic.return_value
+
+    @pytest.mark.parametrize(
+        ("url", "api_key"),
+        [("", ""), (AI_GATEWAY_URL, ""), ("https://ai-gateway.example", AI_GATEWAY_KEY)],
+    )
+    @patch("posthog.llm.gateway_client.get_anthropic_gateway_client")
+    def test_raises_instead_of_using_the_python_gateway(self, mock_get_anthropic, url, api_key):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
+            with pytest.raises(ValueError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"):
+                build_ai_gateway_anthropic_client(ai_product="aio_stamphog")
+        mock_get_anthropic.assert_not_called()
+
+
+class TestPrivateScoutGateway:
+    @pytest.mark.parametrize(
+        ("builder", "sdk", "suffix"),
+        [
+            ("build_openai_client", "OpenAI", "/v1"),
+            ("build_async_openai_client", "AsyncOpenAI", "/v1"),
+            ("build_anthropic_client", "Anthropic", ""),
+            ("build_async_anthropic_client", "AsyncAnthropic", ""),
+        ],
+    )
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
+        AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
+        LLM_GATEWAY_URL="https://gateway.example/",
+        LLM_GATEWAY_API_KEY="",
+    )
+    def test_every_builder_uses_scoped_go_token_instead_of_shared_key(
+        self, builder: str, sdk: str, suffix: str
+    ) -> None:
+        with patch.object(gateway_client, sdk) as client, private_scout_gateway("phe_trial_credential"):
+            getattr(gateway_client, builder)(product="signals")
+        assert client.call_args.kwargs["base_url"] == f"https://ai-gateway.example{suffix}"
+        assert client.call_args.kwargs["api_key"] == "phe_trial_credential"
+
+    @pytest.mark.parametrize(
+        ("enabled", "url", "token"),
+        [
+            (False, AI_GATEWAY_URL, "phe_trial_credential"),
+            (True, "", "phe_trial_credential"),
+            (True, "https://ai-gateway.example", "phe_trial_credential"),
+            (True, AI_GATEWAY_URL, ""),
+            (True, AI_GATEWAY_URL, "pha_trial_credential"),
+            (True, AI_GATEWAY_URL, AI_GATEWAY_KEY),
+        ],
+    )
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    def test_invalid_private_config_fails_before_building_any_client(self, enabled: bool, url: str, token: str) -> None:
+        with (
+            override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=enabled, AI_GATEWAY_URL=url),
+            patch.object(gateway_client, "OpenAI") as client,
+        ):
+            with pytest.raises(GatewayNotConfiguredError), private_scout_gateway(token):
+                build_openai_client("signals")
+        client.assert_not_called()
+        assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY)
+
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        LLM_GATEWAY_URL="https://gateway.example",
+        LLM_GATEWAY_API_KEY="shared-credential",
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
+        AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
+    )
+    def test_context_crosses_async_bridges_and_isolates_concurrent_calls(self) -> None:
+        def read_credential() -> str:
+            with build_openai_client("signals") as client:
+                return client.api_key
+
+        async def read_config() -> tuple[AIGatewayConfig | None, str]:
+            await asyncio.sleep(0)
+            return await sync_to_async(resolve_ai_gateway_config)(), await sync_to_async(read_credential)()
+
+        async def run_concurrently() -> None:
+            async def trial(credential: str) -> tuple[AIGatewayConfig | None, str]:
+                with private_scout_gateway(credential):
+                    assert await sync_to_async(lambda: get_query_tags().is_scout_experiment)() is True
+                    return await read_config()
+
+            first, second, ordinary = await asyncio.gather(
+                trial("phe_first_credential"), trial("phe_second_credential"), read_config()
+            )
+            assert first == (
+                AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_first_credential"),
+                "phe_first_credential",
+            )
+            assert second == (
+                AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_second_credential"),
+                "phe_second_credential",
+            )
+            assert ordinary == (AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY), AI_GATEWAY_KEY)
+
+        async_to_sync(run_concurrently)()
+        with pytest.raises(RuntimeError), private_scout_gateway("phe_trial_credential"):
+            with private_scout_gateway("phe_nested_credential"):
+                assert async_to_sync(read_config)() == (
+                    AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_nested_credential"),
+                    "phe_nested_credential",
+                )
+            assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_trial_credential")
+            assert read_credential() == "phe_trial_credential"
+            raise RuntimeError("validation failed")
+        assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY)
+        assert read_credential() == AI_GATEWAY_KEY
+        assert get_query_tags().is_scout_experiment is not True
+
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        LLM_GATEWAY_URL="https://gateway.example",
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
+        AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
+    )
+    def test_go_only_client_uses_private_context(self) -> None:
+        with patch.object(gateway_client, "Anthropic") as client, private_scout_gateway("phe_trial_credential"):
+            build_ai_gateway_anthropic_client()
+        assert client.call_args.kwargs["api_key"] == "phe_trial_credential"
+
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
+        LLM_GATEWAY_URL="https://gateway.example",
+        LLM_GATEWAY_API_KEY="shared-credential",
+    )
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            "get_llm_client",
+            "get_async_llm_client",
+            "get_anthropic_gateway_client",
+            "get_async_anthropic_gateway_client",
+        ],
+    )
+    def test_private_context_cannot_use_python_gateway(self, builder: str) -> None:
+        with private_scout_gateway("phe_trial_credential"):
+            with pytest.raises(GatewayNotConfiguredError, match="require the Go AI gateway"):
+                getattr(gateway_client, builder)(product="signals")

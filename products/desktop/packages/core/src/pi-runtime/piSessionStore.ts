@@ -2,9 +2,9 @@ import type {
   PiCommand,
   PiNativeModelInfo,
   PiQueueSnapshot,
-  PiSessionStats,
   PiSessionStatus,
   PiThinkingLevel,
+  PiUsageStats,
 } from "@posthog/agent/pi/types";
 import type {
   AgentConversationEvent,
@@ -15,11 +15,6 @@ import type {
   TaskRunStatus,
 } from "@posthog/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
-
-export interface PiProjectTrustState {
-  trusted: boolean;
-  hasProjectResources: boolean;
-}
 
 export interface PiSessionError {
   id: string;
@@ -35,6 +30,7 @@ export interface PiSessionError {
 export interface PiControllerSessionState {
   connectionState: SessionStatus;
   events: AgentConversationEvent[];
+  historyVersion: number;
   models: Array<Pick<PiNativeModelInfo, "provider" | "id">>;
   modelsLoaded: boolean;
   thinkingLevels: PiThinkingLevel[];
@@ -42,13 +38,12 @@ export interface PiControllerSessionState {
   commands: PiCommand[];
   queue: PiQueueSnapshot;
   status?: PiSessionStatus;
-  stats?: PiSessionStats;
+  stats?: PiUsageStats;
   cloudStatus?: TaskRunStatus;
   error?: PiSessionError;
   authRestoring: boolean;
   isBashRunning: boolean;
   mcpToolPermissionRequests: Map<string, McpToolPermissionRequest>;
-  projectTrust?: PiProjectTrustState;
 }
 
 export interface PiSessionState {
@@ -65,6 +60,7 @@ export function createEmptyPiControllerSession(): PiControllerSessionState {
   return {
     connectionState: "connecting",
     events: [],
+    historyVersion: 0,
     models: [],
     modelsLoaded: false,
     thinkingLevels: [],

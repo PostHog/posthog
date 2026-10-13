@@ -1,4 +1,4 @@
-"""Retention sweeps for loop bookkeeping. See products/tasks/docs/LOOPS.md (Run: Cleanup).
+"""Retention sweeps for loop bookkeeping.
 
 Keeps the newest 200 tasks per loop and soft-deletes the rest (skipping any task with a
 non-terminal TaskRun), and prunes old LoopFire dedup rows so that table doesn't grow unbounded.
@@ -114,7 +114,10 @@ def sweep_loop_task_retention_task() -> None:
             capture_exception(exc)
             logger.exception("loop_retention.task_sweep_failed")
     except OperationalError as exc:
-        logger.warning("loop_retention.task_sweep_transient_db_error", exception=exc)
+        # Render to str: an exception object as a structlog kv crashes renderers that
+        # concatenate values, and which renderer is active depends on process-global
+        # logging state other tests may have configured.
+        logger.warning("loop_retention.task_sweep_transient_db_error", error=str(exc))
     except Exception as exc:
         capture_exception(exc)
         logger.exception("loop_retention.task_sweep_failed")

@@ -3,6 +3,8 @@ import json
 import logging
 from typing import Any, Optional
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -14,7 +16,16 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import (
+    DATA_WAREHOUSE_SOURCES,
+    FILTER_FUNCTIONS,
+    RUNTIME_CONTRACT,
+    TEMPLATE_CALLABLES,
+    TEMPLATE_GLOBALS,
+    compile_filters_bytecode,
+    compile_filters_expr,
+)
+from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -29,6 +40,126 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+
+# The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
+# sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
+MASKED_SECRET_VALUE = "********"
+
+
+def masked_secret_input_keys(stored_inputs: object) -> list[str]:
+    """Input keys whose stored secret is the mask rather than a real credential.
+
+    Such an input authenticates against nothing, and the original value is gone, so only the
+    owner can restore it. The match cannot be a SQL predicate: the storage column is Fernet
+    encrypted, and Fernet embeds a random IV, so the same plaintext encrypts differently every
+    write. Callers have to decrypt and inspect.
+
+    A row encrypted under a key we no longer hold decrypts to the raw ciphertext string rather
+    than a dict, because the field swallows the failure, so the shape is checked, not assumed.
+    """
+    if not isinstance(stored_inputs, dict):
+        return []
+    return sorted(
+        key
+        for key, entry in stored_inputs.items()
+        if isinstance(entry, dict) and entry.get("value") == MASKED_SECRET_VALUE
+    )
+
+
+# Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
+# is what the send path enforces after rendering. Keep the two in sync.
+FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+
+
+def _sender_integration_ids(from_value: dict) -> set[int]:
+    return {
+        integration_id
+        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
+        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
+    }
+
+
+def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
+    # A PostHog connection acts as the user who created it, so only that user may use it. A function
+    # runs for the whole team and the runtime never resolves one, so reject it where the author sees why.
+    get_team = context.get("get_team")
+    if get_team is None or not integration_ids:
+        return
+    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+        raise serializers.ValidationError(
+            {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
+
+
+def _validate_email_sender_override(from_value: dict, context: dict) -> None:
+    """Reject a literal custom sender address the send path would refuse.
+
+    The runtime only sends from an address on the selected integration's verified domain; an
+    off-domain override is discarded at send time with a run-log warning the author never sees.
+    Catching it at save time puts the error in front of the person who can fix it. Only newly
+    written sender configurations are checked: templated addresses resolve at render time, and a
+    value already stored on the workflow (live or draft) is grandfathered so legacy placeholder
+    data (cleaned up by a separate backfill) does not block unrelated edits.
+    """
+    override = (from_value.get("email") or "").strip()
+    # A brace means a Liquid or Hog template that only resolves at send time.
+    if not override or "{" in override:
+        return
+
+    existing = context.get("existing_email_from") or []
+    # Grandfather only a fully unchanged sender configuration: the address AND the selected
+    # sender set must match a stored variant. Keeping the address while switching senders must
+    # re-check it against the new sender's domain, or the pair silently falls back at send time.
+    for stored in existing if isinstance(existing, list) else [existing]:
+        if not isinstance(stored, dict):
+            continue
+        if override == (stored.get("email") or "").strip() and _sender_integration_ids(
+            from_value
+        ) == _sender_integration_ids(stored):
+            return
+
+    get_team = context.get("get_team")
+    if get_team is None:
+        # No request context (internal re-saves, direct construction); the send path still
+        # enforces the domain.
+        return
+
+    if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
+        raise serializers.ValidationError(
+            {
+                "input": f'The custom sender address "{override}" is not a valid email address. '
+                "Use a single address like sender@yourdomain.com, or a template that resolves to one."
+            }
+        )
+
+    integration_ids = _sender_integration_ids(from_value)
+    if not integration_ids:
+        return
+
+    override_domain = override.split("@")[1].lower()
+    # An empty cached domain means the id resolved to no email integration for this team; the
+    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
+    shared_cache = context.get("email_integration_domain_cache")
+    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
+    if missing_ids:
+        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
+            config = integration.config or {}
+            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
+        for integration_id in missing_ids:
+            domain_cache.setdefault(integration_id, "")
+
+    for integration_id in sorted(integration_ids):
+        integration_domain = domain_cache.get(integration_id) or ""
+        if integration_domain and override_domain != integration_domain:
+            raise serializers.ValidationError(
+                {
+                    "input": f'The custom sender address "{override}" is not on the verified domain '
+                    f'"{integration_domain}" of the selected sender. Use an address on that domain, '
+                    "or select a different sender."
+                }
+            )
+
 
 PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
 
@@ -87,9 +218,33 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogSendTicketMessage")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
+
+
+# Async functions that put the invocation on a queue the running consumer cannot serve.
+#
+# The worker's async function registry is global and is not scoped by function type, so any hog
+# program that names one of these reaches the real handler. These two handlers set
+# `queueParameters` to a bespoke type ('email', 'sendPushNotification') instead of the ordinary
+# 'fetch'. Only the messaging consumers process those queues. When a plain destination stages one,
+# the cyclotron worker produces to a Kafka topic its cluster does not have. The produce error
+# terminates the worker process, and the partition it owned stops draining.
+#
+# Membership is decided by that failure mode, NOT by "the worker registers it". Most registered
+# async functions stage an ordinary 'fetch' (postHogCreateAccount, postHogCreateTask and the
+# postHogGet*/postHogUpdate* family), which is the same mechanism CORE_SUPPORTED_FUNCTIONS already
+# gives user code, so they are safe here and are deliberately absent. produceToWarehouseWebhooks is
+# also absent: it only appends to an in-memory list, and its callers are all
+# `warehouse_source_webhook` functions, which HogFunctionSerializer.validate_type refuses anyway.
+#
+# Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
+RESERVED_ASYNC_FUNCTIONS = {
+    "sendEmail",
+    "sendPushNotification",
+}
 
 
 # Globals that the realtime transformer actually populates at runtime.
@@ -110,6 +265,7 @@ TRANSFORMATION_RUNTIME_FUNCTIONS = {
     "cleanNullValues",
     "isKnownBotUserAgent",
     "isKnownBotIp",
+    "parseUserAgent",
 }
 
 
@@ -127,22 +283,33 @@ class InputCollector(TraversingVisitor):
                 self.inputs.add(str(node.chain[1]))
 
 
-class TransformationGlobalsValidator(TraversingVisitor):
-    """Reject input templates that reference globals unavailable to the realtime
-    transformer (e.g. `person`, `groups`, `source`). Without this check, the bytecode
-    compiles fine and the failure surfaces only at ingestion time as
+class TemplateGlobalsValidator(TraversingVisitor):
+    """Reject input templates that reference globals the runtime will not have.
+
+    Each function type passes the globals its runtime provides (transformations see `project`,
+    `event` and `inputs`; everything else the invocation globals). Without this check the bytecode
+    compiles fine and the failure surfaces only at run time as
     "Could not execute bytecode for input field" / "Global variable not found".
     """
 
     invalid_globals: set[str]
+    # Calls the Node runtime would refuse, as messages: a name it does not have, or the wrong
+    # argument count for one it does.
+    invalid_calls: list[str]
 
     def __init__(
         self,
         available_globals: Optional[set[str]] = None,
         runtime_functions: Optional[set[str]] = None,
+        # The Python tables describe the Python VM. A template that runs in the Node VM passes its
+        # own callables as runtime_functions and turns these off.
+        python_stl: bool = True,
     ):
         super().__init__()
         self.invalid_globals = set()
+        self.invalid_calls = []
+        self._python_stl = python_stl
+        self._declared: set[str] = set()
         self._available_globals = (
             available_globals if available_globals is not None else TRANSFORMATION_AVAILABLE_GLOBALS
         )
@@ -150,21 +317,58 @@ class TransformationGlobalsValidator(TraversingVisitor):
             runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
         )
 
+    def check(self, node: ast.Expr) -> None:
+        # Lambda parameters and anything a lambda body declares are locals, not globals.
+        declared = DeclaredNamesCollector()
+        declared.visit(node)
+        self._declared = declared.names
+        self.visit(node)
+
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
         if not node.chain:
             return
         root = str(node.chain[0])
         if (
-            root in self._available_globals
+            root in self._declared
+            or root in self._available_globals
             or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
-            or root in STL
-            or root in BYTECODE_STL
+            or (self._python_stl and (root in STL or root in BYTECODE_STL))
         ):
             return
         self.invalid_globals.add(root)
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if self._python_stl or node.name in self._declared:
+            return
+        arity = FILTER_FUNCTIONS.get(node.name)
+        if arity is None:
+            # The globals check never sees this name, because a call is not a field. Without this the
+            # template compiles, and the VM refuses the call on every event that reaches it.
+            # print is left out of the runtime table, but the Node VM has it. The async functions
+            # (fetch, postHogCapture, product ones) are not exempt: inputs run without them.
+            if node.name != "print":
+                self.invalid_calls.append(f"{node.name} is not a function inputs can use")
+            return
+        minimum, maximum = arity
+        count = len(node.args)
+        if count < minimum:
+            self.invalid_calls.append(f"{node.name} needs at least {minimum} argument(s), got {count}")
+        elif maximum is not None and count > maximum:
+            self.invalid_calls.append(f"{node.name} takes at most {maximum} argument(s), got {count}")
+
+    def visit_expr_call(self, node: ast.ExprCall) -> None:
+        super().visit_expr_call(node)
+        # `person.properties.email.isNotNull()` compiles to a call on the value at that path. Globals
+        # hold event data, never a function, so the VM refuses the call on every event.
+        if isinstance(node.expr, ast.Field) and node.expr.chain and str(node.expr.chain[0]) not in self._declared:
+            path = ".".join(str(part) for part in node.expr.chain)
+            self.invalid_calls.append(
+                f"{path} is a value, not a function. Write the function name first, as in isNotNull(person.properties.email)"
+            )
 
 
 class DeclaredNamesCollector(TraversingVisitor):
@@ -234,6 +438,42 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         return True
 
 
+class ReservedFunctionDetector(TraversingVisitor):
+    names: set[str]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.names = set()
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if node.name in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(node.name)
+
+    def visit_field(self, node: ast.Field) -> None:
+        # A bare reference is caught as well as a direct call. `let f := sendEmail` followed by
+        # `f()` compiles to the same global dispatch, so the name alone is refused.
+        super().visit_field(node)
+        if len(node.chain) == 1 and str(node.chain[0]) in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(str(node.chain[0]))
+
+
+def reserved_functions_used(hog: str) -> set[str]:
+    """The reserved async functions that the given hog source names.
+
+    Source that does not parse gives an empty set. compile_hog reports the parse error with a
+    better message, so this must not raise before it runs.
+    """
+    try:
+        program = parse_program(hog)
+    except Exception:
+        return set()
+
+    detector = ReservedFunctionDetector()
+    detector.visit(program)
+    return detector.names
+
+
 class RecordAliasRewriter(TraversingVisitor):
     """Rewrite `{record.x}` template references to `{event.properties.x}` for data-warehouse-table
     sources. The synced row is delivered under `event.properties` at runtime, so `record` is a
@@ -257,6 +497,7 @@ def generate_template_bytecode(
     input_collector: set[str],
     function_type: Optional[str] = None,
     is_dwh_source: bool = False,
+    validate_globals: bool = True,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
@@ -264,11 +505,14 @@ def generate_template_bytecode(
 
     if isinstance(obj, dict):
         return {
-            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source)
+            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source, validate_globals)
             for key, value in obj.items()
         }
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
+        return [
+            generate_template_bytecode(item, input_collector, function_type, is_dwh_source, validate_globals)
+            for item in obj
+        ]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         if is_dwh_source:
@@ -279,8 +523,8 @@ def generate_template_bytecode(
         if detector.errors:
             raise Exception(detector.errors[0])
         if function_type == "transformation":
-            transformation_validator = TransformationGlobalsValidator()
-            transformation_validator.visit(node)
+            transformation_validator = TemplateGlobalsValidator()
+            transformation_validator.check(node)
             if transformation_validator.invalid_globals:
                 names = ", ".join(sorted(transformation_validator.invalid_globals))
                 raise Exception(
@@ -288,16 +532,34 @@ def generate_template_bytecode(
                     f"Transformations only have access to project, event, and inputs."
                 )
         elif function_type == "transformation_log":
-            log_validator = TransformationGlobalsValidator(
+            log_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
                 runtime_functions=set(),
             )
-            log_validator.visit(node)
+            log_validator.check(node)
             if log_validator.invalid_globals:
                 names = ", ".join(sorted(log_validator.invalid_globals))
                 raise Exception(
                     f"Variable not available in log transformations: {names}. "
                     f"Log transformations only have access to project, record, and inputs."
+                )
+        elif function_type is not None and validate_globals:
+            # Every other type resolves its inputs against the invocation globals at run time. A save
+            # that disables or deletes the function skips this, so a broken function can be turned off.
+            template_validator = TemplateGlobalsValidator(
+                available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
+            )
+            template_validator.check(node)
+            if template_validator.invalid_globals:
+                names = ", ".join(sorted(template_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in inputs: {names}. "
+                    f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
+                    f"also variables."
+                )
+            if template_validator.invalid_calls:
+                raise Exception(
+                    "This template would fail on every event: " + "; ".join(template_validator.invalid_calls)
                 )
         return create_bytecode(node).bytecode
     else:
@@ -369,6 +631,11 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "non_failure_status_codes",
             "customer_analytics_account_properties",
             "customer_analytics_account_relationships",
+            "task_model",
+            "task_repository",
+            "task_mcp_installations",
+            "signals_scout",
+            "task_skills",
         ]
     )
     key = serializers.CharField()
@@ -392,6 +659,59 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     # TODO Validate choices if type=choice
 
 
+DUPLICATE_INPUT_KEYS_ERROR = "Each input key must be unique. Remove duplicate keys."
+
+
+def duplicate_input_keys(schemas: Any) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for schema in schemas or []:
+        if not isinstance(schema, dict) or "key" not in schema:
+            continue
+        key = str(schema["key"]).strip()
+        if key in seen:
+            duplicates.add(key)
+        seen.add(key)
+    return duplicates
+
+
+def added_duplicate_input_keys(schemas: Any, stored_schemas: Any) -> set[str]:
+    """Keys the schema repeats more often than the stored schema already did."""
+
+    def counts(items: Any) -> dict[str, int]:
+        result: dict[str, int] = {}
+        for schema in items or []:
+            if isinstance(schema, dict) and "key" in schema:
+                key = str(schema["key"]).strip()
+                result[key] = result.get(key, 0) + 1
+        return result
+
+    stored = counts(stored_schemas)
+    return {key for key, count in counts(schemas).items() if count > 1 and count > stored.get(key, 0)}
+
+
+class InputsSchemaSerializer(serializers.ListField):
+    """A function's input schema.
+
+    Turn `unique_keys` off wherever the caller does not always send the schema. The hog function
+    serializer injects the stored schema into every update, so a row saved before this rule would
+    fail a request that only disables or deletes it. That serializer checks uniqueness itself and
+    compares against the stored schema.
+    """
+
+    child = InputsSchemaItemSerializer()
+
+    def __init__(self, *args: Any, unique_keys: bool = True, **kwargs: Any) -> None:
+        self.unique_keys = unique_keys
+        super().__init__(*args, **kwargs)
+
+    def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
+        schemas = super().to_internal_value(data)
+        if self.unique_keys and duplicate_input_keys(schemas):
+            raise serializers.ValidationError(DUPLICATE_INPUT_KEYS_ERROR)
+        return schemas
+
+
 @extend_schema_field({})
 class AnyInputField(serializers.Field):
     def to_internal_value(self, data):
@@ -401,10 +721,16 @@ class AnyInputField(serializers.Field):
         return value
 
 
+class HogFunctionTemplating(models.TextChoices):
+    HOG = "hog", "hog"
+    LIQUID = "liquid", "liquid"
+
+
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
-    templating = serializers.ChoiceField(choices=["hog", "liquid"], required=False)
+    templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
+    bytecode_contract = serializers.CharField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
 
@@ -456,9 +782,41 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+            _validate_not_posthog_connection([value], self.context)
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+            _validate_not_posthog_connection(value, self.context)
+        elif item_type == "task_repository":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+        elif item_type == "task_model":
+            # A non-empty value means a model was chosen (an empty value returned above as "use the
+            # default model"), so it must name a usable model. Otherwise the run-time consumer drops
+            # the setting and the task silently falls back to the default, which this guard exists to
+            # prevent for programmatically authored workflows.
+            model = value.get("model") if isinstance(value, dict) else None
+            reasoning_effort = value.get("reasoning_effort") if isinstance(value, dict) else None
+            if (
+                not isinstance(value, dict)
+                or not isinstance(model, str)
+                or not model
+                or (reasoning_effort is not None and not isinstance(reasoning_effort, str))
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": "Value must be an object with a non-empty 'model' string and an optional 'reasoning_effort' string."
+                    }
+                )
+        elif item_type == "task_mcp_installations":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
+        elif item_type == "signals_scout":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "task_skills":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of skill names."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -503,6 +861,8 @@ class InputsItemSerializer(serializers.Serializer):
                         raise serializers.ValidationError(
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )
+
+                _validate_email_sender_override(from_value, self.context)
 
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the
@@ -554,12 +914,18 @@ class InputsItemSerializer(serializers.Serializer):
                             attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                             if "bytecode" in attrs:
                                 del attrs["bytecode"]
+                            attrs.pop("bytecode_contract", None)
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
-                                value, input_collector, function_type=function_type, is_dwh_source=is_dwh_source
+                                value,
+                                input_collector,
+                                function_type=function_type,
+                                is_dwh_source=is_dwh_source,
+                                validate_globals=self.context.get("function_will_be_enabled", True),
                             )
                             attrs["input_deps"] = list(input_collector)
+                            attrs["bytecode_contract"] = RUNTIME_CONTRACT
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
@@ -600,16 +966,24 @@ class InputsSerializer(serializers.DictField):
         except:
             raise serializers.ValidationError("Missing inputs_schema.")
 
+        assert isinstance(parent_serializer, serializers.Serializer)
+        inputs_schema = parent_serializer.fields["inputs_schema"].run_validation(inputs_schema)
+
         # Validate each input against the schema
         for schema in inputs_schema:
             key = str(schema["key"])
             value = data.get(key) or {}
 
             if schema.get("secret"):
-                # A {"secret": true} value with no "value" is the read-back mask, meaning "keep the
-                # stored secret". One that also carries a "value" is a rotation and must win, so it
-                # falls through to normal validation.
-                is_masked = isinstance(value, dict) and bool(value.get("secret")) and "value" not in value
+                # A {"secret": true} value the user did not retype is the read-back mask, meaning
+                # "keep the stored secret". The UI sends it either without a "value" key or with the
+                # literal mask as the value, so both shapes must count as masked. A different "value"
+                # is a rotation and must win, so it falls through to normal validation.
+                is_masked = (
+                    isinstance(value, dict)
+                    and bool(value.get("secret"))
+                    and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
+                )
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:
@@ -619,6 +993,11 @@ class InputsSerializer(serializers.DictField):
                         # webhook auth in production - fail so the caller re-enters the value.
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
+
+            if value == {} and schema.get("required") and schema.get("default") is not None:
+                # The destination editor pre-fills defaults from the template schema, but callers that
+                # build inputs by hand cannot, so a required input with a default would reject them.
+                value = {"value": schema["default"]}
 
             self.context["schema"] = schema
 
@@ -637,6 +1016,12 @@ class InputsSerializer(serializers.DictField):
 
                 if "value" not in input_value:
                     # Indicates no value is provided and no error was thrown which is fine so we can exclude it
+                    continue
+
+                if schema.get("secret") and input_value.get("value") == MASKED_SECRET_VALUE:
+                    # The mask reached persistence, so recovery of the stored secret failed. Refuse
+                    # rather than encrypt the mask and silently destroy the real credential.
+                    errors[key] = "This secret input was not updated correctly. Enter the value again."
                     continue
 
                 result[key] = input_value
@@ -673,9 +1058,26 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
+def _contains_behavioral_property(filters: dict) -> bool:
+    """Behavioral ("performed event") property filters compile to a ClickHouse subquery over events
+    history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
+    can never evaluate."""
+    entities = (filters.get("events") or []) + (filters.get("actions") or []) + (filters.get("data_warehouse") or [])
+    property_lists = [filters.get("properties") or []] + [
+        entity.get("properties") or [] for entity in entities if isinstance(entity, dict)
+    ]
+    return any(
+        isinstance(prop, dict) and prop.get("type") == "behavioral"
+        for property_list in property_lists
+        for prop in property_list
+    )
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
+        choices=["events", "internal-events", "person-updates", *DATA_WAREHOUSE_SOURCES],
+        required=False,
+        default="events",
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -685,6 +1087,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
+    bytecode_contract = serializers.CharField(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -697,6 +1100,18 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
+
+        # The compiler writes the stamp below, so a value a client echoes back is never kept.
+        data.pop("bytecode_contract", None)
+
+        if _contains_behavioral_property(data):
+            raise serializers.ValidationError(
+                "Behavioral (performed event) filters can't be evaluated in realtime functions. "
+                "Use a cohort to filter on past behavior."
+            )
+
+        if function_type == "internal_destination":
+            data["source"] = "internal-events"
 
         if function_type == "transformation_log":
             # Filter bytecode is compiled against event-shaped globals, which log records
@@ -717,18 +1132,46 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             # Don't allow events or actions for person-updates
             data.pop("data_warehouse", None)
 
+        if data.get("source") == "internal-events":
+            disallowed = [key for key in ("actions", "data_warehouse") if data.get(key)]
+            if disallowed:
+                raise serializers.ValidationError(
+                    dict.fromkeys(disallowed, "This filter is not supported for internal events.")
+                )
+            data.pop("actions", None)
+            data.pop("data_warehouse", None)
+            events = data.get("events")
+            if (
+                not isinstance(events, list)
+                or not events
+                or any(
+                    not isinstance(event, dict) or not isinstance(event.get("id"), str) or not event["id"].strip()
+                    for event in events
+                )
+            ):
+                raise serializers.ValidationError(
+                    {"events": "Internal event filters require at least one event with a non-empty id."}
+                )
+
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates
             data.pop("events", None)
             data.pop("actions", None)
             data.pop("data_warehouse", None)
 
-        if data.get("source") == "data-warehouse-table":
-            # Don't allow events or actions for data-warehouse-table
+        if data.get("source") in DATA_WAREHOUSE_SOURCES:
+            # Don't allow events or actions for warehouse sources
             data.pop("events", None)
             data.pop("actions", None)
 
         if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            # A row filter is compiled against its entry's table name, so without one it matches nothing.
+            # Checked before the placeholder is dropped, or a filter on the placeholder would vanish silently.
+            if any(
+                entry.get("properties") and (not entry.get("table_name") or entry.get("name") == "Select a table")
+                for entry in data["data_warehouse"]
+            ):
+                raise serializers.ValidationError({"data_warehouse": "Pick a table for each row filter."})
             data["data_warehouse"] = [
                 entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
             ]
@@ -751,15 +1194,36 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return data
 
 
-class MappingsSerializer(serializers.Serializer):
-    name = serializers.CharField(required=False)
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+class FunctionInputsSerializer(serializers.Serializer):
+    inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
-    filters = HogFunctionFiltersSerializer(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
         self.initial_data = data
+        return super().to_internal_value(data)
+
+
+class MappingsSerializer(FunctionInputsSerializer):
+    name = serializers.CharField(required=False)
+    filters = HogFunctionFiltersSerializer(required=False)
+    # The hog function serializer compares repeated keys against the stored mappings, because the UI
+    # resends every mapping on each save and some stored mappings already repeat a key.
+    inputs_schema = InputsSchemaSerializer(required=False, unique_keys=False)
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict) and "inputs_schema" in data:
+            try:
+                inputs_schema = self.fields["inputs_schema"].run_validation(data["inputs_schema"])
+            except ValidationError as error:
+                raise serializers.ValidationError({"inputs_schema": error.detail}) from error
+            if any(schema.get("secret") for schema in inputs_schema):
+                raise serializers.ValidationError(
+                    {
+                        "inputs_schema": "Mappings do not support secret inputs. Set secrets in the destination inputs instead."
+                    }
+                )
+            data = {**data, "inputs_schema": inputs_schema}
         return super().to_internal_value(data)
 
 
@@ -833,7 +1297,7 @@ def compile_hog(
             # at ingestion time. Declared locals are excluded from the check.
             declared = DeclaredNamesCollector()
             declared.visit(program)
-            body_validator = TransformationGlobalsValidator(
+            body_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS | declared.names,
                 runtime_functions=set(),
             )

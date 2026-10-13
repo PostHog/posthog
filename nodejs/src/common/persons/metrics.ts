@@ -28,6 +28,13 @@ export const personDatabaseOperationsPerBatchHistogram = new Histogram({
     buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, Infinity],
 })
 
+export const personResolveKeysPerCallHistogram = new Histogram({
+    name: 'person_resolve_keys_per_call',
+    help: 'Distinct ids sent in one distinct-id-to-person resolve call, by persons backend and call site, before transport retries',
+    labelNames: ['backend', 'site'],
+    buckets: [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, Infinity],
+})
+
 export const totalPersonUpdateLatencyPerBatchHistogram = new Histogram({
     name: 'total_person_update_latency_per_batch_seconds',
     help: 'Total latency of person update per distinct ID per batch',
@@ -160,6 +167,61 @@ export function observeLatencyByVersion(person: InternalPerson | undefined, star
     personOperationLatencyByVersionSummary.labels(operation, versionBucket).observe(performance.now() - start)
 }
 
+export const personhogStoreShadowSkipsCounter = new Counter({
+    name: 'personhog_store_shadow_skips_total',
+    help: 'Shadowed writes skipped because the person does not exist in the personhog world yet',
+    labelNames: ['verb'],
+})
+
+export const personhogStoreShadowErrorsCounter = new Counter({
+    name: 'personhog_store_shadow_errors_total',
+    help: 'Personhog shadow-side store verb failures by verb and error class; shadow errors never fail the batch',
+    labelNames: ['verb', 'error'],
+})
+
+export const personhogStoreShadowDivergenceCounter = new Counter({
+    name: 'personhog_store_shadow_divergence_total',
+    help: 'Answers where the shadow backend disagreed with the authoritative one, by verb and by the field that differed',
+    labelNames: ['verb', 'field'],
+})
+
+export const personhogStoreShadowComparedCounter = new Counter({
+    name: 'personhog_store_shadow_compared_total',
+    help: 'Shadow answers actually compared against the authoritative one, the denominator for the divergence rate',
+    labelNames: ['verb'],
+})
+
+export const personhogStoreShadowFoldRedriveCounter = new Counter({
+    name: 'personhog_store_shadow_fold_redrive_total',
+    help: 'Per-pair shadow merges re-driven after a fold the authoritative side executed aborted on the shadow, by outcome',
+    labelNames: ['outcome'],
+})
+
+export const personhogStoreShadowMergeRedriveCounter = new Counter({
+    name: 'personhog_store_shadow_merge_redrive_total',
+    help: 'Shadow merges re-driven at a flush after their retries ended unsettled: settled, deferred to a later flush, or dropped; abandoned counts a re-queue at the ceiling before the final outcome',
+    labelNames: ['outcome'],
+})
+
+export const personhogStoreShadowCreateRetriesCounter = new Counter({
+    name: 'personhog_store_shadow_create_retries_total',
+    help: 'Shadow create attempts past the first (retried) and creates that landed after a retry (recovered); one that misses its deadline counts under personhog_store_shadow_errors_total',
+    labelNames: ['outcome'],
+})
+
+export const personhogStoreShadowCompareFailedCounter = new Counter({
+    name: 'personhog_store_shadow_compare_failed_total',
+    help: 'Shadow comparisons that threw, which is a fault in the comparison rather than in either backend',
+    labelNames: ['verb'],
+})
+
+export const personhogStoreShadowDurationSeconds = new Histogram({
+    name: 'personhog_store_shadow_duration_seconds',
+    help: 'Wall time the shadowed personhog side of a store verb adds to the event pipeline, by verb',
+    labelNames: ['verb'],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
 export const personProfileUpdateOutcomeCounter = new Counter({
     name: 'person_profile_update_outcome_total',
     help: 'Outcome of person profile update operations at event level',
@@ -182,6 +244,20 @@ export const personProfileBatchIgnoredPropertiesCounter = new Counter({
     name: 'person_profile_batch_ignored_properties_total',
     help: 'Count of specific properties that were ignored during person profile updates at batch level',
     labelNames: ['property'],
+})
+
+export const personCreateConflictResolvedCounter = new Counter({
+    name: 'person_create_conflict_resolved_total',
+    help: 'Person creations that lost the (team_id, uuid) key, by how the conflict was resolved',
+    // uuid: resolved to the row already holding the uuid, after recovery by distinct ID found nothing
+    // none: the holder was gone by the time we looked, so the create failed
+    labelNames: ['resolved_by'],
+})
+
+export const personStrayDistinctIdTombstonedCounter = new Counter({
+    name: 'person_stray_distinct_id_tombstoned_total',
+    help: 'Live distinct id mappings on a tombstoned person that a write tombstoned so it could reuse the distinct id',
+    labelNames: ['operation'],
 })
 
 export const personJsonFieldSizeHistogram = new Histogram({

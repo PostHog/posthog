@@ -1,5 +1,7 @@
 import { DateTime, Settings } from 'luxon'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './linkedin.template'
 
@@ -48,7 +50,7 @@ describe('linkedin template', () => {
               "headers": {
                 "Authorization": "Bearer oauth-1234",
                 "Content-Type": "application/json",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
               },
               "method": "POST",
               "type": "fetch",
@@ -63,6 +65,17 @@ describe('linkedin template', () => {
 
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it.each([
+        ['firstName', { lastName: 'AI', countryCode: 'US' }],
+        ['lastName', { firstName: 'Max', countryCode: 'US' }],
+    ])('omits userInfo when %s is missing', async (_missing, userInfo) => {
+        const response = await tester.invoke(buildInputs({ userInfo }))
+
+        const body = parseJSON((response.invocation.queueParameters as any).body)
+        expect(body.user.userInfo).toBeUndefined()
+        expect(body.user.userIds).toHaveLength(2)
     })
 
     it('does not contain empty objects', async () => {
@@ -80,7 +93,7 @@ describe('linkedin template', () => {
               "headers": {
                 "Authorization": "Bearer oauth-1234",
                 "Content-Type": "application/json",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
               },
               "method": "POST",
               "type": "fetch",

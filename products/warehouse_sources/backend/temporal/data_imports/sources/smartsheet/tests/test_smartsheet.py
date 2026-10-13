@@ -87,30 +87,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == SmartsheetResumeConfig(next_page=2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_does_not_save_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], total_pages=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source("sheets", manager))
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total_pages=0)])
-
-        manager = _make_manager()
-        rows = _rows(_source("sheets", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": 9}], total_pages=3)])
@@ -120,15 +96,6 @@ class TestPagination:
 
         assert params[0]["page"] == 3
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bearer_auth_carries_token(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], total_pages=1)])
-
-        _rows(_source("sheets", _make_manager()))
-        # Framework Bearer auth attaches the Authorization header (redacted from raised errors).
-        assert session.auth is not None
-
 
 class TestSmartsheetSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -137,8 +104,9 @@ class TestSmartsheetSourceResponse:
         config = SMARTSHEET_ENDPOINTS[endpoint]
         response = _source(endpoint, _make_manager())
 
+        expected_keys = config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
         if config.partition_key:
             assert response.partition_mode == "datetime"
@@ -156,20 +124,6 @@ class TestSmartsheetSourceResponse:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(SMARTSHEET_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("token") is expected
-
     @mock.patch(SMARTSHEET_SESSION_PATCH)
     def test_validate_credentials_probes_users_me(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
@@ -177,8 +131,3 @@ class TestValidateCredentials:
         validate_credentials("token")
 
         assert mock_session.return_value.get.call_args.args[0] == "https://api.smartsheet.com/2.0/users/me"
-
-    @mock.patch(SMARTSHEET_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False

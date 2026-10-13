@@ -161,8 +161,14 @@ class TestIsTimeOrIntervalConstant(unittest.TestCase):
     def test_constant_with_tombstone_returns_false(self) -> None:
         self.assertFalse(is_time_or_interval_constant(ast.Constant(value="tombstone"), tombstone_string="tombstone"))
 
-    def test_field_returns_false(self) -> None:
-        self.assertFalse(is_time_or_interval_constant(ast.Field(chain=["timestamp"])))
+    @parameterized.expand(
+        [
+            (ast.Field(chain=["timestamp"]),),
+            (ast.PropertyAccess(expr=ast.Field(chain=["properties"]), keys=["cutoff"]),),
+        ]
+    )
+    def test_field_returns_false(self, node: ast.Expr) -> None:
+        self.assertFalse(is_time_or_interval_constant(node))
 
     def test_select_query_returns_false(self) -> None:
         self.assertFalse(is_time_or_interval_constant(ast.SelectQuery(select=[ast.Constant(value=1)])))

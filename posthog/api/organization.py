@@ -2,10 +2,12 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
+from django.core.validators import URLValidator
 from django.db import transaction
-from django.db.models import Model, QuerySet
+from django.db.models import Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
+import nh3
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from opentelemetry import trace
@@ -15,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog import settings
+from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
@@ -40,6 +43,8 @@ from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -52,10 +57,14 @@ from posthog.permissions import (
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, visible_teams_for_user
 from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.access_control.backend.models.role import Role
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -97,6 +106,10 @@ tracer = trace.get_tracer(__name__)
 
 CacheField = Literal["teams", "projects"]
 OrgCacheField = Literal["member_count"]
+
+
+class OrganizationRoleScopedPrimaryKeyRelatedField(OrgScopedPrimaryKeyRelatedField):
+    scope_field = "organization"
 
 
 def _cached_org_serializer_field(cache_key: str, fetcher: Callable[[], Any]) -> Any:
@@ -142,10 +155,89 @@ def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
     return user.id
 
 
+class OrganizationMemberNoticeActionSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=40, help_text="Text on the button shown next to the notice.")  # type: ignore[assignment]
+    url = serializers.URLField(
+        max_length=2000,
+        validators=[URLValidator(schemes=["http", "https"])],
+        help_text="Link the button opens in a new tab. Must use http or https.",
+    )
+
+
+# Keep in sync with MEMBER_NOTICE_SANITIZE_CONFIG in OrganizationMemberNoticeMessage.tsx.
+# Formatting and links only: no <link>, <style> or style attributes, since the notice renders inside the app shell.
+MEMBER_NOTICE_ALLOWED_TAGS = {"a", "b", "br", "code", "em", "i", "li", "ol", "p", "s", "span", "strong", "u", "ul"}
+MEMBER_NOTICE_ALLOWED_ATTRIBUTES = {"a": {"href", "title"}}
+MEMBER_NOTICE_MAX_LENGTH = 1000
+
+
+def sanitize_member_notice_html(message: str) -> str:
+    return nh3.clean(
+        message,
+        tags=MEMBER_NOTICE_ALLOWED_TAGS,
+        attributes=MEMBER_NOTICE_ALLOWED_ATTRIBUTES,
+        url_schemes={"http", "https", "mailto"},
+        set_tag_attribute_values={"a": {"target": "_blank"}},
+    ).strip()
+
+
+class OrganizationMemberNoticeSerializer(serializers.Serializer):
+    message = serializers.CharField(
+        max_length=MEMBER_NOTICE_MAX_LENGTH,
+        help_text="HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.",
+    )
+    action = OrganizationMemberNoticeActionSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional link button shown on the right of the banner.",
+    )
+
+    def validate_message(self, value: str) -> str:
+        sanitized = sanitize_member_notice_html(value)
+        if not nh3.clean(sanitized, tags=set()).strip():
+            raise serializers.ValidationError("The message has no text left after removing unsupported HTML.")
+        # Sanitizing adds target and rel to links. Check the stored length too, so a saved notice always fits on resave.
+        if len(sanitized) > MEMBER_NOTICE_MAX_LENGTH:
+            raise serializers.ValidationError(
+                f"The message is {len(sanitized) - MEMBER_NOTICE_MAX_LENGTH} characters too long once its links are formatted. Shorten it and save again."
+            )
+        return sanitized
+
+
+@extend_schema_field(OrganizationMemberNoticeSerializer)
+class OrganizationMemberNoticeField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        serializer = OrganizationMemberNoticeSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+
+class OrganizationTeamBasicSerializer(TeamBasicSerializer):
+    project_group = serializers.SerializerMethodField(
+        help_text="The project group shown in the organization project switcher, or null if it has no group."
+    )
+
+    class Meta:
+        model = Team
+        fields = (*TeamBasicSerializer.Meta.fields, "project_group")
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_project_group(self, team: Team) -> str | None:
+        project = team.project
+        if not hasattr(project, "prefetched_tags"):
+            return None
+        groups = project_tags.group_tags(tagged_item.tag.name for tagged_item in project.prefetched_tags)
+        return min(groups).removeprefix(project_tags.PROJECT_GROUP_TAG_PREFIX) if groups else None
+
+
 class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
     membership_level = serializers.SerializerMethodField()
+    membership_joined_at = serializers.SerializerMethodField(
+        help_text="When the requesting user joined this organization. Null if the user is not a member."
+    )
     teams = serializers.SerializerMethodField()
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -153,7 +245,9 @@ class OrganizationSerializer(
     logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
-    default_role_id = serializers.CharField(
+    default_role_id = OrganizationRoleScopedPrimaryKeyRelatedField(
+        queryset=Role.objects.all(),
+        source="default_role",
         required=False,
         allow_null=True,
         help_text="ID of the role to automatically assign to new members joining the organization",
@@ -161,6 +255,14 @@ class OrganizationSerializer(
     is_member_join_email_enabled = serializers.BooleanField(
         read_only=True,
         help_text="Legacy field; member-join emails are controlled per user in account notification settings.",
+    )
+    member_notice = OrganizationMemberNoticeField(
+        required=False,
+        allow_null=True,
+        help_text="Notice shown in a banner to every member of the organization. Set to null to remove it.",
+    )
+    has_signed_baa = serializers.SerializerMethodField(
+        help_text="Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed."
     )
 
     class Meta:
@@ -173,6 +275,7 @@ class OrganizationSerializer(
             "created_at",
             "updated_at",
             "membership_level",
+            "membership_joined_at",
             "plugins_access_level",
             "teams",
             "projects",
@@ -187,18 +290,20 @@ class OrganizationSerializer(
             "members_can_use_personal_api_keys",
             "members_can_see_org_members",
             "allow_publicly_shared_resources",
+            "read_only_mcp_access",
+            "member_notice",
             "member_count",
             "is_ai_data_processing_approved",
             "is_ai_training_opted_in",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
-            "is_hipaa",
-            "default_experiment_stats_method",
+            "has_signed_baa",
             "default_anonymize_ips",
             "default_role_id",
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "uses_most_specific_access_resolution",
         ]
         read_only_fields = [
             "id",
@@ -206,6 +311,7 @@ class OrganizationSerializer(
             "created_at",
             "updated_at",
             "membership_level",
+            "membership_joined_at",
             "plugins_access_level",
             "teams",
             "projects",
@@ -213,13 +319,13 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "member_count",
-            "default_role_id",
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
-            "is_hipaa",
+            "has_signed_baa",
+            "uses_most_specific_access_resolution",
         ]
         extra_kwargs = {
             "slug": {
@@ -252,6 +358,12 @@ class OrganizationSerializer(
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return OrganizationMembership.Level(membership.level) if membership is not None else None
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_membership_joined_at(self, organization: Organization) -> str | None:
+        membership = self.user_permissions.organization_memberships.get(organization.pk)
+        return membership.joined_at.isoformat() if membership is not None else None
+
+    @extend_schema_field(OrganizationTeamBasicSerializer(many=True))
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         user_id = _resolve_cached_user_id(self.context)
@@ -260,10 +372,18 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        visible_teams = visible_teams_for_user(
-            instance, self.user_access_control, self.user_permissions
-        ).select_related("project")
-        return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
+        visible_teams = (
+            visible_teams_for_user(instance, self.user_access_control, self.user_permissions)
+            .select_related("project")
+            .prefetch_related(
+                Prefetch(
+                    "project__tagged_items",
+                    queryset=TaggedItem.objects.select_related("tag"),
+                    to_attr="prefetched_tags",
+                )
+            )
+        )
+        return list(OrganizationTeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
     @tracer.start_as_current_span("organization_serializer.projects")
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
@@ -277,6 +397,15 @@ class OrganizationSerializer(
     def _fetch_visible_projects(self, instance: Organization) -> list[dict[str, Any]]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
         return list(ProjectBasicSerializer(visible_projects, context=self.context, many=True).data)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_signed_baa(self, instance: Organization) -> bool:
+        # The list route annotates this in the organizations query. The single-organization
+        # routes do not go through that queryset, so they fall back to one lookup.
+        annotated = getattr(instance, SIGNED_BAA_ANNOTATION, None)
+        if annotated is not None:
+            return annotated
+        return has_signed_baa(instance.id)
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
@@ -360,9 +489,9 @@ class OrganizationSerializer(
 
     def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
         if self.instance and self.instance.is_ai_training_opted_in != value:
-            if self.instance.is_hipaa:
+            if has_signed_baa(self.instance.id):
                 raise serializers.ValidationError(
-                    "HIPAA organizations are always opted out of AI training and this setting cannot be changed.",
+                    "Organizations with a signed BAA stay opted out of AI training. Contact PostHog support if you need to change this.",
                     code="locked",
                 )
             if self.instance.is_ai_training_locked:
@@ -394,6 +523,15 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
         return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
+
+    def validate_read_only_mcp_access(self, value: bool) -> bool:
+        if self.instance and self.instance.read_only_mcp_access != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure MCP access.",
+                    code="payment_required",
+                )
+        return value
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):
@@ -512,7 +650,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
 
-        return queryset
+        return annotate_signed_baa(queryset)
 
     def safely_get_object(self, queryset):
         return self.organization
@@ -723,7 +861,15 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"success": True, "removed_members": removed})
 
     @extend_schema(request=None, responses={200: OrganizationDataFreshnessSerializer})
-    @action(detail=True, methods=["GET"], url_path="teams/data_freshness", pagination_class=None)
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="teams/data_freshness",
+        pagination_class=None,
+        # A scope is only derived for `list` and `retrieve`, so without this the action reaches
+        # APIScopePermission with no required scope and every personal API key is rejected.
+        required_scopes=["organization:read"],
+    )
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.organization

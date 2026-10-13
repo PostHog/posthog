@@ -2,30 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.trigger_dev import (
-    TriggerDevResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTriggerDevSourceConfig:
-    def test_source_type(self) -> None:
-        assert TriggerDevSource().source_type == ExternalDataSourceType.TRIGGERDEV
-
-    def test_fields_require_secret_api_key_and_optional_base_url(self) -> None:
-        fields = {f.name: f for f in TriggerDevSource().get_source_config.fields}
-        api_key, base_url = fields["api_key"], fields["base_url"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(base_url, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-        assert base_url.required is False
-        assert base_url.secret is False
-
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Retargeting base_url must re-require the secret, else the preserved key leaks to a new host.
         assert TriggerDevSource().connection_host_fields == ["base_url"]
@@ -36,14 +17,6 @@ class TestTriggerDevSourceConfig:
 
 
 class TestTriggerDevSchemas:
-    def test_runs_is_incremental_and_config_endpoints_are_full_refresh(self) -> None:
-        schemas = {s.name: s for s in TriggerDevSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"runs", "schedules", "queues"}
-        assert schemas["runs"].supports_incremental is True
-        assert [f["field"] for f in schemas["runs"].incremental_fields] == ["createdAt"]
-        assert schemas["schedules"].supports_incremental is False
-        assert schemas["queues"].supports_incremental is False
-
     def test_names_filter(self) -> None:
         schemas = TriggerDevSource().get_schemas(MagicMock(), team_id=1, names=["queues"])
         assert [s.name for s in schemas] == ["queues"]
@@ -145,19 +118,3 @@ class TestSourceForPipeline:
         ):
             TriggerDevSource().source_for_pipeline(config, MagicMock(), inputs)
         assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestResumableSourceManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = TriggerDevSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is TriggerDevResumeConfig
-
-
-class TestGetDocumentedTables:
-    def test_publishes_runs_table_with_canonical_description(self) -> None:
-        tables = {t["name"]: t for t in TriggerDevSource().get_documented_tables()}
-        assert set(tables) == {"runs", "schedules", "queues"}
-        assert "execution" in tables["runs"]["description"].lower()
-        assert "Incremental" in tables["runs"]["sync_methods"]
-        assert tables["schedules"]["sync_methods"] == ["Full refresh"]

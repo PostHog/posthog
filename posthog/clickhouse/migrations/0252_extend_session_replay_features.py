@@ -1,6 +1,6 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.run_mode import run_mode
 from posthog.session_recordings.sql.session_replay_feature_sql import (
     DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL,
@@ -62,8 +62,6 @@ def _alter_sharded() -> str:
     )
 
 
-_is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
-
 operations = [
     # 1. Drop all materialized views and Kafka tables (MSK + WarpStream) before
     run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
@@ -107,7 +105,7 @@ operations = [
             ),
             run_sql_with_exceptions(SESSION_REPLAY_FEATURES_WS_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
         ]
-        if _is_cloud
+        if run_mode().is_deployed_cloud
         # Non-cloud: MSK pair only.
         else [
             run_sql_with_exceptions(

@@ -3,13 +3,12 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use metrics::counter;
 
-#[cfg(test)]
-use super::persons::approx_person_bytes;
-use super::persons::{CachedPerson, PersonCache, PersonCacheKey};
+use super::codec::PropertiesCodec;
+use super::persons::{CachedPerson, CachedVersion, PersonCache, PersonCacheKey};
 
 /// Result of a cache lookup that distinguishes partition ownership from person existence.
 pub enum CacheLookup {
-    Found(Arc<CachedPerson>),
+    Found(CachedPerson),
     PersonNotFound,
     PartitionNotOwned,
 }
@@ -26,6 +25,7 @@ pub struct PartitionedCache {
     /// answers `PartitionNotOwned` on every path.
     warming: DashMap<u32, PersonCache>,
     per_partition_capacity: usize,
+    codec: Arc<PropertiesCodec>,
 }
 
 impl PartitionedCache {
@@ -34,13 +34,24 @@ impl PartitionedCache {
             partitions: DashMap::new(),
             warming: DashMap::new(),
             per_partition_capacity,
+            codec: Arc::new(PropertiesCodec::disabled()),
         }
+    }
+
+    /// Call before any partition exists.
+    pub fn with_properties_compression(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.codec = Arc::new(PropertiesCodec::enabled());
+        }
+        self
     }
 
     /// Create a new cache for the given partition. Called during warm-up.
     pub fn create_partition(&self, partition: u32) {
-        self.partitions
-            .insert(partition, PersonCache::new(self.per_partition_capacity));
+        self.partitions.insert(
+            partition,
+            PersonCache::new(self.per_partition_capacity, Arc::clone(&self.codec)),
+        );
     }
 
     /// Atomically install a fully-populated partition cache. The records
@@ -70,8 +81,16 @@ impl PartitionedCache {
     /// finished cache with `publish_warmed_partition`. Re-entrant: a
     /// retried warm begins fresh, replacing any half-built predecessor.
     pub fn begin_warm_partition(&self, partition: u32) {
-        self.warming
-            .insert(partition, PersonCache::new(self.per_partition_capacity));
+        // A build over a published partition would let the prune settle
+        // marks the build depends on; release drops the cache first.
+        assert!(
+            !self.partitions.contains_key(&partition),
+            "warm began for published partition {partition}"
+        );
+        self.warming.insert(
+            partition,
+            PersonCache::new(self.per_partition_capacity, Arc::clone(&self.codec)),
+        );
     }
 
     /// Insert one record into a partition cache under construction.
@@ -80,6 +99,21 @@ impl PartitionedCache {
             .get(&partition)
             .expect("warm_put before begin_warm_partition")
             .put(key, person);
+    }
+
+    /// Remove a key from a partition cache under construction. An applied
+    /// death record erases its predecessors from the build this way.
+    pub fn warm_remove(&self, partition: u32, key: &PersonCacheKey) {
+        self.warming
+            .get(&partition)
+            .expect("warm_remove before begin_warm_partition")
+            .remove(key);
+    }
+
+    /// Whether the partition is published (serving reads). The prune
+    /// only settles published partitions' marks.
+    pub fn is_published(&self, partition: u32) -> bool {
+        self.partitions.contains_key(&partition)
     }
 
     /// Publish a fully-built partition cache: one `DashMap` insert flips
@@ -153,10 +187,16 @@ impl PartitionedCache {
         }
     }
 
-    /// Remove a single person from the partition's cache. Only tests call
-    /// this, to force a deterministic eviction — production evictions come
-    /// from Foyer's capacity policy. Safe regardless: the miss path
-    /// recovers the person from the changelog or PG on next access.
+    /// Counter-free read for bookkeeping passes; see [`PersonCache::peek`].
+    pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<CachedVersion> {
+        self.partitions
+            .get(&partition)
+            .and_then(|cache| cache.peek(key))
+    }
+
+    /// Remove one person. Called by the death-document settle and by
+    /// tests; safe regardless — the miss path recovers from the
+    /// changelog or PG.
     pub fn remove(&self, partition: u32, key: &PersonCacheKey) {
         if let Some(cache) = self.partitions.get(&partition) {
             cache.remove(key);
@@ -187,8 +227,15 @@ mod tests {
             is_identified: false,
             is_deleted: false,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(64),
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "warm began for published partition")]
+    fn a_warm_must_not_begin_over_a_published_partition() {
+        let cache = PartitionedCache::new(1 << 20);
+        cache.create_partition(0);
+        cache.begin_warm_partition(0);
     }
 
     #[test]

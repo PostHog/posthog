@@ -16,17 +16,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from requests import PreparedRequest, Response, Timeout
 from urllib3.util.retry import Retry
 
-from posthog.schema import (
+from posthog.cloud_utils import is_cloud
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.cloud_utils import is_cloud
-
 from products.warehouse_sources.backend.models.custom_oauth2_integration import (
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
@@ -191,9 +189,19 @@ class _ManifestAuth(BaseModel):
         return self
 
 
+def _without_retry_limit_overrides(client: dict[str, Any]) -> dict[str, Any]:
+    """A user-authored manifest cannot raise the retry limits; only a trusted source definition can."""
+    return {
+        key: value for key, value in client.items() if key not in ("retry_budget_seconds", "retry_after_max_seconds")
+    }
+
+
 class _ManifestClient(BaseModel):
     base_url: str = Field(min_length=1)
     auth: _ManifestAuth | None = None
+    # Modelled only so a non-object `headers` is rejected here. The probe and the REST
+    # engine both spread it into a dict, which raises a TypeError the sync would retry.
+    headers: dict[str, Any] | None = None
 
 
 class _ManifestEndpoint(BaseModel):
@@ -381,6 +389,16 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
     from ``setup_incremental_object``, and an unsupported key as a ``TypeError`` from the
     engine's ``Incremental(**config)`` constructor.
     """
+    resource_defaults = manifest.get("resource_defaults")
+    default_endpoint = resource_defaults.get("endpoint") if isinstance(resource_defaults, dict) else None
+    if isinstance(default_endpoint, dict) and _has_incremental_config(default_endpoint):
+        # The engine merges defaults into every resource, so a default cursor would bypass the
+        # per-resource handling: preview stripping, cursor typing, and keeping fan-out parents full-scan.
+        raise ManifestValidationError(
+            "resource_defaults.endpoint can't declare incremental config. "
+            "Set endpoint.incremental on each resource that syncs incrementally instead"
+        )
+
     for resource in manifest.get("resources") or []:
         if not isinstance(resource, dict):
             continue
@@ -407,6 +425,15 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
                 f"Resource {resource.get('name')!r}: endpoint.incremental.start_param is required and must be a "
                 "non-empty string naming the query parameter used to send the cursor value to the API"
             )
+
+
+def _has_incremental_config(endpoint: dict[str, Any]) -> bool:
+    if endpoint.get("incremental") is not None:
+        return True
+    params = endpoint.get("params")
+    return isinstance(params, dict) and any(
+        isinstance(value, dict) and value.get("type") == "incremental" for value in params.values()
+    )
 
 
 def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
@@ -476,6 +503,22 @@ def _render_error_location(loc: tuple[Any, ...]) -> str:
     return rendered
 
 
+def _blank_builder_field_label(error: Any) -> str | None:
+    """Name a blank required field the way the source builder labels it, e.g.
+    ``("resources", 0, "endpoint", "path")`` -> ``table 1 path``."""
+    if error["type"] != "string_too_short":
+        return None
+    loc = tuple(error["loc"])
+    if loc == ("client", "base_url"):
+        return "base URL"
+    if len(loc) >= 3 and loc[0] == "resources" and isinstance(loc[1], int):
+        if loc[2:] == ("name",):
+            return f"table {loc[1] + 1} name"
+        if loc[2:] == ("endpoint", "path"):
+            return f"table {loc[1] + 1} path"
+    return None
+
+
 def _format_validation_errors(exc: ValidationError) -> str:
     """Render Pydantic's validation errors as a single user-facing string.
 
@@ -483,8 +526,15 @@ def _format_validation_errors(exc: ValidationError) -> str:
     have at least 1 character") read like internals to someone editing manifest
     JSON, so mirror the JSON path and swap the common messages for plainer English.
     """
+    errors = exc.errors()
+    # Blank builder fields are the common wizard failure, and the builder shows form labels
+    # rather than manifest paths, so name the fields the way the form does.
+    blank_labels = [_blank_builder_field_label(error) for error in errors]
+    if errors and all(blank_labels):
+        return f"These required fields are empty: {', '.join(cast(list[str], blank_labels))}. Fill them in, then try again."
+
     messages: list[str] = []
-    for error in exc.errors():
+    for error in errors:
         location = _render_error_location(error["loc"])
         message = _VALIDATION_MESSAGE_OVERRIDES.get(error["type"], error["msg"].removeprefix("Value error, "))
         messages.append(f"{location}: {message}" if location else message)
@@ -529,14 +579,41 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     return True, None
 
 
+_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
+
+def _has_leading_http_method(url: str) -> bool:
+    """True when a URL starts with an HTTP verb, e.g. a "POST https://..." pasted from API docs.
+    urlparse then reads no host, so the URL is rejected for a missing hostname it plainly has."""
+    head, _, rest = url.strip().partition(" ")
+    return bool(rest) and head.upper() in _HTTP_METHODS
+
+
+def _has_wrapping_quote(url: str) -> bool:
+    """True when a URL keeps a quote character from a copied code sample or JSON snippet, e.g.
+    '"https://api.example.com'. urlparse then reads no host, same as the leading-method case."""
+    stripped = url.strip()
+    return bool(stripped) and (stripped[0] in "\"'" or stripped[-1] in "\"'")
+
+
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
     # validator can't be fooled into vetting a different host than the request reaches.
     hostname = _url_hostname(url)
     if not hostname:
-        return False, f"URL {url!r} is missing a hostname"
+        if _has_leading_http_method(url):
+            return (
+                False,
+                "Remove the HTTP method from the URL and enter just the address (for example, https://api.example.com).",
+            )
+        if _has_wrapping_quote(url):
+            return (
+                False,
+                "Remove the quote marks from the URL and enter just the address (for example, https://api.example.com).",
+            )
+        return False, "Enter a full URL that includes the host, for example https://api.example.com."
     if is_cloud() and urlparse(url).scheme != "https":
-        return False, f"URL {url!r} must use https:// on PostHog Cloud"
+        return False, "Enter a URL that starts with https://. PostHog Cloud does not connect over plain http."
     return _is_host_safe(hostname, team_id)
 
 
@@ -783,10 +860,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CUSTOM,
+            name=ExternalDataSourceType.CUSTOM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
-            releaseStatus=ReleaseStatus.ALPHA,
+            # The generic HTTP/API connector. Match the terms people search when no named
+            # connector for their API exists yet.
+            keywords=["rest", "api", "http", "https", "rest api", "http api", "custom api", "endpoint"],
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
@@ -884,6 +964,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # manifest-driven, so the 404 recurs on every retry — stop and point at the config.
             # The message omits the URL, which carries the customer's hostname.
             "404 Client Error": "The upstream API returned HTTP 404 Not Found. Check that the base URL and the resource's path in the manifest are correct and that the endpoint exists, then try again.",
+            # The upstream account's plan doesn't cover this endpoint. The plan only changes on the
+            # customer's side, so every retry gets the same refusal.
+            "402 Client Error": "Your API provider requires a paid plan for this data. Upgrade or reactivate your plan with them, or turn off syncing for this table, then re-enable the sync.",
             # A network proxy rejected the request before it reached the upstream API. On PostHog
             # Cloud this is the egress proxy refusing a URL it isn't allowed to reach (a private or
             # internal address); it can also be an upstream proxy in front of the customer's API
@@ -1014,17 +1097,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             except CustomOAuth2Integration.DoesNotExist:
                 return False, OAUTH2_CREDENTIALS_GONE_MESSAGE
             except OAuth2AuthRequestError as exc:
-                auth_config = manifest.get("client", {}).get("auth", {})
-                injected_secrets = tuple(
-                    str(auth_config[key])
-                    for key in ("client_secret", "refresh_token", "access_token")
-                    if auth_config.get(key)
-                )
                 if exc.is_permanent:
-                    return False, _redact_secrets(
-                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
-                        injected_secrets,
-                    )
+                    return False, _oauth2_token_error_message(exc)
                 # Transient (429 / 5xx): don't block creation — the first real sync retries the mint.
                 return True, None
 
@@ -1047,10 +1121,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             return False, f"Invalid auth configuration: {exc}"
 
         # OAuth2 mints its access token lazily on the first request, so pre-mint it now —
-        # a bad client_secret / token_url then fails with a pointed "the OAuth2 token
-        # endpoint rejected the request: …" instead of a misleading "resource unreachable"
-        # on the first data probe. Minting before the probe session is built also lets the
-        # freshly-minted access token join that session's redaction set. A transient
+        # a bad client_secret / token_url then fails with a pointed credential message instead
+        # of a misleading "resource unreachable" on the first data probe. Minting before the
+        # probe session is built also lets the freshly-minted access token join that session's
+        # redaction set. A transient
         # (429 / 5xx) token error must not block creation — the first real sync retries —
         # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
         #
@@ -1067,11 +1141,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 probe_auth._obtain_token(timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
             except OAuth2AuthRequestError as exc:
                 if exc.is_permanent:
-                    # Strip the internal sync-time classifier marker — it's not user-facing copy.
-                    return False, _redact_secrets(
-                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
-                        auth_secret_values(probe_auth),
-                    )
+                    return False, _oauth2_token_error_message(exc)
                 # Transient (429 / 5xx): don't block creation — the first real sync retries the
                 # token exchange. Skip the data probe too: it has no minted token to authenticate
                 # with, so requests would re-invoke the auth (re-running the failing mint) and turn
@@ -1212,12 +1282,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # drop parent rows (and with them their children); they full-scan
             # every run, matching the built-in fan-out sources (Typeform/Sentry).
             chain = _fanout_chain(manifest, inputs.schema_name)
-            chosen = chain.child
+            manifest_without_default_incremental, default_incremental = _split_default_incremental(manifest)
+            chosen = _with_default_incremental(chain.child, default_incremental)
             engine_resources = [
                 *(_without_incremental_config(r) for r in chain.ancestors),
-                _strip_engine_unsupported_incremental_keys(chain.child),
+                _strip_engine_unsupported_incremental_keys(chosen),
             ]
-            engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
+            engine_manifest = cast(
+                RESTAPIConfig,
+                {
+                    **manifest_without_default_incremental,
+                    "client": _without_retry_limit_overrides(manifest["client"]),
+                    "resources": engine_resources,
+                },
+            )
 
             # Backstop for manifests stored before create-time validation covered this: an
             # endpoint.incremental block missing start_param crashes the engine with a bare,
@@ -1393,10 +1471,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         engine_manifest = cast(
             RESTAPIConfig,
             {
-                **manifest,
+                **_split_default_incremental(manifest)[0],
                 "resources": engine_resources,
                 "client": {
-                    **client,
+                    **_without_retry_limit_overrides(client),
                     "session": _build_preview_session(secret_values),
                     # One attempt only — a rate-limited endpoint must surface an error
                     # inline, not sleep on `Retry-After` and tie up the request thread.
@@ -1471,7 +1549,8 @@ class _PreviewSession(_NoRedirectSession):
         self._body_budget = PREVIEW_MAX_TOTAL_BODY_BYTES
 
     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
-        kwargs.setdefault("timeout", (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT)
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         try:
@@ -1703,6 +1782,44 @@ OAUTH2_CREDENTIALS_GONE_MESSAGE = (
     "This source's stored OAuth2 credentials are no longer available. "
     "Re-enter the client secret and refresh token in the source settings to reconnect."
 )
+
+
+# A permanent token rejection carries the provider's own wording — an HTTP status, the OAuth2
+# error code, and a vendor description. None of that tells someone which field to change, so the
+# standard codes are mapped to the field they point at and everything else falls back to the whole
+# credential set. The raw text stays on the exception for the sync-time classifier.
+_OAUTH2_TOKEN_ERROR_MESSAGES: dict[str, str] = {
+    "invalid_client": (
+        "Your provider rejected the OAuth2 client ID or secret. "
+        "Check both values in your provider's app settings, then try again."
+    ),
+    "invalid_grant": (
+        "Your provider rejected the OAuth2 grant for this source. "
+        "Issue a new refresh token, or reconnect the source, then try again."
+    ),
+    "unauthorized_client": (
+        "Your provider does not let this OAuth2 app use the configured grant type. "
+        "Enable that grant type for the app, then try again."
+    ),
+    "invalid_scope": (
+        "Your provider rejected the OAuth2 scopes for this source. "
+        "Check the scopes match the ones your provider's app allows, then try again."
+    ),
+    "invalid_request": (
+        "Your provider rejected the OAuth2 token request. "
+        "Check the token URL, grant type, and any extra token parameters, then try again."
+    ),
+}
+
+_OAUTH2_TOKEN_ERROR_FALLBACK = (
+    "Your provider rejected the OAuth2 credentials for this source. "
+    "Check the client ID, secret, token URL, and grant type, then try again."
+)
+
+
+def _oauth2_token_error_message(exc: OAuth2AuthRequestError) -> str:
+    """User-facing copy for a permanent token-endpoint rejection."""
+    return _OAUTH2_TOKEN_ERROR_MESSAGES.get(exc.error_code or "", _OAUTH2_TOKEN_ERROR_FALLBACK)
 
 
 def _oauth2_row_config(auth: dict[str, Any]) -> dict[str, Any]:
@@ -2014,6 +2131,39 @@ def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict
         return resource
     cleaned = exclude_keys(incremental, _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS)
     return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
+
+
+def _split_default_incremental(manifest: dict[str, Any]) -> tuple[dict[str, Any], Any]:
+    """Return ``manifest`` without ``resource_defaults.endpoint.incremental``, plus that block.
+
+    The engine merges ``resource_defaults.endpoint`` into each resource shallowly, so a
+    default ``incremental`` block reaches every resource that has none of its own. It would
+    skip ``_strip_engine_unsupported_incremental_keys`` and the full scan of fan-out
+    ancestors. Callers apply the returned block to the chosen resource themselves.
+    """
+    defaults = manifest.get("resource_defaults")
+    if not isinstance(defaults, dict):
+        return manifest, None
+    default_endpoint = defaults.get("endpoint")
+    if not isinstance(default_endpoint, dict) or "incremental" not in default_endpoint:
+        return manifest, None
+    engine_defaults = {**defaults, "endpoint": exclude_keys(default_endpoint, {"incremental"})}
+    return {**manifest, "resource_defaults": engine_defaults}, default_endpoint["incremental"]
+
+
+def _with_default_incremental(resource: dict[str, Any], default_incremental: Any) -> dict[str, Any]:
+    """Return ``resource`` with ``default_incremental`` applied when it declares no
+    ``endpoint.incremental`` of its own, as the engine's defaults merge would."""
+    if default_incremental is None:
+        return resource
+    endpoint = resource.get("endpoint")
+    if isinstance(endpoint, str):
+        endpoint = {"path": endpoint}
+    elif endpoint is None:
+        endpoint = {}
+    if not isinstance(endpoint, dict) or "incremental" in endpoint:
+        return resource
+    return {**resource, "endpoint": {**endpoint, "incremental": default_incremental}}
 
 
 def _build_resource_graph(

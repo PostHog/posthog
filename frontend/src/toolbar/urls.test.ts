@@ -14,11 +14,11 @@ describe('toolbar urls duplicate', () => {
         experiments: [[]],
         featureFlag: [[123], ['my-flag']],
         featureFlags: [[], ['history']],
+        heatmap: [['hm-abc123'], [123]],
+        organizationBilling: [[], [['product_analytics']], [['product_analytics', 'session_replay']]],
         productTour: [['tour-id'], ['tour-id', 'step=2'], ['tour-id', '?step=2']],
         sessionProfile: [['session-uuid']],
         settings: [[], ['project'], ['environment-customization', 'date-and-time'], ['user']],
-        survey: [['survey-uuid'], ['new']],
-        surveys: [[], ['archived']],
         webAnalyticsWebVitals: [[]],
     }
 

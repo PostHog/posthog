@@ -160,7 +160,7 @@ class LazyFinder(TraversingVisitor):
     def visit_lazy_join_type(self, node: ast.LazyJoinType):
         self.found_lazy = True
 
-    def visit_lazy_table_type(self, node: ast.TableType):
+    def visit_lazy_table_type(self, node: ast.LazyTableType):
         self.found_lazy = True
 
     def visit_field_type(self, node: ast.FieldType):
@@ -306,7 +306,11 @@ class LazyTableResolver(TraversingVisitor):
     def visit_cte(self, node: ast.CTE):
         self.visit(node.expr)
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        with self.context.entering_select(node.view_name):
+            self._resolve_lazy_tables_in_select(node)
+
+    def _resolve_lazy_tables_in_select(self, node: ast.SelectQuery) -> None:
         select_type = node.type
         if not select_type:
             raise ResolutionError("Select query must have a type")

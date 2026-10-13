@@ -18,6 +18,8 @@ from posthog.personhog_client.interceptor import (
     RetryInterceptor,
 )
 from posthog.personhog_client.proto import (
+    AckPersonTombstonesRequest,
+    AckPersonTombstonesResponse,
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
     CountCohortMembersRequest,
@@ -38,12 +40,14 @@ from posthog.personhog_client.proto import (
     DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
     DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
+    EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -66,6 +70,8 @@ from posthog.personhog_client.proto import (
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonsRequest,
+    GetPersonTombstonesRequest,
+    GetPersonTombstonesResponse,
     GroupsResponse,
     GroupTypeMappingsBatchResponse,
     GroupTypeMappingsResponse,
@@ -75,6 +81,8 @@ from posthog.personhog_client.proto import (
     ListCohortMemberIdsResponse,
     ListGroupsRequest,
     ListGroupsResponse,
+    ListPersonTombstoneQueueRequest,
+    ListPersonTombstoneQueueResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
@@ -218,10 +226,25 @@ class PersonHogClient:
     ) -> DeletePersonsBatchForTeamResponse:
         return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
 
-    def delete_personless_distinct_ids_batch_for_team(
-        self, request: DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
-    ) -> DeletePersonlessDistinctIdsBatchForTeamResponse:
-        return self._stub.DeletePersonlessDistinctIdsBatchForTeam(request, timeout=timeout or self._timeout)
+    def delete_tombstoned_persons(
+        self, request: DeleteTombstonedPersonsRequest, timeout: float | None = None
+    ) -> DeleteTombstonedPersonsResponse:
+        return self._stub.DeleteTombstonedPersons(request, timeout=timeout or self._timeout)
+
+    def get_person_tombstones(
+        self, request: GetPersonTombstonesRequest, timeout: float | None = None
+    ) -> GetPersonTombstonesResponse:
+        return self._stub.GetPersonTombstones(request, timeout=timeout or self._timeout)
+
+    def ack_person_tombstones(
+        self, request: AckPersonTombstonesRequest, timeout: float | None = None
+    ) -> AckPersonTombstonesResponse:
+        return self._stub.AckPersonTombstones(request, timeout=timeout or self._timeout)
+
+    def list_person_tombstone_queue(
+        self, request: ListPersonTombstoneQueueRequest, timeout: float | None = None
+    ) -> ListPersonTombstoneQueueResponse:
+        return self._stub.ListPersonTombstoneQueue(request, timeout=timeout or self._timeout)
 
     # -- Person split --
 
@@ -239,6 +262,13 @@ class PersonHogClient:
         self, request: SetPersonVersionFloorRequest, timeout: float | None = None
     ) -> SetPersonVersionFloorResponse:
         return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
+
+    # -- Version floors --
+
+    def ensure_person_version_floors(
+        self, request: EnsurePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> EnsurePersonVersionFloorsResponse:
+        return self._stub.EnsurePersonVersionFloors(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -54,6 +52,10 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
         return {
             "401 Client Error": "Your Plausible API key is invalid or has been revoked. Create a new key in your Plausible account settings, then reconnect.",
             "403 Client Error": "Your Plausible API key is missing the stats read scope needed to sync this data. Grant it in your Plausible account settings, then reconnect.",
+            # Plausible answers 402 when the site's subscription has lapsed or its plan doesn't
+            # include the stats API. The billing state is fixed until the customer changes it, so
+            # every retry replays the same rejection. Match the status text, not the self-hosted URL.
+            "402 Client Error": "Your Plausible plan doesn't include API access, or its subscription has lapsed. Update the subscription in your Plausible account, then reconnect.",
             # Plausible rejects the query as malformed for this site (a permanent 400 — auth and
             # missing-site cases are 401/403/404 and handled above). Retrying resends the same
             # request, so stop. Match the status text, not the self-hosted URL, which varies.
@@ -68,7 +70,7 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLAUSIBLE,
+            name=ExternalDataSourceType.PLAUSIBLE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Plausible",
             caption="""Connect Plausible Analytics to pull your web analytics into the PostHog Data warehouse.

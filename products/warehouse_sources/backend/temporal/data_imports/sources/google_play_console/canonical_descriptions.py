@@ -1,5 +1,9 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
+    BREAKDOWN_TABLES,
 )
 
 # Columns every vitals metric-set table carries: the app and window the row aggregates, plus the
@@ -13,7 +17,7 @@ _TIMELINE_COLUMNS: dict[str, str] = {
     "distinctUsers": "Count of distinct users the metrics are computed over, after Play's privacy thresholding.",
 }
 
-CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+_BASE_DESCRIPTIONS: CanonicalDescriptions = {
     "crash_rate": {
         "description": (
             "Daily Android vitals crash rate: the fraction of distinct users who experienced at least "
@@ -195,5 +199,39 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "dimensions": "Dimension values that identify the slice the anomaly was detected in.",
             "metric": "The anomalous metric, with its observed and expected values.",
         },
+    },
+}
+
+
+_BREAKDOWN_COLUMNS: dict[str, dict[str, str]] = {
+    "deviceModel": {
+        "deviceModel": "Device model the row is sliced by, as Play's brand and device code.",
+        "deviceModelLabel": "Marketing name of the device model.",
+    },
+    "apiLevel": {
+        "apiLevel": "Android API level of the devices the row is sliced by.",
+        "apiLevelLabel": "Human-readable label for the Android API level.",
+    },
+}
+
+_BREAKDOWN_PHRASES: dict[str, str] = {"deviceModel": "device model", "apiLevel": "Android API level"}
+
+
+def _breakdown_entry(base: CanonicalEndpoint, dimension: str) -> CanonicalEndpoint:
+    return {
+        "description": (
+            f"{base['description'].rstrip('.')}, then by {_BREAKDOWN_PHRASES[dimension]}. Off by default, "
+            f"because the extra dimension multiplies rows per day and rows synced is billed."
+        ),
+        "docs_url": base["docs_url"],
+        "columns": {**base["columns"], **_BREAKDOWN_COLUMNS[dimension]},
+    }
+
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    **_BASE_DESCRIPTIONS,
+    **{
+        name: _breakdown_entry(_BASE_DESCRIPTIONS[base], dimension)
+        for name, (base, dimension) in BREAKDOWN_TABLES.items()
     },
 }

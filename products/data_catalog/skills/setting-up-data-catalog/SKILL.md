@@ -34,7 +34,8 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    clearly relies on, `posthog:data-catalog-certification-propose` them (the tool's default
    `proposed_status` is `'certified'`); flag obvious stale or duplicate copies by proposing them with
    `proposed_status: 'deprecated'`. Either way the proposal lands unapproved and an approver settles
-   it later. Address targets by id when a name is ambiguous.
+   it later. Warehouse-source tables accept their queryable HogQL name (for example,
+   `stripe.subscriptions`); address targets by id when a name is ambiguous.
 
 2. **Discover joins with evidence.** For plausible table pairs, sample both sides with
    `posthog:execute-sql` to measure the match rate of a candidate key (e.g. `count(DISTINCT a.key)`
@@ -48,9 +49,10 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    detection.
 
 4. **Add remaining metrics above the bar.** Propose any other metric that was asked for or that you
-   have seen reused at least twice. Give each a `description` (the load-bearing field) of 1-3 sentences
-   stating what the metric means and what it serves - the business meaning plus any load-bearing
-   inclusions/exclusions or grain, never a narration of the query. Query rationale goes in `reasoning`,
+   have seen reused at least twice. Give each a `description` (the load-bearing field) of 1-2 short
+   sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion
+   that changes it. Leave out source tables or views, lineage, column lists, and comparisons with
+   other metrics, and never narrate the query. Query rationale goes in `reasoning`,
    the mechanics in the definition. Also give a `unit`, and a definition when one exists. A definition
    can be an executable query, or - when the calculation needs judgment or steps that don't reduce to a
    single query - an agent-calculated markdown definition
@@ -74,6 +76,13 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    physical table the mark applies to when two live tables share a name, and `proposed_status` tells you
    whether the row asks to certify the source or to deprecate it.
 
+   If the `warehouse-suggestions-*` tools are available, also call `warehouse-suggestions-list` with
+   `status=proposed`. A `certify` suggestion names a view or table that read usage says to certify. A
+   `deprecate` suggestion names a materialized view that nobody reads. Neither is in `certifications` until
+   someone accepts it: accept with
+   `posthog:warehouse-suggestions-accept-prepare` / `-execute`, or dismiss with
+   `posthog:warehouse-suggestions-dismiss`.
+
    Each entity type keeps its pending queue separate from its usable/verified surface, so an agent
    without this skill never mistakes an unreviewed item for an approved one:
    `information_schema.relationships` lists only real joins (a proposal shows up there **only after**
@@ -84,12 +93,18 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 2. **Summarize each proposal with its evidence** (match rates, sample values, drift state) so a human
    can decide quickly.
 
-3. **On the human's instruction**, promote with the confirmed-action tools:
-   `posthog:data-catalog-metric-approve`, `posthog:data-catalog-certification-certify` / `-deprecate`,
-   `posthog:data-catalog-relationship-accept` / `-reject` (pass the `id` from the queue). A row proposed
-   with `proposed_status: 'deprecated'` is settled with `-deprecate`; the approver can reject that intent
-   by certifying instead, since `-deprecate` / `-certify` act on any non-deprecated row regardless of the
-   proposal's intent. A rejected relationship is suppressed forever, so only reject when the human is sure.
+3. **On the human's instruction**, promote with the confirmed-action tools. Each promotion is a two-step
+   tool: call the `-prepare` variant, surface the confirmation message it returns, wait for the user to
+   type the literal `confirm`, then call the matching `-execute` variant with the returned hash. The pairs
+   are `posthog:data-catalog-metric-approve-prepare` / `-execute`,
+   `posthog:data-catalog-certification-certify-prepare` / `-execute`,
+   `posthog:data-catalog-certification-deprecate-prepare` / `-execute`,
+   `posthog:data-catalog-relationship-accept-prepare` / `-execute`, and
+   `posthog:data-catalog-relationship-reject-prepare` / `-execute` (pass the `id` from the queue). A row
+   proposed with `proposed_status: 'deprecated'` is settled with the deprecate pair; the approver can
+   reject that intent by certifying instead, since deprecate and certify act on any non-deprecated row
+   regardless of the proposal's intent. A rejected relationship is suppressed forever, so only reject when
+   the human is sure.
 
 4. **Handle drift.** A metric with `is_drifted = true` has diverged from its source insight (or the
    insight is gone). It cannot be approved until the drift is cleared. Surface it for the human rather
@@ -100,3 +115,18 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 
    The `refresh` parameter on `posthog:data-catalog-metric-run` is a query-cache mode, not a drift fix —
    it does not re-snapshot the linked insight.
+
+5. **Retire a metric that should not exist.** Delete with the signed confirmation flow:
+   `posthog:data-catalog-metric-delete-prepare`, then `posthog:data-catalog-metric-delete-execute`. Use it when the
+   metric duplicates another one, has been superseded, or measures something the team never wanted — not when it is
+   merely stale, wrongly defined, or badly named. For those, `posthog:data-catalog-metric-update` keeps the metric's
+   history and its `id`; `new_name` renames it in place. Surface the prepared message, wait for the human to reply with
+   the literal word `confirm`, then call execute with only the signed confirmation fields. Say what the delete costs:
+   an approved metric loses its human vouching, saved SQL and run URLs that name it stop resolving, and the freed name
+   may later be claimed by an unrelated metric, so a stored name is not a stable reference across a delete.
+
+## Related
+
+Certifying a source says a human vouches for it. Proving it is _still_ correct is a separate job —
+see the `authoring-data-quality-checks` skill for null, uniqueness, referential-integrity, and
+freshness assertions on the same tables and views.

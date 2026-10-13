@@ -1,0 +1,173 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Message preferences</title>
+        {# Compiled from the Tailwind classes in this directory, including the ones the inline #}
+        {# script below builds as strings. Run `pnpm --filter=@posthog/frontend #}
+        {# build:message-preferences` after changing a class in either place. #}
+        <link rel="stylesheet" href="{% static 'message-preferences.css' %}" />
+    </head>
+    <body>
+        {% block content %}
+            <div class="min-h-screen bg-gray-50">
+                <div class="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                    <div class="bg-white shadow-xl rounded-xl p-8 mb-12">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Message preferences for {{ recipient.identifier|escape }}</h1>
+                        <p class="text-gray-600 text-base mb-8">Choose which emails you'd like to receive. Changes are saved automatically.</p>
+                        <form id="preferences-form" class="space-y-6">
+                            {% csrf_token %}
+                            <input type="hidden" name="token" value="{{ token }}" />
+                            {% for category in categories %}
+                                {% if forloop.last %}
+                                    <hr class="border-gray-200" />
+                                {% endif %}
+                                <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
+                                    <div class="flex items-start justify-between gap-4">
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-medium text-gray-900">{{ category.name }}</h3>
+                                            <p class="text-sm text-gray-500 mt-1">{{ category.description }}</p>
+                                        </div>
+                                        <div class="flex flex-col items-end flex-shrink-0 w-40">
+                                            <div class="relative inline-block w-12 select-none">
+                                                <input type="checkbox"
+                                                       name="{{ category.id }}"
+                                                       id="{{ category.id }}"
+                                                       {% if category.status != "OPTED_OUT" %}checked{% endif %}
+                                                       class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500" />
+                                                <label for="{{ category.id }}"
+                                                       class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer">
+                                                </label>
+                                            </div>
+                                            <span class="text-xs font-medium mt-1 text-right {% if category.status != 'OPTED_OUT' %}text-green-700{% else %}text-gray-500{% endif %}"
+                                                  data-status-for="{{ category.id }}">
+                                                {% if category.status != "OPTED_OUT" %}Subscribed{% else %}Not subscribed{% endif %}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                            {% if email_tracking_consent_enabled %}
+                                <hr class="border-gray-200" />
+                                <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
+                                    <div class="flex items-start justify-between gap-4">
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-medium text-gray-900">Open and click tracking</h3>
+                                            <p class="text-sm text-gray-500 mt-1">We use an invisible image and measured links to see whether marketing emails are opened and clicked. This never affects which emails you receive.</p>
+                                        </div>
+                                        <div class="flex flex-col items-end flex-shrink-0 w-40">
+                                            <div class="relative inline-block w-12 select-none">
+                                                <input type="checkbox"
+                                                       name="$email_tracking"
+                                                       id="email-tracking-toggle"
+                                                       data-on-label="Tracking allowed"
+                                                       data-off-label="Tracking off"
+                                                       {% if email_tracking_allowed %}checked{% endif %}
+                                                       class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500" />
+                                                <label for="email-tracking-toggle"
+                                                       class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer">
+                                                </label>
+                                            </div>
+                                            <span class="text-xs font-medium mt-1 text-right {% if email_tracking_allowed %}text-green-700{% else %}text-gray-500{% endif %}"
+                                                  data-status-for="$email_tracking">
+                                                {% if email_tracking_allowed %}Tracking allowed{% else %}Tracking off{% endif %}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <script nonce="{{ request.csp_nonce }}">
+            document.addEventListener('DOMContentLoaded', function () {
+                const toggles = document.querySelectorAll('.toggle-checkbox')
+
+                function updateStatusLabel(toggle, text, colorClass) {
+                    const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
+                    if (!statusLabel) return
+                    statusLabel.textContent = text
+                    statusLabel.className = 'text-xs font-medium mt-1 text-right ' + colorClass
+                }
+
+                // The tracking-consent toggle labels differ from the subscription ones
+                function statusLabelText(toggle) {
+                    return toggle.checked
+                        ? (toggle.dataset.onLabel || 'Subscribed')
+                        : (toggle.dataset.offLabel || 'Not subscribed')
+                }
+
+                function showToast(message, isError) {
+                    const toast = document.createElement('div')
+                    toast.className =
+                        'fixed top-4 right-4 ' + (isError ? 'bg-red-500' : 'bg-green-500') + ' text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
+                    const iconPath = isError
+                        ? 'M6 18L18 6M6 6l12 12'
+                        : 'M5 13l4 4L19 7'
+                    toast.innerHTML = '<div class="flex items-center space-x-2"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="' + iconPath + '" /></svg><span class="font-medium">' + message + '</span></div>'
+                    document.body.appendChild(toast)
+                    toast.style.transform = 'translateX(100%)'
+                    requestAnimationFrame(() => { toast.style.transform = 'translateX(0)' })
+                    setTimeout(() => {
+                        toast.style.transform = 'translateX(100%)'
+                        setTimeout(() => toast.remove(), 500)
+                    }, 2500)
+                }
+
+                async function savePreferences(changedToggle) {
+                    updateStatusLabel(changedToggle, 'Saving…', 'text-amber-600')
+
+                    const formData = new FormData()
+                    formData.append('token', document.querySelector('input[name="token"]').value)
+                    toggles.forEach((toggle) => {
+                        // Only submit the tracking answer when that toggle is the one that changed:
+                        // its rendered default must never be persisted as an explicit consent choice.
+                        // The backend preserves a stored answer when the key is absent.
+                        if (toggle.name === '$email_tracking' && toggle !== changedToggle) {
+                            return
+                        }
+                        formData.append('preferences[]', `${toggle.name}:${toggle.checked}`)
+                    })
+
+                    try {
+                        const response = await fetch('{% url "message_preferences_update" %}', {
+                            method: 'POST',
+                            body: formData,
+                            headers: {
+                                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                            },
+                        })
+
+                        const data = await response.json()
+                        if (data.error) {
+                            throw new Error(data.error)
+                        }
+
+                        toggles.forEach(t => { t.defaultChecked = t.checked })
+                        updateStatusLabel(changedToggle, statusLabelText(changedToggle), changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        showToast('Preferences updated successfully', false)
+                    } catch (error) {
+                        // Revert the toggle on failure
+                        changedToggle.checked = !changedToggle.checked
+                        updateStatusLabel(changedToggle, statusLabelText(changedToggle), changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        showToast(error.message || 'Failed to update preferences', true)
+                    }
+                }
+
+                toggles.forEach((toggle) => {
+                    toggle.addEventListener('change', function () {
+                        const card = this.closest('.bg-gray-50')
+                        card.style.transform = 'scale(1.02)'
+                        setTimeout(() => { card.style.transform = 'scale(1)' }, 200)
+
+                        savePreferences(this)
+                    })
+                })
+            })
+            </script>
+        {% endblock %}
+    </body>
+</html>

@@ -24,10 +24,11 @@ function createMockContext(opts: {
     trigger: unknown
     blastRadius: { affected: number; total: number; limit?: number }
     status?: string
+    actions?: unknown[]
 }): { context: Context; request: ReturnType<typeof vi.fn> } {
     const request = vi.fn(async ({ method, path }: RequestArgs) => {
         if (method === 'GET' && /\/hog_flows\/[^/]+\/$/.test(path)) {
-            return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger }
+            return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger, actions: opts.actions ?? [] }
         }
         if (method === 'POST' && path.endsWith('/user_blast_radius/')) {
             return { limit: DEFAULT_LIMIT, confirm_token: 'tok-preview', ...opts.blastRadius }
@@ -63,10 +64,15 @@ describe('workflows batch handlers', () => {
     })
 
     describe('workflows-blast-radius', () => {
-        it('resolves the workflow trigger filters and sizes them, returning the count', async () => {
+        it.each([
+            ['an email step', [{ type: 'function_email' }], true],
+            ['an email template step', [{ type: 'function', config: { template_id: 'template-email' } }], true],
+            ['only webhook steps', [{ type: 'function', config: { template_id: 'template-webhook' } }], false],
+        ])('sizes the trigger filters for a workflow with %s', async (_, actions, sendsEmail) => {
             const { context, request } = createMockContext({
                 trigger: { type: 'batch', filters: BATCH_FILTERS },
                 blastRadius: { affected: 42, total: 100 },
+                actions,
             })
 
             const result = await blastRadiusTool.handler(context, { workflow_id: 'wf-1' })
@@ -76,7 +82,7 @@ describe('workflows batch handlers', () => {
             expect(c[1]).toMatchObject({
                 method: 'POST',
                 path: '/api/projects/1/hog_flows/user_blast_radius/',
-                body: { filters: BATCH_FILTERS },
+                body: { filters: BATCH_FILTERS, sends_email: sendsEmail },
             })
             // confirm_token must surface to the agent: it is a required workflows-run-batch input.
             expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT, confirm_token: 'tok-preview' })
@@ -273,9 +279,53 @@ describe('workflows batch handlers', () => {
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
         })
 
-        it('rejects a non-batch trigger (schedule trigger no longer supported)', async () => {
+        it('creates the schedule for a schedule trigger without sizing an audience', async () => {
             const { context, request } = createMockContext({
                 trigger: { type: 'schedule' },
+                blastRadius: { affected: 1, total: 1 },
+                status: 'draft',
+            })
+
+            const result = await scheduleCreateTool.handler(context, {
+                workflow_id: 'wf-1',
+                rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO',
+                starts_at: '2026-06-01T09:00:00Z',
+                timezone: 'Europe/Lisbon',
+            })
+
+            expect(calls(request).some((c) => c.path.endsWith('/user_blast_radius/'))).toBe(false)
+            const schedCall = calls(request).find((c) => c.path.endsWith('/schedules/'))
+            expect(schedCall).toMatchObject({
+                method: 'POST',
+                body: {
+                    rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO',
+                    starts_at: '2026-06-01T09:00:00Z',
+                    timezone: 'Europe/Lisbon',
+                },
+            })
+            expect(schedCall?.body).not.toHaveProperty('confirm_token')
+            expect(result).toMatchObject({ id: 'sched-1' })
+        })
+
+        it('rejects a batch trigger scheduled without the blast-radius confirmation', async () => {
+            const { context, request } = createMockContext({
+                trigger: { type: 'batch', filters: BATCH_FILTERS },
+                blastRadius: { affected: 3, total: 100 },
+            })
+
+            await expect(
+                scheduleCreateTool.handler(context, {
+                    workflow_id: 'wf-1',
+                    rrule: 'FREQ=DAILY;INTERVAL=1',
+                    starts_at: '2026-06-01T00:00:00Z',
+                })
+            ).rejects.toThrow(/workflows-blast-radius/)
+            expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
+        })
+
+        it('rejects a trigger that cannot be scheduled', async () => {
+            const { context, request } = createMockContext({
+                trigger: { type: 'event' },
                 blastRadius: { affected: 1, total: 1 },
             })
 
@@ -284,10 +334,8 @@ describe('workflows batch handlers', () => {
                     workflow_id: 'wf-1',
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
-                    acknowledged_affected_count: 1,
-                    confirm_token: 'unused',
                 })
-            ).rejects.toThrow(/batch/)
+            ).rejects.toThrow(/batch.*schedule/)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
         })
     })

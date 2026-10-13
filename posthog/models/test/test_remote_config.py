@@ -4,22 +4,25 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
+SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -133,6 +136,85 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
+
+    def test_heatmaps_disabled_returns_false(self):
+        self.team.heatmaps_opt_in = False
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] is False
+
+    def test_heatmaps_enabled_paid_org_defaults_to_all(self):
+        self.team.organization.has_active_subscription = True
+        self.team.organization.save()
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "all",
+            "urlAllowlist": [],
+            "urlAllowlistEnforced": False,
+        }
+
+    def test_heatmaps_enabled_free_org_defaults_to_allowlist(self):
+        self.team.organization.has_active_subscription = False
+        self.team.organization.save()
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "url_allowlist",
+            "urlAllowlist": [],
+            "urlAllowlistEnforced": False,
+        }
+
+    @override_settings(HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED=True)
+    def test_heatmaps_config_reflects_enforcement_and_allowlist(self):
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        TeamHeatmapConfig.objects.update_or_create(
+            team=self.team, defaults={"capture_url_allowlist": ["https://example.com/pricing"]}
+        )
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "url_allowlist",
+            "urlAllowlist": ["https://example.com/pricing"],
+            "urlAllowlistEnforced": True,
+        }
+
+    def test_heatmaps_config_clamps_downgraded_org_to_allowlist(self):
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        TeamHeatmapConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"capture_mode": "all", "capture_url_allowlist": [f"https://example.com/{i}" for i in range(4)]},
+        )
+        self.team.organization.has_active_subscription = False
+        self.team.organization.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "url_allowlist",
+            "urlAllowlist": [],
+            "urlAllowlistEnforced": False,
+        }
+
+    def test_subscription_change_rebuilds_heatmaps_enabled_teams(self):
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        with patch("posthog.models.remote_config._update_team_remote_config") as mock_rebuild:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.has_active_subscription = False
+                self.organization.save()
+            assert mock_rebuild.call_args_list == [call(self.team.id)]
+
+            mock_rebuild.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.name = "Renamed"
+                self.organization.save()
+            assert not mock_rebuild.called
 
     @parameterized.expand([("firebase", True), ("apns", True), ("slack", False)])
     def test_only_push_integrations_schedule_a_config_rebuild(self, kind, expects_rebuild):
@@ -323,6 +405,112 @@ class TestRemoteConfig(_RemoteConfigBase):
             result = self.remote_config._build_site_apps_js()
 
         assert result == []
+
+    @parameterized.expand([("no_default", {}), ("top_level_default", {"default": "abc"})])
+    def test_site_functions_keep_publishing_when_the_secret_is_encrypted(
+        self, _name: str, default: dict[str, str]
+    ) -> None:
+        # `move_secret_inputs` leaves the value in `encrypted_inputs`, which the transpiler never
+        # reads, so the function has to stay published.
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            inputs_schema=[{"key": "token", "type": "string", "secret": True, **default}],
+            inputs={"token": {"value": "example-private-browser-value"}},
+        )
+        assert (function.inputs or {}) == {}
+        assert (function.encrypted_inputs or {})["token"]["value"] == "example-private-browser-value"
+
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
+        assert "example-private-browser-value" not in result
+
+    @parameterized.expand(
+        [
+            ("mapping", True, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+            ("mapping_default", True, {"inputs": {}, "default": "example-private-browser-value"}),
+            ("mapping_null_input", True, {"inputs": {"token": None}, "default": "example-private-browser-value"}),
+            ("legacy_plaintext_inputs", False, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+        ]
+    )
+    def test_site_functions_are_not_published_while_a_secret_sits_in_plaintext(
+        self, _name: str, in_mapping: bool, stored: dict
+    ) -> None:
+        schema = {"key": "token", "type": "string", "secret": True}
+        if "default" in stored:
+            schema["default"] = stored["default"]
+        config = {"inputs_schema": [schema], "inputs": stored["inputs"]}
+        unsafe = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            **({"mappings": [config]} if in_mapping else config),
+        )
+        if not in_mapping:
+            # A row saved before secret inputs were encrypted keeps the value in `inputs`, which
+            # `save()` would otherwise move out of the way.
+            HogFunction.objects.filter(id=unsafe.id).update(inputs=config["inputs"], encrypted_inputs=None)
+            unsafe.refresh_from_db()
+        safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True, hog=SITE_HOG)
+
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(unsafe.id) not in result
+        assert str(safe.id) in result
+        assert "example-private-browser-value" not in result
+
+    @parameterized.expand(
+        [
+            (
+                "disabled_mapping",
+                {
+                    "disabled": True,
+                    "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                    "inputs": {"token": {"value": "example-private-browser-value"}},
+                },
+            ),
+            (
+                "null_input_with_a_non_secret_last_schema",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"},
+                        {"key": "label", "type": "string", "default": "shown"},
+                    ],
+                    "inputs": {"token": {"value": None}, "label": None},
+                },
+            ),
+            (
+                "null_input_after_a_mapping_with_a_secret_default",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"}
+                    ],
+                    "inputs": {"token": {"value": None}},
+                },
+                {"inputs_schema": [], "inputs": {"label": None}},
+            ),
+        ]
+    )
+    def test_site_functions_publish_when_no_secret_reaches_the_browser(self, _name: str, *mappings: dict) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            mappings=list(mappings),
+        )
+
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
+        assert "example-private-browser-value" not in result
 
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):

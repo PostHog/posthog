@@ -21,8 +21,6 @@ import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
@@ -161,8 +159,6 @@ function TemplatePicker({
     minHeight = '60vh',
 }: TemplatePickerProps): JSX.Element {
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showStartWithAi = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]
 
     return (
         // Capped on the wrapper rather than on an inner child so the picker collects no clicks in the
@@ -204,9 +200,7 @@ function TemplatePicker({
                     </p>
                 </div>
 
-                {showStartWithAi && (
-                    <MCPUseCaseCard surfaceKey="ai_observability_evaluations.create" className="!mt-0" />
-                )}
+                <MCPUseCaseCard surfaceKey="ai_observability_evaluations.create" className="!mt-0" />
 
                 <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
                     <TemplateRow template="blank" />

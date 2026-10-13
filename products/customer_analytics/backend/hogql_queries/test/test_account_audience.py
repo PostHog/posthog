@@ -17,10 +17,7 @@ from products.customer_analytics.backend.facade.api import (
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import AccountRelationshipDefinition, CustomPropertyValue
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
-from products.workflows.backend.services.account_audience import (
-    AccountAudienceCustomPropertyFilter,
-    AccountAudienceFilters,
-)
+from products.workflows.backend.facade.contracts import AccountAudienceCustomPropertyFilter, AccountAudienceFilters
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -54,6 +51,18 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
 
         assert self._list() == ["mine"]
 
+    def test_excludes_ignored_accounts_from_list_and_count(self):
+        create_account(team_id=self.team.id, name="Tracked", external_id="tracked")
+        create_account(
+            team_id=self.team.id,
+            name="Ignored",
+            external_id="ignored",
+            ignored_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert self._list() == ["tracked"]
+        assert count_accounts_for_audience(self.team, AccountAudienceFilters()) == 1
+
     def test_tag_filter_narrows(self):
         tagged = create_account(team_id=self.team.id, name="Tagged", external_id="tagged")
         create_account(team_id=self.team.id, name="Untagged", external_id="untagged")
@@ -69,9 +78,19 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
             team_id=self.team.id, name="CSM"
         )
         relationships_logic.assign(
-            team_id=self.team.id, account=assigned, definition=definition, user=holder, created_by=holder
+            team_id=self.team.id,
+            account=assigned,
+            definition=definition,
+            user=holder,
+            actor=relationships_logic.Actor.human(holder),
         )
 
+        assert self._list(AccountAudienceFilters(assignment_status="all")) == ["assigned", "unassigned"]
+        assert self._list(AccountAudienceFilters(assignment_status="assigned")) == ["assigned"]
+        assert self._list(AccountAudienceFilters(assignment_status="unassigned")) == ["unassigned"]
+        assert self._list(AccountAudienceFilters(assignment_status="assigned", assigned_to_user_ids=(holder.id,))) == [
+            "assigned"
+        ]
         assert self._list(AccountAudienceFilters(assigned_to_user_ids=(holder.id,))) == ["assigned"]
         assert self._list(AccountAudienceFilters(all_roles_unassigned=True)) == ["unassigned"]
 

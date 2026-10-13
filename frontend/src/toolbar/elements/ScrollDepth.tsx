@@ -13,9 +13,9 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
     const { heatmapElements, rawHeatmapLoading } = useValues(heatmapToolbarMenuLogic)
 
     const shiftPressed = useShiftKeyPressed()
-    const { y: mouseY } = useMousePosition()
+    const mouseY = useMousePosition()?.y
 
-    if (!mouseY) {
+    if (mouseY === undefined) {
         return null
     }
 

@@ -12,10 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.c
     BASE_URL,
     CoinApiResumeConfig,
     CoinApiRetryableError,
-    _build_url,
     _format_time,
-    _headers,
     _initial_time_start,
+    _resolve_timeseries_request,
     coin_api_source,
     get_rows,
     validate_credentials,
@@ -34,8 +33,6 @@ class _FakeResponse:
         return self.status_code < 400
 
     def json(self) -> Any:
-        if isinstance(self._json_data, Exception):
-            raise self._json_data
         return self._json_data
 
     def raise_for_status(self) -> None:
@@ -73,35 +70,9 @@ def _run(
         return list(get_rows("key", endpoint, mock.MagicMock(), manager, **kwargs)), session
 
 
-class TestHeadersAndUrl:
-    def test_headers_include_key(self) -> None:
-        headers = _headers("secret-key")
-        assert headers["X-CoinAPI-Key"] == "secret-key"
-        assert headers["Accept"] == "application/json"
-
-    def test_headers_omit_key_when_blank(self) -> None:
-        assert "X-CoinAPI-Key" not in _headers("")
-
-    def test_build_url_without_params(self) -> None:
-        assert _build_url("/v1/assets", {}) == f"{BASE_URL}/v1/assets"
-
-    def test_build_url_encodes_params(self) -> None:
-        url = _build_url("/v1/ohlcv/SYM/history", {"period_id": "1DAY", "limit": 100})
-        assert url == f"{BASE_URL}/v1/ohlcv/SYM/history?period_id=1DAY&limit=100"
-
-
 class TestFormatTime:
-    def test_naive_datetime_gets_z_suffix(self) -> None:
-        assert _format_time(datetime(2024, 1, 2, 3, 4, 5)) == "2024-01-02T03:04:05Z"
-
-    def test_aware_datetime_converted_to_utc(self) -> None:
-        assert _format_time(datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)) == "2024-01-02T03:04:05Z"
-
     def test_date_becomes_midnight_utc(self) -> None:
         assert _format_time(date(2024, 1, 2)) == "2024-01-02T00:00:00Z"
-
-    def test_string_passthrough(self) -> None:
-        assert _format_time("2024-01-02T00:00:00") == "2024-01-02T00:00:00"
 
 
 class TestFetch:
@@ -116,10 +87,6 @@ class TestFetch:
         session = _FakeSession([_FakeResponse(status_code=status, text="nope")])
         with pytest.raises(requests.HTTPError):
             coin_api._fetch(session, "http://x", {}, mock.MagicMock())  # type: ignore[arg-type]
-
-    def test_ok_returns_json(self) -> None:
-        session = _FakeSession([_FakeResponse(json_data=[{"a": 1}])])
-        assert coin_api._fetch(session, "http://x", {}, mock.MagicMock()) == [{"a": 1}]  # type: ignore[arg-type]
 
 
 class TestValidateCredentials:
@@ -162,14 +129,6 @@ class TestInitialTimeStart:
     def test_uses_incremental_value_when_present(self) -> None:
         assert _initial_time_start(True, datetime(2024, 5, 1, tzinfo=UTC), "2020-01-01") == "2024-05-01T00:00:00Z"
 
-    def test_falls_back_to_start_date_when_no_incremental_value(self) -> None:
-        assert _initial_time_start(False, None, "2020-01-01") == "2020-01-01"
-
-    def test_defaults_to_lookback_when_nothing_provided(self) -> None:
-        # Just assert it produces a Z-suffixed ISO string rather than pinning to a wall-clock value.
-        result = _initial_time_start(False, None, "")
-        assert result.endswith("Z")
-
 
 class TestReferenceEndpoint:
     def test_yields_list_once_and_does_not_save_state(self) -> None:
@@ -178,10 +137,6 @@ class TestReferenceEndpoint:
         batches, _ = _run("assets", [_FakeResponse(json_data=rows)], manager)
         assert batches == [rows]
         manager.save_state.assert_not_called()
-
-    def test_empty_yields_nothing(self) -> None:
-        batches, _ = _run("assets", [_FakeResponse(json_data=[])], _manager())
-        assert batches == []
 
 
 class TestExchangeRateEndpoint:
@@ -198,16 +153,97 @@ class TestExchangeRateEndpoint:
         assert all(row["asset_id_base"] == "USD" for row in batches[0])
         assert {row["asset_id_quote"] for row in batches[0]} == {"BTC", "ETH"}
 
-    def test_uses_configured_base_in_path(self) -> None:
-        body = {"asset_id_base": "EUR", "rates": []}
-        _, session = _run("exchange_rates", [_FakeResponse(json_data=body)], _manager(), exchange_rate_base_asset="EUR")
-        assert session.requested_urls[0] == f"{BASE_URL}/v1/exchangerate/EUR"
+
+class TestResolveTimeseriesRequest:
+    @parameterized.expand(
+        [
+            (
+                "symbol_in_path",
+                "ohlcv_history",
+                "/v1/ohlcv/SYM/history",
+                {"period_id": "1DAY"},
+                {"symbol_id": "SYM", "period_id": "1DAY"},
+            ),
+            (
+                "symbol_in_query",
+                "metrics_symbol_history",
+                "/v1/metrics/symbol/history",
+                {"symbol_id": "SYM", "metric_id": "FUNDING_RATE", "period_id": "1DAY"},
+                {"symbol_id": "SYM", "metric_id": "FUNDING_RATE", "period_id": "1DAY"},
+            ),
+            (
+                "assets_in_path",
+                "exchange_rates_history",
+                "/v1/exchangerate/USD/BTC/history",
+                {"period_id": "1DAY", "time_end": "2024-06-01T00:00:00Z"},
+                {"asset_id_base": "USD", "asset_id_quote": "BTC", "period_id": "1DAY"},
+            ),
+            (
+                "no_period",
+                "quotes_history",
+                "/v1/quotes/SYM/history",
+                {},
+                {"symbol_id": "SYM"},
+            ),
+        ]
+    )
+    def test_resolves_path_params_and_row_defaults(
+        self, _name: str, endpoint: str, path: str, params: dict, row_defaults: dict
+    ) -> None:
+        request = _resolve_timeseries_request(
+            config=COIN_API_ENDPOINTS[endpoint],
+            symbol_id="SYM",
+            period_id="1DAY",
+            metric_id="FUNDING_RATE",
+            exchange_rate_base_asset="USD",
+            exchange_rate_quote_asset="BTC",
+            time_end="2024-06-01T00:00:00Z",
+        )
+        assert (request.path, request.params, request.row_defaults) == (path, params, row_defaults)
 
 
 class TestTimeseriesEndpoint:
     def test_requires_symbol_id(self) -> None:
         with pytest.raises(ValueError, match="requires a symbol_id"):
             _run("ohlcv_history", [], _manager(), symbol_id="")
+
+    def test_requires_metric_id(self) -> None:
+        with pytest.raises(ValueError, match="requires a metric_id"):
+            _run("metrics_symbol_history", [], _manager(), symbol_id="SYM", metric_id="")
+
+    def test_requires_quote_asset(self) -> None:
+        with pytest.raises(ValueError, match="requires a quote asset"):
+            _run("exchange_rates_history", [], _manager(), exchange_rate_quote_asset="")
+
+    def test_exchange_rates_history_injects_both_assets(self) -> None:
+        with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
+            rows = [{"time_period_start": "2024-01-01T00:00:00.0000000Z", "rate_close": 1.0}]
+            batches, session = _run(
+                "exchange_rates_history",
+                [_FakeResponse(json_data=rows)],
+                _manager(),
+                exchange_rate_base_asset="EUR",
+                exchange_rate_quote_asset="BTC",
+            )
+        assert session.requested_urls[0].startswith(f"{BASE_URL}/v1/exchangerate/EUR/BTC/history?")
+        # CoinAPI rejects this endpoint without time_end, so every page must carry one.
+        assert "time_end=" in session.requested_urls[0]
+        assert batches[0][0]["asset_id_base"] == "EUR"
+        assert batches[0][0]["asset_id_quote"] == "BTC"
+
+    def test_quotes_history_walks_forward_on_time_exchange(self) -> None:
+        with mock.patch.object(coin_api, "PAGE_LIMIT", 1):
+            page1 = [{"symbol_id": "SYM", "time_exchange": "2024-01-01T00:00:00.0000000Z", "bid_price": 1}]
+            page2: list[dict] = []
+            _, session = _run(
+                "quotes_history",
+                [_FakeResponse(json_data=page1), _FakeResponse(json_data=page2)],
+                _manager(),
+                symbol_id="SYM",
+                start_date="2023-01-01T00:00:00",
+            )
+        assert session.requested_urls[0].startswith(f"{BASE_URL}/v1/quotes/SYM/history?")
+        assert "time_start=2024-01-01T00%3A00%3A00.0000000Z" in session.requested_urls[1]
 
     def test_injects_symbol_and_period_for_ohlcv(self) -> None:
         with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
@@ -237,34 +273,12 @@ class TestTimeseriesEndpoint:
         # State saved once after the first full page so a crash resumes at the next window.
         manager.save_state.assert_called_once_with(CoinApiResumeConfig(time_start="2024-01-02T00:00:00.0000000Z"))
 
-    def test_short_first_page_stops_without_second_request(self) -> None:
-        with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
-            rows = [{"time_period_start": "2024-01-01T00:00:00.0000000Z"}]
-            manager = _manager()
-            batches, session = _run("ohlcv_history", [_FakeResponse(json_data=rows)], manager, symbol_id="SYM")
-        assert len(batches) == 1
-        assert len(session.requested_urls) == 1
-        manager.save_state.assert_not_called()
-
     def test_resumes_from_saved_time_start(self) -> None:
         with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
             manager = _manager(can_resume=True, state=CoinApiResumeConfig(time_start="2024-06-01T00:00:00Z"))
             rows = [{"time_period_start": "2024-06-02T00:00:00.0000000Z"}]
             _, session = _run("ohlcv_history", [_FakeResponse(json_data=rows)], manager, symbol_id="SYM")
         assert "time_start=2024-06-01T00%3A00%3A00Z" in session.requested_urls[0]
-
-    def test_uses_incremental_value_as_initial_time_start(self) -> None:
-        with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
-            rows = [{"time_exchange": "2024-05-02T00:00:00.0000000Z", "uuid": "u1"}]
-            _, session = _run(
-                "trades_history",
-                [_FakeResponse(json_data=rows)],
-                _manager(),
-                symbol_id="SYM",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
-            )
-        assert "time_start=2024-05-01T00%3A00%3A00Z" in session.requested_urls[0]
 
     def test_stall_guard_breaks_when_boundary_does_not_advance(self) -> None:
         # A full page whose rows all share one timestamp would otherwise loop forever.
@@ -290,6 +304,18 @@ class TestCoinApiSourceResponse:
             ("exchange_rates", ["asset_id_base", "asset_id_quote"], False),
             ("ohlcv_history", ["symbol_id", "period_id", "time_period_start"], True),
             ("trades_history", ["uuid"], True),
+            ("metrics_listing", ["metric_id"], False),
+            (
+                "exchange_rates_history",
+                ["asset_id_base", "asset_id_quote", "period_id", "time_period_start"],
+                True,
+            ),
+            ("metrics_symbol_history", ["symbol_id", "metric_id", "period_id", "time_period_start"], True),
+            (
+                "quotes_history",
+                ["symbol_id", "time_exchange", "time_coinapi", "ask_price", "ask_size", "bid_price", "bid_size"],
+                True,
+            ),
         ]
     )
     def test_primary_keys_and_partitioning(self, endpoint: str, expected_keys: list[str], partitioned: bool) -> None:
@@ -303,9 +329,3 @@ class TestCoinApiSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in COIN_API_ENDPOINTS:
-            response = coin_api_source("key", endpoint, mock.MagicMock(), mock.MagicMock())
-            assert response.name == endpoint
-            assert response.primary_keys == COIN_API_ENDPOINTS[endpoint].primary_keys

@@ -4,8 +4,8 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 class CustomerJourney(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(null=True, blank=True)
 

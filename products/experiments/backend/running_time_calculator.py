@@ -132,7 +132,15 @@ def calculate_sample_size(
         # Count / Sum / Ratio / Retention: N = (16 · variance) / d²
         sample_size_formula = (SAMPLE_SIZE_Z_FACTOR * variance) / d**2
 
-    return math.ceil(sample_size_formula * number_of_variants)
+    sample_size = math.ceil(sample_size_formula * number_of_variants)
+
+    # A funnel baseline above 1 flips the (1 - p) term negative, and the delta method can return a
+    # negative variance for ratio/retention. Both make the sample size non-positive, which has no
+    # meaning as a count and downstream renders as a negative running time. Treat it as no estimate.
+    if sample_size <= 0:
+        return None
+
+    return sample_size
 
 
 def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMetricType) -> float | None:
@@ -162,21 +170,6 @@ def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMet
         return baseline.sum / baseline.denominator_sum
 
     return None
-
-
-def calculate_recommended_sample_size(
-    metric_type: CalculatorMetricType,
-    mde: float,
-    baseline_value: float,
-    number_of_variants: int,
-    baseline: BaselineStats | None = None,
-) -> int | None:
-    """Recommended sample size for any metric type, deriving variance as needed."""
-    if metric_type in ("ratio", "retention"):
-        variance = calculate_variance_from_stats(baseline_value, metric_type, baseline)
-        return calculate_sample_size(metric_type, baseline_value, mde, number_of_variants, variance)
-
-    return calculate_sample_size(metric_type, baseline_value, mde, number_of_variants)
 
 
 def calculate_running_time_days(sample_size: int | None, exposure_rate_per_day: float | None) -> int | None:

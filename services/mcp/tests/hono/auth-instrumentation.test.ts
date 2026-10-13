@@ -83,6 +83,7 @@ describe('MCP auth instrumentation', () => {
         const response = handleCatchError(new Error(`boom ${ErrorCode.INVALID_API_KEY}`), makeProps())
 
         expect(response.status).toBe(401)
+        expect(response.headers.get('WWW-Authenticate')).toContain('error="invalid_token"')
         expect(mockCapture).toHaveBeenCalledTimes(1)
         const call = mockCapture.mock.calls[0]![0]
         expect(call.event).toBe('$mcp_auth_failed')
@@ -92,7 +93,7 @@ describe('MCP auth instrumentation', () => {
             $mcp_auth_status: 401,
             $mcp_auth_method: 'oauth',
             $mcp_client_name: 'claude-ai',
-            mcp_vendor_client: 'ClaudeAI',
+            $mcp_vendor_client: 'ClaudeAI',
         })
         expect(call.properties.$mcp_missing_scope).toBeUndefined()
     })

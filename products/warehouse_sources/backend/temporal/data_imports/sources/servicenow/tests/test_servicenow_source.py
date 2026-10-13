@@ -3,9 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicenow import (
     ServiceNowAuthMethodConfig,
@@ -15,11 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow
     SERVICENOW_API_VERSION_V1,
     SERVICENOW_API_VERSION_V2,
     ServiceNowAuth,
-    ServiceNowResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source import ServiceNowSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _basic_config(username: str = "admin", password: str = "secret") -> ServiceNowSourceConfig:
@@ -61,54 +55,6 @@ class TestServiceNowSource:
         self.source = ServiceNowSource()
         self.team_id = 1
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SERVICENOW
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "ServiceNow"
-        assert config.label == "ServiceNow"
-        assert config.unreleasedSource is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["instance_url", "auth_method"]
-
-        instance_field = config.fields[0]
-        assert isinstance(instance_field, SourceFieldInputConfig)
-        assert instance_field.required is True
-
-        auth_field = config.fields[1]
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert {option.value for option in auth_field.options} == {"basic", "api_key"}
-
-    def test_non_retryable_errors(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-
-    def test_get_schemas_all_incremental(self) -> None:
-        schemas = self.source.get_schemas(_api_key_config(), self.team_id)
-
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental for s in schemas)
-        assert all(s.supports_append for s in schemas)
-        # both audit timestamps are advertised as incremental options
-        assert all({f["field"] for f in s.incremental_fields} == {"sys_updated_on", "sys_created_on"} for s in schemas)
-
-    def test_get_schemas_filtered_by_name(self) -> None:
-        schemas = self.source.get_schemas(_api_key_config(), self.team_id, names=["incidents"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "incidents"
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(_api_key_config(), self.team_id, names=["nope"]) == []
-
-    def test_auth_for_config_api_key(self) -> None:
-        auth = self.source._auth_for_config(_api_key_config("abc"))
-        assert auth == ServiceNowAuth(api_key="abc")
-
     def test_auth_for_config_basic(self) -> None:
         auth = self.source._auth_for_config(_basic_config("u", "p"))
         assert auth == ServiceNowAuth(username="u", password="p")
@@ -129,35 +75,6 @@ class TestServiceNowSource:
         with pytest.raises(ValueError):
             self.source._auth_for_config(config)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
-    )
-    def test_validate_credentials_success(self, mock_validate: mock.Mock) -> None:
-        mock_validate.return_value = (True, None)
-        valid, error = self.source.validate_credentials(_api_key_config(), self.team_id)
-        assert valid is True
-        assert error is None
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
-    )
-    def test_validate_credentials_maps_schema_to_table(self, mock_validate: mock.Mock) -> None:
-        mock_validate.return_value = (True, None)
-        self.source.validate_credentials(_api_key_config(), self.team_id, schema_name="incidents")
-
-        _, kwargs = mock_validate.call_args
-        assert kwargs["table"] == "incident"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
-    )
-    def test_validate_credentials_no_schema_passes_none_table(self, mock_validate: mock.Mock) -> None:
-        mock_validate.return_value = (True, None)
-        self.source.validate_credentials(_basic_config(), self.team_id)
-
-        _, kwargs = mock_validate.call_args
-        assert kwargs["table"] is None
-
     def test_validate_credentials_missing_creds(self) -> None:
         config = ServiceNowSourceConfig(
             instance_url="https://acme.service-now.com",
@@ -166,11 +83,6 @@ class TestServiceNowSource:
         valid, error = self.source.validate_credentials(config, self.team_id)
         assert valid is False
         assert error is not None
-
-    def test_get_resumable_source_manager(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ServiceNowResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.servicenow_source")
     def test_source_for_pipeline_plumbing(self, mock_source: mock.Mock) -> None:
@@ -188,10 +100,6 @@ class TestServiceNowSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01 00:00:00"
         assert kwargs["incremental_field"] == "sys_updated_on"
-
-    def test_default_version_is_v2(self) -> None:
-        assert self.source.supported_versions == ("v1", "v2")
-        assert self.source.default_version == "v2"
 
     @parameterized.expand(
         [

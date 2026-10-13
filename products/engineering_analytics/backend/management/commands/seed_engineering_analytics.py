@@ -42,6 +42,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
@@ -49,17 +50,25 @@ from posthog.storage import object_storage
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries._test_spans import PYTEST_CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
+    DEPLOYMENT_STATUSES_SCHEMA,
+    DEPLOYMENTS_SCHEMA,
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
+    REVIEWS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
+    TRUNK_QUARANTINED_TESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
 from products.engineering_analytics.backend.logic.views.pull_requests import KNOWN_BOT_HANDLES
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPLOYMENT_STATUSES_COLUMNS,
+    DEPLOYMENTS_COLUMNS,
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
+    REVIEWS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -70,7 +79,11 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     get_or_create_datawarehouse_credential,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableFormat,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+)
 
 FIXTURE_DIR = Path(__file__).parents[3] / "fixtures"
 
@@ -79,6 +92,8 @@ RUN_DATE_FIELDS = ("created_at", "run_started_at", "updated_at")
 
 # Marks the GitHub source this command owns, so re-seeding never clobbers a real source.
 SEED_SOURCE_ID = "engineering_analytics_seed"
+# The TrunkIo sibling backing the Trunk quarantine debt scoreboard.
+TRUNK_SEED_SOURCE_ID = "engineering_analytics_seed_trunkio"
 # Matches the fixtures' repository.full_name; without it the UI's repo header/picker fall back to
 # placeholders (a real source stores the repo in job_inputs at connect time).
 SEED_REPOSITORY = "PostHog/posthog"
@@ -104,6 +119,11 @@ def _synthetic_repo_id(full_name: str) -> int:
     return zlib.crc32(full_name.encode())
 
 
+def _synthetic_event(head_branch: str) -> str:
+    pushed = head_branch in ("master", "main") or head_branch.startswith("trunk-merge/")
+    return "push" if pushed else "pull_request"
+
+
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
@@ -120,6 +140,10 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     return {
         # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
+        # The fixture snapshot and the synthetic rows carry no workflow id or trigger event. A real run of
+        # a branch push is a 'push', and a merge queue pushes its gate branches too.
+        "workflow_id": run.get("workflow_id") or zlib.crc32(str(run.get("name") or "").encode()),
+        "event": run.get("event") or _synthetic_event(str(run.get("head_branch") or "")),
         "repository": json.dumps(repository),
         "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
@@ -143,6 +167,132 @@ _RUNNER_LABELS = (
 
 _TS_FMT = "%Y-%m-%d %H:%M:%S"
 
+_DEMO_BRANCH = "demo/multi-push-progression"
+
+# The demo pull request's workflows get job shapes like the real ones: jobs that start in waves,
+# and matrix jobs with many shards. Each entry is (job name, wave, shard count).
+_DEMO_JOB_SHAPES: dict[str, tuple[tuple[str, int, int], ...]] = {
+    "Backend CI": (
+        ("Detect changes", 0, 1),
+        ("Django tests – Core", 1, 12),
+        ("Django tests – Temporal", 1, 4),
+        ("Product tests", 1, 6),
+        ("Check migrations", 1, 1),
+        ("Async migrations", 1, 1),
+        ("Django Tests Pass", 2, 1),
+    ),
+    "Frontend CI": (
+        ("Detect changes", 0, 1),
+        ("Jest tests", 1, 8),
+        ("Typecheck", 1, 1),
+        ("Lint", 1, 1),
+        ("Frontend Tests Pass", 2, 1),
+    ),
+    "E2E Tests": (
+        ("Build image", 0, 1),
+        ("Playwright", 1, 6),
+        ("Upload report", 2, 1),
+    ),
+    "Rust CI": (
+        ("Build", 0, 1),
+        ("Test", 1, 4),
+        ("Clippy", 1, 1),
+    ),
+    "Storybook": (
+        ("Build Storybook", 0, 1),
+        ("Visual regression", 1, 10),
+        ("Upload snapshots", 2, 1),
+    ),
+}
+
+
+_STEP_TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
+_MAIN_STEP = "Run"
+# Step name and its share of the job's wall-clock. The shares sum to 1.
+_STEP_SHAPE: tuple[tuple[str, float], ...] = (
+    ("Set up job", 0.04),
+    ("Checkout", 0.06),
+    ("Restore cache", 0.1),
+    (_MAIN_STEP, 0.7),
+    ("Post Restore cache", 0.05),
+    ("Post Checkout", 0.03),
+    ("Complete job", 0.02),
+)
+
+
+def _shaped_steps(job_name: str, job_start: datetime, job_end: datetime, conclusion: str | None) -> str:
+    """A job's steps as GitHub's JSON. A failed job fails on its main step; an unfinished job is still on it."""
+    seconds = (job_end - job_start).total_seconds()
+    steps: list[dict[str, Any]] = []
+    step_start = job_start
+    main_reached = False
+    for number, (name, share) in enumerate(_STEP_SHAPE, start=1):
+        is_main = name == _MAIN_STEP
+        step_end = step_start + timedelta(seconds=seconds * share)
+        step: dict[str, Any] = {
+            "number": number,
+            "name": f"Run {job_name}" if is_main else name,
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": step_start.strftime(_STEP_TS_FMT),
+            "completed_at": step_end.strftime(_STEP_TS_FMT),
+        }
+        if conclusion is None and is_main:
+            step.update(status="in_progress", conclusion=None, completed_at=None)
+        elif conclusion is None and main_reached:
+            step.update(status="queued", conclusion=None, started_at=None, completed_at=None)
+        elif conclusion in _FAILING_CONCLUSIONS and is_main:
+            step["conclusion"] = "failure"
+        steps.append(step)
+        main_reached = main_reached or is_main
+        step_start = step_end
+    return json.dumps(steps)
+
+
+def _shaped_jobs(
+    run: dict[str, Any], shape: tuple[tuple[str, int, int], ...], run_start: datetime, window: float
+) -> list[dict[str, Any]]:
+    completed = run.get("status") == "completed"
+    failing = run.get("conclusion") in _FAILING_CONCLUSIONS
+    waves = max(wave for _name, wave, _shards in shape) + 1
+    segment = window / waves
+    widest_name, _wave, widest_shards = max(shape, key=lambda entry: entry[2])
+
+    jobs: list[dict[str, Any]] = []
+    for name, wave, shards in shape:
+        for shard in range(shards):
+            index = len(jobs)
+            # An unfinished run is still on its last wave.
+            finished = completed or wave < waves - 1
+            conclusion = "success" if finished else None
+            if failing and (name, shard) == (widest_name, widest_shards // 2):
+                conclusion = run["conclusion"]
+            job_start = run_start + timedelta(seconds=wave * segment)
+            # Shards end at different times, so their durations differ.
+            job_end = job_start + timedelta(seconds=segment * (0.55 + ((index * 37) % 10) / 22))
+            started_at = job_start.strftime(_TS_FMT)
+            jobs.append(
+                {
+                    "id": run["id"] * 100 + index,
+                    "run_id": run["id"],
+                    "run_attempt": run.get("run_attempt", 1),
+                    "name": f"{name} ({shard + 1}/{shards})" if shards > 1 else name,
+                    "workflow_name": run.get("name"),
+                    "status": "completed" if finished else "in_progress",
+                    "conclusion": conclusion,
+                    "head_sha": run.get("head_sha"),
+                    "head_branch": run.get("head_branch"),
+                    "labels": _RUNNER_LABELS[index % len(_RUNNER_LABELS)],
+                    "runner_name": f"runner-{index + 1}",
+                    "runner_group_name": "depot",
+                    "created_at": started_at,
+                    "started_at": started_at,
+                    "completed_at": job_end.strftime(_TS_FMT) if finished else None,
+                    "steps": _shaped_steps(name, job_start, job_end, conclusion),
+                }
+            )
+    return jobs
+
 
 def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
@@ -162,6 +312,11 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             pass
         window = (run_end - run_start).total_seconds() if run_start and run_end and run_end > run_start else 0.0
         segment = window / count if window else 0.0
+
+        shape = _DEMO_JOB_SHAPES.get(run.get("name") or "") if run.get("head_branch") == _DEMO_BRANCH else None
+        if shape and run_start and window:
+            jobs.extend(_shaped_jobs(run, shape, run_start, window))
+            continue
 
         for idx in range(count):
             is_last = idx == count - 1
@@ -192,7 +347,14 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "created_at": started_at,
                     "started_at": started_at,
                     "completed_at": completed_at,
-                    "steps": "[]",
+                    # Only an unfinished job gets steps, which show the in-progress and queued states.
+                    "steps": (
+                        _shaped_steps(
+                            _JOB_NAMES[idx % len(_JOB_NAMES)], job_start, job_start + timedelta(seconds=segment), None
+                        )
+                        if job_start and segment and not completed
+                        else "[]"
+                    ),
                 }
             )
     return jobs
@@ -301,7 +463,8 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
                     "conclusion": conclusion,
                     "created_at": iso(start),
                     "run_started_at": iso(start),
-                    "updated_at": iso(start) if running else iso(start + duration),
+                    # A running run was last updated part of the way through, which gives its jobs a time span.
+                    "updated_at": iso(start + duration / 2) if running else iso(start + duration),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
                     "pull_requests": [{"number": _FORK_PR_NUMBER, "base": {"repo": {"id": _FORK_REPO_ID}}}],
@@ -312,6 +475,53 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
                 }
             )
     return demo_runs
+
+
+# Merge-queue gate runs: the checked-in snapshot predates Trunk, so without these every queue
+# surface reads empty on a seeded stack. The `trunk-merge/pr-<n>/` branch name carries the PR
+# attribution; the bot actor corroborates it.
+_GATE_WORKFLOWS = ("Backend CI", "Frontend CI")
+_GATE_LEAD = timedelta(minutes=34)
+_GATE_RETRY_EVERY_N = 4
+
+
+def _gate_runs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def iso(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    runs: list[dict[str, Any]] = []
+    merged = [pr for pr in prs if pr.get("merged_at")]
+    for index, pr in enumerate(merged):
+        merged_at = datetime.fromisoformat(pr["merged_at"])
+        # Every fourth PR needs a second attempt, so multi-attempt share and the retry spread are real.
+        attempts = 2 if index % _GATE_RETRY_EVERY_N == 0 else 1
+        for attempt in range(attempts):
+            # The earlier attempt is the failed one, and it anchors the leg.
+            start = merged_at - _GATE_LEAD * (attempts - attempt)
+            failed = attempt < attempts - 1
+            for wf_index, workflow in enumerate(_GATE_WORKFLOWS):
+                runs.append(
+                    {
+                        "id": 9_900_000_000 + index * 100 + attempt * 10 + wf_index,
+                        "name": workflow,
+                        "head_sha": f"9a7e{index:05d}{attempt}{wf_index}" + "d" * 29,
+                        "head_branch": f"trunk-merge/pr-{pr['number']}/{index:08d}-{attempt}",
+                        "status": "completed",
+                        "conclusion": "failure" if failed and wf_index == 0 else "success",
+                        "created_at": iso(start),
+                        "run_started_at": iso(start),
+                        "updated_at": iso(start + timedelta(minutes=18 + wf_index * 5)),
+                        "run_attempt": 1,
+                        "repository": {"full_name": "PostHog/posthog"},
+                        "pull_requests": [],
+                        "actor": {"login": "trunk-io[bot]", "avatar_url": ""},
+                        "head_commit": {
+                            "message": f"{pr.get('title') or 'change'} (#{pr['number']})",
+                            "author": {"name": "Trunk", "email": "bot@trunk.io"},
+                        },
+                    }
+                )
+    return runs
 
 
 def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
@@ -340,6 +550,69 @@ def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
 _ISSUE_EVENTS_WINDOW_DAYS = 10
 
 
+# Production ships in batches, so a merge waits for the next deploy instead of getting one of its own.
+# Every third merge triggers one, in both regions, succeeding minutes later.
+_DEPLOYS_EVERY_N_MERGES = 3
+_DEPLOY_LAG = timedelta(minutes=9)
+_DEPLOY_DURATION = timedelta(minutes=12)
+_PRODUCTION_ENVIRONMENTS = ("prod-us", "prod-eu")
+
+
+@frozen
+class _SeededDeployments:
+    """Deploy request rows and their status rows, written to the warehouse as a pair."""
+
+    deployments: list[dict[str, Any]]
+    statuses: list[dict[str, Any]]
+
+
+def _deployment_rows(prs: list[dict[str, Any]]) -> _SeededDeployments:
+    """Batched production deploys and the statuses that made them live, keyed off the merge stream."""
+    merged = sorted((pr for pr in prs if pr.get("merged_at")), key=lambda pr: pr["merged_at"])
+    deployments: list[dict[str, Any]] = []
+    statuses: list[dict[str, Any]] = []
+    for index, pr in enumerate(merged[::_DEPLOYS_EVERY_N_MERGES]):
+        requested = datetime.fromisoformat(pr["merged_at"]) + _DEPLOY_LAG
+        for offset, environment in enumerate(_PRODUCTION_ENVIRONMENTS):
+            deployment_id = 8_000_000_000 + index * 10 + offset
+            stagger = timedelta(minutes=offset)
+            deployments.append(
+                {
+                    "id": deployment_id,
+                    "sha": pr.get("merge_commit_sha") or "",
+                    "ref": pr.get("merge_commit_sha") or "",
+                    "task": "deploy",
+                    "environment": environment,
+                    "original_environment": environment,
+                    "description": None,
+                    "creator": None,
+                    "payload": None,
+                    # Left false like the real snapshot, so the seed exercises the unflagged fallback.
+                    "production_environment": False,
+                    "transient_environment": False,
+                    "created_at": (requested + stagger).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "updated_at": (requested + stagger).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
+            live_at = (requested + _DEPLOY_DURATION + stagger).strftime("%Y-%m-%dT%H:%M:%SZ")
+            statuses.append(
+                {
+                    "id": deployment_id + 5,
+                    "deployment_id": deployment_id,
+                    "state": "success",
+                    "creator": None,
+                    "description": None,
+                    "environment": environment,
+                    "target_url": None,
+                    "log_url": None,
+                    "environment_url": None,
+                    "created_at": live_at,
+                    "updated_at": live_at,
+                }
+            )
+    return _SeededDeployments(deployments=deployments, statuses=statuses)
+
+
 def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[str, Any]]:
     window_start = anchor - timedelta(days=_ISSUE_EVENTS_WINDOW_DAYS)
     rows: list[dict[str, Any]] = []
@@ -353,6 +626,7 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
                 "event": event,
                 "actor": json.dumps({"login": (pr.get("user") or {}).get("login") or "", "avatar_url": ""}),
                 "issue": json.dumps({"number": pr["number"]}),
+                "requested_team": None,
                 "created_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         )
@@ -382,6 +656,54 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
     return rows
 
 
+_MERGED_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
+    (("CHANGES_REQUESTED", 0.35), ("APPROVED", 0.7)),
+    (("APPROVED", 0.5),),
+    (("COMMENTED", 0.3), ("APPROVED", 0.85)),
+    (("APPROVED", 0.9),),
+)
+# A mix of verdicts, so both open groups of the day view have rows.
+_OPEN_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
+    (("CHANGES_REQUESTED", 0.6),),
+    (("COMMENTED", 0.5),),
+    (),
+)
+
+
+def _review_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[str, Any]]:
+    logins = sorted({(pr.get("user") or {}).get("login") or "" for pr in prs} - {""})
+    reviewers = [login for login in logins if not login.endswith("[bot]") and login not in KNOWN_BOT_HANDLES]
+    rows: list[dict[str, Any]] = []
+    for index, pr in enumerate(prs):
+        if not pr.get("created_at") or not reviewers:
+            continue
+        created = datetime.fromisoformat(pr["created_at"])
+        if pr.get("merged_at"):
+            end = datetime.fromisoformat(pr["merged_at"])
+            plan = _MERGED_REVIEW_PLANS[index % len(_MERGED_REVIEW_PLANS)]
+        elif pr.get("state") == "open" and not pr.get("draft"):
+            end = anchor
+            plan = _OPEN_REVIEW_PLANS[index % len(_OPEN_REVIEW_PLANS)]
+        else:
+            continue
+        author = (pr.get("user") or {}).get("login") or ""
+        reviewer = reviewers[index % len(reviewers)]
+        if reviewer == author:
+            reviewer = reviewers[(index + 1) % len(reviewers)]
+        for step, (state, fraction) in enumerate(plan):
+            rows.append(
+                {
+                    "id": 6_000_000_000 + index * 10 + step,
+                    "pr_number": pr["number"],
+                    "user": json.dumps({"login": reviewer, "avatar_url": ""}),
+                    "state": state,
+                    "commit_id": "",
+                    "submitted_at": (created + (end - created) * fraction).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
+    return rows
+
+
 def _demo_multi_push(
     prs: list[dict[str, Any]], runs: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -406,12 +728,12 @@ def _demo_multi_push(
                     "id": 9_900_000_000 + push_index * 100 + wf_index,
                     "name": workflow,
                     "head_sha": push_shas[push_index],
-                    "head_branch": "demo/multi-push-progression",
+                    "head_branch": _DEMO_BRANCH,
                     "status": "in_progress" if running else "completed",
                     "conclusion": None if running else conclusion,
                     "created_at": iso(start),
                     "run_started_at": iso(start),
-                    "updated_at": iso(start) if running else iso(end),
+                    "updated_at": iso(start + (end - start) / 2) if running else iso(end),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
                     "pull_requests": [{"number": _DEMO_PR_NUMBER}],
@@ -517,7 +839,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     ),
     (
         "team-product-analytics",  # mildly improving
-        "posthog/hogql_queries/insights/test",
+        "posthog/hogql_queries/insights/trends/test",
         [
             ("TestTrendsQueryRunner", "test_interval_boundary_timezone", 3, 2),
             ("TestFunnelCorrelation", "test_person_property_breakdown", 1, 1),
@@ -759,6 +1081,9 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "id": 900_000 + member_index,
                     "login": login,
+                    # One maintainer per team, so the roster read's maintainers-first order is
+                    # visible locally instead of every member looking the same.
+                    "role": "maintainer" if slot == 0 and member_index < team_count else "member",
                     "team_id": team_index + 1,
                     "team_slug": slug,
                     "team_name": slug.removeprefix("team-").replace("-", " ").title(),
@@ -770,6 +1095,64 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _selector(module_dir: str, test_class: str, test_name: str) -> str:
     """The pytest selector for a roster test: one recipe shared by the span and failure-log seeds."""
     return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
+
+
+# (file, test_class, name, parent, age_days). `parent` is what the uploader reports: 'pytest', the
+# test file for jest, the crate for Rust.
+_QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
+    ("products/replay_vision/backend/tests/test_api.py", "TestAPI", "test_tag_listing_pagination", "pytest", 41),
+    (
+        "products/batch_exports/backend/tests/test_service.py",
+        "TestService",
+        "test_backfill_window_overlap",
+        "pytest",
+        30,
+    ),
+    ("posthog/api/test/test_person.py", "TestPerson", "test_person_merge_ordering", "pytest", 23),
+    ("posthog/hogql/test/test_query.py", "TestQuery", "test_property_type_coercion", "pytest", 16),
+    # Reported relative to the directory its suite ran from, which is how Trunk records them.
+    ("tests/utils.test.ts", "", "parses a malformed header", "tests/utils.test.ts", 9),
+    (
+        "src/scenes/experiments/utils.test.ts",
+        "",
+        "rounds a bayesian interval",
+        "src/scenes/experiments/utils.test.ts",
+        5,
+    ),
+    ("", "", "remote_resolution_hardening", "cymbal::remote_resolution_hardening", 19),
+    ("", "", "flag evaluation stays stable", "feature-flags", 2),
+]
+
+
+def _trunk_quarantined_rows() -> list[dict[str, Any]]:
+    """Trunk-quarantined rows for the debt scoreboard.
+
+    The board resolves owners from the real repository, so these name real test files, one per team,
+    and two of them arrive relative to their suite's directory (as Trunk reports them) to exercise
+    placement. Ages straddle the TTL, and the last row names no file so the 'unowned' bucket renders.
+    """
+    anchor = timezone.now().replace(microsecond=0)
+    rows: list[dict[str, Any]] = []
+    for index, (file, test_class, name, parent, age_days) in enumerate(_QUARANTINED_TESTS):
+        quarantined_at = (anchor - timedelta(days=age_days, hours=index)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
+        rows.append(
+            {
+                "file": file,
+                "name": name,
+                "labels": "[]",
+                "parent": parent,
+                "status": "FLAKY",
+                "variant": "",
+                "classname": f"{module}.{test_class}" if test_class else "",
+                "codeowners": "[]",
+                "test_case_id": f"engseed-trunk-{index:03d}",
+                "quarantined_at": quarantined_at,
+                "quarantine_setting": "AUTO_QUARANTINE",
+                "status_last_updated_at": quarantined_at,
+            }
+        )
+    return rows
 
 
 def _seed_trace_spans(team: Team) -> int:
@@ -993,15 +1376,21 @@ class Command(BaseCommand):
         # merge_commit_sha with the commit it landed, which is what the attribution join reads.
         merged_prs = [pr for pr in prs if pr.get("merged_at")]
         runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_prs))
+        runs.extend(_gate_runs(prs))
         # Synthetic draft/ready transitions + merged events for ready_to_merge_seconds, windowed
         # like a real capped issue-events sync (see _issue_event_rows).
         issue_events = _issue_event_rows(prs, _fixture_anchor(prs, runs))
+        reviews = _review_rows(prs, _fixture_anchor(prs, runs))
+        deploy_rows = _deployment_rows(prs)
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
         runs = [self._shift_dates(run, RUN_DATE_FIELDS, shift) for run in runs]
         issue_events = [self._shift_dates(event, ("created_at",), shift) for event in issue_events]
+        reviews = [self._shift_dates(review, ("submitted_at",), shift) for review in reviews]
+        deployments = [self._shift_dates(row, ("created_at",), shift) for row in deploy_rows.deployments]
+        deployment_statuses = [self._shift_dates(row, ("created_at",), shift) for row in deploy_rows.statuses]
         if shift:
             self.stdout.write(f"Rebased timestamps forward by {shift}.")
 
@@ -1011,7 +1400,13 @@ class Command(BaseCommand):
                 access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             )
-            source = self._get_or_create_seed_source(team, prefix)
+            source = self._get_or_create_seed_source(
+                team,
+                prefix,
+                source_id=SEED_SOURCE_ID,
+                source_type=ExternalDataSourceType.GITHUB,
+                job_inputs={"repository": SEED_REPOSITORY},
+            )
             self._upsert_schema_table(
                 team, source, credential, prefix, PULL_REQUESTS_SCHEMA, PULL_REQUESTS_COLUMNS, map(_flatten_pr, prs)
             )
@@ -1029,6 +1424,38 @@ class Command(BaseCommand):
             )
             self._upsert_schema_table(
                 team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
+            )
+            self._upsert_schema_table(team, source, credential, prefix, REVIEWS_SCHEMA, REVIEWS_COLUMNS, reviews)
+            # A TrunkIo sibling source backs the Trunk quarantine debt scoreboard.
+            trunk_source = self._get_or_create_seed_source(
+                team,
+                prefix,
+                source_id=TRUNK_SEED_SOURCE_ID,
+                source_type=ExternalDataSourceType.TRUNKIO,
+                job_inputs={"org_url_slug": "posthog-inc", "repo_owner": "PostHog", "repo_name": "posthog"},
+            )
+            self._upsert_schema_table(
+                team,
+                trunk_source,
+                credential,
+                prefix,
+                TRUNK_QUARANTINED_TESTS_SCHEMA,
+                TRUNK_QUARANTINED_TESTS_COLUMNS,
+                _trunk_quarantined_rows(),
+                source_kind="trunkio",
+            )
+            # Both halves or neither: a deployment without its statuses never says whether it shipped.
+            self._upsert_schema_table(
+                team, source, credential, prefix, DEPLOYMENTS_SCHEMA, DEPLOYMENTS_COLUMNS, deployments
+            )
+            self._upsert_schema_table(
+                team,
+                source,
+                credential,
+                prefix,
+                DEPLOYMENT_STATUSES_SCHEMA,
+                DEPLOYMENT_STATUSES_COLUMNS,
+                deployment_statuses,
             )
 
         # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.
@@ -1082,26 +1509,32 @@ class Command(BaseCommand):
                 shifted[field] = moved.strftime("%Y-%m-%d %H:%M:%S")
         return shifted
 
-    def _get_or_create_seed_source(self, team: Team, prefix: str) -> ExternalDataSource:
-        source = ExternalDataSource.objects.filter(
-            team=team, source_id=SEED_SOURCE_ID, source_type=ExternalDataSourceType.GITHUB
-        ).first()
+    def _get_or_create_seed_source(
+        self,
+        team: Team,
+        prefix: str,
+        *,
+        source_id: str,
+        source_type: ExternalDataSourceType,
+        job_inputs: dict[str, str],
+    ) -> ExternalDataSource:
+        source = ExternalDataSource.objects.filter(team=team, source_id=source_id, source_type=source_type).first()
         if source is None:
             return ExternalDataSource.objects.create(
                 team=team,
-                source_id=SEED_SOURCE_ID,
-                connection_id=SEED_SOURCE_ID,
-                status=ExternalDataSource.Status.COMPLETED,
-                source_type=ExternalDataSourceType.GITHUB,
+                source_id=source_id,
+                connection_id=source_id,
+                status=ExternalDataSourceStatus.COMPLETED,
+                source_type=source_type,
                 prefix=prefix,
-                job_inputs={"repository": SEED_REPOSITORY},
+                job_inputs=dict(job_inputs),
             )
         update_fields = []
         if source.prefix != prefix:
             source.prefix = prefix
             update_fields.append("prefix")
-        if (source.job_inputs or {}).get("repository") != SEED_REPOSITORY:
-            source.job_inputs = {**(source.job_inputs or {}), "repository": SEED_REPOSITORY}
+        if any((source.job_inputs or {}).get(key) != value for key, value in job_inputs.items()):
+            source.job_inputs = {**(source.job_inputs or {}), **job_inputs}
             update_fields.append("job_inputs")
         if update_fields:
             source.save(update_fields=[*update_fields, "updated_at"])
@@ -1116,10 +1549,11 @@ class Command(BaseCommand):
         schema_name: str,
         columns: dict[str, dict[str, str]],
         rows: Any,
+        source_kind: str = "github",
     ) -> None:
         records = list(rows)
-        # The materialized table name is exactly what a real sync produces: <prefix>github_<endpoint>.
-        table_name = f"{prefix}github_{schema_name}"
+        # The materialized table name is exactly what a real sync produces: <prefix><kind>_<endpoint>.
+        table_name = f"{prefix}{source_kind}_{schema_name.lower() if source_kind != 'github' else schema_name}"
         headers = list(columns.keys())
         output = StringIO()
         writer = csv.writer(output)
@@ -1137,7 +1571,7 @@ class Command(BaseCommand):
                 "Use a different --prefix (or another team) to seed fixture data."
             )
         if existing is not None:
-            existing.format = DataWarehouseTable.TableFormat.CSVWithNames
+            existing.format = DataWarehouseTableFormat.CSVWithNames
             existing.url_pattern = url_pattern
             existing.credential = credential
             existing.external_data_source = source
@@ -1155,7 +1589,7 @@ class Command(BaseCommand):
             table = DataWarehouseTable.objects.create(
                 team=team,
                 name=table_name,
-                format=DataWarehouseTable.TableFormat.CSVWithNames,
+                format=DataWarehouseTableFormat.CSVWithNames,
                 url_pattern=url_pattern,
                 credential=credential,
                 external_data_source=source,

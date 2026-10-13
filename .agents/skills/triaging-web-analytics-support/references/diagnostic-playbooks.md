@@ -26,7 +26,7 @@ Key code: `products/web_analytics/backend/hogql_queries/` (overview vs stats_tab
 
 The decisive question: **which layer dropped?**
 
-1. Pull the raw daily series (`count()` on events by day for their team, via `query-clickhouse-via-metabase`). If raw counts dropped, no query-time change (bot classification, exclusions, materialization) can be the cause — those never alter stored counts.
+1. Pull the raw daily series (`count()` on events by day for their team, via `querying-production-databases-via-metabase`). If raw counts dropped, no query-time change (bot classification, exclusions, materialization) can be the cause — those never alter stored counts.
 2. Sanity checks that kill false leads fast: `$lib` + SDK version split (pinned version = no SDK regression), duplicate-UUID counts (dedup), day-of-week matched comparison (seasonality), hour-of-day spread (region/outage).
 3. The bot fingerprint: only `$pageview` drops while `$pageleave` stays flat, loss concentrated in a few UA strings collapsing 10-50x week over week, ~2 pageviews/session with no pageleave. That is non-human traffic that stopped executing the JS SDK — typically the customer's edge (WAF, bot-fight mode, JS challenge) changed, or the scraper stopped. Their server logs still count those requests, which is why "our logs look unchanged".
 4. Reply framing: PostHog stored what it received; identify the segment that vanished; ask what changed at their edge on the exact step dates; note the new lower level is closer to true human traffic.

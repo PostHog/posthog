@@ -1,6 +1,6 @@
 """
 Facade API for Loops — the data surface DRF views for `products/tasks/backend/presentation/views/loops.py`
-call into. See `products/tasks/docs/LOOPS.md` for the full spec.
+call into.
 
 Responsibilities:
 - Accept ids / primitives as input, enforce visibility and permission rules.
@@ -8,7 +8,7 @@ Responsibilities:
   `loop_runs` (fire + trigger-context rendering).
 - Convert Django models to DTOs before returning — never return ORM instances.
 
-Permission model (see LOOPS.md "Access control"):
+Permission model:
 - Personal loops are owner-only for everything (view, edit, fire, run history).
 - Team loops are viewable/fireable by any team member. Identity-bearing config
   (visibility, instructions, runtime_adapter, model, reasoning_effort, repositories,
@@ -38,8 +38,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
@@ -75,7 +75,7 @@ MAX_FIX_ITERATIONS_CEILING = 10
 DEFAULT_POSTHOG_MCP_SCOPES = "read_only"
 POSTHOG_MCP_SCOPES_CHOICES = ("read_only", "full")
 NOTIFICATION_CHANNELS = ("push", "email", "slack")
-NOTIFICATION_EVENTS = ("run_completed", "run_failed", "pr_created", "needs_attention")
+NOTIFICATION_EVENTS = ("run_completed", "run_failed", "pr_created", "pr_merged", "pr_closed", "needs_attention")
 ALLOWED_GITHUB_TRIGGER_EVENTS = ("issues", "issue_comment", "pull_request", "push")
 MAX_LOOP_REPOSITORIES = 1
 
@@ -197,7 +197,7 @@ class LoopNotificationsDTO:
 
 @dataclass(frozen=True)
 class LoopContextOutputsDTO:
-    """What a context-attached loop maintains each run (see LOOPS.md "Contexts")."""
+    """What a context-attached loop maintains each run."""
 
     post_to_feed: bool = False
     update_context: bool = False
@@ -228,7 +228,7 @@ class LoopSkillBundleDTO:
 
 @dataclass(frozen=True)
 class LoopTriggerDTO:
-    """A single loop trigger. `config` shape depends on `type` — see LOOPS.md `LoopTrigger`."""
+    """A single loop trigger. `config` shape depends on `type`."""
 
     id: UUID
     loop_id: UUID
@@ -707,7 +707,7 @@ def visible_loop_ids(team_id: int, user: User | None) -> set[str]:
 def hidden_personal_loop_ids_for_org(organization_id: str | UUID, user: User | None) -> set[str]:
     """Ids of personal loops across an org NOT owned by `user`, as strings. The org-wide activity-log
     feed (org admins/owners) must still keep other people's personal-loop config out, since personal
-    loops are owner-only (see LOOPS.md "Access control"). Cross-team by design, hence `unscoped()`."""
+    loops are owner-only. Cross-team by design, hence `unscoped()`."""
     user_id = getattr(user, "id", None)
     hidden = Loop.objects.unscoped().filter(team__organization_id=organization_id, visibility=Loop.Visibility.PERSONAL)
     if user_id is not None:
@@ -1287,8 +1287,7 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
 
 
 def _sync_triggers(loop: Loop, trigger_payloads: list[dict]) -> None:
-    """Id-stable nested trigger sync for an existing loop (see LOOPS.md "Lifecycle and
-    reconciliation"). Loop creation handles its (necessarily all-new) triggers inline in
+    """Id-stable nested trigger sync for an existing loop. Loop creation handles its (necessarily all-new) triggers inline in
     `create_loop` instead of through here.
 
     Matches incoming trigger payloads by `id`: updates matched rows in place, creates rows with
@@ -1396,8 +1395,8 @@ def fire_loop_api(
     loop_id: str | UUID, team_id: int, payload: dict | None, idempotency_key: str | None = None
 ) -> LoopFireResult | None:
     """External fire (`loops/:id/trigger/`, PSAK auth). A PSAK is a project-scoped service
-    credential, so this is project-wide by design and bypasses the personal/team visibility split
-    (see LOOPS.md "API trigger auth"). Non-PSAK (session/PAT/OAuth) callers of the same endpoint
+    credential, so this is project-wide by design and bypasses the personal/team visibility split.
+    Non-PSAK (session/PAT/OAuth) callers of the same endpoint
     go through `fire_loop_api_for_user` instead, which re-imposes that split."""
     # `internal=False`: internal loops are driven by their backend flow, never externally
     # firable, even though a PSAK is project-wide (mirrors the read/write API surface).
@@ -1472,6 +1471,7 @@ def list_loop_runs(
     *,
     cursor: str | None = None,
     limit: int = DEFAULT_LOOP_RUN_PAGE_SIZE,
+    status: str | None = None,
 ) -> LoopRunPageDTO | None:
     """TaskRun rows spawned by this loop's firings, newest first, cursor-paginated.
 
@@ -1484,7 +1484,7 @@ def list_loop_runs(
     loop = _visible_loop_queryset(team_id, user_id).select_related("team").filter(pk=loop_id).first()
     if loop is None or _rbac_denied(loop, user, "viewer"):
         return None
-    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit)
+    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit, status=status)
 
 
 def list_loop_runs_for_service(
@@ -1493,22 +1493,28 @@ def list_loop_runs_for_service(
     *,
     cursor: str | None = None,
     limit: int = DEFAULT_LOOP_RUN_PAGE_SIZE,
+    status: str | None = None,
 ) -> LoopRunPageDTO | None:
     """Run history for a PSAK-authenticated service caller: project-wide, no personal/team
     visibility filter (a PSAK can already trigger any loop in the project — see `fire_loop_api`)."""
     loop = Loop.objects.filter(team_id=team_id, deleted=False, internal=False, pk=loop_id).first()
     if loop is None:
         return None
-    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit)
+    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit, status=status)
 
 
-def _loop_runs_page(loop: Loop, team_id: int, *, cursor: str | None, limit: int) -> LoopRunPageDTO:
+def _loop_runs_page(
+    loop: Loop, team_id: int, *, cursor: str | None, limit: int, status: str | None = None
+) -> LoopRunPageDTO:
     page_size = max(1, min(limit, MAX_LOOP_RUN_PAGE_SIZE))
     queryset = (
         TaskRun.objects.filter(team_id=team_id)
         .filter(Q(task__loop_id=loop.id) | Q(state__loop_id=str(loop.id)))
         .order_by("-created_at", "-id")
     )
+
+    if status is not None:
+        queryset = queryset.filter(status=status)
 
     if cursor:
         decoded = _decode_run_cursor(cursor)

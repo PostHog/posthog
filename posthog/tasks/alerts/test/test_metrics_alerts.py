@@ -1,7 +1,7 @@
 import datetime as dt
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +28,7 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.testing import seed_metric
 
 # 08:55 — the 08:00 hourly bucket is still accumulating; 07:00 is the last complete one.
-FROZEN_TIME = dateutil.parser.parse("2026-07-01T08:55:00.000Z")
+FROZEN_TIME = dateutil.parser.parse("2026-09-19T08:55:00.000Z")
 
 
 def _metrics_flag_only(flag: str, *args: Any, **kwargs: Any) -> bool:
@@ -40,10 +40,10 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
         metric_name=metric_name,
         aggregation="avg",
         interval="1 minute",
-        baseline_from="2026-07-01T05:00:00+00:00",
-        baseline_to="2026-07-01T06:00:00+00:00",
-        anomaly_from="2026-07-01T06:00:00+00:00",
-        anomaly_to="2026-07-01T07:00:00+00:00",
+        baseline_from="2026-09-19T05:00:00+00:00",
+        baseline_to="2026-09-19T06:00:00+00:00",
+        anomaly_from="2026-09-19T06:00:00+00:00",
+        anomaly_to="2026-09-19T07:00:00+00:00",
         baseline_mean=5.0,
         baseline_stddev=0.5,
         anomaly_mean=50.0,
@@ -70,8 +70,10 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
     )
 
 
-@freeze_time(FROZEN_TIME)
-@patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only)
+@time_machine.travel(FROZEN_TIME, tick=False)
+@patch(
+    "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only
+)
 @patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[])
 @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
@@ -84,14 +86,27 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         self.metric_name = f"queue.depth.{self._testMethodName}"
 
     def create_metrics_insight(
-        self, group_by: Optional[list[str]] = None, clauses: Optional[list[dict[str, Any]]] = None
+        self,
+        group_by: Optional[list[str]] = None,
+        clauses: Optional[list[dict[str, Any]]] = None,
+        formula: Optional[str] = None,
+        date_range: Optional[dict[str, str]] = None,
+        sql: Optional[str] = None,
     ) -> dict:
-        if clauses is None:
+        if sql is not None:
+            clauses = []
+        elif clauses is None:
             clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
             if group_by:
                 clause["groupBy"] = [{"key": key} for key in group_by]
             clauses = [clause]
-        query_dict = {"kind": "MetricsQuery", "clauses": clauses}
+        query_dict: dict[str, Any] = {"kind": "MetricsQuery", "clauses": clauses}
+        if formula:
+            query_dict["formula"] = formula
+        if date_range:
+            query_dict["dateRange"] = date_range
+        if sql is not None:
+            query_dict.update(language="sql", sql=sql)
         return self.dashboard_api.create_insight(data={"name": "metrics insight", "query": query_dict})[1]
 
     def create_alert(
@@ -124,7 +139,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             metric_name=self.metric_name,
             metric_type="gauge",
             points=[
-                (dt.datetime(2026, 7, 1, hour, 30, tzinfo=dt.UTC), value) for hour, value in values_by_hour.items()
+                (dt.datetime(2026, 9, 19, hour, 30, tzinfo=dt.UTC), value) for hour, value in values_by_hour.items()
             ],
             labels=labels or {},
         )
@@ -168,6 +183,19 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             breach_messages = mock_send_breaches.call_args.args[1]
             assert any(expected_fragment in message for message in breach_messages), breach_messages
 
+    def test_sub_day_relative_range_excludes_earlier_points_the_same_day(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        self.seed_gauge({7: 50.0, 8: 5.0})
+        insight = self.create_metrics_insight(date_range={"date_from": "-30M"})
+        alert = self.create_alert(insight, upper=20.0)
+
+        run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 5.0
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.NOT_FIRING
+
     def test_empty_metrics_result_evaluates_as_zero(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:
@@ -183,6 +211,32 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 0
         assert alert_check.error is None
+
+    def test_sql_insight_alert_counts_an_empty_bucket_as_zero(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The builder fills empty buckets with 0; a SQL insight leaves them empty. Series b stops
+        # reporting after 06:30, so the 07:30 anchor bucket is empty and must breach a lower bound.
+        stopped_metric = f"{self.metric_name}.stopped"
+        self.seed_gauge({6: 5.0, 7: 5.0, 8: 5.0})
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name=stopped_metric,
+            metric_type="gauge",
+            points=[(dt.datetime(2026, 9, 19, 6, 30, tzinfo=dt.UTC), 5.0)],
+        )
+        sql = (
+            "SELECT toStartOfInterval(timestamp, {interval}) AS time, metric_name AS clause, avg(value) AS value "
+            f"FROM posthog.metrics WHERE metric_name IN ('{self.metric_name}', '{stopped_metric}') "
+            "AND timestamp >= {date_from} AND timestamp < {date_to} GROUP BY time, clause"
+        )
+        alert = self.create_alert(self.create_metrics_insight(sql=sql), lower=1.0)
+
+        run_alert_check(alert["id"])
+
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        breach_messages = mock_send_breaches.call_args.args[1]
+        assert any(stopped_metric in message for message in breach_messages), breach_messages
 
     def test_group_by_fires_on_any_breaching_series(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
@@ -200,6 +254,39 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         mock_send_breaches.assert_called_once()
         breach_messages = mock_send_breaches.call_args.args[1]
         assert any("big" in message for message in breach_messages), breach_messages
+
+    def test_formula_alert_evaluates_only_the_formula_series(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # Input clause 'a' (50) breaches the upper bound on its own; the formula result
+        # (a / b = 5) does not. Catches an extractor that evaluates the input clauses
+        # instead of the formula-only result the query returns.
+        divisor_metric = f"{self.metric_name}.divisor"
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name=divisor_metric,
+            metric_type="gauge",
+            points=[(dt.datetime(2026, 9, 19, hour, 30, tzinfo=dt.UTC), 10.0) for hour in (6, 7)],
+            labels={},
+        )
+        insight = self.create_metrics_insight(
+            clauses=[
+                {"name": "a", "metricName": self.metric_name, "aggregation": "avg"},
+                {"name": "b", "metricName": divisor_metric, "aggregation": "avg"},
+            ],
+            formula="a / b",
+        )
+        alert = self.create_alert(insight, upper=20.0)
+
+        run_alert_check(alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+        assert updated_alert.state == AlertState.NOT_FIRING
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 5.0
+        assert alert_check.error is None
+        mock_send_breaches.assert_not_called()
 
     def test_relative_increase_fires(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock

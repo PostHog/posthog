@@ -122,6 +122,10 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
 
     if query_name == "teams_with_event_count_in_period":
         return [(team_a_id, 100), (team_b_id, 50), *extra_total_rows]
+    if query_name == "teams_with_logs_retention_byte_days_in_period":
+        # 2_500_000 byte-days floors to 2 MB-days, so a dropped floor or raw-bytes passthrough
+        # fails the assertion instead of matching by accident.
+        return [(team_a_id, 2_500_000)]
     if query_name == "teams_with_recording_count_in_period":
         return [(team_a_id, 8)]
 
@@ -265,6 +269,10 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     assert by_org[str(org_a.id)]["apm_tracing_mb_in_period"] == 2
     assert by_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 0
     assert by_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 0
+
+    # Log retention byte-days reach the counter floored to whole MB-days.
+    assert by_org[str(org_a.id)]["logs_retention_mb_days_in_period"] == 2
+    assert by_org[str(org_b.id)]["logs_retention_mb_days_in_period"] == 0
 
     # has_non_zero_usage is computed and present on every line.
     assert by_org[str(org_a.id)]["has_non_zero_usage"] is True

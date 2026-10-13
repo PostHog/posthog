@@ -19,6 +19,9 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 # CLI; prints its report (T201).
 "data_catalog/scripts/offline_governance_experiment.py" = ["T201"]
 "logs/backend/pattern_replay.py" = ["T201"]
+# ReviewHog eval experiments keep their analysis CLIs next to the results; the report they
+# write is their stdout.
+"review_hog/eval/experiments/*/scripts/**" = ["T201"]
 
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics
@@ -62,6 +65,11 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "warehouse_sources/backend/**" = ["ANN"]
 "workflows/backend/**" = ["ANN"]
 
+"access_control/backend/presentation/access_control.py" = ["ANN"]
+"access_control/backend/presentation/role.py" = ["ANN"]
+"access_control/backend/presentation/access_control_settings.py" = ["ANN"]
+"access_control/backend/facade/user_access_control.py" = ["ANN"]
+
 # PLC0415 exemptions. New products not listed here are enforced.
 # Run `ruff check <product>/ --select PLC0415 --statistics` before removing an entry.
 "access_control/**" = ["PLC0415"]
@@ -90,8 +98,6 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "feature_flags/**" = ["PLC0415"]
 "growth/**" = ["PLC0415"]
 "legal_documents/**" = ["PLC0415"]
-"links/**" = ["PLC0415"]
-"live_debugger/**" = ["PLC0415"]
 "ai_observability/**" = ["PLC0415"]
 "logs/**" = ["PLC0415"]
 "managed_migrations/**" = ["PLC0415"]
@@ -113,7 +119,6 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "surveys/**" = ["PLC0415"]
 "tasks/**" = ["PLC0415"]
 "tracing/**" = ["PLC0415"]
-"user_interviews/**" = ["PLC0415"]
 "visual_review/**" = ["PLC0415"]
 "warehouse_sources/**" = ["PLC0415"]
 "web_analytics/**" = ["PLC0415"]

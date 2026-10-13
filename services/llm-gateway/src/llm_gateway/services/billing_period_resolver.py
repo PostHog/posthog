@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import httpx
@@ -21,6 +22,11 @@ logger = structlog.get_logger(__name__)
 class OrganizationBillingPeriod:
     current_period_start: str
     current_period_end: str
+
+
+def parse_iso_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _redis_key(team_id: int) -> str:

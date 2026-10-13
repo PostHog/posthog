@@ -1,11 +1,12 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
 import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
 
 export interface TrendsChartClickDeps {
     context?: QueryContext<InsightVizNode>
@@ -38,6 +39,16 @@ export const DEFAULT_PERSONS_MODAL_OPTIONS: TrendsPersonsModalOptions = {
 export const LIFECYCLE_PERSONS_MODAL_OPTIONS: TrendsPersonsModalOptions = {
     additionalSelect: {},
     orderBy: undefined,
+}
+
+/** The tooltip's click hint and {@link handleTrendsChartClick} must agree on this, or the hint
+ *  offers a drill-down the handler then declines: `querySource` is what builds the actors query. */
+export function canHandleTrendsChartClick({
+    context,
+    hasPersonsModal,
+    querySource,
+}: Pick<TrendsChartClickDeps, 'context' | 'querySource'> & { hasPersonsModal?: boolean | null }): boolean {
+    return !!context?.onDataPointClick || (!!hasPersonsModal && !!querySource)
 }
 
 // Adapters key each hog-charts Series by `${r.id}`, so we can resolve back

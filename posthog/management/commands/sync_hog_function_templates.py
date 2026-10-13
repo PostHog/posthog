@@ -7,11 +7,11 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.warehouse_sources.backend.facade.source_management import (
     SourceRegistry,
     WebhookSource,
@@ -24,7 +24,6 @@ TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionTyp
 
 # Templates to include in test mode
 TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
-    "template-slack",
     "template-warehouse-source-stripe",
     "template-warehouse-source-customer-io",
     "template-warehouse-source-slack",
@@ -32,7 +31,9 @@ TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
     "template-warehouse-source-default",
 ]
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
+    "template-slack",
     "template-webhook",
+    "template-pagerduty",
     "template-geoip",
     "plugin-posthog-plugin-geoip",
     "plugin-taxonomy-plugin",

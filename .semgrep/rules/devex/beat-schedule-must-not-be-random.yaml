@@ -1,0 +1,36 @@
+rules:
+    - id: beat-schedule-must-not-be-random
+      message: |
+          A celery beat schedule must not draw its time at random.
+
+          The schedule is built when a beat process starts, so a random draw runs once
+          per process and not once per day. Beat processes restart every few minutes,
+          and each restart both draws a new time and forgets what already ran, so the
+          task runs twice on one day and skips another.
+
+          Write a fixed minute, `crontab(hour="2", minute="23")`. Where separate
+          installations must not share a minute, call `instance_spread_minute` in
+          `posthog/tasks/scheduled.py`. Its docstring carries the rules for both.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-inside: crontab(...)
+          - pattern-either:
+                - pattern: randrange(...)
+                - pattern: randint(...)
+                - pattern: choice(...)
+                - pattern: uniform(...)
+                - pattern: random.randrange(...)
+                - pattern: random.randint(...)
+                - pattern: random.choice(...)
+                - pattern: random.uniform(...)
+                - pattern: random.random()
+      paths:
+          include:
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH

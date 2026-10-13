@@ -1,7 +1,13 @@
 from django.contrib import admin
+from django.db.models import QuerySet
 from django.http import HttpRequest
 
-from products.replay_vision.backend.models import ReplayObservation, ReplayScanner, VisionAction, VisionActionRun
+from products.replay_vision.backend.models import (
+    ReplayObservation,
+    ReplayObservationMedia,
+    ReplayScanner,
+    ReplayVisionLearnedRuleset,
+)
 
 
 @admin.register(ReplayScanner)
@@ -42,49 +48,38 @@ class ReplayObservationAdmin(admin.ModelAdmin):
         return False
 
 
-@admin.register(VisionAction)
-class VisionActionAdmin(admin.ModelAdmin):
-    list_display = (
-        "name",
-        "team",
-        "scanner",
-        "trigger_type",
-        "mode",
-        "enabled",
-        "max_observations",
-        "next_run_at",
-        "created_at",
-    )
-    list_select_related = ("team", "scanner")
-    list_filter = ("trigger_type", "mode", "enabled")
-    search_fields = ("name",)
-    raw_id_fields = ("team", "scanner", "hog_flow", "created_by")
-    readonly_fields = ("id", "next_run_at", "last_run_at", "created_at", "updated_at")
-
-
-@admin.register(VisionActionRun)
-class VisionActionRunAdmin(admin.ModelAdmin):
-    list_display = ("id", "vision_action", "team", "status", "observation_count", "scheduled_at", "created_at")
-    list_select_related = ("vision_action", "team")
-    list_filter = ("status",)
-    search_fields = ("idempotency_key", "temporal_workflow_id")
-    raw_id_fields = ("vision_action", "team")
-    readonly_fields = (
-        "id",
-        "vision_action",
-        "team",
-        "temporal_workflow_id",
-        "idempotency_key",
-        "scheduled_at",
-        "status",
-        "synthesized_markdown",
-        "output",
-        "observation_count",
-        "error",
-        "created_at",
-        "updated_at",
-    )
+@admin.register(ReplayObservationMedia)
+class ReplayObservationMediaAdmin(admin.ModelAdmin):
+    list_display = ("observation", "kind", "position", "created_at")
+    list_select_related = ("observation", "team")
+    list_filter = ("kind",)
+    # raw_id_fields, not the default select: each of these targets a table too large to enumerate per row.
+    raw_id_fields = ("observation", "asset", "team")
+    readonly_fields = ("id", "created_at")
 
     def has_add_permission(self, request: HttpRequest) -> bool:
-        # Created by the vision-action workflow, never via admin.
+        # Written by the media workflow, never via admin.
+        return False
+
+
+@admin.register(ReplayVisionLearnedRuleset)
+class ReplayVisionLearnedRulesetAdmin(admin.ModelAdmin):
+    """Read-only: users never see these rules, so this is the only place staff can check what a team's
+    ratings taught its scanners."""
+
+    list_display = ("team", "scanner", "version", "created_at")
+    list_select_related = ("team", "scanner")
+    raw_id_fields = ("team", "scanner")
+    readonly_fields = ("id", "team", "scanner", "version", "rules", "model", "trace_id", "created_at")
+    ordering = ("-created_at",)
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[ReplayVisionLearnedRuleset]:
+        # Staff browse across teams; the default manager fails closed without a team context.
+        return ReplayVisionLearnedRuleset.objects.unscoped().select_related("team", "scanner")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        # Written by the learned rules job, never via admin.
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: ReplayVisionLearnedRuleset | None = None) -> bool:
         return False

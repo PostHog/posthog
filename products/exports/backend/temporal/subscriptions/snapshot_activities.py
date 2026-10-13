@@ -1,13 +1,12 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
-import posthoganalytics
 import temporalio.activity
 from asgiref.sync import sync_to_async
 from prometheus_client import Counter
 from structlog import get_logger
 
-from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.ph_client import ph_scoped_capture
 from posthog.security.llm_prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.storage import object_storage
@@ -18,9 +17,13 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.llm_change_summary import generate_change_summary
 from products.exports.backend.temporal.subscriptions.results_summarizer import build_results_summary
-from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+from products.exports.backend.temporal.subscriptions.types import (
+    MISSING_QUERY_ERROR_TYPE,
+    SnapshotInsightsInputs,
+    SnapshotInsightsResult,
+)
 from products.posthog_ai.backend.models.assistant import CoreMemory
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 
@@ -129,7 +132,14 @@ def _build_states_from_content_snapshot(
             )
             fallback_reason: str | None = None
         elif query_error:
-            results_summary = "Query failed"
+            # An insight that stores no query has nothing to run, which is not a failure. The
+            # remaining legacy filters-only insights reach this branch on every delivery, so a
+            # "Query failed" line here makes the generated summary report an outage that did not
+            # happen.
+            if query_error.get("type") == MISSING_QUERY_ERROR_TYPE:
+                results_summary = "No query to run"
+            else:
+                results_summary = "Query failed"
             fallback_reason = "query_error"
         else:
             results_summary = "No results"
@@ -221,18 +231,17 @@ def _get_delivery_by_id(delivery_id: str) -> SubscriptionDelivery | None:
         return None
 
 
-def _get_previous_delivery(subscription_id: int, exclude_delivery_id: str | None = None) -> SubscriptionDelivery | None:
-    qs = SubscriptionDelivery.objects.filter(
-        subscription_id=subscription_id,
-        status=SubscriptionDelivery.Status.COMPLETED,
-        content_snapshot__isnull=False,
-    ).order_by("-created_at")
-    if exclude_delivery_id:
-        try:
-            qs = qs.exclude(pk=uuid.UUID(exclude_delivery_id))
-        except ValueError:
-            pass
-    return qs.first()
+def _get_previous_delivery(subscription_id: int, before: datetime) -> SubscriptionDelivery | None:
+    return (
+        SubscriptionDelivery.objects.filter(
+            subscription_id=subscription_id,
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot__isnull=False,
+            created_at__lt=before,
+        )
+        .order_by("-created_at")
+        .first()
+    )
 
 
 def _get_insight_query_kinds(insight_ids: list[int]) -> dict[int, str]:
@@ -264,34 +273,6 @@ def _load_core_memory_text(subscription: Subscription) -> str:
     if not memory:
         return ""
     return memory.formatted_text
-
-
-def _prompt_guide_feature_enabled_for_subscription(subscription: Subscription) -> bool:
-    """Gate the *read* side of `summary_prompt_guide` on the same flag as writes.
-
-    Writes are gated in `ee/api/subscription.py`, but without this read-side check
-    a value stored while the flag was on would keep steering the LLM after the
-    flag flipped off. Flipping the flag off must stop the guide from taking effect
-    on the next delivery, not just stop new writes. Evaluated per subscription —
-    anchored on the creator's distinct_id so the gate tracks whoever set it, with
-    the subscription's team organization as group context.
-
-    Subscriptions without a creator (or whose creator has no distinct_id) default
-    to disallowed — same fail-closed stance as the serializer gate.
-    """
-    creator = subscription.created_by
-    if not creator or not creator.distinct_id:
-        return False
-    org_id = str(subscription.team.organization_id) if subscription.team_id else ""
-    return bool(
-        posthoganalytics.feature_enabled(
-            SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
-            str(creator.distinct_id),
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=False,
-        )
-    )
 
 
 def _capture_summary_generated_event(
@@ -502,7 +483,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
 
     temporalio.activity.heartbeat("loading previous delivery")
     previous_delivery = await database_sync_to_async(_get_previous_delivery, thread_sensitive=False)(
-        inputs.subscription_id, exclude_delivery_id=inputs.delivery_id
+        inputs.subscription_id, before=current_delivery.created_at
     )
 
     previous_states: list[dict] | None = None
@@ -533,14 +514,11 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     summary_text: str | None = None
     try:
         temporalio.activity.heartbeat("generating LLM summary")
-        # Gate the read side on the same flag as writes so stored guides stop steering
-        # the LLM as soon as the flag flips off — not only the next time someone edits.
-        if subscription.summary_prompt_guide and await database_sync_to_async(
-            _prompt_guide_feature_enabled_for_subscription, thread_sensitive=False
-        )(subscription):
-            prompt_guide = sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
-        else:
-            prompt_guide = ""
+        prompt_guide = (
+            sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
+            if subscription.summary_prompt_guide
+            else ""
+        )
         core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
         content_snapshots = [
             s

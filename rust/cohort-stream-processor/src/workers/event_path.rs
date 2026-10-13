@@ -13,19 +13,20 @@
 //! `cf_person_records`, updated per the freshness decision table in [`crate::stage1::person_record`].
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use metrics::{counter, histogram};
 use uuid::Uuid;
 
 use crate::consumers::events::CohortStreamEvent;
-use crate::filters::reverse_index::TeamFilters;
+use crate::filters::reverse_index::{BehavioralCandidates, TeamFilters};
 use crate::filters::TeamId;
-use crate::hogvm::{build_behavioral_globals, build_person_property_globals, CohortEvaluator};
+use crate::hogvm::{
+    build_behavioral_globals, build_person_property_globals, CohortEvaluator, GlobalsBuild,
+};
 use crate::observability::metrics::{
     STAGE1_BEHAVIORAL_APPLIES, STAGE1_CONDITIONS_EVALUATED, STAGE1_CONDITIONS_SKIPPED,
-    STAGE1_PERSON_RECORD_SIZE_BYTES, STAGE1_PERSON_RECORD_TOTAL, STAGE1_REPLAY_SKIPPED,
-    STAGE1_SNAPSHOT_KEYS, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
+    STAGE1_GLOBALS_BUILDS, STAGE1_PERSON_RECORD_SIZE_BYTES, STAGE1_PERSON_RECORD_TOTAL,
+    STAGE1_REPLAY_SKIPPED, STAGE1_SNAPSHOT_KEYS, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
     STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{
@@ -79,6 +80,8 @@ pub enum SkipReason {
     UnparseablePersonId,
     NoTeamFilters,
     NoConditions,
+    /// `person_properties` failed to parse. A malformed `properties` does not reach here; it drops
+    /// the behavioral side and leaves the person side to run.
     GlobalsParseError,
     BadTimestamp,
 }
@@ -404,35 +407,14 @@ pub(crate) fn plan_event(
         .as_deref()
         .and_then(|raw| Uuid::parse_str(raw).ok());
 
-    let has_behavioral = !filters.behavioral_conditions.is_empty();
+    let has_behavioral = !filters.behavioral.conditions.is_empty();
     let has_person = !filters.person_property_conditions.is_empty();
     if !has_behavioral && !has_person {
         return EventPlan::Skip(SkipReason::NoConditions);
     }
 
-    // Build behavioral globals before any evaluation, so a malformed payload skips the event before
-    // any condition runs. The person side parses its own globals only on the evaluation arm, in the fold.
-    let behavioral_globals = if has_behavioral {
-        match build_behavioral_globals(event) {
-            Ok(globals) => Some(globals),
-            Err(_) => return EventPlan::Skip(SkipReason::GlobalsParseError),
-        }
-    } else {
-        None
-    };
-
-    let mut evaluator = CohortEvaluator::new();
     let mut behavioral: Vec<BehavioralApply> = Vec::new();
-    if let Some(globals) = behavioral_globals {
-        evaluator.set_globals(globals);
-        collect_behavioral_applies(
-            filters,
-            &event.event,
-            event_name_gating,
-            &mut evaluator,
-            &mut behavioral,
-        );
-    }
+    collect_behavioral_applies(filters, event, event_name_gating, &mut behavioral);
 
     // Fingerprints are computed here; the record read and evaluation happen in the fold.
     let person = match active_person_props(filters, event) {
@@ -794,37 +776,62 @@ fn active_person_props<'a>(filters: &TeamFilters, event: &'a CohortStreamEvent) 
         .filter(|raw| !raw.is_empty())
 }
 
-/// Evaluate this event's behavioral conditions against the set globals, pushing a [`BehavioralApply`]
-/// per matching leaf. Under [`EventNameGating::Enabled`] only the event's name bucket is evaluated.
+/// Evaluate this event's behavioral conditions, pushing a [`BehavioralApply`] per matching leaf.
+///
+/// The candidates resolve before the globals are built, so an event no condition roots at pays for
+/// neither JSON parse. A malformed payload drops the behavioral side and leaves the person side to
+/// run: skipping the whole event here would make the gating flag a correctness switch, because an
+/// event outside every bucket is never parsed and so never skipped, while the sweep parses it,
+/// fails, and skips.
 fn collect_behavioral_applies(
     filters: &TeamFilters,
-    event_name: &str,
+    event: &CohortStreamEvent,
     gating: EventNameGating,
-    evaluator: &mut CohortEvaluator,
     applies: &mut Vec<BehavioralApply>,
 ) {
+    let Some(candidates) = behavioral_candidates(filters, &event.event, gating) else {
+        counter!(STAGE1_GLOBALS_BUILDS, "result" => "no_candidates").increment(1);
+        return;
+    };
+    // The whole team's plan decides which payloads are parsed, so the two gating arms agree on
+    // whether this event's payloads are malformed even though they materialize different roots.
+    let build = GlobalsBuild::narrowed(candidates.plan, filters.behavioral.plan);
+    let Ok(globals) = build_behavioral_globals(event, build) else {
+        counter!(STAGE1_GLOBALS_BUILDS, "result" => "parse_error").increment(1);
+        return;
+    };
+    counter!(STAGE1_GLOBALS_BUILDS, "result" => "built").increment(1);
+    let mut evaluator = CohortEvaluator::new();
+    evaluator.set_globals(globals);
+    for &hash in &candidates.conditions {
+        eval_behavioral_condition(filters, hash, &mut evaluator, applies);
+    }
+}
+
+/// What one event can match under `gating`, or `None` when nothing can — the case that skips both
+/// JSON parses. The `event_name_gate` count is emitted either way, so a gated-out condition still
+/// counts on an unparsed event.
+fn behavioral_candidates<'a>(
+    filters: &'a TeamFilters,
+    event_name: &str,
+    gating: EventNameGating,
+) -> Option<&'a BehavioralCandidates> {
     match gating {
         EventNameGating::Disabled => {
-            for &hash in &filters.behavioral_conditions {
-                eval_behavioral_condition(filters, hash, evaluator, applies);
-            }
+            (!filters.behavioral.conditions.is_empty()).then_some(&filters.behavioral)
         }
         EventNameGating::Enabled => {
-            let matched = filters
-                .behavioral_by_event_name
-                .get(event_name)
-                .map_or(&[][..], Vec::as_slice);
-            let skipped = filters
-                .behavioral_conditions
+            let bucket = filters.behavioral_by_event_name.get(event_name);
+            let gated_out = filters
+                .behavioral
+                .conditions
                 .len()
-                .saturating_sub(matched.len());
-            if skipped > 0 {
+                .saturating_sub(bucket.map_or(0, |bucket| bucket.conditions.len()));
+            if gated_out > 0 {
                 counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "event_name_gate")
-                    .increment(skipped as u64);
+                    .increment(gated_out as u64);
             }
-            for &hash in matched {
-                eval_behavioral_condition(filters, hash, evaluator, applies);
-            }
+            bucket
         }
     }
 }
@@ -837,11 +844,11 @@ fn eval_behavioral_condition(
     evaluator: &mut CohortEvaluator,
     applies: &mut Vec<BehavioralApply>,
 ) {
-    let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
+    let Some(program) = filters.by_condition_to_program.get(&hash) else {
         return;
     };
     counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "behavioral").increment(1);
-    if !evaluator.evaluate(Arc::clone(bytecode)) {
+    if !evaluator.evaluate(program) {
         return;
     }
     let Some(lsks) = filters.by_condition_to_lsk.get(&hash) else {
@@ -880,7 +887,7 @@ fn eval_person_conditions(
     let mut true_hashes: Vec<[u8; 16]> = Vec::new();
     let mut effective_catalog: Vec<[u8; 16]> = Vec::new();
     for &hash in &filters.person_conditions_ordered {
-        let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
+        let Some(program) = filters.by_condition_to_program.get(&hash) else {
             continue;
         };
         // A hash whose LSK meta is missing or not a `PersonProperty` variant is skipped, so it is not
@@ -899,7 +906,7 @@ fn eval_person_conditions(
         // `person_conditions_ordered` is sorted, so pushing in iteration order keeps the effective
         // catalog sorted for the binary searches in `diff`/`apply_eval`.
         effective_catalog.push(hash);
-        if evaluator.evaluate(Arc::clone(bytecode)) {
+        if evaluator.evaluate(program) {
             true_hashes.push(hash);
         }
     }

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
@@ -19,6 +19,8 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
+import posthoganalytics
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -53,6 +55,7 @@ from posthog.utils import (
     get_js_url,
     get_self_capture_team_id,
     get_short_user_agent,
+    initialize_self_capture_api_token,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
@@ -333,7 +336,7 @@ class TestGeneralUtils(TestCase):
 
 
 class TestRelativeDateParse(TestCase):
-    @freeze_time("2020-01-31T12:22:23")
+    @time_machine.travel("2020-01-31T12:22:23", tick=False)
     def test_hour(self):
         self.assertEqual(
             relative_date_parse("-24h", ZoneInfo("UTC")).isoformat(),
@@ -344,7 +347,7 @@ class TestRelativeDateParse(TestCase):
             "2020-01-29T12:22:23+00:00",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_day(self):
         self.assertEqual(
             relative_date_parse("dStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -368,7 +371,7 @@ class TestRelativeDateParse(TestCase):
             "2020-01-30T23:59:59.999999+00:00",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_month(self):
         self.assertEqual(
             relative_date_parse("-1m", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -413,21 +416,21 @@ class TestRelativeDateParse(TestCase):
             ("minus_two_end", "-2qEnd", "2019-09-30"),
         ]
     )
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_quarter(self, _name, input, expected_date):
         self.assertEqual(
             relative_date_parse(input, ZoneInfo("UTC")).strftime("%Y-%m-%d"),
             expected_date,
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_quarter_human_friendly_comparison_periods_keeps_week_alignment(self):
         self.assertEqual(
             relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
             "2019-11-01",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_year(self):
         self.assertEqual(
             relative_date_parse("-1y", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -456,14 +459,14 @@ class TestRelativeDateParse(TestCase):
             ("monday_start", 1, "2020-01-27"),
         ]
     )
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_week_start(self, _name, week_start_day, expected_date):
         self.assertEqual(
             relative_date_parse("wStart", ZoneInfo("UTC"), team_week_start_day=week_start_day).strftime("%Y-%m-%d"),
             expected_date,
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_normal_date(self):
         self.assertEqual(
             relative_date_parse("2019-12-31", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -1104,7 +1107,7 @@ class TestSharingOverrideProtection(TestCase):
         ]
     )
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
@@ -1125,7 +1128,7 @@ class TestSharingOverrideProtection(TestCase):
         assert result == {"var1": {"value": "safe"}}
 
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_allowed_for_normal_auth(self, _mock):
@@ -1181,7 +1184,7 @@ class TestSharingOverrideProtection(TestCase):
         assert result == {"date_from": "-30d"}
 
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_blocked_for_shared_context_without_authenticator(self, _mock):
@@ -1406,6 +1409,33 @@ class TestBuildFlagProvider(TestCase):
         assert _build_flag_provider()._resolve_team_id() == 5
 
 
+class TestInitializeSelfCaptureHost(SimpleTestCase):
+    def setUp(self):
+        for name in ("disabled", "api_key", "host"):
+            self.addCleanup(setattr, posthoganalytics, name, getattr(posthoganalytics, name))
+        for target, value in (
+            ("posthog.utils.resolve_self_capture_team", Team(api_token="phc_self_capture_test")),
+            ("posthog.utils._build_flag_provider", None),
+            ("posthoganalytics.feature_flag_definitions", {}),
+        ):
+            mocked = patch(target, return_value=value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
+    @parameterized.expand(
+        [
+            ("explicit host", "http://static-proxy:8000", "http://static-proxy:8000"),
+            ("falls back to site url", "", "https://preview.example.com"),
+        ]
+    )
+    def test_backend_sends_to_self_capture_host(self, _name, self_capture_host, expected_host):
+        with override_settings(SELF_CAPTURE_HOST=self_capture_host, SITE_URL="https://preview.example.com"):
+            async_to_sync(initialize_self_capture_api_token)()
+
+        assert posthoganalytics.host == expected_host
+        assert posthoganalytics.api_key == "phc_self_capture_test"
+
+
 class TestSelfCaptureBrowserFlagToken(TestCase):
     PASSWORD = "testpassword12345"
 
@@ -1415,6 +1445,12 @@ class TestSelfCaptureBrowserFlagToken(TestCase):
         # is the first one. Cascade deletes roll back with the test transaction.
         User.objects.all().delete()
         Organization.objects.all().delete()
+        # POSTHOG_SELF_TEAM_ID steers the browser token as well as the flag provider, so set the
+        # environment per test instead of inheriting whatever the ambient one holds.
+        env_patch = patch.dict(os.environ, {}, clear=False)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
     def test_browser_token_uses_dogfood_flags_team_not_self_capture_team(self):
@@ -1438,6 +1474,40 @@ class TestSelfCaptureBrowserFlagToken(TestCase):
 
         assert context["js_posthog_api_key"] == first_team.api_token
         assert first_team.api_token != recent_team.api_token
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_honors_explicit_self_team_id(self):
+        # A deploy that pins POSTHOG_SELF_TEAM_ID bootstraps flags from that team, so the browser
+        # token has to follow the pin. Reading the first team by PK instead hands posthog-js the
+        # token of whichever team is oldest, which on a long-lived deploy is a seed team that holds
+        # no internal flag definitions.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        pinned_team = Team.objects.create(organization=organization, name="Pinned")
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = str(pinned_team.id)
+        context = get_context_for_template("head.html", request)
+
+        assert context["js_posthog_api_key"] == pinned_team.api_token
+        assert pinned_team.api_token != first_team.api_token
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_unset_when_pinned_team_is_absent(self):
+        # The provider still pins flag definitions to the missing id, so falling back to another
+        # team's token would recreate the mismatch the pin exists to remove.
+        organization = Organization.objects.create(name="Org")
+        Team.objects.create(organization=organization, name="First")
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = "987654321"
+        context = get_context_for_template("head.html", request)
+
+        assert context.get("js_posthog_api_key") is None
 
 
 VALID_PRELOAD_MANIFEST = {

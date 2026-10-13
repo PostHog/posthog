@@ -5,12 +5,17 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
+import { FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+import {
+    FLAG_EVALUATIONS_SERIES_FIELDS,
+    withFlagCallsAggregationTarget,
+} from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
-import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actorsOnlyMathTypes, expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -43,6 +48,7 @@ import {
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
+    MetricsQuery,
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
@@ -61,20 +67,30 @@ import {
     isInsightVizNode,
     isLifecycleDataWarehouseNode,
     isLifecycleQuery,
+    isMetricsQuery,
     isPathsQuery,
     isPathsV2Query,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
+    normalizeDisplay,
 } from '~/queries/utils'
-import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    EntityTypes,
+    InsightLogicProps,
+    InsightType,
+    IntervalType,
+    RetentionEntity,
+} from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 
 export interface Tab {
     label: string | JSX.Element
@@ -130,7 +146,8 @@ const cleanSeriesEntityMath = (
         }
         return { ...baseEntity, math: BaseMathType.TotalCount }
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
-        if (math != null) {
+        // Stickiness and lifecycle only count actors, so a carried-over count math would be rejected.
+        if (math != null && actorsOnlyMathTypes.includes(math as any)) {
             return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
         }
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
@@ -180,14 +197,19 @@ const cleanDataWarehouseNode = (
         created_at_field,
         ...baseEntity
     } = entity as EntityNode & DataWarehouseNodeSharedFields
+    // A flag calls series has a known column for each field. It does not copy one field into another.
+    const knownFields: DataWarehouseNodeSharedFields =
+        entity.table_name === FLAG_EVALUATIONS_TABLE ? FLAG_EVALUATIONS_SERIES_FIELDS : {}
+    const idField = id_field ?? knownFields.id_field
 
     if (dataWarehouseNodeKind === NodeKind.DataWarehouseNode) {
         return {
             ...baseEntity,
             kind: NodeKind.DataWarehouseNode,
-            ...(id_field ? { id_field } : {}),
+            ...(idField ? { id_field: idField } : {}),
             distinct_id_field:
                 distinct_id_field ??
+                knownFields.distinct_id_field ??
                 (isFunnelsDataWarehouseNode(entity) || isLifecycleDataWarehouseNode(entity)
                     ? entity.aggregation_target_field
                     : undefined),
@@ -198,9 +220,11 @@ const cleanDataWarehouseNode = (
         return {
             ...baseEntity,
             kind: NodeKind.FunnelsDataWarehouseNode,
-            ...(id_field ? { id_field } : {}),
+            ...(idField ? { id_field: idField } : {}),
             aggregation_target_field:
-                aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+                aggregation_target_field ??
+                knownFields.aggregation_target_field ??
+                (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
         } as FunnelsDataWarehouseNode | GroupNode
     }
 
@@ -208,8 +232,10 @@ const cleanDataWarehouseNode = (
         ...baseEntity,
         kind: NodeKind.LifecycleDataWarehouseNode,
         aggregation_target_field:
-            aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
-        created_at_field: created_at_field ?? entity.timestamp_field,
+            aggregation_target_field ??
+            knownFields.aggregation_target_field ??
+            (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+        created_at_field: created_at_field ?? knownFields.created_at_field ?? entity.timestamp_field,
     } as LifecycleDataWarehouseNode | GroupNode
 }
 
@@ -249,9 +275,23 @@ interface InsightTypeCapabilities {
 
 const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
 
+const clearBreakdown = (bf: BreakdownFilter): BreakdownFilter => ({
+    ...bf,
+    breakdowns: undefined,
+    breakdown: undefined,
+    breakdown_type: undefined,
+    breakdown_group_type_index: undefined,
+    breakdown_histogram_bin_count: undefined,
+    breakdown_normalize_url: undefined,
+    breakdown_path_cleaning: undefined,
+})
+
 const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
     if (bf.breakdowns?.length) {
-        const first = bf.breakdowns[0]
+        const first = bf.breakdowns.find((b) => b.type !== 'element')
+        if (!first) {
+            return clearBreakdown(bf)
+        }
         return {
             ...bf,
             breakdowns: undefined,
@@ -262,6 +302,9 @@ const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
             breakdown_normalize_url: first.normalize_url,
         }
     }
+    if (bf.breakdown_type === 'element') {
+        return clearBreakdown(bf)
+    }
     return { ...bf, breakdowns: undefined }
 }
 
@@ -270,6 +313,92 @@ const filterRetentionBreakdowns = (bf: BreakdownFilter): BreakdownFilter => {
         return bf
     }
     return { ...bf, breakdowns: bf.breakdowns.filter((b) => b.type === 'person' || b.type === 'event') }
+}
+
+// Retention has no `series`; it carries a single target/returning entity. These helpers map between
+// a series entity and a RetentionEntity so a switch to or from Retention keeps the configured event
+// in the shape each kind accepts (a RetentionEntity takes `id`/`type`, never an EventsNode `event`).
+const seriesEntityToRetentionEntity = (
+    entity: AnyEntityNode<AnyDataWarehouseNode> | GroupNode
+): RetentionEntity | undefined => {
+    if (entity.kind === NodeKind.EventsNode) {
+        return {
+            kind: NodeKind.EventsNode,
+            type: EntityTypes.EVENTS,
+            ...(entity.event != null ? { id: entity.event } : {}),
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    if (entity.kind === NodeKind.ActionsNode) {
+        return {
+            kind: NodeKind.ActionsNode,
+            type: EntityTypes.ACTIONS,
+            id: entity.id,
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    // A flag calls series has a known column for each field, so it maps to a warehouse retention entity.
+    if (isAnyDataWarehouseNode(entity) && entity.table_name === FLAG_EVALUATIONS_TABLE) {
+        return {
+            type: EntityTypes.DATA_WAREHOUSE,
+            id: FLAG_EVALUATIONS_TABLE,
+            table_name: FLAG_EVALUATIONS_TABLE,
+            timestamp_field: FLAG_EVALUATIONS_SERIES_FIELDS.timestamp_field,
+            aggregation_target_field: FLAG_EVALUATIONS_SERIES_FIELDS.aggregation_target_field,
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    return undefined
+}
+
+const retentionEntityToSeriesEntity = (
+    entity: RetentionEntity | undefined
+): EventsNode | ActionsNode | DataWarehouseNode | undefined => {
+    if (!entity) {
+        return undefined
+    }
+    if (entity.type === EntityTypes.ACTIONS || entity.kind === NodeKind.ActionsNode) {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: typeof entity.id === 'string' ? parseInt(entity.id, 10) : (entity.id ?? 0),
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    if (entity.type === EntityTypes.DATA_WAREHOUSE && entity.table_name === FLAG_EVALUATIONS_TABLE) {
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: FLAG_EVALUATIONS_TABLE,
+            table_name: FLAG_EVALUATIONS_TABLE,
+            id_field: FLAG_EVALUATIONS_SERIES_FIELDS.id_field,
+            timestamp_field: FLAG_EVALUATIONS_SERIES_FIELDS.timestamp_field,
+            distinct_id_field: FLAG_EVALUATIONS_SERIES_FIELDS.distinct_id_field,
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    // A data warehouse target carries table_name/timestamp_field that no EventsNode can hold, and a
+    // RetentionEntity lacks the id_field/distinct_id_field a DataWarehouseNode needs, so it can't map to
+    // a series. Drop it rather than fabricate an event named after the table; the retentionFilter cache
+    // still holds the intact entity, so it survives a round trip.
+    if (entity.type === EntityTypes.DATA_WAREHOUSE) {
+        return undefined
+    }
+    return {
+        kind: NodeKind.EventsNode,
+        ...(entity.id != null ? { event: String(entity.id) } : {}),
+        ...(entity.name ? { name: entity.name } : {}),
+        ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+        ...(entity.properties?.length ? { properties: entity.properties } : {}),
+    }
 }
 
 const carryForwardSeriesMath = (newSeries: SeriesArray, cachedSeries: SeriesArray | undefined): SeriesArray => {
@@ -309,8 +438,8 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
         aggregationGroupTypeIndex: true,
     },
     [NodeKind.RetentionQuery]: {
-        // TODO: map series to/from retentionFilter.targetEntity/returningEntity so switching
-        // between Retention and other insight types preserves configured events.
+        // Series maps to retentionFilter.targetEntity/returningEntity rather than a `series` field,
+        // so it is handled directly in buildInsightFilter and cachePropertiesFromQuery.
         breakdownFilter: filterRetentionBreakdowns,
     },
     [NodeKind.PathsQuery]: {
@@ -337,6 +466,16 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
         interval: downgradeMinuteInterval,
     },
 }
+
+// Display types Stickiness can render. Trends supports more (pie, world map, number, …), so a
+// display carried over from Trends is only kept when Stickiness also supports it.
+const STICKINESS_DISPLAY_TYPES: ChartDisplayType[] = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsTable,
+]
 
 type TrendsCommonVisualizationProperties = Pick<TrendsFilter, 'showValuesOnSeries' | 'showPercentStackView' | 'display'>
 type StickinessCommonVisualizationProperties = Pick<StickinessFilter, 'showValuesOnSeries' | 'display'>
@@ -377,6 +516,9 @@ function getCommonVisualizationProperties(
     | Partial<FunnelsCommonVisualizationProperties>
     | Partial<LifecycleCommonVisualizationProperties>
     | Partial<EmptyCommonVisualizationProperties> {
+    // ActionsStackedBar is a deprecated alias of ActionsBar the API/MCP still accept, so normalize it
+    // before the allowlist check — otherwise a carried-over alias fails the check and resets the chart.
+    const display = normalizeDisplay(commonFilter.display)
     const sharedProperties = {
         ...((isLifecycleQuery(query) || isStickinessQuery(query) || isTrendsQuery(query) || isFunnelsQuery(query)) &&
         commonFilter.showValuesOnSeries
@@ -385,8 +527,9 @@ function getCommonVisualizationProperties(
         ...(isTrendsQuery(query) && commonFilter.showPercentStackView
             ? { showPercentStackView: commonFilter.showPercentStackView }
             : {}),
-        ...((isTrendsQuery(query) || isStickinessQuery(query)) && commonFilter.display
-            ? { display: commonFilter.display }
+        ...(display &&
+        (isTrendsQuery(query) || (isStickinessQuery(query) && STICKINESS_DISPLAY_TYPES.includes(display)))
+            ? { display }
             : {}),
     }
 
@@ -411,6 +554,7 @@ export interface insightNavLogicValues {
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     query: Node | null // insightDataLogic
     activeView: InsightType
+    metricsQueryCache: MetricsQuery | null
     queryPropertyCache: QueryPropertyCache | null
     tabs: Tab[]
 }
@@ -426,6 +570,9 @@ export interface insightNavLogicActions {
     } // insightDataLogic
     setActiveView: (view: InsightType) => {
         view: InsightType
+    }
+    updateMetricsQueryCache: (query: MetricsQuery) => {
+        query: MetricsQuery
     }
     updateQueryPropertyCache: (cache: QueryPropertyCache) => {
         cache: QueryPropertyCache
@@ -466,6 +613,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
     actions({
         setActiveView: (view: InsightType) => ({ view }),
         updateQueryPropertyCache: (cache: QueryPropertyCache) => ({ cache }),
+        updateMetricsQueryCache: (query: MetricsQuery) => ({ query }),
     }),
     reducers({
         queryPropertyCache: [
@@ -475,6 +623,13 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     ...state,
                     ...cache,
                 }),
+            },
+        ],
+        // Metrics clauses share nothing with the product analytics query cache, so the draft is kept whole.
+        metricsQueryCache: [
+            null as MetricsQuery | null,
+            {
+                updateMetricsQueryCache: (_, { query }) => query,
             },
         ],
     }),
@@ -488,6 +643,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     return InsightType.SQL
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
+                } else if (isMetricsQuery(query)) {
+                    return InsightType.METRICS
                 } else if (isInsightVizNode(query)) {
                     // Check for Web Analytics queries first before using the mapping
                     if (isWebAnalyticsInsightQuery(query.source)) {
@@ -562,6 +719,17 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
+                if (
+                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
+                    activeView === InsightType.METRICS
+                ) {
+                    tabs.push({
+                        label: 'Metrics',
+                        type: InsightType.METRICS,
+                        dataAttr: 'insight-metrics-tab',
+                    })
+                }
+
                 if (activeView === InsightType.WEB_ANALYTICS) {
                     // Like the json only, this is a temporary tab for Web Analytics insights.
                     // We don't display it otherwise and humans shouldn't be able to click to select this tab
@@ -595,6 +763,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
+            if (view === InsightType.METRICS && values.metricsQueryCache) {
+                actions.setQuery(values.metricsQueryCache)
+                return
+            }
             const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
             if (isDataVisualizationNode(query)) {
@@ -612,7 +784,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
             }
         },
         setQuery: ({ query }) => {
-            if (isInsightVizNode(query)) {
+            if (isMetricsQuery(query)) {
+                actions.updateMetricsQueryCache(query)
+            } else if (isInsightVizNode(query)) {
                 actions.updateQueryPropertyCache(cachePropertiesFromQuery(query.source, values.queryPropertyCache))
             } else if (isDataTableNode(query)) {
                 const seeded = cachePropertiesFromDataTable(query)
@@ -623,7 +797,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         },
     })),
     afterMount(({ values, actions }) => {
-        if (values.query && isInsightVizNode(values.query)) {
+        if (isMetricsQuery(values.query)) {
+            actions.updateMetricsQueryCache(values.query)
+        } else if (values.query && isInsightVizNode(values.query)) {
             actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source, values.queryPropertyCache))
         } else if (values.query && isDataTableNode(values.query)) {
             const seeded = cachePropertiesFromDataTable(values.query)
@@ -706,6 +882,27 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
         newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
+    // Retention has no series field, so mirror its target entity into the shared series cache.
+    // This keeps the configured event when switching from Retention to a series-based type.
+    if (isRetentionQuery(query)) {
+        const seriesEntity = retentionEntityToSeriesEntity(query.retentionFilter?.targetEntity)
+        if (seriesEntity) {
+            // Only the first series maps to the target entity, so the rest of a multi-series cache survives.
+            const [firstCached, ...restCached] = newCache.series ?? []
+            // A target that still points at the cached entity keeps it whole, math included; a target
+            // edited on retention replaces it.
+            const targetIsCachedEntity =
+                seriesEntity.kind === NodeKind.DataWarehouseNode
+                    ? !!firstCached &&
+                      isAnyDataWarehouseNode(firstCached) &&
+                      firstCached.table_name === seriesEntity.table_name
+                    : firstCached?.kind === seriesEntity.kind &&
+                      (seriesEntity.kind === NodeKind.ActionsNode
+                          ? (firstCached as ActionsNode).id === seriesEntity.id
+                          : (firstCached as EventsNode).event === seriesEntity.event)
+            newCache.series = [targetIsCachedEntity ? firstCached : seriesEntity, ...restCached]
+        }
+    }
 
     /** store the insight specific filter in commonFilter */
     const insightFilter = filterForQuery(query)
@@ -751,11 +948,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     }
 
     // Insight-specific filter merge (web analytics already returned above)
-    return {
+    return withFlagCallsAggregationTarget({
         ...mergedQuery,
         ...buildCachedFields(query, cache),
         ...buildInsightFilter(query, cache),
-    } as InsightQueryNode
+    } as InsightQueryNode)
 }
 
 const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): Partial<QueryPropertyCache> => {
@@ -831,7 +1028,21 @@ const buildInsightFilter = (
     }
     if (isRetentionQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
-        return { retentionFilter: { ...query.retentionFilter, ...cache.retentionFilter, ...vizProps } }
+        const seriesEntity = cache.series?.length ? seriesEntityToRetentionEntity(cache.series[0]) : undefined
+        // A data warehouse retention target can't ride the series channel, so an intervening trends/funnels
+        // visit would otherwise overwrite it with an event. Keep the cached warehouse target instead.
+        const cachedTarget = cache.retentionFilter?.targetEntity
+        const targetEntity = cachedTarget?.type === EntityTypes.DATA_WAREHOUSE ? cachedTarget : seriesEntity
+        const retentionEntities = targetEntity
+            ? {
+                  targetEntity,
+                  // Keep a separately configured returning entity; otherwise mirror the target.
+                  returningEntity: cache.retentionFilter?.returningEntity ?? targetEntity,
+              }
+            : {}
+        return {
+            retentionFilter: { ...query.retentionFilter, ...cache.retentionFilter, ...retentionEntities, ...vizProps },
+        }
     }
     if (isPathsQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)

@@ -5,74 +5,53 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.schema import (
+    CompareFilter,
     DashboardFilter,
     DataWarehouseNode,
     EventsNode,
-    FunnelsQuery,
     IntervalType,
-    LifecycleQuery,
-    PathsFilter,
-    PathsQuery,
-    RetentionFilter,
-    RetentionQuery,
-    StickinessQuery,
+    TracesQuery,
     TrendsQuery,
 )
 
+from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     resolve_effective_dashboard_filters,
 )
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 
-from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
-from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 _TIME_SERIES = [EventsNode(event="$pageview")]
 
+# Only core-owned runners belong here. Product-owned runners (funnels, lifecycle, paths, retention,
+# stickiness) cover the same dashboard-filter behavior in their own product tests.
 # Runners whose query model carries an `interval` field.
 INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
         "trends",
         lambda team: TrendsQueryRunner(query=TrendsQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team),
     ),
-    (
-        "funnels",
-        lambda team: FunnelsQueryRunner(query=FunnelsQuery(series=_TIME_SERIES), team=team),
-    ),
-    (
-        "stickiness",
-        lambda team: StickinessQueryRunner(
-            query=StickinessQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team
-        ),
-    ),
-    (
-        "lifecycle",
-        lambda team: LifecycleQueryRunner(
-            query=LifecycleQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team
-        ),
-    ),
 ]
 
-# Runners whose query model has no `interval` field.
+# Runners whose query model has no `interval` field. Traces is the only core-owned query that
+# takes dashboard filters without one, so it holds this slot on behalf of the shape.
 NON_INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
-        "retention",
-        lambda team: RetentionQueryRunner(query=RetentionQuery(retentionFilter=RetentionFilter()), team=team),
-    ),
-    (
-        "paths",
-        lambda team: PathsQueryRunner(query=PathsQuery(pathsFilter=PathsFilter()), team=team),
+        "traces",
+        lambda team: TracesQueryRunner(query=TracesQuery(), team=team),
     ),
 ]
 
 # Every supported query type carries a `filterTestAccounts` field.
 ALL_QUERY_RUNNERS = INTERVAL_QUERY_RUNNERS + NON_INTERVAL_QUERY_RUNNERS
+
+# `compareFilter` support coincides exactly with `interval` support (trends carries both,
+# traces neither), so these alias the same lists rather than redeclaring identical runner builders.
+COMPARE_QUERY_RUNNERS = INTERVAL_QUERY_RUNNERS
+NON_COMPARE_QUERY_RUNNERS = NON_INTERVAL_QUERY_RUNNERS
 
 
 class TestDashboardFiltersIntervalOverride(BaseTest):
@@ -134,6 +113,43 @@ class TestDashboardFiltersTestAccountsOverride(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter())
 
         assert runner.query.filterTestAccounts is True
+
+
+class TestDashboardFiltersCompareFilterOverride(BaseTest):
+    def _runner(self, build: Callable[[Team], QueryRunner]) -> QueryRunner:
+        return build(self.team)
+
+    @parameterized.expand(
+        [
+            ("forces_previous_period", CompareFilter(compare=True)),
+            ("forces_no_comparison", CompareFilter(compare=False)),
+            ("forces_custom_rolling_range", CompareFilter(compare=True, compare_to="-4w")),
+        ]
+    )
+    def test_compare_override_written_onto_compare_supporting_query(self, _name: str, override: CompareFilter) -> None:
+        runner = self._runner(COMPARE_QUERY_RUNNERS[0][1])
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=override))
+
+        assert runner.query.compareFilter == override
+
+    def test_inherit_leaves_query_compare_filter_untouched(self) -> None:
+        runner = self._runner(COMPARE_QUERY_RUNNERS[0][1])
+        runner.query.compareFilter = CompareFilter(compare=True, compare_to="-1m")
+
+        runner.apply_dashboard_filters(DashboardFilter())
+
+        assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-1m")
+
+    @parameterized.expand(NON_COMPARE_QUERY_RUNNERS)
+    def test_compare_override_silently_skipped_for_non_compare_query(
+        self, _name: str, build: Callable[[Team], QueryRunner]
+    ) -> None:
+        runner = self._runner(build)
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True)))
+
+        assert not hasattr(runner.query, "compareFilter")
 
 
 class TestDashboardPropertyOverrides(BaseTest):

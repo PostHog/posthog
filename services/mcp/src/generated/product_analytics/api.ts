@@ -13,7 +13,7 @@ import * as zod from 'zod'
  * they occurred on, ordered by count. Defaults to all three event types; narrow with the
  * include parameter.
  */
-export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ElementsStatsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21,7 +21,7 @@ export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ElementsStatsRetrieveQueryParams = () => zod.object({
     data_attributes: zod
         .string()
         .optional()
@@ -56,15 +56,7 @@ export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const InsightsListParams = /* @__PURE__ */ zod.object({
+export const InsightsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -74,7 +66,7 @@ export const InsightsListParams = /* @__PURE__ */ zod.object({
 
 export const insightsListQueryRefreshDefault = `force_cache`
 
-export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsListQueryParams = () => zod.object({
     basic: zod.boolean().optional().describe('Return basic insight metadata only (no results, faster).'),
     created_by: zod
         .string()
@@ -104,6 +96,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.'),
+    exclude_bi: zod.boolean().optional().describe('Exclude Business intelligence worksheets from the insight list.'),
     favorited: zod
         .boolean()
         .optional()
@@ -116,10 +109,10 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
             'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
     insight: zod
-        .enum(['FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
+        .enum(['BI', 'FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
         .optional()
         .describe(
-            'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.'
+            'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.'
         ),
     last_viewed_date_from: zod
         .string()
@@ -131,6 +124,12 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod
+        .string()
+        .optional()
+        .describe(
+            'Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.'
+        ),
     refresh: zod
         .enum([
             'async',
@@ -170,15 +169,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const InsightsCreateParams = /* @__PURE__ */ zod.object({
+export const InsightsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -186,7 +177,7 @@ export const InsightsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsCreateQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsCreateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     include_dashboards: zod
         .boolean()
@@ -205,7 +196,7 @@ export const insightsCreateBodyOrderMax = 2147483647
 
 export const insightsCreateBodyDescriptionMax = 400
 
-export const InsightsCreateBody = /* @__PURE__ */ zod
+export const InsightsCreateBody = () => zod
     .object({
         name: zod.string().max(insightsCreateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsCreateBodyDerivedNameMax).nullish(),
@@ -224,15 +215,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Simplified serializer to speed response times when loading large amounts of objects.')
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const InsightsRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsRetrieveParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
@@ -245,7 +228,7 @@ export const InsightsRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const insightsRetrieveQueryRefreshDefault = `force_cache`
 
-export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -287,15 +270,7 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const InsightsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const InsightsPartialUpdateParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
@@ -306,7 +281,7 @@ export const InsightsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsPartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     include_dashboards: zod
         .boolean()
@@ -325,7 +300,7 @@ export const insightsPartialUpdateBodyOrderMax = 2147483647
 
 export const insightsPartialUpdateBodyDescriptionMax = 400
 
-export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
+export const InsightsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(insightsPartialUpdateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsPartialUpdateBodyDerivedNameMax).nullish(),
@@ -347,7 +322,7 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const InsightsDestroyParams = /* @__PURE__ */ zod.object({
+export const InsightsDestroyParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
@@ -358,14 +333,14 @@ export const InsightsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsDestroyQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
 /**
  * Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.
  */
-export const InsightsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsActivityRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this insight.'),
     project_id: zod
         .string()
@@ -374,7 +349,7 @@ export const InsightsActivityRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsActivityRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
@@ -383,7 +358,7 @@ export const InsightsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
  */
-export const InsightsAllActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsAllActivityRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -391,7 +366,7 @@ export const InsightsAllActivityRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsAllActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsAllActivityRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
@@ -400,7 +375,7 @@ export const InsightsAllActivityRetrieveQueryParams = /* @__PURE__ */ zod.object
 /**
  * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
  */
-export const InsightsTrendingRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsTrendingRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -408,7 +383,7 @@ export const InsightsTrendingRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsTrendingRetrieveQueryParams = () => zod.object({
     days: zod
         .number()
         .optional()

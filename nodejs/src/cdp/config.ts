@@ -1,5 +1,6 @@
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_CDP_EVENTS_DLQ,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -52,6 +53,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
+    CDP_EVENTS_CONSUMER_TOPIC: string
+    CDP_EVENTS_CONSUMER_GROUP_ID: string
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
+
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
@@ -59,6 +64,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
+    // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
+    CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
+    CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: string
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -88,6 +97,13 @@ export type CdpConfig = ClickhouseConfig & {
     SES_RATE_LIMITER_VALKEY_PASSWORD: string
     SES_RATE_LIMITER_VALKEY_TLS: boolean
 
+    // Dedicated Valkey for the marketing frequency cap. It holds one sorted set per capped person,
+    // so it stays off the shared CDP Valkey and the SES Valkey. Unset turns the cap off.
+    CDP_FREQUENCY_CAP_VALKEY_HOST: string
+    CDP_FREQUENCY_CAP_VALKEY_PORT: number
+    CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
+    CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
+
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
@@ -116,11 +132,21 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_RERUN_WORKER_BATCH_SIZE: number
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
+    // Dead-letter queue for events that matched a function but produced no invocation.
+    // Off until the topics exist on the cluster — a missing topic would fail every batch.
+    CDP_DLQ_ENABLED: boolean
+    // Above this share of a batch failing unexpectedly, the batch fails instead of being parked.
+    // Low on purpose: a deploy that breaks the builder shows up in a small slice of a batch long
+    // before it reaches half of one, and stalling early costs less than draining the stream.
+    CDP_DLQ_BATCH_FAIL_RATIO: number
+    CDP_EVENTS_DLQ_TOPIC: string
+    CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
+    // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
+    CDP_DLQ_REPLAY_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
 
     // Cyclotron (CDP job queue)
-    CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
@@ -136,14 +162,21 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
-    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
-    // and its Standard reputation policy can pause a single tenant instead of the shared account.
-    // Off by default: a send naming a tenant whose identity association is missing fails, so this
-    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
-    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
+
+    // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
+    // Django side, picks an hourly and a daily cap from these tables. See
+    // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
+    //   "off"     - the caps are not consulted.
+    //   "shadow"  - the caps are evaluated and every send they would delay is logged and counted,
+    //               but nothing is delayed.
+    //   "enforce" - a reached cap reschedules the send.
+    EMAIL_TEAM_SENDING_CAP_MODE: string
+    // Comma-separated caps indexed by tier. Both lists must be the same length.
+    EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
+    EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -176,6 +209,26 @@ export type CdpConfig = ClickhouseConfig & {
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CONVERSATIONS_TICKETS_JWT_SECRET: string
+    CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's calls to the cancel routes (invocations/cancel and
+    // batch_jobs/:id/cancel). A dedicated key, separate from the reschedule sweep's above: the
+    // web tier mints cancels while the worker mints reschedules, so neither tier's key can forge
+    // the other's calls. Same comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOWS_CANCEL_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's step_resume calls (a finished task waking its parked
+    // workflow step). Its own key: the Celery and Temporal workers mint it, no other tier does.
+    // Same comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOWS_STEP_RESUME_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
+    // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
+    TASKS_CREATE_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's run-scout calls to Django. Its own key, not
+    // TASKS_CREATE_JWT_SECRET — see products/workflows/backend/service_jwt.py. Same
+    // comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOW_SCOUT_RUN_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's classify calls to Django. Its own key, for the same reason.
+    WORKFLOW_CLASSIFY_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -183,6 +236,17 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
     CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
+
+    // Mark-and-sweep deletion of cohort_membership rows a completed reconcile run did not re-assert.
+    // Two flags so a rolling restart never mixes sweeping pods with pods that write no versions:
+    // version writes turn on first and off last, sweeping turns on last and off first. A pod that
+    // writes without versions preserves a row's old stamp, which a sweeping pod then reads as stale.
+    COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: boolean
+    COHORT_MEMBERSHIP_SWEEP_ENABLED: boolean
+    COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: number
+    COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: number
+    COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: number
+    COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: number
 
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
 }
@@ -221,6 +285,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
+        CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+        CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
+
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
@@ -228,6 +296,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
+        CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
         CDP_REDIS_PASSWORD: '',
@@ -244,10 +314,17 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_TLS: false,
         CDP_VALKEY_READ_FEATURES: '',
 
-        SES_RATE_LIMITER_VALKEY_HOST: '',
-        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
+        // per-workflow email rate limits, and the MX-validation cache are exercisable locally.
+        SES_RATE_LIMITER_VALKEY_HOST: isDevEnv() ? '127.0.0.1' : '',
+        SES_RATE_LIMITER_VALKEY_PORT: isDevEnv() ? 6390 : 6379,
         SES_RATE_LIMITER_VALKEY_PASSWORD: '',
         SES_RATE_LIMITER_VALKEY_TLS: false,
+
+        CDP_FREQUENCY_CAP_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_FREQUENCY_CAP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
+        CDP_FREQUENCY_CAP_VALKEY_TLS: false,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
@@ -283,13 +360,17 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
+        CDP_DLQ_ENABLED: false,
+        CDP_DLQ_BATCH_FAIL_RATIO: 0.1,
+        CDP_EVENTS_DLQ_TOPIC: KAFKA_CDP_EVENTS_DLQ,
+        // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
+        // consumes from there, and no ClickHouse table reads these topics.
+        CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -305,8 +386,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
-        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+
+        // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
+        // then enforced. Match the defaults in posthog/settings/web.py.
+        EMAIL_TEAM_SENDING_CAP_MODE: 'off',
+        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
+        EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -315,7 +401,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
         // production batches use the per-team value from settings; this is only a safety net for
         // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 500000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
@@ -334,6 +420,23 @@ export function getDefaultCdpConfig(): CdpConfig {
         // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        // Dev default must equal Django's CONVERSATIONS_TICKETS_JWT_SECRETS default so local
+        // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
+        CONVERSATIONS_TICKETS_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-conversations-tickets-jwt' : '',
+        // Dev/test default must match Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS so local calls work.
+        // When empty, account actions use legacy auth. Customer task creation fails closed without a fallback.
+        CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-customer-analytics-accounts-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_STEP_RESUME_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-step-resume-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_CLASSIFY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-classify-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
@@ -341,5 +444,23 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
+
+        // Stays off until the schema migrations have applied; a pod reaching an unmigrated
+        // database must degrade to the pre-sweep write shape, not crash on a missing column.
+        COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: false,
+        // Stays off until the processor writes membership to the live topic and the whole fleet
+        // persists row versions. Sweeping before either would delete rows nothing re-asserts.
+        //
+        // The cohort stream pipeline (cohort-stream-processor and its topics, including the
+        // marker topic) is deployed US-only, like the rest of the cohort streaming system. This
+        // flag follows that scoping: environments without the pipeline keep it off, and the
+        // marker topic must never be created just to let the flag turn on — with no processor
+        // producing markers there, the sweeper would idle forever. start() fails fast when the
+        // flag is set and the marker topic does not exist.
+        COHORT_MEMBERSHIP_SWEEP_ENABLED: false,
+        COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 60000,
+        COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: 1000,
+        COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: 300000,
+        COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: 3,
     }
 }

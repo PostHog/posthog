@@ -46,8 +46,10 @@ export interface Series<Meta = unknown> {
     label: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
-    /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points.
-     *  When omitted (or empty), the chart picks a color from `theme.colors` by series index. */
+    /** CSS color string (hex, rgb) for the line and associated fill/points. Line, area, and bar
+     *  series hand it to the canvas unresolved, so resolve `var(--…)` in the host first; only
+     *  `Heatmap` and `ScatterChart` resolve it themselves. When omitted (or empty), the chart
+     *  picks a color from `theme.colors` by series index. */
     color?: string
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
@@ -186,6 +188,9 @@ export interface TooltipContext<Meta = unknown> {
      *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
      *  `seriesData` entry exists. */
     hoveredSeriesKey?: string
+    /** Grouped layouts only: cursor is past the bar's filled extent, measured on the same rects
+     *  as click routing. `undefined` for other layouts and pinned rebuilds with no cursor. */
+    inTrackArea?: boolean
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -315,6 +320,9 @@ export interface YAxis {
     hide?: boolean
     /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
     startAtZero?: boolean
+    /** Domain control for this axis. Set on secondary axes only: the primary axis takes the
+     *  chart-level `valueDomain`, already merged with the goal-line stretch. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
@@ -391,6 +399,9 @@ export interface TooltipConfig {
     totalFormatter?: (value: number) => string
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
+     *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
+    hitArea?: 'bar' | 'band'
 }
 
 /** Value-axis domain control (y for vertical/line/area charts, x for horizontal bars). Omit for the
@@ -426,8 +437,10 @@ export interface BarsConfig {
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
      *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
-     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
-    track?: boolean | { hover?: boolean }
+     *  but leave it inert (no highlight when the cursor is over the empty remainder).
+     *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
+     *  in the band. It works on every layout, ignores `trackData`, and has no hover highlight. */
+    track?: boolean | 'solid' | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
@@ -451,6 +464,9 @@ export interface BarsConfig {
      *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
      *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
     minBarSize?: number
+    /** `hover` floors only the hover highlight and hit-testing, so the resting bar keeps its true
+     *  size (funnel charts). `always` (default) floors the static layer too. */
+    minBarSizeScope?: 'always' | 'hover'
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */

@@ -16,7 +16,9 @@ export function EnvironmentsSettings() {
   const { localWorkspaces } = useHostCapabilities();
   const activeCategory = useRouterState({
     select: (s) => {
-      const match = s.matches.find((m) => m.routeId === "/settings/$category");
+      const match = s.matches.find(
+        (m) => m.routeId === "/_shell/settings/$category",
+      );
       const params = match?.params as { category?: string } | undefined;
       return params?.category ?? "environments";
     },

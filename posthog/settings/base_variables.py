@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
-IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_bool)  # Set in ee/hogai/eval/pytest.ini
+IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_bool)
 DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = get_from_env(
     "TEST",
@@ -26,6 +26,9 @@ TEST = get_from_env(
 # `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
 IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
 COMMAND_EXEC_AUDIT_ENABLED: bool = get_from_env("COMMAND_EXEC_AUDIT_ENABLED", not TEST, type_cast=str_to_bool)
+ORGANIZATION_ACCESS_CACHE_ENABLED: bool = get_from_env(
+    "ORGANIZATION_ACCESS_CACHE_ENABLED", not TEST, type_cast=str_to_bool
+)
 # Kill-switch for routing JSONField (jsonb) decode through orjson (see posthog/helpers/orjson_jsonfield.py).
 # Process-wide once applied in ready(), so keep it disable-able via env without a code revert.
 JSONFIELD_ORJSON_DECODE: bool = get_from_env("JSONFIELD_ORJSON_DECODE", True, type_cast=str_to_bool)
@@ -46,6 +49,7 @@ Possible values:
 """
 COMPACT_IN_REGION: str = get_from_env("COMPACT_IN_REGION", "US")
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
+SELF_CAPTURE_HOST: str = get_from_env("SELF_CAPTURE_HOST", "")
 E2E_TESTING: bool = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool
 )  # whether the app is currently running for E2E tests
@@ -76,6 +80,16 @@ PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REG
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
+# Hogtower - URL and internal secret for the managed warehouse management plane. When
+# HOGTOWER_API_URL is set, control-plane calls go to hogtower's /api/v2 instead of duckgres.
+HOGTOWER_API_URL: str | None = get_from_env("HOGTOWER_API_URL", optional=True)
+HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", optional=True)
+MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS: float = get_from_env(
+    "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", 0.5, type_cast=float
+)
+MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_READ_TIMEOUT_SECONDS: float = get_from_env(
+    "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_READ_TIMEOUT_SECONDS", 0.5, type_cast=float
+)
 
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)

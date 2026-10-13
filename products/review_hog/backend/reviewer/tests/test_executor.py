@@ -7,6 +7,7 @@ from parameterized import parameterized
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.sandbox.executor import (
+    JSON_RETRY_PROMPT,
     end_sandbox_session,
     run_sandbox_review,
     start_sandbox_session,
@@ -55,6 +56,8 @@ class TestRunSandboxReview:
         assert call_kwargs["origin_product"] == TaskOriginProduct.REVIEW_HOG
         assert call_kwargs["internal"] is True
         assert call_kwargs["ai_stage"] == "split"
+        # Without the retry prompt a prose first turn fails the whole activity and reruns the review.
+        assert call_kwargs["json_retry_prompt"] == JSON_RETRY_PROMPT
 
     @pytest.mark.asyncio
     async def test_context_built_from_explicit_identity(self) -> None:
@@ -78,7 +81,7 @@ class TestRunSandboxReview:
         assert (context.team_id, context.user_id, context.repository) == (7, 9, "acme/app")
         # Least privilege: an unset scope list means "full" MCP access for a session that reads
         # untrusted PR-comment text — dropping this pin is a security regression.
-        assert context.posthog_mcp_scopes == ["llm_skill:read"]
+        assert context.posthog_mcp_scopes == ["llm_skill:read", "user:read"]
 
     @parameterized.expand(
         [
@@ -144,7 +147,7 @@ class TestRunSandboxReview:
         assert call_kwargs["ai_stage"] == "validation-c3"
         assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
         # The session path builds its own context, so the least-privilege pin must hold here too.
-        assert call_kwargs["context"].posthog_mcp_scopes == ["llm_skill:read"]
+        assert call_kwargs["context"].posthog_mcp_scopes == ["llm_skill:read", "user:read"]
 
     @parameterized.expand(
         [

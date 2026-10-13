@@ -32,6 +32,12 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Retries beyond the first attempt. Exported so a caller that must wait out
+ * another caller's full transport budget can derive its bound from this.
+ */
+export const TRANSPORT_MAX_RETRIES = 2
+
+/**
  * Retry a function with exponential backoff on transient gRPC errors.
  * Non-transient errors are thrown immediately.
  *
@@ -44,7 +50,7 @@ export async function withRetry<T>(
     fn: () => Promise<T>,
     client: string,
     method: string,
-    maxRetries: number = 2,
+    maxRetries: number = TRANSPORT_MAX_RETRIES,
     initialDelayMs: number = 50
 ): Promise<T> {
     let lastError: unknown

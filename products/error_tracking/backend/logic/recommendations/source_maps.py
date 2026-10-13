@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.utils import timezone
 
 from products.error_tracking.backend.models import ErrorTrackingStackFrame
@@ -30,19 +30,25 @@ class SourceMapsRecommendation(Recommendation):
         # care about here.
         since = timezone.now() - timedelta(hours=LOOKBACK_HOURS)
 
-        counts_by_team = {
-            row["team_id"]: row
-            for row in ErrorTrackingStackFrame.objects.filter(
+        # This aggregate must read no column outside et_frame_team_created_js_idx. A count over
+        # `id` pulls the heap row, which detoasts the wide `contents` column with it.
+        rows = (
+            ErrorTrackingStackFrame.objects.filter(
                 team_id__in=team_ids,
                 created_at__gte=since,
                 contents__lang="javascript",
             )
-            .values("team_id")
-            .annotate(
-                total=Count("id"),
-                unresolved=Count("id", filter=Q(resolved=False)),
-            )
-        }
+            .values("team_id", "resolved")
+            .annotate(frames=Count("*"))
+        )
+
+        counts_by_team: dict[int, dict[str, int]] = {}
+        for row in rows:
+            counts = counts_by_team.setdefault(row["team_id"], {"total": 0, "unresolved": 0})
+            counts["total"] += row["frames"]
+            if not row["resolved"]:
+                counts["unresolved"] += row["frames"]
+
         return {team_id: self._build_meta(counts_by_team.get(team_id)) for team_id in team_ids}
 
     @staticmethod

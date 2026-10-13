@@ -1,21 +1,26 @@
+import { isShowActionsCall } from "@posthog/core/sessions/showActions";
 import { useServiceOptional } from "@posthog/di/react";
 import { readAgentToolName, readMcpToolName } from "@posthog/shared";
 import { DeleteToolView } from "@posthog/ui/features/sessions/components/session-update/DeleteToolView";
 import { EditToolView } from "@posthog/ui/features/sessions/components/session-update/EditToolView";
 import { ExecuteToolView } from "@posthog/ui/features/sessions/components/session-update/ExecuteToolView";
 import { FetchToolView } from "@posthog/ui/features/sessions/components/session-update/FetchToolView";
+import { ListToolView } from "@posthog/ui/features/sessions/components/session-update/ListToolView";
 import { MoveToolView } from "@posthog/ui/features/sessions/components/session-update/MoveToolView";
+import { PiOrchestrationToolView } from "@posthog/ui/features/sessions/components/session-update/PiOrchestrationToolView";
 import { PlanApprovalView } from "@posthog/ui/features/sessions/components/session-update/PlanApprovalView";
+import { readPiOrchestrationDetails } from "@posthog/ui/features/sessions/components/session-update/piOrchestrationDetails";
 import { QuestionToolView } from "@posthog/ui/features/sessions/components/session-update/QuestionToolView";
 import { ReadToolView } from "@posthog/ui/features/sessions/components/session-update/ReadToolView";
 import { SearchToolView } from "@posthog/ui/features/sessions/components/session-update/SearchToolView";
 import { ThinkToolView } from "@posthog/ui/features/sessions/components/session-update/ThinkToolView";
 import { ToolCallView } from "@posthog/ui/features/sessions/components/session-update/ToolCallView";
-import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
+import {
+  type ToolViewProps,
+  useToolCallStatus,
+} from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
-import { Box } from "@radix-ui/themes";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { isPlanApprovalTool, isSubagentSpawnTool } from "./collaborationTools";
 import { CreatedPrCard, UploadedArtifactCard } from "./InlineArtifactCard";
 import {
@@ -23,6 +28,7 @@ import {
   type McpToolBlockComponent,
 } from "./identifiers";
 import { isUploadArtifactCall, readCreatedPrUrl } from "./inlineArtifacts";
+import { ShowActionsRow } from "./ShowActionsRow";
 import { SubagentToolView } from "./SubagentToolView";
 
 interface ToolCallBlockProps extends ToolViewProps {
@@ -42,21 +48,40 @@ export function ToolCallBlock({
   );
   const toolName = readAgentToolName(toolCall._meta);
   const mcpToolName = readMcpToolName(toolCall._meta);
-  const chatChrome = useChatThreadChrome();
+  const { isComplete } = useToolCallStatus(
+    toolCall.status,
+    turnCancelled,
+    turnComplete,
+  );
 
   if (toolName === "EnterPlanMode") {
     return null;
   }
 
   const props = { toolCall, turnCancelled, turnComplete };
+  const orchestrationView = readPiOrchestrationDetails(
+    toolCall.title,
+    toolCall.details,
+  );
+  if (orchestrationView) {
+    return <PiOrchestrationToolView {...props} view={orchestrationView} />;
+  }
 
   // An artifact is a deliverable, not a step: it takes the row rather than the
   // tool's own header, from the moment the agent starts handing it over.
   if (isUploadArtifactCall(toolCall._meta)) {
+    return <UploadedArtifactCard {...props} />;
+  }
+
+  // The buttons are the point of the call, not a step it took, so a completed
+  // call takes the row instead of a tool header the user would have to expand.
+  // A denied, failed, or cancelled call falls through to the standard view,
+  // which shows why it failed rather than live buttons the block never stopped.
+  if (isShowActionsCall(toolCall._meta) && isComplete) {
     return (
-      <Box className={chatChrome ? "" : "pl-3"}>
-        <UploadedArtifactCard {...props} />
-      </Box>
+      <div className="my-1">
+        <ShowActionsRow {...props} />
+      </div>
     );
   }
 
@@ -71,35 +96,29 @@ export function ToolCallBlock({
       turnComplete: turnComplete ?? false,
     };
     return (
-      <Box>
-        <SubagentToolView
-          {...props}
-          childItems={subagentChildItems}
-          turnContext={turnContext}
-        />
-      </Box>
+      <SubagentToolView
+        {...props}
+        childItems={subagentChildItems}
+        turnContext={turnContext}
+      />
     );
   }
 
   if (mcpToolName) {
     return (
-      <Box className={chatChrome ? "" : "pl-3"}>
+      <>
         {McpToolBlock ? (
           <McpToolBlock {...props} mcpToolName={mcpToolName} />
         ) : (
           <ToolCallView {...props} agentToolName={mcpToolName} />
         )}
         {createdPrUrl && <CreatedPrCard url={createdPrUrl} />}
-      </Box>
+      </>
     );
   }
 
   if (isPlanApprovalTool(toolName)) {
-    return (
-      <Box>
-        <PlanApprovalView {...props} />
-      </Box>
-    );
+    return <PlanApprovalView {...props} />;
   }
 
   const content = (() => {
@@ -110,6 +129,8 @@ export function ToolCallBlock({
         return <ExecuteToolView {...props} />;
       case "read":
         return <ReadToolView {...props} />;
+      case "list":
+        return <ListToolView {...props} />;
       case "edit":
         return <EditToolView {...props} />;
       case "delete":
@@ -130,10 +151,10 @@ export function ToolCallBlock({
   })();
 
   return (
-    <Box>
+    <>
       {content}
       {createdPrUrl && <CreatedPrCard url={createdPrUrl} />}
-    </Box>
+    </>
   );
 }
 

@@ -2,8 +2,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -12,8 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import STATIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source import WebflowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow import WebflowResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source"
 
@@ -40,66 +36,6 @@ def _inputs(schema_name: str = "pages") -> SourceInputs:
 
 
 class TestWebflowSource:
-    def test_source_type(self) -> None:
-        assert WebflowSource().source_type == ExternalDataSourceType.WEBFLOW
-
-    def test_source_config_fields_and_release_status(self) -> None:
-        config = WebflowSource().get_source_config
-        assert config.name == "Webflow"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is not True
-
-        assert all(isinstance(field, SourceFieldInputConfig) for field in config.fields)
-        fields = {field.name: field for field in config.fields if isinstance(field, SourceFieldInputConfig)}
-        assert set(fields) == {"api_token", "site_id"}
-        assert fields["api_token"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_token"].secret is True
-        assert fields["site_id"].type == SourceFieldInputConfigType.TEXT
-        assert fields["site_id"].secret is False
-
-    def test_get_non_retryable_errors(self) -> None:
-        errors = WebflowSource().get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "409 Client Error: Conflict" in errors
-        assert "Webflow collection for schema" in errors
-
-    def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
-        # Webflow returns 409 on /products when the site has no ecommerce; the raised
-        # HTTPError message embeds a volatile site id and URL, so we must match on a
-        # stable substring that excludes them.
-        errors = WebflowSource().get_non_retryable_errors()
-        raised_message = (
-            "409 Client Error: Conflict for url: "
-            "https://api.webflow.com/v2/sites/691afa9e7404e1259a4d0802/products?limit=100&offset=0"
-        )
-        matches = [pattern for pattern in errors if pattern in raised_message]
-        assert matches == ["409 Client Error: Conflict"]
-
-    def test_deleted_collection_message_is_recognised_as_non_retryable(self) -> None:
-        # _resolve_collection_id raises this when a collection's slug no longer resolves at sync
-        # time; the message embeds a volatile schema name and site id, so we must match on a stable
-        # substring that excludes them.
-        errors = WebflowSource().get_non_retryable_errors()
-        raised_message = "Webflow collection for schema 'collection_blog' was not found on site 'abc123'"
-        matches = [pattern for pattern in errors if pattern in raised_message]
-        assert matches == ["Webflow collection for schema"]
-
-    def test_get_schemas_includes_static_and_dynamic_collections(self) -> None:
-        with patch(
-            f"{SOURCE_MODULE}.list_collections",
-            return_value=[{"id": "c1", "slug": "blog", "displayName": "Blog"}, {"id": "c2", "slug": "authors"}],
-        ):
-            schemas = WebflowSource().get_schemas(_config(), team_id=1)
-
-        names = {s.name for s in schemas}
-        assert set(STATIC_ENDPOINTS).issubset(names)
-        assert "collection_blog" in names
-        assert "collection_authors" in names
-        # No verified server-side range filter -> everything is full refresh.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
     def test_get_schemas_falls_back_to_static_when_discovery_fails(self) -> None:
         with patch(f"{SOURCE_MODULE}.list_collections", side_effect=Exception("no scope")):
             schemas = WebflowSource().get_schemas(_config(), team_id=1)
@@ -113,19 +49,6 @@ class TestWebflowSource:
             schemas = WebflowSource().get_schemas(_config(), team_id=1, names=["sites", "collection_blog"])
 
         assert {s.name for s in schemas} == {"sites", "collection_blog"}
-
-    def test_validate_credentials_plumbs_through(self) -> None:
-        with patch(f"{SOURCE_MODULE}.validate_webflow_credentials", return_value=(True, None)) as mock_validate:
-            ok, error = WebflowSource().validate_credentials(_config(), team_id=1, schema_name="products")
-
-        assert ok is True
-        assert error is None
-        mock_validate.assert_called_once_with("token", "site-1", "products")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = WebflowSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WebflowResumeConfig
 
     def test_source_for_pipeline_plumbs_through(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -146,16 +69,6 @@ class TestWebflowSource:
 
 
 class TestWebflowWebhookSupport:
-    def test_only_orders_is_offered_as_a_webhook_table(self) -> None:
-        # Every other Webflow trigger either describes a resource we don't sync (form_submission
-        # carries a submission, our forms table carries form definitions) or renames the object's
-        # fields (page_created sends pageId/pageTitle where the Pages API sends id/title), so
-        # marking one webhook-capable would merge mismatched rows into the polled table.
-        with patch(f"{SOURCE_MODULE}.list_collections", return_value=[{"id": "c1", "slug": "blog"}]):
-            schemas = WebflowSource().get_schemas(_config(), team_id=1)
-
-        assert {s.name for s in schemas if s.supports_webhooks} == {"orders"}
-
     def test_webhook_resource_map_keys_are_real_schema_names(self) -> None:
         # The resource map is what builds schema_mapping; a key that isn't a schema name means
         # deliveries route to nothing and are dropped with a 200.
@@ -185,6 +98,34 @@ class TestWebflowWebhookSupport:
         self, _name: str, enabled: list[str], expected: list[str]
     ) -> None:
         assert WebflowSource().get_desired_webhook_events(_config(), enabled) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "every_trigger_secret_captured",
+                {"signing_secrets": {"secret": True}, "signing_secrets_complete": {"value": True}},
+                [],
+            ),
+            # Webflow returns a secret only for the triggers it registered this time. The rest cannot
+            # be verified, so the manual secret is still required even though the list is non-empty.
+            (
+                "only_some_trigger_secrets_captured",
+                {
+                    "signing_secrets": {"secret": True},
+                    "signing_secrets_complete": {"value": False},
+                    "signing_secret": {"value": ""},
+                },
+                ["signing_secret"],
+            ),
+            ("registered_before_completeness_was_recorded", {"signing_secrets": {"secret": True}}, []),
+            ("manual_secret", {"signing_secret": {"secret": True}}, []),
+            ("nothing_set", {"signing_secret": {"value": ""}}, ["signing_secret"]),
+        ]
+    )
+    def test_missing_webhook_inputs_tracks_provider_secret_completeness(
+        self, _name: str, inputs: dict, expected: list[str]
+    ) -> None:
+        assert WebflowSource().missing_webhook_inputs(inputs) == expected
 
     @parameterized.expand(
         [

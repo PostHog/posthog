@@ -16,6 +16,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.dns_utils import dnssec_resolver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import is_valid_proxy_domain
@@ -25,9 +26,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.cloudflare import (
+    BLOCKED_HOSTNAME_STATUSES,
+    CLOUDFLARE_ERROR_CROSS_USER_BANNED,
     CloudflareAPIError,
     CustomHostnameSSLStatus,
+    describe_blocked_hostname_status,
+    describe_cross_user_banned,
     get_custom_hostname_by_domain,
+    parse_cloudflare_error_code,
 )
 from posthog.temporal.proxy_service.common import (
     CaptureEventInputs,
@@ -127,8 +133,9 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
 
 
 def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
+    resolver = dnssec_resolver()
     try:
-        cnames = dns.resolver.resolve(proxy_record.domain, "CNAME", lifetime=DNS_LOOKUP_LIFETIME_S)
+        cnames = resolver.resolve(proxy_record.domain, "CNAME", lifetime=DNS_LOOKUP_LIFETIME_S)
         value = cnames[0].target.canonicalize().to_text()
         if cnames[0].target == dns.name.from_text(proxy_record.target_cname):
             return CheckActivityOutput(
@@ -148,7 +155,7 @@ def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
         try:
-            arecords = dns.resolver.resolve(proxy_record.domain, "A", lifetime=DNS_LOOKUP_LIFETIME_S)
+            arecords = resolver.resolve(proxy_record.domain, "A", lifetime=DNS_LOOKUP_LIFETIME_S)
         except DNS_LOOKUP_FAILURES:
             return CheckActivityOutput(
                 errors=["No CNAME or A record DNS records found"],
@@ -215,6 +222,14 @@ async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckAct
         if hostname_info is None:
             return CheckActivityOutput(
                 errors=["Custom Hostname not found in Cloudflare"],
+                warnings=[],
+            )
+
+        # A blocked or moved hostname rejects traffic at the edge even when the certificate is
+        # active, so it is an error, not a certificate warning.
+        if hostname_info.status in BLOCKED_HOSTNAME_STATUSES:
+            return CheckActivityOutput(
+                errors=[describe_blocked_hostname_status(hostname_info.status, proxy_record.domain)],
                 warnings=[],
             )
 
@@ -399,8 +414,18 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
             warnings=[],
         )
     except requests.exceptions.HTTPError as e:
+        # Parse the Cloudflare error code from the 403 body. The check then reports a cross-user
+        # CNAME ban (1014) as a hostname authorization problem, not a bare status code.
+        response = e.response
+        cf_code = parse_cloudflare_error_code(response.text) if response is not None else None
+        if cf_code == CLOUDFLARE_ERROR_CROSS_USER_BANNED:
+            return CheckActivityOutput(
+                errors=[describe_cross_user_banned(proxy_record.domain)],
+                warnings=[],
+            )
+        status_code = response.status_code if response is not None else "unknown"
         return CheckActivityOutput(
-            errors=[f"Failed to send event to proxy, expected 200 but got {e.response.status_code}"],
+            errors=[f"Failed to send event to proxy, expected 200 but got {status_code}"],
             warnings=[],
         )
     except requests.exceptions.RequestException:

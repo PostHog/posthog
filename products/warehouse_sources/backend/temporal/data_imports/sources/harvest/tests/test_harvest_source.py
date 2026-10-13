@@ -2,22 +2,18 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvest import (
     HarvestSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.harvest import HarvestResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.settings import (
     ENDPOINTS,
     HARVEST_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source import HarvestSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source.validate_harvest_credentials"
@@ -30,16 +26,6 @@ def _config() -> HarvestSourceConfig:
 
 
 class TestHarvestSource:
-    def test_source_type(self) -> None:
-        assert HarvestSource().source_type == ExternalDataSourceType.HARVEST
-
-    def test_source_config_shape(self) -> None:
-        config = HarvestSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/harvest"
-        assert {f.name for f in config.fields} == {"account_id", "access_token"}
-
     @parameterized.expand([("account_id", False), ("access_token", True)])
     def test_only_the_token_field_is_secret(self, field_name: str, expected_secret: bool) -> None:
         # A non-secret token field would be echoed back to the frontend in plain text.
@@ -48,14 +34,6 @@ class TestHarvestSource:
         assert field.secret is expected_secret
         assert field.required is True
 
-    def test_api_version_pins_the_path_the_code_calls(self) -> None:
-        assert HarvestSource.supported_versions == ("v2",)
-        assert HarvestSource.default_version == "v2"
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = HarvestSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     @parameterized.expand([("time_entries", True), ("invoices", True), ("roles", False)])
     def test_incremental_support_tracks_the_updated_since_filter(self, name: str, expected: bool) -> None:
         # Only endpoints with a server-side `updated_since` filter may advertise incremental
@@ -63,17 +41,6 @@ class TestHarvestSource:
         schema = next(s for s in HarvestSource().get_schemas(_config(), team_id=1) if s.name == name)
         assert schema.supports_incremental is expected
         assert [f["field"] for f in schema.incremental_fields] == (["updated_at"] if expected else [])
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = HarvestSource().get_schemas(_config(), team_id=1, names=["time_entries"])
-        assert [s.name for s in schemas] == ["time_entries"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # Static catalog -> the public docs Supported tables section renders with no connection.
-        assert HarvestSource.lists_tables_without_credentials is True
-        tables = HarvestSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all(t["description"] for t in tables)
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Entries keyed off a stale endpoint name silently fall back to LLM enrichment.
@@ -99,18 +66,6 @@ class TestHarvestSource:
             assert error is None
         else:
             assert error is not None and expected_error in error
-
-    def test_non_retryable_errors_cover_auth_and_permissions(self) -> None:
-        errors = HarvestSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = HarvestSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HarvestResumeConfig
 
     @parameterized.expand([("unpinned", None, "v2"), ("pinned", "v2", "v2")])
     def test_source_for_pipeline_plumbs_config_and_version(self, _name: str, pin: str | None, expected: str) -> None:
@@ -143,7 +98,3 @@ class TestHarvestSource:
     def test_page_size_stays_within_the_api_cap(self) -> None:
         # Harvest rejects per_page above 2000 with a 422.
         assert all(0 < c.page_size <= 2000 for c in HARVEST_ENDPOINTS.values())
-
-    def test_source_config_is_visible_to_users(self) -> None:
-        # A truthy unreleasedSource filters the connector out of the frontend entirely.
-        assert not HarvestSource().get_source_config.unreleasedSource

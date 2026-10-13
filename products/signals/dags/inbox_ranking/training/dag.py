@@ -1,0 +1,1276 @@
+"""Daily training for the Self-driving Inbox report-ranking model (v0: per-head XGBoost).
+
+Three assets on the same daily partition as the dataset dag, each writing under the dataset prefix:
+
+    inbox_ranking_training_examples/v1/<set>/dt=D/    examples over the trailing snapshots, per feature set
+    inbox_ranking_models/v1/<name>/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
+    inbox_ranking_models/v1/<name>/champion.json      pointer to the version the scoring sweep loads
+    inbox_ranking_served_scores/v1/dt=D/              the scoring sweep's scores of the reports born that day
+
+A fifth asset publishes what the scoring sweep serves. The dataset bucket holds the training
+history and the Temporal workers cannot reach it, so `inbox_ranking_serving_manifest` copies the
+models the sweep needs into the deployment's own object store and writes a manifest naming them
+(`serving/manifest.json`, `serving/models/<key>/`). The manifest is the dag's serving decision:
+which models a pass scores, and which of them the inbox would order on.
+
+Partition dt=D trains on the report-state/labels snapshots dt=D-lookback..D (issue 13's
+scoring-moment join, `training/examples.py`), grades each head on the last `holdout_days` of
+reports, and refits on everything. The champion asset applies `promotion.decide_promotion`; it
+rewrites the pointer only when `INBOX_RANKING_AUTO_PROMOTE` is on, otherwise it logs the decision
+so the daily candidate series doubles as monitoring. Every candidate is kept under `models/v1/<model_name>/dt=D/`; a re-run of a partition replaces
+that prefix in full (stale head files are removed), and `champion.json` carries the `run_id` it
+was promoted from so a loader can tell a re-run apart from the version it pinned. The champion is
+graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-only fit), so the
+promotion rule compares both models on one set of reports. Every model object sits under its
+family's `model_name`, and promotion stays inside a family: a richer family is a second candidate
+graded on the same rows, not a competitor for another family's pointer.
+
+Both the candidate and the champion asset walk `MODEL_FAMILIES`, so each family trains on the
+examples of the feature set it declares and decides against its own pointer. A family whose
+examples or metadata are missing that day is logged and skipped: its own series has a gap, and
+every other family still trains, promotes and gets graded. The two embedding families read one text
+rendering each, from separate snapshots, so a missing snapshot costs one family and not the pair.
+
+Two further assets grade the served models on data no example covers. `inbox_ranking_served_scores`
+(`training/served.py`) reads the scoring sweep's live scores of every report born on D, one row set
+per model key the manifest named (`unseen_pool` explains why no example can cover one);
+`inbox_ranking_unseen_graded` evaluates saved scores daily against the dt=D labels until each
+head's horizon, keeping provisional evaluations separate from mature grades. The holdout AUC
+grades the recipe, because the shipped booster is refit on train plus holdout; the baked online
+AUC grades each model on reports it never saw. The two are comparable because both apply the
+same `Head` cohort, label and horizon.
+"""
+
+import json
+import datetime
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any
+
+import pandas as pd
+import dagster
+import pyarrow as pa
+from botocore.exceptions import ClientError
+
+from posthog import settings
+from posthog.dataclasses import frozen
+from posthog.storage import object_storage
+
+from products.signals.backend.ranking.features import (
+    EMBEDDING_COLUMN,
+    EMBEDDING_INSERTED_AT_COLUMN,
+    FEATURE_SETS,
+    REPORT_EMBEDDINGS_EXTRA,
+    TITLE_EMBEDDINGS_EXTRA,
+    Extras,
+    FeatureSet,
+)
+from products.signals.backend.ranking.model_contract import model_feature_set, model_mismatch, trained_head_files
+from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
+from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ServingManifest, serving_manifest_key
+from products.signals.dags.inbox_ranking.common import (
+    DATASET_VERSION,
+    PARQUET_PART_NAME,
+    S3_BUCKET_ENV,
+    dataset_bucket,
+    dataset_unconfigured,
+    owner_tags,
+    partition_def,
+    partition_object_key,
+    read_parquet_if_exists,
+    s3_client,
+    serving_mirror_storage,
+    skip_unconfigured,
+    write_parquet,
+)
+from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_TABLE,
+    LABELS_TABLE,
+    STATE_TABLE,
+    TITLE_EMBEDDINGS_TABLE,
+)
+from products.signals.dags.inbox_ranking.training.examples import (
+    BASE_STATE_COLUMNS,
+    PROVENANCE_LABEL_COLUMNS,
+    PROVENANCE_STATE_COLUMNS,
+    ConsentExclusion,
+    HeadExamples,
+    Snapshot,
+    assemble_snapshot,
+    birth_day_positives,
+    build_head_examples,
+    drop_without_training_consent,
+    example_columns,
+    point_in_time_mask,
+    reports_missing_birth_snapshot,
+)
+from products.signals.dags.inbox_ranking.training.heads import (
+    ACTION_LABEL_COLUMNS,
+    HEADS,
+    HEADS_BY_HORIZON,
+    HEADS_BY_NAME,
+)
+from products.signals.dags.inbox_ranking.training.promotion import apply_promotion_override, decide_promotion
+from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
+from products.signals.dags.inbox_ranking.training.telemetry import (
+    HeadExampleCounts,
+    candidate_events,
+    capture_training_events,
+    examples_events,
+    holdout_calibration_events,
+    promotion_event,
+    serving_manifest_event,
+    unseen_calibration_events,
+    unseen_head_evaluated_events,
+    unseen_head_graded_events,
+    unseen_report_graded_events,
+)
+from products.signals.dags.inbox_ranking.training.train import (
+    XGB_PARAMS,
+    HoldoutGrade,
+    TrainedHead,
+    booster_holdout_grade,
+    holdout_calibration_rows,
+    train_head,
+)
+from products.signals.dags.inbox_ranking.training.unseen import (
+    MODEL_FAMILIES,
+    SERVED_SCORES_TABLE,
+    HeadGrade,
+    ModelFamily,
+    calibration_rows,
+    graded_rows,
+    head_grades,
+    missing_label_columns,
+    report_grade_rows,
+    scored_pool,
+    with_model_names,
+)
+
+if TYPE_CHECKING:
+    from posthog.storage.object_storage import ObjectStorageClient
+
+EXAMPLES_TABLE = "inbox_ranking_training_examples"
+MODELS_TABLE = "inbox_ranking_models"
+CHAMPION_FILE = "champion.json"
+METADATA_FILE = "metadata.json"
+
+# Label columns the heads read (plus the provenance inputs); everything else stays on disk.
+_LABEL_COLUMNS = (
+    "impression_unit_count",
+    "open_count",
+    "dismissal_reason",
+    "wrong_dismissal_count",
+    "fixed_count",
+    "lowvalue_dismissal_count",
+    "pr_created_count",
+    "pr_merged_count",
+    "refund_count",
+    "feedback_positive_count",
+    *ACTION_LABEL_COLUMNS,
+    *PROVENANCE_LABEL_COLUMNS,
+)
+# Every registered feature set's columns in one read: the state snapshot is loaded once and every
+# set builds its examples from it.
+_STATE_READ_COLUMNS = tuple(
+    dict.fromkeys(
+        (
+            *BASE_STATE_COLUMNS,
+            *(column for feature_set in FEATURE_SETS.values() for column in feature_set.state_columns),
+            *PROVENANCE_STATE_COLUMNS,
+            "features_observed_at",
+        )
+    )
+)
+
+COMMON_ASSET_KWARGS: dict[str, Any] = {
+    "group_name": "inbox_ranking_training",
+    "partitions_def": partition_def,
+    "tags": owner_tags,
+    "retry_policy": dagster.RetryPolicy(max_retries=1, delay=60),
+    "pool": "inbox_ranking_etl",
+}
+
+
+def examples_object_key(prefix: str, feature_set_name: str, partition_key: str) -> str:
+    """One examples object per feature set: two sets carry different feature columns, so they
+    cannot share a Parquet, and a family trains on the object of the set it declares."""
+    return f"{prefix}/{EXAMPLES_TABLE}/{DATASET_VERSION}/{feature_set_name}/dt={partition_key}/{PARQUET_PART_NAME}"
+
+
+def model_object_key(prefix: str, model_name: str, partition_key: str, filename: str) -> str:
+    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/dt={partition_key}/{filename}"
+
+
+def champion_object_key(prefix: str, model_name: str) -> str:
+    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/{CHAMPION_FILE}"
+
+
+def _read_bytes_if_exists(client, bucket: str, key: str) -> bytes | None:
+    try:
+        return client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+
+
+def _read_json_if_exists(client, bucket: str, key: str) -> dict[str, Any] | None:
+    body = _read_bytes_if_exists(client, bucket, key)
+    return None if body is None else json.loads(body)
+
+
+def _delete_other_objects(client, bucket: str, folder: str, keep: set[str]) -> list[str]:
+    """Delete every object under `folder` whose key is not in `keep`; returns the deleted keys."""
+    stale = [
+        obj["Key"]
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=folder)
+        for obj in page.get("Contents", [])
+        if obj["Key"] not in keep
+    ]
+    if stale:
+        client.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": key} for key in stale]})
+    return stale
+
+
+def _put_json(client, bucket: str, key: str, payload: dict[str, Any]) -> None:
+    client.put_object(
+        Bucket=bucket, Key=key, Body=json.dumps(payload, indent=2).encode(), ContentType="application/json"
+    )
+
+
+def snapshot_dates(partition_key: str, lookback_days: int) -> list[datetime.date]:
+    end = datetime.date.fromisoformat(partition_key)
+    return [end - datetime.timedelta(days=offset) for offset in range(lookback_days, -1, -1)]
+
+
+def load_snapshots(
+    client, bucket: str, prefix: str, dates: list[datetime.date], *, required: datetime.date | None = None
+) -> dict[datetime.date, Snapshot]:
+    """The report-state and labels snapshots that exist for `dates`, indexed by report_id. Days
+    missing either object are skipped: the example builder treats a gap as unknowable labels.
+    `required` is the one day that must be present; the training job is scheduled independently
+    of the dataset job, so without it a failed dataset run would yield a candidate named after a
+    day it never saw."""
+    snapshots: dict[datetime.date, Snapshot] = {}
+    for date in dates:
+        key = date.isoformat()
+        state = read_parquet_if_exists(client, bucket, partition_object_key(prefix, STATE_TABLE, key))
+        labels = read_parquet_if_exists(client, bucket, partition_object_key(prefix, LABELS_TABLE, key))
+        if state is None or labels is None:
+            continue
+        state_columns = [column for column in _STATE_READ_COLUMNS if column in state.column_names]
+        state_frame = state.select(["report_id", *state_columns]).to_pandas().set_index("report_id")
+        label_columns = [column for column in _LABEL_COLUMNS if column in labels.column_names]
+        labels_frame = labels.select(["report_id", *label_columns]).to_pandas().set_index("report_id")
+        snapshots[date] = assemble_snapshot(date, state_frame, labels_frame)
+    if required is not None and required not in snapshots:
+        raise dagster.Failure(f"state and labels snapshots for {required.isoformat()} are required but missing")
+    return snapshots
+
+
+# The dt=D snapshot table behind each embedding side input. One table per rendering, read on its
+# own: a rendering's snapshot can be missing while the other's is present, and the families must
+# not share a fate.
+_EXTRA_SNAPSHOT_TABLES: Mapping[str, str] = MappingProxyType(
+    {
+        REPORT_EMBEDDINGS_EXTRA: EMBEDDINGS_TABLE,
+        TITLE_EMBEDDINGS_EXTRA: TITLE_EMBEDDINGS_TABLE,
+    }
+)
+
+
+def embeddings_extras(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    extras_keys: Sequence[str],
+) -> Extras:
+    """The dt=D vectors for `extras_keys`, each indexed by report_id and read from its own snapshot.
+
+    One snapshot serves every moment of the run, and each vector carries the moment it landed, so a
+    moment can only take a vector that already existed for it. A report is re-embedded whenever its
+    text changes, so the latest vector is often newer than an earlier moment; the set drops those
+    rather than dressing later text as earlier state. Reading one snapshot per day of the lookback
+    would recover the superseded vectors, at the cost of pulling a fleet-wide vector table across
+    the network once per day of the window.
+
+    A **missing** snapshot is not a failure, and not an empty side input either: the key is left
+    out, so the caller skips only the sets that read it. Rebuilding one of those from nothing would
+    strip the family's partition. A snapshot that **exists** and carries no usable vector is the
+    other case, and keeps its key: no row is then buildable, the family's heads read as unfit, and
+    the ordinary thin-input path applies. The two cannot be folded together, because the first must
+    leave a partition alone and the second is a day the family genuinely has nothing to fit.
+    """
+    extras: dict[str, pd.DataFrame] = {}
+    for extras_key in extras_keys:
+        table_name = _EXTRA_SNAPSHOT_TABLES[extras_key]
+        table = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, table_name, partition_key),
+            columns=["report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN],
+        )
+        if table is None:
+            context.log.warning(
+                f"no {table_name} snapshot for dt={partition_key}; the {extras_key} side input is unavailable"
+            )
+            continue
+        vectors = table.to_pandas().set_index("report_id")
+        # `reindex` refuses a duplicated index, and one report is one document per rendering.
+        vectors = vectors[~vectors.index.duplicated()]
+        extras[extras_key] = vectors
+    return extras
+
+
+# Parquet schema metadata key of the examples object that carries each head's example window.
+EXAMPLE_WINDOWS_METADATA_KEY = b"inbox_ranking_example_windows"
+
+
+def examples_table(
+    examples: pd.DataFrame, feature_set: FeatureSet, windows: Mapping[str, Mapping[str, object]] | None = None
+) -> pa.Table:
+    table = pa.Table.from_pandas(examples[list(example_columns(feature_set))], preserve_index=False)
+    if windows is None:
+        return table
+    return table.replace_schema_metadata(
+        {**(table.schema.metadata or {}), EXAMPLE_WINDOWS_METADATA_KEY: json.dumps(windows).encode()}
+    )
+
+
+def example_windows(table: pa.Table) -> dict[str, dict[str, object]]:
+    """Each head's example window as the examples asset wrote it. An object written before the
+    window was recorded carries none, so its heads record no window."""
+    raw = (table.schema.metadata or {}).get(EXAMPLE_WINDOWS_METADATA_KEY)
+    return json.loads(raw) if raw else {}
+
+
+# The examples for dt=D read every snapshot back to D-lookback. The default same-partition mapping
+# would let an asset backfill run examples(D) as soon as state(D) and labels(D) exist, while the
+# older days it needs are still pending. Partitions before the label epoch have no upstream to map to.
+_LOOKBACK_MAPPING = dagster.TimeWindowPartitionMapping(
+    start_offset=-settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS,
+    end_offset=0,
+    allow_nonexistent_upstream_partitions=True,
+)
+
+
+@dagster.asset(
+    name=EXAMPLES_TABLE,
+    deps=[
+        dagster.AssetDep(STATE_TABLE, partition_mapping=_LOOKBACK_MAPPING),
+        dagster.AssetDep(LABELS_TABLE, partition_mapping=_LOOKBACK_MAPPING),
+        # Only dt=D: `embeddings_extras` explains why one snapshot serves the whole window. One
+        # dependency per rendering, so a missing title snapshot costs only the title family.
+        EMBEDDINGS_TABLE,
+        TITLE_EMBEDDINGS_TABLE,
+    ],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> None:
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+
+    dates = snapshot_dates(partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS)
+    snapshots = load_snapshots(client, bucket, prefix, dates, required=dates[-1])
+    context.log.info(f"{len(snapshots)} of {len(dates)} snapshots present")
+    snapshots, excluded = drop_without_training_consent(snapshots, training_consent_team_ids())
+    if excluded.reports:
+        context.log.info(f"{excluded.reports} reports from {excluded.teams} teams without AI training consent excluded")
+    backfilled_rows = sum(int((~point_in_time_mask(snap.state, snap.date)).sum()) for snap in snapshots.values())
+    if backfilled_rows:
+        context.log.warning(f"{backfilled_rows} state rows read after the snapshot window are excluded (backfill)")
+
+    # A gap in the partitions is silent at the birth grain: it removes every report born that day
+    # from every head, rather than thinning the rows of a report that survives.
+    unreachable_reports = reports_missing_birth_snapshot(snapshots, dates)
+    if unreachable_reports:
+        context.log.warning(f"{unreachable_reports} reports born inside the window have no birth-day snapshot")
+
+    metadata: dict[str, dagster.MetadataValue] = {
+        "snapshots": dagster.MetadataValue.int(len(snapshots)),
+        "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
+        "reports_missing_birth_snapshot": dagster.MetadataValue.int(unreachable_reports),
+        "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded.reports),
+        "excluded_no_training_consent_teams": dagster.MetadataValue.int(excluded.teams),
+    }
+    for feature_set in FEATURE_SETS.values():
+        metadata |= _examples_for_set(
+            context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, excluded
+        )
+    context.add_output_metadata(metadata)
+
+
+def _examples_for_set(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    feature_set: FeatureSet,
+    snapshots: Mapping[datetime.date, Snapshot],
+    backfilled_rows: int,
+    excluded: ConsentExclusion,
+) -> dict[str, dagster.MetadataValue]:
+    """One feature set's examples for the partition, side inputs included, and its asset metadata.
+
+    The side inputs are read and released inside this call, so the next set's snapshot is read
+    after this set's is gone. Each embeddings snapshot carries a vector per live report, and a
+    name still bound in the caller's loop would hold the previous rendering through the next read,
+    which is what makes the peak scale with the number of families.
+    """
+    extras = embeddings_extras(context, client, bucket, prefix, partition_key, feature_set.extras_keys)
+    missing = feature_set.missing_extras(extras)
+    # Rebuilding a set from a missing side input would write an empty examples object, which makes
+    # the next candidate run train nothing, write metadata with no heads, and delete the boosters
+    # this partition already holds. A champion pointer can name that version, so the partition
+    # keeps what it has instead.
+    if missing:
+        context.log.warning(f"{feature_set.name} examples not rebuilt for dt={partition_key}: no {', '.join(missing)}")
+        return {f"{feature_set.name}_skipped": dagster.MetadataValue.bool(True)}
+    return _write_examples(
+        context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, excluded, extras
+    )
+
+
+def _write_examples(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    feature_set: FeatureSet,
+    snapshots: Mapping[datetime.date, Snapshot],
+    backfilled_rows: int,
+    excluded: ConsentExclusion,
+    extras: Extras,
+) -> dict[str, dagster.MetadataValue]:
+    """One feature set's examples for the partition, as its own object and its own events, with
+    the asset metadata to record for it."""
+    built: dict[str, HeadExamples] = {
+        head.name: build_head_examples(snapshots, head, feature_set, extras) for head in HEADS
+    }
+    per_head = {name: head_examples.examples for name, head_examples in built.items()}
+    examples = (
+        pd.concat(per_head.values(), ignore_index=True)
+        if per_head
+        else pd.DataFrame(columns=list(example_columns(feature_set)))
+    )
+
+    key = examples_object_key(prefix, feature_set.name, partition_key)
+    windows = {name: head_examples.window() for name, head_examples in built.items()}
+    write_parquet(client, bucket, key, examples_table(examples, feature_set, windows), snapshot_date=partition_key)
+    counts = {
+        name: HeadExampleCounts(
+            rows=len(head_examples.examples),
+            positives=int(head_examples.examples["label"].sum()),
+            birth_day_positives=birth_day_positives(head_examples.examples),
+            example_window_start=head_examples.window_start,
+            example_cap_bound=head_examples.cap_bound,
+            pairs_skipped_missing_label_columns=head_examples.pairs_skipped_missing_label_columns,
+        )
+        for name, head_examples in built.items()
+    }
+    metadata: dict[str, dagster.MetadataValue] = {
+        f"{feature_set.name}_rows": dagster.MetadataValue.int(len(examples)),
+        **{
+            f"{feature_set.name}_{name}_rows": dagster.MetadataValue.int(head_counts.rows)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_positives": dagster.MetadataValue.int(head_counts.positives)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_birth_day_positives": dagster.MetadataValue.int(head_counts.birth_day_positives)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_pairs_skipped_missing_label_columns": dagster.MetadataValue.int(
+                head_counts.pairs_skipped_missing_label_columns
+            )
+            for name, head_counts in counts.items()
+        },
+        f"{feature_set.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+    }
+    capture_training_events(
+        context,
+        partition_key,
+        examples_events(
+            partition_key=partition_key,
+            run_id=context.run.run_id,
+            feature_set=feature_set.name,
+            snapshots=len(snapshots),
+            backfilled_rows=backfilled_rows,
+            excluded=excluded,
+            per_head=counts,
+        ),
+    )
+    return metadata
+
+
+def candidate_metadata(
+    partition_key: str,
+    trained: list[TrainedHead],
+    *,
+    model_name: str,
+    feature_set: FeatureSet,
+    skipped: list[str],
+    trained_at: datetime.datetime,
+    run_id: str,
+    windows: Mapping[str, Mapping[str, object]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "model_name": model_name,
+        "model_version": partition_key,
+        "dataset_version": DATASET_VERSION,
+        # The learner a model store loads the booster with. Every family is per-head XGBoost today;
+        # the field exists so the serving manifest reads it from the source rather than assuming it.
+        "model_kind": DEFAULT_MODEL_KIND,
+        # The feature universe this model was fit on. The grader checks the model against this set
+        # rather than against one global contract, so a second family is not rejected for reading
+        # different features.
+        "feature_set": feature_set.name,
+        "feature_schema_version": feature_set.schema_version,
+        "feature_names": list(feature_set.feature_names),
+        "trained_at": trained_at.isoformat(),
+        "run_id": run_id,
+        "lookback_days": settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS,
+        "holdout_days": settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
+        "xgb_params": XGB_PARAMS,
+        # Per head: the cohort a probability is conditioned on, its horizon, and the report-creation
+        # window its examples cover, so a stored score says what it means without the code.
+        "heads": [
+            head.metrics.as_dict()
+            | {
+                "cohort": HEADS_BY_NAME[head.head].cohort.__name__,
+                "horizon_days": HEADS_BY_NAME[head.head].horizon_days,
+                "example_window_start": (windows or {}).get(head.head, {}).get("example_window_start"),
+                "example_cap_bound": (windows or {}).get(head.head, {}).get("example_cap_bound"),
+                "file": f"{head.head}.ubj",
+                "holdout_file": f"{head.head}.holdout.ubj" if head.holdout_booster_ubj is not None else None,
+            }
+            for head in trained
+        ],
+        # Heads with nothing to fit on this partition; recorded so the per-head series has no gap.
+        "skipped_heads": skipped,
+    }
+
+
+def paired_champion_grades(
+    client,
+    bucket: str,
+    prefix: str,
+    champion: dict[str, Any],
+    examples: pd.DataFrame,
+    *,
+    feature_set: FeatureSet,
+    holdout_days: int,
+) -> dict[str, HoldoutGrade]:
+    """The champion's readable heads graded on the candidate's holdout, through the champion's saved
+    holdout boosters. Heads without a saved holdout booster are left out and fall back to the
+    champion's stored AUC in `decide_promotion`."""
+    grades: dict[str, HoldoutGrade] = {}
+    for entry in champion.get("heads", []):
+        head = HEADS_BY_NAME.get(entry.get("head"))
+        if head is None or not entry.get("readable") or not entry.get("holdout_file"):
+            continue
+        body = _read_bytes_if_exists(
+            client,
+            bucket,
+            model_object_key(prefix, champion["model_name"], champion["model_version"], entry["holdout_file"]),
+        )
+        if body is None:
+            continue
+        grade = booster_holdout_grade(
+            body, examples, head, feature_names=feature_set.feature_names, holdout_days=holdout_days
+        )
+        if grade is not None:
+            grades[head.name] = grade
+    return grades
+
+
+@dagster.asset(name="inbox_ranking_model_candidate", deps=[EXAMPLES_TABLE], **COMMON_ASSET_KWARGS)
+def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> None:
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+
+    metadata: dict[str, dagster.MetadataValue] = {}
+    for family in MODEL_FAMILIES:
+        metadata |= _train_candidate(context, client, bucket, prefix, partition_key, family)
+    context.add_output_metadata(metadata)
+
+
+def _train_candidate(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    family: ModelFamily,
+) -> dict[str, dagster.MetadataValue]:
+    """One family's candidate: its heads fit on the examples of the feature set it declares, its
+    boosters and `metadata.json` under its own prefix, and the asset metadata to record for it.
+
+    Each family's examples object is read and released in turn rather than all of them up front:
+    one family's object carries a column per embedding dimension, so holding two at once doubles
+    the widest thing this asset touches.
+    """
+    feature_set = family.feature_set
+    table = read_parquet_if_exists(client, bucket, examples_object_key(prefix, feature_set.name, partition_key))
+    # The examples asset skips a set whose side input was unavailable, so its object can be absent.
+    # Training on nothing would replace this partition's boosters with an empty candidate and leave
+    # a champion pointer naming deleted files, so the family keeps this partition as it stands.
+    if table is None:
+        context.log.warning(
+            f"no {feature_set.name} examples for dt={partition_key}; {family.name} keeps this partition as it stands"
+        )
+        return {f"{family.name}_skipped": dagster.MetadataValue.bool(True)}
+    windows = example_windows(table)
+    examples = table.to_pandas()
+    trained: list[TrainedHead] = []
+    skipped: list[str] = []
+    for head in HEADS:
+        result = train_head(
+            examples,
+            head,
+            feature_names=feature_set.feature_names,
+            holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
+        )
+        if result is None:
+            context.log.warning(f"{family.name} {head.name}: nothing to fit, skipped")
+            skipped.append(head.name)
+            continue
+        context.log.info(f"{family.name} {head.name}: {result.metrics.as_dict()}")
+        trained.append(result)
+
+    written: set[str] = set()
+    for model in trained:
+        files = {f"{model.head}.ubj": model.booster_ubj}
+        if model.holdout_booster_ubj is not None:
+            files[f"{model.head}.holdout.ubj"] = model.holdout_booster_ubj
+        for filename, body in files.items():
+            key = model_object_key(prefix, family.name, partition_key, filename)
+            client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/octet-stream")
+            written.add(key)
+    metadata = candidate_metadata(
+        partition_key,
+        trained,
+        model_name=family.name,
+        feature_set=feature_set,
+        skipped=skipped,
+        trained_at=datetime.datetime.now(datetime.UTC),
+        run_id=context.run.run_id,
+        windows=windows,
+    )
+    metadata_key = model_object_key(prefix, family.name, partition_key, METADATA_FILE)
+    _put_json(client, bucket, metadata_key, metadata)
+    written.add(metadata_key)
+    # A re-run that trains fewer heads must not leave the previous run's files behind.
+    stale = _delete_other_objects(client, bucket, model_object_key(prefix, family.name, partition_key, ""), written)
+    if stale:
+        context.log.warning(
+            f"removed {len(stale)} stale {family.name} objects from a previous run of dt={partition_key}"
+        )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            *candidate_events(metadata),
+            *holdout_calibration_events(
+                partition_key=partition_key,
+                run_id=context.run.run_id,
+                model_name=family.name,
+                rows=holdout_calibration_rows(trained),
+            ),
+        ],
+    )
+    return {
+        f"{family.name}_stale_objects_removed": dagster.MetadataValue.int(len(stale)),
+        f"{family.name}_heads_trained": dagster.MetadataValue.int(len(trained)),
+        f"{family.name}_heads_readable": dagster.MetadataValue.int(sum(1 for head in trained if head.metrics.readable)),
+        **{
+            f"{family.name}_{head.head}_holdout_auc": dagster.MetadataValue.float(head.metrics.holdout_auc)
+            for head in trained
+            if head.metrics.holdout_auc is not None
+        },
+        f"{family.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{metadata_key}"),
+    }
+
+
+@dagster.asset(name="inbox_ranking_model_champion", deps=["inbox_ranking_model_candidate"], **COMMON_ASSET_KWARGS)
+def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None:
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+
+    overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
+    metadata: dict[str, dagster.MetadataValue] = {}
+    decided = 0
+    for family in MODEL_FAMILIES:
+        family_metadata = _decide_champion(context, client, bucket, prefix, partition_key, family, overrides)
+        if family_metadata is None:
+            continue
+        decided += 1
+        metadata |= family_metadata
+    # Every family missing its candidate means the candidate asset wrote nothing at all, which is a
+    # broken partition rather than one family's gap.
+    if not decided:
+        raise dagster.Failure(f"no candidate metadata for dt={partition_key}")
+    context.add_output_metadata(metadata)
+
+
+def _decide_champion(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    family: ModelFamily,
+    overrides: RankingOverrides,
+) -> dict[str, dagster.MetadataValue] | None:
+    """One family's promotion decision against its own pointer, or None when the family has no
+    candidate for the partition."""
+    candidate = _read_json_if_exists(
+        client, bucket, model_object_key(prefix, family.name, partition_key, METADATA_FILE)
+    )
+    if candidate is None:
+        context.log.warning(f"no {family.name} candidate metadata for dt={partition_key}; nothing to decide")
+        return None
+    champion_key = champion_object_key(prefix, family.name)
+    champion = _read_json_if_exists(client, bucket, champion_key)
+    champion_grades: dict[str, HoldoutGrade] = {}
+    champion_aucs: dict[str, float] = {}
+    champion_eces: dict[str, float] = {}
+    if champion is not None:
+        champion_feature_set = model_feature_set(champion)
+        if champion_feature_set is None:
+            context.log.warning(
+                f"{family.name} champion {champion['model_version']} reads a feature set this build cannot produce"
+            )
+        else:
+            # The champion is graded on the examples of its own feature set, the set the candidate
+            # shares: promotion stays inside a family. Without that object there is no shared
+            # holdout, so the rule falls back to the champion's stored AUC.
+            examples = read_parquet_if_exists(
+                client, bucket, examples_object_key(prefix, champion_feature_set.name, partition_key)
+            )
+            if examples is None:
+                context.log.warning(
+                    f"no {champion_feature_set.name} examples for dt={partition_key}; "
+                    f"the {family.name} champion is compared on its stored AUC"
+                )
+            else:
+                champion_grades = paired_champion_grades(
+                    client,
+                    bucket,
+                    prefix,
+                    champion,
+                    examples.to_pandas(),
+                    feature_set=champion_feature_set,
+                    holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
+                )
+                champion_aucs = {head: grade.auc for head, grade in champion_grades.items() if grade.auc is not None}
+                champion_eces = {
+                    head: grade.expected_calibration_error
+                    for head, grade in champion_grades.items()
+                    if grade.expected_calibration_error is not None
+                }
+                context.log.info(
+                    f"{family.name} champion {champion['model_version']} on this holdout: "
+                    f"AUC {champion_aucs}, ECE {champion_eces}"
+                )
+    promotion_override = overrides.promotion_for(family.name)
+    decision = decide_promotion(
+        candidate,
+        champion,
+        now=datetime.datetime.now(datetime.UTC),
+        min_days_between=settings.INBOX_RANKING_PROMOTION_MIN_DAYS,
+        champion_grades=champion_grades,
+        min_holdout_positives={name: head.min_holdout_positives for name, head in HEADS_BY_NAME.items()},
+        skip_gates=promotion_override.skip_gates,
+    )
+    outcome = apply_promotion_override(decision, candidate, champion, promotion_override)
+    context.log.info(
+        f"{family.name} promotion decision for dt={partition_key}: promote={decision.promote} ({decision.reason}), "
+        f"override={outcome.override}, outcome promote={outcome.promote}"
+    )
+
+    promoted = False
+    if outcome.promote and settings.INBOX_RANKING_AUTO_PROMOTE:
+        _put_json(
+            client,
+            bucket,
+            champion_key,
+            {
+                **candidate,
+                "promoted_at": datetime.datetime.now(datetime.UTC).isoformat(),
+                "metadata_key": model_object_key(prefix, family.name, partition_key, METADATA_FILE),
+            },
+        )
+        promoted = True
+    elif outcome.promote:
+        context.log.info(f"INBOX_RANKING_AUTO_PROMOTE is off; the {family.name} candidate would have been promoted")
+
+    # The paired AUCs belong to the incumbent: after a promotion `champion_version` names the
+    # candidate, so the incumbent is recorded alongside to keep the scores attributable.
+    incumbent_champion_version = (champion or {}).get("model_version", "none")
+    champion_version = partition_key if promoted else incumbent_champion_version
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            promotion_event(
+                partition_key=partition_key,
+                run_id=context.run.run_id,
+                model_name=family.name,
+                decision=decision,
+                outcome=outcome,
+                promoted=promoted,
+                champion_version=champion_version,
+                incumbent_champion_version=incumbent_champion_version,
+                champion_aucs=champion_aucs,
+                champion_eces=champion_eces,
+                skipped_gates=promotion_override.skip_gates,
+            )
+        ],
+    )
+    return {
+        f"{family.name}_would_promote": dagster.MetadataValue.bool(decision.promote),
+        f"{family.name}_gates_passed": dagster.MetadataValue.bool(decision.gates_passed),
+        f"{family.name}_promoted": dagster.MetadataValue.bool(promoted),
+        f"{family.name}_reason": dagster.MetadataValue.text(decision.reason),
+        f"{family.name}_override": dagster.MetadataValue.text(outcome.override or "none"),
+        f"{family.name}_skipped_heads": dagster.MetadataValue.json(list(decision.skipped_heads)),
+        **{
+            f"{family.name}_champion_{head}_auc_on_this_holdout": dagster.MetadataValue.float(auc)
+            for head, auc in champion_aucs.items()
+        },
+        **{
+            f"{family.name}_champion_{head}_ece_on_this_holdout": dagster.MetadataValue.float(ece)
+            for head, ece in champion_eces.items()
+        },
+        f"{family.name}_incumbent_champion_version": dagster.MetadataValue.text(incumbent_champion_version),
+        f"{family.name}_champion_version": dagster.MetadataValue.text(champion_version),
+    }
+
+
+SERVING_MANIFEST_ASSET = "inbox_ranking_serving_manifest"
+
+
+@frozen
+class _ServingStore:
+    storage: "ObjectStorageClient"
+    bucket: str
+
+
+@dagster.asset(name=SERVING_MANIFEST_ASSET, deps=["inbox_ranking_model_champion"], **COMMON_ASSET_KWARGS)
+def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> None:
+    """Publish the models the scoring sweep serves, and the manifest naming them.
+
+    The training history stays in the dataset bucket, which the Temporal workers cannot reach. What
+    the sweep needs is copied into the deployment's own object store instead, so the serving path
+    needs no credential for the dataset bucket. A model version is immutable, so a version already
+    at the target is left alone, and the manifest is written last: a failed copy leaves the previous
+    manifest, and the models it names, serving.
+    """
+    if skip_unconfigured(context):
+        return
+    context.add_output_metadata(_publish_manifest(context, context.partition_key, context.run.run_id))
+
+
+def _publish_manifest(
+    context: dagster.AssetExecutionContext, partition_key: str, run_id: str
+) -> dict[str, dagster.MetadataValue]:
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+    served_family = settings.INBOX_RANKING_SERVED_FAMILY
+    overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
+    pinned, dropped_pins = _pinned_models(client, bucket, prefix, overrides.pin)
+    for key, reason in dropped_pins.items():
+        context.log.warning(f"pinned model {key} dropped: {reason}")
+
+    families = [
+        FamilyModels(
+            name=family.name,
+            candidate=_read_json_if_exists(
+                client, bucket, model_object_key(prefix, family.name, partition_key, METADATA_FILE)
+            ),
+            champion=_read_json_if_exists(client, bucket, champion_object_key(prefix, family.name)),
+        )
+        for family in MODEL_FAMILIES
+    ]
+    decision = compose_manifest(
+        families, served_family=served_family, prefix=prefix, now=datetime.datetime.now(datetime.UTC), pinned=pinned
+    )
+    manifest_keys = {entry.key for entry in decision.manifest.models} if decision.manifest else set()
+    if decision.manifest is not None:
+        for key in overrides.pin:
+            if key not in dropped_pins and key not in manifest_keys:
+                dropped_pins[key] = "over the manifest entry cap"
+    pin_metadata = {
+        "pinned_keys": dagster.MetadataValue.json(sorted(set(overrides.pin) & manifest_keys)),
+        "dropped_pins": dagster.MetadataValue.json(dropped_pins),
+    }
+    if decision.manifest is None:
+        context.log.warning(f"no serving manifest for dt={partition_key}: {decision.reason}")
+        capture_training_events(
+            context,
+            partition_key,
+            [
+                serving_manifest_event(
+                    partition_key=partition_key,
+                    run_id=run_id,
+                    served_family=served_family,
+                    manifest=None,
+                    reason=decision.reason,
+                )
+            ],
+        )
+        return {"published": dagster.MetadataValue.bool(False), **pin_metadata}
+
+    manifest = decision.manifest
+    manifest_key = serving_manifest_key(prefix)
+    primary = _ServingStore(storage=object_storage.object_storage_client(), bucket=settings.OBJECT_STORAGE_BUCKET)
+    publication = publish_serving_models(context, client, bucket, prefix, manifest, primary)
+    context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
+    mirror_published = _publish_mirror(context, client, bucket, prefix, manifest)
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            serving_manifest_event(
+                partition_key=partition_key,
+                run_id=run_id,
+                served_family=served_family,
+                manifest=manifest,
+                reason=decision.reason,
+                copied_keys=publication.copied,
+                present_keys=publication.present,
+                bytes_copied=publication.bytes_copied,
+                mirror_published=mirror_published,
+            )
+        ],
+    )
+    mirror_metadata = (
+        {} if mirror_published is None else {"mirror_published": dagster.MetadataValue.bool(mirror_published)}
+    )
+    return {
+        "published": dagster.MetadataValue.bool(True),
+        "manifest_key": dagster.MetadataValue.text(manifest_key),
+        "manifest_version": dagster.MetadataValue.text(manifest.manifest_version),
+        "served_key": dagster.MetadataValue.text(manifest.served.key),
+        "models": dagster.MetadataValue.json(
+            [{"key": entry.key, "roles": entry.roles, "heads": entry.heads} for entry in manifest.models]
+        ),
+        "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
+        "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
+        "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+        **pin_metadata,
+        **mirror_metadata,
+    }
+
+
+def _object_exists(client, bucket: str, key: str) -> bool:
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return False
+        raise
+    return True
+
+
+def _pinned_models(
+    client, bucket: str, prefix: str, keys: Sequence[str]
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """The metadata of each pinned model this build can serve, and the reason each other pin is dropped.
+
+    `publish_serving_models` fails the whole manifest when a file it copies is missing, so a pin
+    is checked here, before composition. A bad pin then costs only itself.
+    """
+    pinned: list[dict[str, Any]] = []
+    dropped: dict[str, str] = {}
+    for key in keys:
+        try:
+            metadata, reason = _pin_metadata(client, bucket, prefix, key)
+        # S3 answers 403, not 404, for a missing key when the role cannot list the prefix, and a
+        # pin must cost only itself, so every read error drops the pin.
+        except (ClientError, ValueError) as error:
+            metadata, reason = None, f"could not read the model: {error!r}"
+        if metadata is None:
+            dropped[key] = reason or "unknown"
+            continue
+        pinned.append(metadata)
+    return pinned, dropped
+
+
+def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str, Any] | None, str | None]:
+    """The metadata of one pinned model, or None and the reason it cannot be served."""
+    model_name, model_version = key.split("@", 1)
+    metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, model_version, METADATA_FILE))
+    if metadata is None:
+        return None, f"no {METADATA_FILE} in the dataset bucket"
+    if (metadata.get("model_name"), metadata.get("model_version")) != (model_name, model_version):
+        return None, f"{METADATA_FILE} describes another model"
+    mismatch = model_mismatch(metadata)
+    if mismatch is not None:
+        return None, mismatch
+    heads = trained_head_files(metadata, HEADS_BY_NAME)
+    missing = [
+        f"{head}.ubj"
+        for head in sorted(heads)
+        if not _object_exists(client, bucket, model_object_key(prefix, model_name, model_version, f"{head}.ubj"))
+    ]
+    if not heads or missing:
+        return None, f"missing boosters {missing}" if missing else "no trained head"
+    return metadata, None
+
+
+def _publish_mirror(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, manifest: ServingManifest
+) -> bool | None:
+    """Copy the same publish into the mirror store, if one is set. Returns None when no mirror is
+    set, otherwise whether the mirror now serves this manifest.
+
+    The primary publish has already succeeded, so a mirror failure only logs: the region that
+    trains keeps serving, and the mirror keeps its previous manifest and models.
+    """
+    if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
+        return None
+    try:
+        mirror = _ServingStore(storage=serving_mirror_storage(), bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET)
+        publish_serving_models(context, client, bucket, prefix, manifest, mirror)
+    except Exception as error:
+        context.log.exception(f"serving manifest {manifest.manifest_version} not mirrored: {error!r}")
+        return False
+    context.log.info(f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}")
+    return True
+
+
+@frozen
+class _ModelPublication:
+    copied: list[str]
+    present: list[str]
+    bytes_copied: int
+
+
+def publish_serving_models(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    manifest: ServingManifest,
+    target: _ServingStore,
+) -> _ModelPublication:
+    """Copy every model the manifest names from the dataset bucket into `target`, then write the
+    manifest there.
+
+    Returns the keys copied, the keys already there, and the bytes moved. A missing source object
+    fails before the manifest is written, so the manifest can never name a model the sweep cannot
+    load.
+    """
+    copied: list[str] = []
+    present: list[str] = []
+    bytes_copied = 0
+    for entry in manifest.models:
+        target_metadata = f"{entry.prefix}/{METADATA_FILE}"
+        # A version is immutable, so its metadata record standing in for the whole prefix is safe
+        # and saves re-reading a 1536-column booster every day.
+        if target.storage.head_object(bucket=target.bucket, file_key=target_metadata) is not None:
+            present.append(entry.key)
+            continue
+        # Metadata marks a complete copy, so write it after every booster to make retries safe.
+        for name in (*(f"{head}.ubj" for head in entry.heads), METADATA_FILE):
+            body = _read_bytes_if_exists(
+                client, bucket, model_object_key(prefix, entry.model_name, entry.model_version, name)
+            )
+            if body is None:
+                raise dagster.Failure(f"{entry.key} is missing {name} in the dataset bucket; manifest not written")
+            target.storage.write(bucket=target.bucket, key=f"{entry.prefix}/{name}", content=body, extras=None)
+            bytes_copied += len(body)
+        copied.append(entry.key)
+        context.log.info(f"copied {entry.key} to {target.bucket}/{entry.prefix}")
+    target.storage.write(
+        bucket=target.bucket,
+        key=serving_manifest_key(prefix),
+        content=manifest.model_dump_json(indent=2),
+        extras={"ContentType": "application/json"},
+    )
+    return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
+
+
+# dt=D evaluates scores from birth through maturity, so the mapping reaches back as far as the
+# longest head horizon. Partitions before the scores asset existed have no upstream to map to.
+_HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
+    start_offset=-max(HEADS_BY_HORIZON),
+    end_offset=0,
+    allow_nonexistent_upstream_partitions=True,
+)
+
+
+def grade_metadata(grades: Sequence[HeadGrade]) -> dict[str, dagster.MetadataValue]:
+    """One metadata entry per (head, model version, role, metric). The family and the version are in
+    the key, so two families graded on the same rows do not overwrite each other, and neither do two
+    versions that a manifest change put in one scoring day. Counts stay ints: `MetadataValue.float`
+    rejects them."""
+    metadata: dict[str, dagster.MetadataValue] = {}
+    for grade in grades:
+        for name, value in grade.metrics().items():
+            if value is None:
+                continue
+            key = f"{grade.head}_{grade.model_name}_{grade.model_version}_{grade.model_role}_{name}"
+            metadata[key] = (
+                dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
+            )
+    return metadata
+
+
+@dagster.asset(
+    name="inbox_ranking_unseen_graded",
+    deps=[
+        dagster.AssetDep(SERVED_SCORES_TABLE, partition_mapping=_HORIZON_MAPPING),
+        LABELS_TABLE,
+    ],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+    day = datetime.date.fromisoformat(partition_key)
+
+    labels = load_snapshots(client, bucket, prefix, [day], required=day)[day].labels
+    grades: list[HeadGrade] = []
+    evaluations: list[HeadGrade] = []
+    skipped: dict[str, str] = {}
+    report_rows: list[dict[str, object]] = []
+    # Read each saved scores object once, even when several heads are still maturing.
+    for observed_days in range(max(HEADS_BY_HORIZON) + 1):
+        heads = [head for head in HEADS if observed_days <= head.horizon_days]
+        scoring_partition = (day - datetime.timedelta(days=observed_days)).isoformat()
+        # Partitions before the served asset existed have no object, which is a logged skip.
+        table = read_parquet_if_exists(
+            client, bucket, partition_object_key(prefix, SERVED_SCORES_TABLE, scoring_partition)
+        )
+        if table is None:
+            skipped[scoring_partition] = "no served scores"
+            continue
+        scores = with_model_names(table.to_pandas())
+        if len(scores) < table.num_rows:
+            context.log.warning(
+                f"dropped {table.num_rows - len(scores)} score rows of {scoring_partition} with no model_name "
+                "or a retired one"
+            )
+        pool = scored_pool(scores)
+        graded_by_head: dict[str, pd.DataFrame] = {}
+        for head in heads:
+            head_key = f"{scoring_partition}/{head.name}"
+            missing = missing_label_columns(labels, head)
+            if missing:
+                skipped[head_key] = f"dt={partition_key} labels lack {', '.join(missing)}"
+                continue
+            head_scores = scores[scores["head"] == head.name]
+            if head_scores.empty:
+                skipped[head_key] = "head was not scored"
+                continue
+            graded = graded_rows(head_scores, labels, head, pool=pool)
+            evaluated = head_grades(graded, head, pool=pool, scoring_partition=scoring_partition, include_empty=True)
+            evaluations.extend(evaluated)
+            if observed_days == head.horizon_days:
+                graded_by_head[head.name] = graded
+                grades.extend(grade for grade in evaluated if grade.rows)
+        report_rows.extend(
+            report_grade_rows(
+                graded_by_head, pool=pool, horizon_days=observed_days, scoring_partition=scoring_partition
+            )
+        )
+
+    for grade in grades:
+        context.log.info(f"unseen grade: {grade.as_dict()}")
+    for head_name, reason in skipped.items():
+        context.log.info(f"{head_name}: not graded, {reason}")
+
+    context.add_output_metadata(
+        {
+            **grade_metadata(grades),
+            "daily_evaluations": dagster.MetadataValue.int(len(evaluations)),
+            "skipped_heads": dagster.MetadataValue.json(skipped),
+        }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            *unseen_head_evaluated_events(
+                run_id=context.run_id,
+                grades=evaluations,
+                evaluation_partition=partition_key,
+                evaluated_at=datetime.datetime.now(datetime.UTC),
+            ),
+            *unseen_head_graded_events(run_id=context.run_id, grades=grades),
+            *unseen_calibration_events(run_id=context.run_id, rows=calibration_rows(grades)),
+            *unseen_report_graded_events(run_id=context.run_id, rows=report_rows),
+        ],
+    )
+
+
+inbox_ranking_training_job = dagster.define_asset_job(
+    name="inbox_ranking_training_job",
+    selection=[
+        EXAMPLES_TABLE,
+        "inbox_ranking_model_candidate",
+        "inbox_ranking_model_champion",
+        SERVING_MANIFEST_ASSET,
+        SERVED_SCORES_TABLE,
+        "inbox_ranking_unseen_graded",
+    ],
+    tags={
+        **owner_tags,
+        # The report-embeddings family fits 1536-column heads, and each head costs a fit per
+        # permutation draw on top of the two it ships, so the wall clock is now the trainer's
+        # rather than the ETL's.
+        "dagster/max_runtime": str(3 * 60 * 60),
+        # The examples asset holds every snapshot of the lookback window in pandas at once (state
+        # plus labels per day) before the per-head builders run, plus one rendering's vectors as
+        # the side input the embedding set being built reads, so the peak grows with the lookback
+        # and the inventory. It is one rendering at a time rather than one per family, so a further
+        # embedding family costs runtime and not peak. Growth should surface as a slow run, not an
+        # OOMKilled pod.
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"memory": "8Gi"},
+                    "limits": {"memory": "24Gi"},
+                }
+            }
+        },
+    },
+)
+
+
+# Runs after the dataset job's 2h budget (02:30 UTC start) so dt=D-1's snapshots exist.
+@dagster.schedule(
+    cron_schedule="0 5 * * *",
+    job=inbox_ranking_training_job,
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.RUNNING
+    if settings.CLOUD_DEPLOYMENT == "US"
+    else dagster.DefaultScheduleStatus.STOPPED,
+    tags=owner_tags,
+)
+def inbox_ranking_training_schedule(
+    context: dagster.ScheduleEvaluationContext,
+) -> dagster.RunRequest | dagster.SkipReason:
+    if dataset_unconfigured():
+        return dagster.SkipReason(f"{S3_BUCKET_ENV} is not set; skipping until the dedicated bucket is provisioned")
+    previous_day = context.scheduled_execution_time.date() - datetime.timedelta(days=1)
+    return dagster.RunRequest(partition_key=previous_day.isoformat(), run_key=f"training-{previous_day.isoformat()}")

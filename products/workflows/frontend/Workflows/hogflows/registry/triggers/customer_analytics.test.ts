@@ -5,11 +5,12 @@ import {
     accountCustomPropertyFrequencyOptions,
     accountRelationshipChangedFilters,
     accountRelationshipFrequencyOptions,
-    accountTagAddedFilters,
+    accountTagChangedFilters,
     customPropertyDisplayTypeToPropertyType,
     getAccountCustomPropertyChangedConditions,
     getAccountCustomPropertyValueFilters,
     getAccountRelationshipChangeType,
+    getAccountTagChangeType,
     getSelectedPropertyNames,
     getSelectedRelationshipNames,
     getSelectedTags,
@@ -25,7 +26,7 @@ describe('customer analytics triggers', () => {
         return triggerType
     }
 
-    it.each(['account_tag_added', 'account_custom_property_changed', 'account_relationship_changed'])(
+    it.each(['account_tag_changed', 'account_custom_property_changed', 'account_relationship_changed'])(
         '%s buildConfig produces a config recognized by matchConfig',
         (value) => {
             const triggerType = getTriggerType(value)
@@ -35,7 +36,7 @@ describe('customer analytics triggers', () => {
 
     it("the account triggers do not claim each other's configs", () => {
         const triggers = [
-            getTriggerType('account_tag_added'),
+            getTriggerType('account_tag_changed'),
             getTriggerType('account_custom_property_changed'),
             getTriggerType('account_relationship_changed'),
         ]
@@ -68,11 +69,51 @@ describe('customer analytics triggers', () => {
         expect(getSelectedTags(config)).toEqual(expected)
     })
 
-    it('omits the tag property filter when no tags are selected', () => {
-        expect(accountTagAddedFilters([]).properties).toEqual([])
-        expect(accountTagAddedFilters(['vip']).properties).toEqual([
+    it.each([
+        { name: 'added-only', events: [{ id: '$account_tag_added', type: 'events' }], expected: true },
+        { name: 'removed-only', events: [{ id: '$account_tag_removed', type: 'events' }], expected: true },
+        {
+            name: 'nested event filter',
+            events: [
+                {
+                    id: '$account_tag_added',
+                    type: 'events',
+                    properties: [{ key: 'source', value: 'workflow', operator: 'exact', type: 'event' }],
+                },
+            ],
+            expected: false,
+        },
+    ])('matches $name tag trigger configs: $expected', ({ events, expected }) => {
+        const triggerType = getTriggerType('account_tag_changed')
+
+        expect(triggerType.matchConfig!({ type: 'event', filters: { events } })).toBe(expected)
+    })
+
+    it.each([
+        { name: 'both', changeType: null, expectedEvents: ['$account_tag_added', '$account_tag_removed'] },
+        { name: 'added', changeType: 'added' as const, expectedEvents: ['$account_tag_added'] },
+        { name: 'removed', changeType: 'removed' as const, expectedEvents: ['$account_tag_removed'] },
+    ])('builds $name tag change event filters', ({ changeType, expectedEvents }) => {
+        const filters = accountTagChangedFilters([], {}, changeType)
+        const config: EventTriggerConfig = { type: 'event', filters }
+
+        expect(filters.events?.map((event) => event.id)).toEqual(expectedEvents)
+        expect(getAccountTagChangeType(config)).toBe(changeType)
+    })
+
+    it('preserves the tag change type and unrelated filters when the tag selection changes', () => {
+        const filters = accountTagChangedFilters(['vip'], {
+            events: [{ id: '$account_tag_removed', type: 'events' }],
+            properties: [{ key: 'source', value: 'workflow', operator: 'exact', type: 'event' }],
+            filter_test_accounts: true,
+        })
+
+        expect(filters.events?.map((event) => event.id)).toEqual(['$account_tag_removed'])
+        expect(filters.properties).toEqual([
             { key: 'tag', value: ['vip'], operator: 'exact', type: 'event' },
+            { key: 'source', value: 'workflow', operator: 'exact', type: 'event' },
         ])
+        expect(filters.filter_test_accounts).toBe(true)
     })
 
     it.each([

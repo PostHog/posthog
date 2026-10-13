@@ -4,7 +4,7 @@ from opentelemetry import trace
 from rest_framework import request, response, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import SessionTableVersion
+from posthog.schema import ProductKey, SessionTableVersion
 
 from posthog.hogql.database.schema.sessions_v1 import (
     get_lazy_session_table_properties_v1,
@@ -23,6 +23,8 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import convert_property_value, flatten
 
@@ -55,18 +57,27 @@ class SessionViewSet(
             span.set_attribute("property_key", key)
             span.set_attribute("has_search_term", search_term is not None)
 
+            # `/sessions/values` is hit from every taxonomic property-value picker that offers
+            # session properties, so tag by the endpoint name rather than a scene, the same way
+            # `/events/values` does.
+            tag_queries(product=ProductKey.WEB_ANALYTICS, feature=Feature.SESSIONS_VALUES_API)
+
             modifiers = create_default_modifiers_for_team(team)
             version = modifiers.sessionTableVersion
 
-            if version == SessionTableVersion.V3:
-                span.set_attribute("session_table_version", "v3")
-                result = get_lazy_session_table_values_v3(key, search_term=search_term, team=team)
-            elif version == SessionTableVersion.V2 or version == SessionTableVersion.AUTO:
-                span.set_attribute("session_table_version", "v2")
-                result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
-            else:
-                span.set_attribute("session_table_version", "v1")
-                result = get_lazy_session_table_values_v1(key, search_term=search_term, team=team)
+            # A user-safe ClickHouse error (such as a timeout) is the caller's 400, not a 500.
+            try:
+                if version == SessionTableVersion.V3:
+                    span.set_attribute("session_table_version", "v3")
+                    result = get_lazy_session_table_values_v3(key, search_term=search_term, team=team)
+                elif version == SessionTableVersion.V2 or version == SessionTableVersion.AUTO:
+                    span.set_attribute("session_table_version", "v2")
+                    result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
+                else:
+                    span.set_attribute("session_table_version", "v1")
+                    result = get_lazy_session_table_values_v1(key, search_term=search_term, team=team)
+            except ExposedCHQueryError as e:
+                raise ValidationError(str(e), e.code_name)
 
             span.set_attribute("result_count", len(result))
 

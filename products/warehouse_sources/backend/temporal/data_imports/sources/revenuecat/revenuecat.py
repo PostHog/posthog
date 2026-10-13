@@ -159,9 +159,9 @@ def _project_not_found_error(entered_project_id: str, accessible_ids: list[str])
     """Turn an opaque 404 into an actionable message naming the reachable project ids."""
     if not accessible_ids:
         return (
-            f"RevenueCat could not find the project '{entered_project_id}' (404), and this API key "
-            "can't see any projects. Generate a v2 secret API key in the RevenueCat project you want "
-            "to sync, then re-enter its Project ID."
+            f"RevenueCat could not find the project '{entered_project_id}', and this API key "
+            "can't see any projects. Generate a v2 secret API key in the RevenueCat project you "
+            "want to sync, then re-enter its Project ID."
         )
     if len(accessible_ids) == 1:
         only = accessible_ids[0]
@@ -179,24 +179,55 @@ def _project_not_found_error(entered_project_id: str, accessible_ids: list[str])
     )
 
 
+# A transport failure leaves the key unjudged, so it must not read as a credential problem.
+UNREACHABLE_MESSAGE = "PostHog couldn't reach RevenueCat. Wait a few minutes and try again."
+
+
 def _format_http_error(error: requests.HTTPError, forbidden_hint: str | None = None) -> str:
     response = error.response
     status_code = response.status_code if response is not None else None
     if status_code == 401:
         return (
-            "RevenueCat rejected the API key (401). Generate a v2 secret API key "
-            "from Project settings > API keys and check that it has not been revoked."
+            "RevenueCat rejected your API key. Generate a new v2 secret API key under "
+            "Project settings > API keys, then reconnect."
         )
     if status_code == 403:
         # This formatter also serves webhook create/delete, which need write scope, so the default
         # stays scope-neutral. Read-only callers pass a read-specific hint.
-        detail = forbidden_hint or "Make sure the v2 secret API key has the permissions this request needs."
-        return f"RevenueCat denied the request (403). {detail}"
+        detail = forbidden_hint or "Give your v2 secret API key the permissions this request needs, then reconnect."
+        return f"RevenueCat denied the request. {detail}"
     if status_code == 404:
-        return "RevenueCat could not find the project (404). Double-check the project id."
+        return (
+            "RevenueCat could not find the project. Check the project id in your RevenueCat dashboard, then reconnect."
+        )
     if status_code == 429:
-        return "RevenueCat rate-limited the request (429). Try again in a few seconds."
-    return f"RevenueCat API error ({status_code})."
+        return "RevenueCat rate-limited the request. Try again in a few seconds."
+    return "RevenueCat could not complete the request. Try again in a few minutes, and check the RevenueCat status page if it keeps failing."
+
+
+_READ_FORBIDDEN_HINT = "Give your v2 secret API key read permission for the data you want to sync, then reconnect."
+
+
+def _validate_project_read_access(session: requests.Session, project_id: str) -> tuple[bool, str | None]:
+    """Accept the key when it can read at least one endpoint the sync uses in ``project_id``."""
+    last_forbidden: requests.HTTPError | None = None
+    for endpoint in REVENUECAT_API_ENDPOINTS.values():
+        url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, endpoint.path_suffix)}"
+        try:
+            response = session.get(url, params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 403:
+                last_forbidden = e
+                continue
+            return False, _format_http_error(e, forbidden_hint=_READ_FORBIDDEN_HINT)
+        except requests.RequestException as e:
+            LOGGER.warning("Could not reach RevenueCat to validate credentials", error=str(e))
+            return False, UNREACHABLE_MESSAGE
+        return True, None
+    if last_forbidden is not None:
+        return False, _format_http_error(last_forbidden, forbidden_hint=_READ_FORBIDDEN_HINT)
+    return True, None
 
 
 def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, str | None]:
@@ -212,20 +243,19 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     "double-check the project id".
     """
     session = _session(api_key)
+    normalized_project_id = _normalize_project_id(project_id)
     try:
         accessible_ids = _list_accessible_project_ids(session)
     except requests.HTTPError as e:
-        return False, _format_http_error(
-            e,
-            forbidden_hint=(
-                "The v2 secret API key is missing read access. Give it read permission for the data "
-                "you want to sync, then reconnect."
-            ),
-        )
+        # Listing projects needs a projects permission the sync never uses, so a key scoped to just
+        # the synced resources is denied here. Check the project's own endpoints instead.
+        if normalized_project_id and e.response is not None and e.response.status_code == 403:
+            return _validate_project_read_access(session, normalized_project_id)
+        return False, _format_http_error(e, forbidden_hint=_READ_FORBIDDEN_HINT)
     except requests.RequestException as e:
-        return False, f"Could not reach RevenueCat: {e}"
+        LOGGER.warning("Could not reach RevenueCat to validate credentials", error=str(e))
+        return False, UNREACHABLE_MESSAGE
 
-    normalized_project_id = _normalize_project_id(project_id)
     if not normalized_project_id:
         return True, None
 
@@ -470,10 +500,20 @@ def create_webhook(
         response.raise_for_status()
     except requests.HTTPError as e:
         logger.warning("Failed to register RevenueCat webhook integration", error=str(e))
-        return WebhookCreationResult(success=False, error=_format_http_error(e))
+        return WebhookCreationResult(
+            success=False,
+            error=_format_http_error(
+                e,
+                # The read-only hint the validate path passes doesn't fit here: registering the
+                # integration needs write scope, and the failure screen offers manual setup.
+                forbidden_hint=(
+                    "Give your v2 secret API key write permission for integrations, or follow the manual setup below."
+                ),
+            ),
+        )
     except requests.RequestException as e:
         logger.warning("Could not reach RevenueCat to register webhook", error=str(e))
-        return WebhookCreationResult(success=False, error=f"Could not reach RevenueCat: {e}")
+        return WebhookCreationResult(success=False, error=UNREACHABLE_MESSAGE)
 
     pending: list[str] = []
     if not authorization_header_value:
@@ -531,7 +571,7 @@ def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDe
         return WebhookDeletionResult(success=False, error=_format_http_error(e))
     except requests.RequestException as e:
         logger.warning("Could not reach RevenueCat to list webhooks", error=str(e))
-        return WebhookDeletionResult(success=False, error=f"Could not reach RevenueCat: {e}")
+        return WebhookDeletionResult(success=False, error=UNREACHABLE_MESSAGE)
 
     target = next((hook for hook in integrations if hook.get("url") == webhook_url), None)
     if target is None:
@@ -556,7 +596,7 @@ def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDe
         return WebhookDeletionResult(success=False, error=_format_http_error(e))
     except requests.RequestException as e:
         logger.warning("Could not reach RevenueCat to delete webhook", error=str(e))
-        return WebhookDeletionResult(success=False, error=f"Could not reach RevenueCat: {e}")
+        return WebhookDeletionResult(success=False, error=UNREACHABLE_MESSAGE)
 
     return WebhookDeletionResult(success=True)
 
@@ -568,7 +608,8 @@ def get_external_webhook_info(api_key: str, project_id: str, webhook_url: str) -
     except requests.HTTPError as e:
         return ExternalWebhookInfo(exists=False, error=_format_http_error(e))
     except requests.RequestException as e:
-        return ExternalWebhookInfo(exists=False, error=f"Could not reach RevenueCat: {e}")
+        LOGGER.warning("Could not reach RevenueCat to look up the webhook", error=str(e))
+        return ExternalWebhookInfo(exists=False, error=UNREACHABLE_MESSAGE)
 
     target = next((hook for hook in integrations if hook.get("url") == webhook_url), None)
     if target is None:

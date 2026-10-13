@@ -7,8 +7,8 @@ import type { Context } from '@/tools/types'
  * timeouts (~60s) so a slow cell degrades to `{status: 'running'}` instead of a client
  * abort; the next notebooks-run-cell-result call continues the wait.
  */
-const RUN_WAIT_BUDGET_MS = 45_000
-const POLL_DELAYS_MS = [1_000, 1_500, 2_000, 3_000]
+export const RUN_WAIT_BUDGET_MS = 45_000
+export const POLL_DELAYS_MS = [1_000, 1_500, 2_000, 3_000]
 const STREAM_CAP_CHARS = 4_000
 
 export interface CellRunOutcome {
@@ -35,7 +35,7 @@ export interface ShapedRunResult {
     hint?: string
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export async function dispatchRun(
     context: Context,
@@ -46,12 +46,16 @@ export async function dispatchRun(
         code: string
         output_name: string
         refs: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+        variables?: Schemas.NotebookVariable[]
     }
 ): Promise<string> {
+    // Variables ride the run body, as they do from the editor: a SQL cell reading a `{name}`
+    // absent from the body fails the dispatch, so the saved declarations go along every time.
+    const { variables, ...rest } = run
     const response = await context.api.request<Schemas.NotebookSQLV2RunResponse>({
         method: 'POST',
         path: `${notebookPath}sql_v2/run/`,
-        body: run,
+        body: variables?.length ? { ...rest, variables } : rest,
     })
     return response.run_id
 }
@@ -152,14 +156,6 @@ export function wrapRunResultAsInformational<T extends object>(result: T): WithI
  * identically to cells run in the editor.
  */
 export function buildResultProp(envelope: Schemas.NotebookSQLV2Envelope): Record<string, unknown> {
-    return {
-        columns: envelope.columns ?? [],
-        types: envelope.types ?? [],
-        row_count: envelope.row_count ?? 0,
-        first_page: envelope.first_page ?? [],
-        has_more: envelope.has_more ?? false,
-        stdout: envelope.stdout ?? '',
-        stderr: envelope.stderr ?? '',
-        media: envelope.media ?? [],
-    }
+    return notebookResultPreview(envelope)
 }
+import { notebookResultPreview } from 'products/notebooks/notebookResultPreview'

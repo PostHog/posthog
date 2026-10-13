@@ -1,13 +1,18 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import suppress
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Optional
+from typing import Optional, Union
 
 import dagster
 
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import DagsterTags
+from posthog.settings import TEST
+
+# What a Dagster schedule function may return.
+ScheduleResult = Union[dagster.SkipReason, dagster.RunRequest, None]
 
 
 def dagster_tags(
@@ -49,6 +54,43 @@ def settings_with_log_comment(
     return {"log_comment": qt.to_json()}
 
 
+# Statuses under which a run's work may still land on the cluster. STARTING and STARTED runs
+# execute. A CANCELING run's last ClickHouse mutation keeps applying on the server.
+EXECUTING_RUN_STATUSES = (
+    dagster.DagsterRunStatus.STARTING,
+    dagster.DagsterRunStatus.STARTED,
+    dagster.DagsterRunStatus.CANCELING,
+)
+
+ACTIVE_RUN_STATUSES = (
+    dagster.DagsterRunStatus.QUEUED,
+    dagster.DagsterRunStatus.NOT_STARTED,
+    *EXECUTING_RUN_STATUSES,
+)
+
+
+def describe_runs(
+    instance: dagster.DagsterInstance,
+    job_names: Iterable[str],
+    *,
+    exclude_run_id: str,
+    statuses: Sequence[dagster.DagsterRunStatus] = ACTIVE_RUN_STATUSES,
+    created_after: datetime | None = None,
+) -> list[str]:
+    """Describe each run of these jobs that matches the statuses and creation time, except the excluded run."""
+    blockers: list[str] = []
+    for job_name in job_names:
+        records = instance.get_run_records(
+            dagster.RunsFilter(job_name=job_name, statuses=list(statuses), created_after=created_after)
+        )
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != exclude_run_id
+        )
+    return blockers
+
+
 def check_for_concurrent_runs(
     context: dagster.ScheduleEvaluationContext, tags: dict[str, str]
 ) -> Optional[dagster.SkipReason]:
@@ -80,6 +122,23 @@ def check_for_concurrent_runs(
         return dagster.SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
 
     return None
+
+
+def skip_on_kill_switch(
+    fn: Callable[[dagster.ScheduleEvaluationContext], ScheduleResult],
+) -> Callable[[dagster.ScheduleEvaluationContext], ScheduleResult]:
+    """Decorator that skips schedule execution while the ClickHouse kill switch is on."""
+
+    @wraps(fn)
+    def wrapper(context: dagster.ScheduleEvaluationContext) -> ScheduleResult:
+        if not TEST:
+            kill_switch_level = get_kill_switch_level()
+            if kill_switch_level != KillSwitchLevel.OFF:
+                context.log.info(f"Skipping due to ClickHouse kill switch: {kill_switch_level}")
+                return dagster.SkipReason(f"ClickHouse kill switch is enabled ({kill_switch_level})")
+        return fn(context)
+
+    return wrapper
 
 
 def skip_if_already_running(fn: Callable) -> Callable:

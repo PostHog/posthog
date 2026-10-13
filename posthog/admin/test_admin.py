@@ -25,13 +25,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import Text
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
-from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 
 class TestOAuthSidebarRegrouping(BaseTest):
@@ -220,9 +217,6 @@ class TestProductAdminRegistration:
     @pytest.mark.parametrize(
         "model",
         [
-            HogFlow,
-            HogFlowTemplate,
-            HogFlowBatchJob,
             HogFunction,
             Plugin,
             PluginConfig,

@@ -7,14 +7,13 @@ import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
+import { MetricBreakdowns } from 'scenes/experiments/MetricBreakdowns/MetricBreakdowns'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import {
@@ -26,7 +25,6 @@ import {
 import { NodeKind } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
-import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
 import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
@@ -53,7 +51,11 @@ import {
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
-import { Experiment, InsightType } from '~/types'
+import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
+
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
+import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
 
 import { ChartCell } from './ChartCell'
 import {
@@ -67,39 +69,9 @@ import {
     VIEW_BOX_WIDTH,
 } from './constants'
 import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
-
-interface BreakdownErrorStateProps {
-    metric: ExperimentMetric
-    isAlternatingRow: boolean
-    onRemoveBreakdown: (index: number) => void
-}
-
-function BreakdownErrorState({ metric, isAlternatingRow, onRemoveBreakdown }: BreakdownErrorStateProps): JSX.Element {
-    return (
-        <tr data-breakdown-row className="hover:bg-bg-hover group">
-            <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
-                <div className="p-1">
-                    <div className="flex items-center gap-2">
-                        {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
-                            <BreakdownTag
-                                key={index}
-                                breakdown={breakdown.property}
-                                breakdownType={breakdown.type || 'event'}
-                                onClose={() => onRemoveBreakdown(index)}
-                                size="small"
-                            />
-                        ))}
-                    </div>
-                </div>
-            </td>
-        </tr>
-    )
-}
 
 interface CollapsibleBreakdownSectionProps {
     breakdownResults: any[]
@@ -114,6 +86,8 @@ interface CollapsibleBreakdownSectionProps {
     colors: ReturnType<typeof useChartColors>
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
+    onBreakdownAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
     onRetry: () => void
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
@@ -133,6 +107,8 @@ function CollapsibleBreakdownSection({
     colors,
     scale,
     onRemoveBreakdown,
+    onBreakdownAttributionChange,
+    onBreakdownLimitChange,
     onRetry,
     query,
     handleTooltipMouseEnter,
@@ -192,16 +168,13 @@ function CollapsibleBreakdownSection({
                         {
                             key: 'breakdowns',
                             header: (
-                                <div className="flex items-center gap-2">
-                                    {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
-                                        <BreakdownTag
-                                            key={index}
-                                            breakdown={breakdown.property}
-                                            breakdownType={breakdown.type || 'event'}
-                                            onClose={() => onRemoveBreakdown(index)}
-                                            size="small"
-                                        />
-                                    ))}
+                                <div onClick={(e) => e.stopPropagation()}>
+                                    <MetricBreakdowns
+                                        metric={metric}
+                                        onRemoveBreakdown={onRemoveBreakdown}
+                                        onAttributionChange={onBreakdownAttributionChange}
+                                        onBreakdownLimitChange={onBreakdownLimitChange}
+                                    />
                                 </div>
                             ),
                             // Render no content (non-expandable disabled header) when recalculating (stale
@@ -221,6 +194,7 @@ function CollapsibleBreakdownSection({
                                                             <tr
                                                                 key={breakdownResult.breakdown_value}
                                                                 className="hover:bg-bg-hover"
+                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                 style={FIXED_HEIGHT_STYLE}
                                                             >
                                                                 <td
@@ -238,6 +212,7 @@ function CollapsibleBreakdownSection({
                                                                 <td
                                                                     colSpan={6}
                                                                     className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 >
                                                                     {isLoading || exposuresLoading ? (
@@ -266,11 +241,13 @@ function CollapsibleBreakdownSection({
                                                             {/* Baseline row */}
                                                             <tr
                                                                 className="hover:bg-bg-hover"
+                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                 style={FIXED_HEIGHT_STYLE}
                                                             >
                                                                 <td
                                                                     className={`w-1/5 border-r p-3 align-top border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
                                                                     rowSpan={totalRows}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={totalRowsHeightStyle}
                                                                 >
                                                                     {formatBreakdownLabel(
@@ -285,6 +262,7 @@ function CollapsibleBreakdownSection({
 
                                                                 <td
                                                                     className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 >
                                                                     <VariantTag variantKey={baselineResult.key} />
@@ -292,6 +270,7 @@ function CollapsibleBreakdownSection({
 
                                                                 <td
                                                                     className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 >
                                                                     <div className="metric-cell">
@@ -304,6 +283,7 @@ function CollapsibleBreakdownSection({
 
                                                                 <td
                                                                     className={`w-20 pt-1 pl-3 pr-3 pb-1 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 >
                                                                     <div />
@@ -311,6 +291,7 @@ function CollapsibleBreakdownSection({
 
                                                                 <td
                                                                     className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 >
                                                                     <div />
@@ -319,11 +300,13 @@ function CollapsibleBreakdownSection({
                                                                 {/* Empty Details column for alignment (per-row; variant rows render their own) */}
                                                                 <td
                                                                     className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 />
 
                                                                 <td
                                                                     className={`p-0 align-top text-center relative overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 >
                                                                     {axisRange && axisRange > 0 ? (
@@ -380,6 +363,7 @@ function CollapsibleBreakdownSection({
                                                                         <tr
                                                                             key={`${metric.uuid}-${variant.key}`}
                                                                             className="hover:bg-bg-hover"
+                                                                            // eslint-disable-next-line react/forbid-dom-props
                                                                             style={FIXED_HEIGHT_STYLE}
                                                                             onMouseEnter={(e) =>
                                                                                 handleTooltipMouseEnter(e, variant)
@@ -391,6 +375,7 @@ function CollapsibleBreakdownSection({
                                                                         >
                                                                             <td
                                                                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                                 style={{
                                                                                     ...FIXED_HEIGHT_STYLE,
                                                                                     backgroundImage: rowBackgroundImage,
@@ -401,6 +386,7 @@ function CollapsibleBreakdownSection({
 
                                                                             <td
                                                                                 className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                                 style={{
                                                                                     ...FIXED_HEIGHT_STYLE,
                                                                                     backgroundImage: rowBackgroundImage,
@@ -419,6 +405,7 @@ function CollapsibleBreakdownSection({
 
                                                                             <td
                                                                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                                 style={{
                                                                                     ...FIXED_HEIGHT_STYLE,
                                                                                     backgroundImage: rowBackgroundImage,
@@ -457,6 +444,7 @@ function CollapsibleBreakdownSection({
 
                                                                             <td
                                                                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${!significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''} ${isLastRow ? 'border-b' : ''}`}
+                                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                                 style={{
                                                                                     ...FIXED_HEIGHT_STYLE,
                                                                                     backgroundColor: significant
@@ -481,6 +469,7 @@ function CollapsibleBreakdownSection({
                                                                             {/* Details (empty, for alignment) */}
                                                                             <td
                                                                                 className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                                 style={{
                                                                                     ...FIXED_HEIGHT_STYLE,
                                                                                     backgroundImage: rowBackgroundImage,
@@ -527,7 +516,6 @@ interface MetricRowGroupProps {
     result: NewExperimentQueryResponse | null
     experiment: Experiment
     metricType: InsightType
-    metricIndex: number
     displayOrder: number
     axisRange: number
     isSecondary: boolean
@@ -539,18 +527,27 @@ interface MetricRowGroupProps {
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
+    onBreakdownAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
     error?: any
     isLoading?: boolean
     exposuresLoading?: boolean
     showDetailsModal: boolean
 }
 
+/**
+ * Tooltip state is per MetricRowGroup, and a tooltip can outlive the cursor on its
+ * close-grace timer. Without coordination, sweeping the cursor across groups shows
+ * several tooltips at once. The group that owns the open tooltip registers its close
+ * function here, and the next group to open a tooltip calls it first.
+ */
+let closeOpenTooltip: (() => void) | null = null
+
 export function MetricRowGroup({
     metric,
     result,
     experiment,
     metricType,
-    metricIndex,
     displayOrder,
     axisRange,
     isSecondary,
@@ -562,6 +559,8 @@ export function MetricRowGroup({
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
+    onBreakdownAttributionChange,
+    onBreakdownLimitChange,
     error,
     isLoading,
     exposuresLoading = false,
@@ -588,6 +587,7 @@ export function MetricRowGroup({
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const ownsOpenTooltipRef = useRef(false)
     const colors = useChartColors()
 
     const clearTooltipCloseTimer = (): void => {
@@ -598,6 +598,10 @@ export function MetricRowGroup({
     }
 
     const hideTooltipState = (): void => {
+        if (ownsOpenTooltipRef.current) {
+            ownsOpenTooltipRef.current = false
+            closeOpenTooltip = null
+        }
         setTooltipState((prev) => ({
             ...prev,
             isVisible: false,
@@ -622,33 +626,39 @@ export function MetricRowGroup({
     useEffect(() => {
         return () => {
             clearTooltipCloseTimer()
+            if (ownsOpenTooltipRef.current) {
+                ownsOpenTooltipRef.current = false
+                closeOpenTooltip = null
+            }
         }
     }, [])
 
+    // The tooltip is fixed-positioned from coordinates captured on hover, so it
+    // doesn't track the page on scroll — dismiss it instead, like native tooltips.
+    useEffect(() => {
+        if (!tooltipState.isVisible) {
+            return
+        }
+        const handleScroll = (): void => {
+            clearTooltipCloseTimer()
+            hideTooltipState()
+        }
+        // Capture phase so scrolls of any ancestor scroll container are caught, not just the window
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', handleScroll, { capture: true })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tooltipState.isVisible])
+
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
-        useActions(experimentLogic)
+    const { reportExperimentTimeseriesViewed, refreshExperimentResults } = useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { isRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
 
-    /**
-     * On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
-     * exposures), same as the manual reload. The legacy flow retries the single metric in place.
-     */
     const handleRetry = (): void => {
-        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-            triggerRecalculation()
-            refreshExperimentResults(true, 'manual')
-            return
-        }
-        if (isSecondary) {
-            retrySecondaryMetric(metricIndex)
-        } else {
-            retryPrimaryMetric(metricIndex)
-        }
+        triggerRecalculation('manual_retry')
+        refreshExperimentResults(true, 'manual')
     }
 
     // Build query for debugger link
@@ -699,6 +709,11 @@ export function MetricRowGroup({
         }
 
         clearTooltipCloseTimer()
+        if (!ownsOpenTooltipRef.current) {
+            closeOpenTooltip?.()
+        }
+        closeOpenTooltip = closeTooltipNow
+        ownsOpenTooltipRef.current = true
         const position = calculateTooltipPosition(chartCell, variantResult)
         setTooltipState({
             isVisible: true,
@@ -773,6 +788,7 @@ export function MetricRowGroup({
                     bg
                 )}
                 rowSpan={skeletonVariantKeys.length}
+                // eslint-disable-next-line react/forbid-dom-props
                 style={getScaledHeightStyle(skeletonVariantKeys.length)}
             >
                 <MetricRetryState retry={metricRetry} />
@@ -781,13 +797,18 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
+                <tr
+                    className="hover:bg-bg-hover group"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={FIXED_HEIGHT_STYLE}
+                >
                     {/* Metric column: real header spanning every variant row, stays interactive while loading */}
                     <td
-                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                        className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                             !isLastMetric ? 'border-b' : ''
                         } ${bg}`}
                         rowSpan={skeletonVariantKeys.length}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={getScaledHeightStyle(skeletonVariantKeys.length)}
                     >
                         <MetricHeader
@@ -816,6 +837,7 @@ export function MetricRowGroup({
                                     bg
                                 )}
                                 rowSpan={skeletonVariantKeys.length}
+                                // eslint-disable-next-line react/forbid-dom-props
                                 style={getScaledHeightStyle(skeletonVariantKeys.length)}
                             >
                                 {/* Reserve the Details button's footprint so the chart column doesn't shift when results land */}
@@ -830,7 +852,12 @@ export function MetricRowGroup({
                 </tr>
 
                 {skeletonVariantKeys.slice(1).map((variantKey, index) => (
-                    <tr key={variantKey} className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
+                    <tr
+                        key={variantKey}
+                        className="hover:bg-bg-hover group"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={FIXED_HEIGHT_STYLE}
+                    >
                         <SkeletonResultCells
                             variantKey={variantKey}
                             className={clsx(bg, index === skeletonVariantKeys.length - 2 && 'border-b')}
@@ -848,12 +875,17 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr className="hover:bg-bg-hover group" style={noResultStateStyle}>
+                <tr
+                    className="hover:bg-bg-hover group"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={noResultStateStyle}
+                >
                     {/* Metric column - always visible */}
                     <td
-                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                        className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                             !isLastMetric ? 'border-b' : ''
                         } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={noResultStateStyle}
                     >
                         <MetricHeader
@@ -876,6 +908,7 @@ export function MetricRowGroup({
                         className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                             !isLastMetric ? 'border-b' : ''
                         }`}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={noResultStateStyle}
                     >
                         <ChartEmptyState
@@ -884,16 +917,18 @@ export function MetricRowGroup({
                             metric={metric}
                             error={error}
                             query={debugQuery}
-                            onRetry={handleRetry}
+                            onRetry={error?.retriable === true ? handleRetry : undefined}
                             retryDisabledReason={isRecalculating ? 'Recalculation in progress' : undefined}
                         />
                     </td>
                 </tr>
                 {metric.breakdownFilter?.breakdowns && metric.breakdownFilter.breakdowns.length > 0 && (
-                    <BreakdownErrorState
+                    <MetricBreakdownError
                         metric={metric}
                         isAlternatingRow={isAlternatingRow}
                         onRemoveBreakdown={onRemoveBreakdown}
+                        onAttributionChange={onBreakdownAttributionChange}
+                        onBreakdownLimitChange={onBreakdownLimitChange}
                     />
                 )}
             </>
@@ -929,6 +964,7 @@ export function MetricRowGroup({
                     <div
                         ref={tooltipRef}
                         className="fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px] cursor-pointer hover:border-primary"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             left: tooltipState.position.x,
                             top: tooltipState.position.y,
@@ -954,13 +990,17 @@ export function MetricRowGroup({
                     </div>,
                     document.body
                 )}
-
             {/* Baseline row */}
-            <tr className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
+            <tr
+                className="hover:bg-bg-hover group"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={FIXED_HEIGHT_STYLE}
+            >
                 {/* Metric column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={variantResults.length + 1}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={totalRowsHeightStyle}
                 >
                     <MetricHeader
@@ -982,6 +1022,7 @@ export function MetricRowGroup({
                     className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={FIXED_HEIGHT_STYLE}
                 >
                     <VariantTag variantKey={baselineResult.key} />
@@ -992,6 +1033,7 @@ export function MetricRowGroup({
                     className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={FIXED_HEIGHT_STYLE}
                 >
                     <div className="metric-cell">
@@ -1005,6 +1047,7 @@ export function MetricRowGroup({
                     className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={FIXED_HEIGHT_STYLE}
                 >
                     <div />
@@ -1015,6 +1058,7 @@ export function MetricRowGroup({
                     className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={FIXED_HEIGHT_STYLE}
                 >
                     <div />
@@ -1025,6 +1069,7 @@ export function MetricRowGroup({
                     className={`w-20 pt-3 align-top relative overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={FIXED_HEIGHT_STYLE}
                 >
                     {showDetailsModal && (
@@ -1048,6 +1093,7 @@ export function MetricRowGroup({
                     className={`p-0 align-top text-center relative overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={FIXED_HEIGHT_STYLE}
                 >
                     {axisRange && axisRange > 0 ? (
@@ -1075,7 +1121,6 @@ export function MetricRowGroup({
                     )}
                 </td>
             </tr>
-
             {/* Variant rows */}
             {variantResults.map((variant, index) => {
                 const isLastRow = index === variantResults.length - 1
@@ -1096,6 +1141,7 @@ export function MetricRowGroup({
                     <tr
                         key={`${metric.uuid}-${variant.key}`}
                         className="hover:bg-bg-hover group"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={FIXED_HEIGHT_STYLE}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                         onMouseLeave={handleTooltipMouseLeave}
@@ -1106,6 +1152,7 @@ export function MetricRowGroup({
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <VariantTag variantKey={variant.key} />
@@ -1116,6 +1163,7 @@ export function MetricRowGroup({
                             className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <div className="metric-cell">
@@ -1129,6 +1177,7 @@ export function MetricRowGroup({
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <div className="flex items-center gap-1">
@@ -1154,6 +1203,7 @@ export function MetricRowGroup({
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
                                 !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
                             } ${isLastRow ? 'border-b' : ''}`}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 ...FIXED_HEIGHT_STYLE,
                                 backgroundColor: significant
@@ -1177,6 +1227,7 @@ export function MetricRowGroup({
                             className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                                 isLastRow ? 'border-b' : ''
                             }`}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         />
 
@@ -1195,7 +1246,6 @@ export function MetricRowGroup({
                     </tr>
                 )
             })}
-
             {/* Collapsible Breakdown Section. */}
             {(metric.breakdownFilter?.breakdowns?.length ?? 0) > 0 && (
                 <CollapsibleBreakdownSection
@@ -1211,6 +1261,8 @@ export function MetricRowGroup({
                     colors={colors}
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}
+                    onBreakdownAttributionChange={onBreakdownAttributionChange}
+                    onBreakdownLimitChange={onBreakdownLimitChange}
                     onRetry={handleRetry}
                     query={debugQuery}
                     handleTooltipMouseEnter={handleTooltipMouseEnter}
@@ -1218,7 +1270,6 @@ export function MetricRowGroup({
                     handleTooltipMouseMove={handleTooltipMouseMove}
                 />
             )}
-
             {timeseriesModalState.variantResult && (
                 <TimeseriesModal
                     isOpen={timeseriesModalState.isOpen}

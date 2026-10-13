@@ -13,7 +13,8 @@ and the SQL editor use), so no web worker ever waits on ClickHouse:
   background thread polls this — invisible to the user, who already waits on the
   run callback or the page response.
 
-Wired in posthog/urls.py at internal/notebooks/data_plane/query/.
+Wired in posthog/urls.py at internal/notebooks/data_plane/query/. The heartbeat a long cell
+sends while it runs lives in presentation/views/sandbox_heartbeat.py.
 """
 
 import json
@@ -45,6 +46,7 @@ from products.notebooks.backend.sql_v2 import (
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
+from products.notebooks.backend.sql_v2_runs import touch_run_progress
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -84,6 +86,19 @@ def _rows_to_arrow_bytes(
     with pa.ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table)
     return sink.getvalue().to_pybytes()
+
+
+def record_sandbox_heartbeat(token: str) -> bool:
+    """Reset the watchdog clock of the run a data-plane token names; return whether the token is valid."""
+    try:
+        claims = verify_data_plane_token(token)
+    except signing.BadSignature:
+        return False
+    # A cell that computes without reading data makes no data-plane fetches, so without this
+    # its only sign of life would be the final callback, and the watchdog would fail it first.
+    if claims.run_id:
+        touch_run_progress(claims.team_id, claims.notebook_short_id, claims.run_id)
+    return True
 
 
 def _verify_request_token(request: HttpRequest) -> DataPlaneClaims | JsonResponse:
@@ -138,6 +153,13 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
 
     if not Notebook.objects.filter(team_id=claims.team_id, short_id=claims.notebook_short_id).exists():
         return JsonResponse({"error": "Notebook not found"}, status=404)
+
+    # This request is the kernel's only observable sign of life during a run, so it resets the
+    # run's watchdog clock. A python cell materializes one input per upstream node, one after
+    # another, and without this the watchdog would count that whole sequence against a single
+    # budget and fail a cell that is working correctly.
+    if claims.run_id:
+        touch_run_progress(claims.team_id, claims.notebook_short_id, claims.run_id)
     team = Team.objects.get(id=claims.team_id)
     user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
 

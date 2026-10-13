@@ -111,15 +111,11 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
 
     // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
     // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
+    // normalizeOsAlias fills the event's own $os upstream, so the loop above already lifted $os into $set.
     const osName = properties.$os_name
     if (osName !== undefined && !skipServerHostOs) {
-        if (!('$os' in properties)) {
-            properties.$os = osName
-        }
-        if (!('$os' in $set)) {
-            $set.$os = osName
-        }
-        // Same null rule as above: a null $os_name must not claim $initial_os for good.
+        // Only reachable when $os is null, since the loop skips $initial_os for a null value; the
+        // non-null check on $os_name is the same first-touch rule as above.
         if (osName !== null && !('$initial_os' in $set_once!)) {
             $set_once!.$initial_os = osName
         }
@@ -135,9 +131,9 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
-// Deletion call sites own the version they emit (the +100 fudge for hard deletes,
-// the exact stamped death version for tombstones), so a deletion must state it
-// explicitly — a stale person.version can never become a no-headroom death row.
+// Deletion call sites own the version they emit (the exact stamped death version
+// for tombstones), so a deletion must state it explicitly — a stale person.version
+// can never become a no-headroom death row.
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted?: false): PersonMessage
 export function generateKafkaPersonUpdateMessage(
     person: InternalPerson,
@@ -173,7 +169,7 @@ export function getFinalPostgresQuery(queryString: string, values: any[]): strin
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
 }
 
-// keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
+// keep in sync with posthog/api/utils.py::safe_clickhouse_string
 export function safeClickhouseString(str: string): string {
     // character is a surrogate
     return str.replace(/[\ud800-\udfff]/gu, (match) => {

@@ -1,6 +1,9 @@
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+
 import {
+    computeIsSelfDrivingSetUp,
     computeOnboardingDecision,
     InboxOnboardingDecision,
     InboxOnboardingMode,
@@ -22,6 +25,7 @@ describe('inboxOnboardingLogic', () => {
             isWizardRunning: false,
             isWizardStateResolved: true,
             isRefetching: false,
+            manualSetupRequested: false,
         }
 
         it.each<[string, Partial<OnboardingModeInputs>, InboxOnboardingDecision]>([
@@ -124,8 +128,48 @@ describe('inboxOnboardingLogic', () => {
                 { isRefetching: true, hasExistingWork: true },
                 { mode: 'banner', reason: null },
             ],
+            // "Set up manually" opens the Configuration and Scouts tabs the takeover was covering,
+            // so the whole prompt stands down for the session.
+            [
+                'manual setup requested, would otherwise take over',
+                { manualSetupRequested: true },
+                { mode: 'none', reason: 'manual_setup' },
+            ],
+            // Enabling a source or scout from there is the real end state, so `already_set_up` wins
+            // and the takeover can never come back, session flag or not.
+            [
+                'manual setup requested, now set up',
+                { manualSetupRequested: true, isSelfDrivingSetUp: true },
+                { mode: 'none', reason: 'already_set_up' },
+            ],
+            // A run in flight still outranks it: the progress widget is the more accurate story.
+            [
+                'manual setup requested, wizard running',
+                { manualSetupRequested: true, isWizardRunning: true },
+                { mode: 'none', reason: 'wizard_running' },
+            ],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingDecision({ ...base, ...overrides })).toEqual(expected)
+        })
+    })
+
+    describe('computeIsSelfDrivingSetUp', () => {
+        type Scout = Pick<SignalScoutConfigApi, 'enabled' | 'managed_by' | 'scout_role'>
+        const background: Scout = { enabled: true, managed_by: 'background', scout_role: 'specialist' }
+        const operational: Scout = { enabled: true, managed_by: 'team', scout_role: 'operational' }
+        const specialist: Scout = { enabled: true, managed_by: 'team', scout_role: 'specialist' }
+
+        it.each<[string, number, Scout[] | null, boolean]>([
+            ['configs not loaded', 0, null, false],
+            ['background scout only', 0, [background], false],
+            // The first inbox visit seeds the operational scouts enabled, so they must not end onboarding.
+            ['background scout plus seeded operational scout', 0, [background, operational], false],
+            ['operational scout only', 0, [operational], false],
+            ['person enabled a specialist scout', 0, [operational, specialist], true],
+            ['disabled specialist scout', 0, [{ ...specialist, enabled: false }], false],
+            ['enabled source', 1, [operational], true],
+        ])('%s', (_label, enabledSourcesCount, scoutConfigs, expected) => {
+            expect(computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs)).toBe(expected)
         })
     })
 

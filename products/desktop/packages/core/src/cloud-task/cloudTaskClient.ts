@@ -13,6 +13,11 @@ export interface CloudTaskClient {
   }): Promise<void>;
   unwatch(taskId: string, runId: string): Promise<void>;
   retry(taskId: string, runId: string): Promise<void>;
+  /**
+   * Each subscriber calls `watch()` from `onStarted`; the host counts one
+   * subscriber per watch and drops one when the subscription ends. A subscriber
+   * that never watches would still drop a count another subscriber depends on.
+   */
   subscribe(
     taskId: string,
     runId: string,

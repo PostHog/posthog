@@ -5,11 +5,13 @@ from django.utils import timezone
 
 from posthog.models.utils import UUIDModel, build_unique_relationship_check
 
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class Text(models.Model):
     body = models.CharField(max_length=4000, null=True, blank=True)
+    agent_context = models.TextField(null=True, blank=True)
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
@@ -35,7 +37,7 @@ class ButtonTile(UUIDModel):
         max_length=10, choices=[("primary", "Primary"), ("secondary", "Secondary")], default="primary"
     )
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "posthog.User",
@@ -45,10 +47,15 @@ class ButtonTile(UUIDModel):
         related_name="modified_button_tiles",
     )
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         db_table = "posthog_buttontile"
+
+
+class DashboardTileBadge(models.TextChoices):
+    WINNER = "winner", "Winner"
+    CHEEKY_HOG = "cheeky-hog", "Cheeky hog"
 
 
 class DashboardTileManager(models.Manager):
@@ -90,7 +97,7 @@ class DashboardTile(models.Model):
     # Auto-populated in save() when omitted. The index is created concurrently
     # outside Django state (migration 0004) and not declared here, so db_index=False
     # keeps state and DB in sync.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False, related_name="+")
 
     # Tile layout and style
     layouts = models.JSONField(default=dict)
@@ -105,6 +112,10 @@ class DashboardTile(models.Model):
     show_description = models.BooleanField(null=True, blank=True)
 
     transparent_background = models.BooleanField(null=True, blank=True)
+
+    # Tiles that share a group key belong together. The dashboard's `customization.group_titles` names each group.
+    group_key = models.CharField(max_length=MAX_GROUP_KEY_LENGTH, null=True, blank=True)
+    badge = models.CharField(max_length=20, choices=DashboardTileBadge.choices, null=True)
 
     deleted = models.BooleanField(null=True, blank=True)
 
@@ -161,7 +172,7 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
-                from products.product_analytics.backend.models.insight import generate_insight_filters_hash
+                from products.product_analytics.backend.facade.models import generate_insight_filters_hash
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
@@ -216,7 +227,7 @@ class DashboardTile(models.Model):
                 raise ValidationError("This content is already on the destination dashboard.")
             stale.delete()
 
-    def copy_to_dashboard(self, dashboard: Dashboard) -> None:
+    def copy_to_dashboard(self, dashboard: Dashboard, *, keep_group_key: bool = True) -> None:
         """
         Place this tile's content on another dashboard: create a new row, or undelete a soft-deleted
         row for the same insight, text, or button (unique constraint would block a second insert otherwise).
@@ -248,6 +259,8 @@ class DashboardTile(models.Model):
             existing.color = self.color
             existing.show_description = self.show_description
             existing.transparent_background = self.transparent_background
+            existing.group_key = self.group_key if keep_group_key else None
+            existing.badge = self.badge
             existing.filters_overrides = self.filters_overrides
             existing.save()
             return
@@ -262,6 +275,8 @@ class DashboardTile(models.Model):
             layouts=self.layouts,
             show_description=self.show_description,
             transparent_background=self.transparent_background,
+            group_key=self.group_key if keep_group_key else None,
+            badge=self.badge,
             filters_overrides=self.filters_overrides,
         )
 
@@ -269,12 +284,17 @@ class DashboardTile(models.Model):
     def sort_tiles_by_layout(
         tiles: list["DashboardTile"] | QuerySet["DashboardTile"], layout_size: str = "sm"
     ) -> list["DashboardTile"]:
-        """Sort tiles by their layout position (y, then x)."""
+        """Sort tiles by their layout position (y, then x), then by id.
+
+        Tiles without a layout all fall back to the same position, so without the id
+        tiebreak their order would be whatever the database happened to return.
+        """
         return sorted(
             tiles,
             key=lambda tile: (
                 tile.layouts.get(layout_size, {}).get("y", 100),
                 tile.layouts.get(layout_size, {}).get("x", 100),
+                tile.pk or 0,
             ),
         )
 

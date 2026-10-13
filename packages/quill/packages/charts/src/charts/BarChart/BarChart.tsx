@@ -3,6 +3,7 @@ import React, { useCallback, useMemo, useRef } from 'react'
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { bandCenter, type BarChartPrivate, groupedBarCenter } from '../../core/bar-layout'
+import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
@@ -48,6 +49,8 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable`. */
+    isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
      *  where the gesture is disabled by the core. See `ChartProps.onDateRangeZoom`. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
@@ -69,15 +72,17 @@ export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Met
 function BarChartInner<Meta = unknown>({
     series,
     labels,
-    config,
+    config: rawConfig,
     theme,
     tooltip,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     className,
     dataAttr,
     children,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
+    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
         showGrid = false,
@@ -98,6 +103,7 @@ function BarChartInner<Meta = unknown>({
         bandPadding,
         minBandSize,
         minBarSize,
+        minBarSizeScope = 'always',
         fitToHeight = false,
         valueDomain,
         valuePadding,
@@ -105,7 +111,8 @@ function BarChartInner<Meta = unknown>({
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
-    const barTrack = trackConfig !== false
+    const solidTrack = trackConfig === 'solid'
+    const barTrack = trackConfig !== false && !solidTrack
     const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -285,8 +292,10 @@ function BarChartInner<Meta = unknown>({
                 roundStackEnds,
                 barCornerRadius,
                 barTrack,
+                solidTrack,
                 barShadow,
                 barFillStyle,
+                minBarSizeScope,
             }),
         [
             showGrid,
@@ -298,9 +307,11 @@ function BarChartInner<Meta = unknown>({
             roundStackEnds,
             barCornerRadius,
             barTrack,
+            solidTrack,
             xTickFormatter,
             barShadow,
             barFillStyle,
+            minBarSizeScope,
         ]
     )
 
@@ -439,6 +450,7 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
+            isPointClickable={isPointClickable}
             onDateRangeZoom={onDateRangeZoom}
             wrapClickData={onPointClick ? wrapClickData : undefined}
             resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}

@@ -1,0 +1,352 @@
+import re
+from pathlib import Path
+
+import pytest
+
+from django.conf import settings
+from django.test import override_settings
+
+import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
+from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
+    get_nonsensitive_and_sensitive_field_names,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+
+ALL_SOURCES = SourceRegistry.get_all_sources()
+SOURCE_TYPES = sorted(ALL_SOURCES.keys(), key=str)
+STATIC_CATALOG_SOURCES = sorted(
+    (source_type for source_type, source in ALL_SOURCES.items() if source.lists_tables_without_credentials),
+    key=str,
+)
+
+# Sources that declare a credential-free catalog but cannot actually list one: `get_schemas`
+# raises on a placeholder config, so they publish no public docs today. Every entry below is a
+# contradiction to resolve, not an exemption — either stop advertising a static catalog or make
+# discovery work without credentials.
+CANNOT_LIST_WITHOUT_CREDENTIALS = {"Github"}
+
+# Sources whose curated descriptions are keyed to names `get_schemas` never returns, so those
+# descriptions reach nobody. Fix the key or expose the endpoint, then drop the entry.
+DESCRIPTIONS_NOT_IN_SCHEMAS = {
+    "BrowserUse",
+    "CheckoutCom",
+    "EZOfficeInventory",
+    "Giphy",
+    "GoogleSearchConsole",
+    "Langfuse",
+    "Lovable",
+    "Omnisend",
+    "OpenWeather",
+    "Pexels",
+    "ShipStation",
+    "USCensus",
+    "UsBea",
+    "ZendeskSunshine",
+}
+
+# Static-catalog sources with no curated descriptions at all: every table falls back to LLM
+# enrichment. Adding descriptions is an improvement, so drop the entry when one does.
+SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "PgAnalyze"}
+
+# Catalog icons are declared as a `/static/` URL and served from `frontend/public`.
+ICON_ROOT = Path(settings.BASE_DIR) / "frontend" / "public"
+
+# Sources whose declared icon has no file, so every catalog tile for them requests an image that
+# 404s and falls back to the placeholder hedgehog. Each entry is a logo to add, not an exemption.
+SOURCES_WITHOUT_AN_ICON_FILE = {
+    "AikidoSecurity",
+    "Appwrite",
+    "Backblaze",
+    "Baseten",
+    "BrowserUse",
+    "Cohere",
+    "DenoDeploy",
+    "FlyIo",
+    "Groq",
+    "Gumloop",
+    "Hatchet",
+    "Hetzner",
+    "Kernel",
+    "Linode",
+    "Maxio",
+    "Metriport",
+    "OpenRouter",
+    "Roark",
+    "ScaleAI",
+    "Skyvern",
+    "TerraApi",
+    "TriggerDev",
+    "TwelveLabs",
+    "Upstash",
+    "Vespa",
+    "Zep",
+}
+
+CREDENTIAL_FIELD = re.compile(r"api[_-]?key|access[_-]?key|token|secret|password|passphrase|private[_-]?key", re.I)
+
+# The public half of a keypair, each paired with a `*_secret` field that is marked secret. A name
+# ending in `_id`/`_ids` is exempt for the same reason without needing an entry here.
+PUBLIC_CREDENTIAL_HALVES = {
+    "Adjust.app_tokens",
+    "Cloudinary.api_key",
+    "ConfluentCloud.api_key",
+    "Fleetio.account_token",
+    "Gong.access_key",
+    "Imagga.api_key",
+}
+
+# Sources that take a host but do not inherit ValidateDatabaseHostMixin. Each one reaches its host
+# only over HTTP, where the egress proxy refuses an internal address on every request, so the mixin
+# is not required. Most still check the host themselves, with `_is_host_safe` or a vendor domain
+# allowlist. A source that opens a raw socket, such as a database wire protocol or gRPC, has no
+# proxy in its path, so it must inherit the mixin and check the host where it connects.
+HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN = {
+    "Appdynamics",
+    "Argocd",
+    "Bigeye",
+    "Chatwoot",
+    "Formbricks",
+    "Gerrit",
+    "Grafana",
+    "Hatchet",
+    "Kestra",
+    "LangSmith",
+    "Langfuse",
+    "Metabase",
+    "OctopusDeploy",
+    "Omni",
+    "Scalr",
+    "SigNoz",
+    "Sourcegraph",
+    "Teamcity",
+    "WeightsAndBiases",
+    "Windmill",
+    "Wrike",
+}
+
+HOST_FIELD_SOURCES = sorted(
+    (
+        source_type
+        for source_type, source in ALL_SOURCES.items()
+        if any(getattr(field, "name", None) == "host" for field in source.get_source_config.fields)
+    ),
+    key=str,
+)
+
+
+def _schema_names(source) -> set[str]:
+    return {schema.name for schema in source.get_schemas(source._placeholder_config(), team_id=0)}
+
+
+@pytest.mark.parametrize("source_type", STATIC_CATALOG_SOURCES, ids=str)
+def test_static_catalog_sources_can_list_tables_without_credentials(source_type):
+    source = ALL_SOURCES[source_type]
+    expected_to_fail = str(source_type) in CANNOT_LIST_WITHOUT_CREDENTIALS
+
+    try:
+        _schema_names(source)
+    except Exception as error:
+        assert expected_to_fail, (
+            f"{source_type} sets lists_tables_without_credentials but get_schemas raises {error!r}, "
+            f"so it publishes no table catalog. Make discovery credential-free, or clear the flag."
+        )
+        return
+
+    assert not expected_to_fail, (
+        f"{source_type} now lists tables without credentials — remove it from CANNOT_LIST_WITHOUT_CREDENTIALS."
+    )
+
+
+@pytest.mark.parametrize("source_type", STATIC_CATALOG_SOURCES, ids=str)
+def test_canonical_descriptions_are_keyed_by_schema_name(source_type):
+    source = ALL_SOURCES[source_type]
+    if str(source_type) in CANNOT_LIST_WITHOUT_CREDENTIALS:
+        return
+
+    descriptions = source.get_canonical_descriptions()
+    if str(source_type) in SOURCES_WITHOUT_CURATED_DESCRIPTIONS:
+        assert not descriptions, (
+            f"{source_type} now curates descriptions — remove it from SOURCES_WITHOUT_CURATED_DESCRIPTIONS."
+        )
+        return
+    assert descriptions, (
+        f"{source_type} curates no table descriptions, so every table falls back to LLM enrichment. "
+        f"Add them, or record it in SOURCES_WITHOUT_CURATED_DESCRIPTIONS."
+    )
+
+    stray = set(descriptions) - _schema_names(source)
+    if str(source_type) in DESCRIPTIONS_NOT_IN_SCHEMAS:
+        assert stray, f"{source_type} is clean — remove it from DESCRIPTIONS_NOT_IN_SCHEMAS."
+        return
+
+    assert not stray, (
+        f"{source_type} describes {sorted(stray)}, which get_schemas never returns, so those "
+        f"descriptions never render. Fix the key to match the schema name, or expose the endpoint."
+    )
+
+
+@pytest.mark.parametrize("source_type", STATIC_CATALOG_SOURCES, ids=str)
+def test_documented_tables_match_the_schemas_they_describe(source_type):
+    source = ALL_SOURCES[source_type]
+    if str(source_type) in CANNOT_LIST_WITHOUT_CREDENTIALS:
+        return
+
+    # get_documented_tables swallows every exception and degrades to [], so a source that starts
+    # raising goes quiet rather than failing. Asserting it is non-empty is what catches that.
+    tables = source.get_documented_tables()
+    assert tables, f"{source_type} publishes no documented tables — get_documented_tables swallowed an error."
+    assert {table["name"] for table in tables} == _schema_names(source)
+
+
+@pytest.mark.parametrize("source_type", SOURCE_TYPES, ids=str)
+def test_credential_fields_are_marked_secret(source_type):
+    source = ALL_SOURCES[source_type]
+
+    for field in source.get_source_config.fields:
+        if not isinstance(field, SourceFieldInputConfig) or not CREDENTIAL_FIELD.search(field.name):
+            continue
+        # `*_id`/`*_ids` name the public identifier half of a keypair, never the credential.
+        if field.name.endswith(("_id", "_ids")):
+            continue
+        if f"{source_type}.{field.name}" in PUBLIC_CREDENTIAL_HALVES:
+            continue
+
+        assert field.secret, (
+            f"{source_type}.{field.name} looks like a credential but is not marked secret, so it "
+            f"stays readable after the source is connected. Set secret=True, or record it in "
+            f"PUBLIC_CREDENTIAL_HALVES if it is the public half of a keypair."
+        )
+
+
+@pytest.mark.parametrize("source_type", HOST_FIELD_SOURCES, ids=str)
+def test_sources_with_a_host_field_refuse_an_internal_host(source_type):
+    source = ALL_SOURCES[source_type]
+    listed = str(source_type) in HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN
+
+    if not isinstance(source, ValidateDatabaseHostMixin):
+        assert listed, (
+            f"{source_type} takes a host but does not inherit ValidateDatabaseHostMixin. Inherit it "
+            f"and check the host where the source connects. If the source reaches its host only over "
+            f"HTTP, where the egress proxy covers it, record it in HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN."
+        )
+        return
+
+    assert not listed, (
+        f"{source_type} now inherits ValidateDatabaseHostMixin. Remove it from HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN."
+    )
+    with override_settings(CLOUD_DEPLOYMENT="US"):
+        is_valid, _ = source.is_database_host_valid("169.254.169.254", team_id=999)
+
+    assert not is_valid, f"{source_type} accepts a link-local host."
+
+
+@pytest.mark.parametrize("source_type", SOURCE_TYPES, ids=str)
+def test_source_icon_file_exists(source_type):
+    icon_path = ALL_SOURCES[source_type].get_source_config.iconPath
+    assert icon_path.startswith(settings.STATIC_URL), (
+        f"{source_type} declares iconPath {icon_path!r}; catalog icons are served from {settings.STATIC_URL}."
+    )
+
+    exists = (ICON_ROOT / icon_path.removeprefix(settings.STATIC_URL)).is_file()
+    listed = str(source_type) in SOURCES_WITHOUT_AN_ICON_FILE
+
+    if listed:
+        assert not exists, f"{source_type} now ships its icon. Remove it from SOURCES_WITHOUT_AN_ICON_FILE."
+        return
+
+    assert exists, (
+        f"{source_type} declares iconPath {icon_path!r}, but no such file exists under "
+        f"frontend/public. Every catalog tile for it would request a 404 and fall back to the "
+        f"placeholder icon. Add the file, or correct the path."
+    )
+
+
+def test_all_registered_sources_have_valid_classification() -> None:
+    for source in ALL_SOURCES.values():
+        config = source.get_source_config
+        split = get_nonsensitive_and_sensitive_field_names(config.fields)
+
+        overlap = split.nonsensitive & split.sensitive
+        assert not overlap, f"{config.name}: fields in both sets: {overlap}"
+
+
+def test_password_typed_fields_must_be_marked_secret() -> None:
+    def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
+        offenders: list[str] = []
+        for field in fields:
+            if isinstance(field, SourceFieldInputConfig):
+                if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
+                    offenders.append(field.name)
+            elif isinstance(field, SourceFieldSwitchGroupConfig):
+                offenders.extend(collect_password_fields_without_secret(field.fields))
+            elif isinstance(field, SourceFieldSelectConfig):
+                for option in field.options:
+                    if option.fields:
+                        offenders.extend(collect_password_fields_without_secret(option.fields))
+        return offenders
+
+    all_offenders: dict[str, list[str]] = {}
+    for source in ALL_SOURCES.values():
+        config = source.get_source_config
+        offenders = collect_password_fields_without_secret(config.fields)
+        if offenders:
+            all_offenders[config.name] = offenders
+
+    assert not all_offenders, (
+        f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
+        f"Offending fields: {all_offenders}"
+    )
+
+
+def test_dynamic_classification_covers_old_hardcoded_allowlist() -> None:
+    old_allowed = {
+        "stripe_account_id",
+        "database",
+        "host",
+        "port",
+        "user",
+        "schema",
+        "ssh_tunnel",
+        "using_ssl",
+        "region",
+        "site_name",
+        "subdomain",
+        "email_address",
+        "hubspot_integration_id",
+        "custom_properties",
+        "account_id",
+        "warehouse",
+        "role",
+        "dataset_id",
+        "temporary-dataset",
+        "dataset_project",
+        "customer_id",
+        "google_ads_integration_id",
+        "is_mcc_account",
+        "spreadsheet_url",
+        "linkedin_ads_integration_id",
+        "meta_ads_integration_id",
+        "sync_lookback_days",
+        "reddit_integration_id",
+        "salesforce_integration_id",
+        "repository",
+        "shopify_store_id",
+        "namespace",
+    }
+
+    all_nonsensitive: set[str] = set()
+    for source in ALL_SOURCES.values():
+        config = source.get_source_config
+        split = get_nonsensitive_and_sensitive_field_names(config.fields)
+        all_nonsensitive.update(split.nonsensitive)
+
+    missing = old_allowed - all_nonsensitive
+    assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"

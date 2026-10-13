@@ -10,10 +10,10 @@ import {
   ComboboxList,
   ComboboxTrigger,
   Button as QuillButton,
+  Textarea,
 } from "@posthog/quill";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { TextArea } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { LoopFormValues } from "../loopFormTypes";
@@ -254,22 +254,22 @@ export function LoopInstructionsFields({
             label="Additional context"
             hint="Optional extra instructions appended after the skill invocation on every run."
           >
-            <TextArea
+            <Textarea
+              className="min-h-[120px] text-[13px] leading-relaxed"
               value={values.skillContext}
               placeholder="Only check the release workflow and post the summary to #eng-standup."
               disabled={disabled}
-              className="min-h-[120px] text-[13px] leading-relaxed"
               onChange={(e) => onPatch({ skillContext: e.target.value })}
             />
           </Field>
         </>
       ) : (
         <Field label="Instructions" required>
-          <TextArea
+          <Textarea
+            className="min-h-[220px] text-[13px] leading-relaxed"
             value={values.instructions}
             placeholder="Summarize failing CI runs from the last 24 hours and post the summary to #eng-standup."
             disabled={disabled}
-            className="min-h-[220px] text-[13px] leading-relaxed"
             onChange={(e) => onPatch({ instructions: e.target.value })}
           />
         </Field>

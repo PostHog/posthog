@@ -15,12 +15,18 @@ set -uo pipefail # intentionally not -e: run every check, then report
 
 cd "$(dirname "$0")/.." || exit 1
 SANDBOX="bin/dev-sandbox"
+repo="$(pwd -P)" # canonical repo root, as Seatbelt sees it
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 die() {
     printf '  \033[31mFAIL\033[0m %s\n' "$1"
     fail=1
 }
+# The checks below build throwaway repos at several different points. One trap owns
+# all of them, so an interrupt mid-run doesn't strand a git worktree in TMPDIR.
+_tmpdirs=()
+cleanup_tmpdirs() { [[ ${#_tmpdirs[@]} -eq 0 ]] || rm -rf "${_tmpdirs[@]}"; }
+trap cleanup_tmpdirs EXIT
 
 if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sandbox-exec >/dev/null 2>&1; then
     echo "Sandbox is a no-op on this platform — nothing to test."
@@ -161,13 +167,19 @@ fi
 
 # 11. Execute-later write targets are read-only inside the sandbox (poisoning
 #     them would run code OUTSIDE the sandbox). Probe files only — never real ones.
-check_write_blocked() {
-    if $SANDBOX "echo x > '$1'" >/dev/null 2>&1; then
+#     The probes differ in how they attempt the write; they share this verdict.
+#     Returns non-zero when the write got through, so a caller can clean up after
+#     whatever its probe just created.
+report_write_blocked() { # $1 = probe exit status, $2 = label
+    if [[ "$1" -eq 0 ]]; then
         die "writable, should be blocked: $2"
-        rm -f "$1"
-    else
-        pass "write blocked: $2"
+        return 1
     fi
+    pass "write blocked: $2"
+}
+check_write_blocked() {
+    $SANDBOX "echo x > '$1'" >/dev/null 2>&1
+    report_write_blocked $? "$2" || rm -f "$1"
 }
 check_write_blocked "bin/.dev_sandbox_selftest_probe" "repo bin/"
 mkdir -p .git/hooks 2>/dev/null || true
@@ -175,18 +187,157 @@ check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
 if [[ -d "$HOME/.cargo/bin" ]]; then
     check_write_blocked "$HOME/.cargo/bin/.dev_sandbox_selftest_probe" "cargo bin"
 fi
+# Homebrew's bin/sbin/Cellar: developer-owned and on PATH, same execute-later route
+# as cargo bin above — no git-config indirection needed to reach it.
+for hb_bin in /opt/homebrew/bin /usr/local/bin; do
+    if [[ -d "$hb_bin" ]]; then
+        check_write_blocked "$hb_bin/.dev_sandbox_selftest_probe" "Homebrew bin ($hb_bin)"
+    fi
+done
+# For files that really exist and must not be damaged by the probe: opens for
+# append and writes nothing, so Seatbelt still has to decide on write access while
+# a missing deny cannot corrupt the file.
+check_write_blocked_existing() {
+    $SANDBOX ": >> '$1'" >/dev/null 2>&1
+    report_write_blocked $? "$2"
+}
+# Repo-local git config reaches the same escape as .git/hooks above: core.hooksPath
+# moves the hook directory elsewhere, and core.fsmonitor is a command git runs on
+# ordinary read commands. --git-common-dir resolves to the main repo's .git in a
+# worktree, which is the file git actually reads there.
+gitcommon="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+# Absolute, but not symlink-resolved — Seatbelt matches the physical path.
+[[ -n "$gitcommon" ]] && gitcommon="$(cd "$gitcommon" 2>/dev/null && pwd -P || true)"
+if [[ -n "$gitcommon" && -f "$gitcommon/config" ]]; then
+    check_write_blocked_existing "$gitcommon/config" "repo .git/config (core.hooksPath / core.fsmonitor escape)"
+else
+    echo "  --   repo .git/config not found, skipping"
+fi
+# The scripts that actually run outside the sandbox. core.hooksPath points git at
+# .husky, so the .git/hooks deny above guards a directory git never reads once that
+# is set; these are the real hooks. .flox/env holds the activation scripts, and
+# on-activate.sh is what builds this sandbox in the first place.
+# .husky/_/husky.sh is deliberately absent from this list — husky's installer
+# rewrites it on every sandboxed install, so the profile re-allows it. See the note
+# in bin/dev-sandbox.sb.
+for unsandboxed_exec in .husky/pre-commit .husky/pre-push .husky/post-checkout .flox/env/on-activate.sh; do
+    if [[ ! -f "$repo/$unsandboxed_exec" ]]; then
+        echo "  --   $unsandboxed_exec absent, skipping"
+        continue
+    fi
+    check_write_blocked_existing "$repo/$unsandboxed_exec" "$unsandboxed_exec (runs unsandboxed)"
+done
+# Counterpart to the .husky checks above, so the suite does not read as if husky
+# hooks were fully sealed. The checked-in hooks each source .husky/_/husky.sh, and
+# that file stays writable BY DESIGN — husky's installer rewrites it on every
+# sandboxed install and throws if it cannot. So the .husky denies stop tampering
+# with the hook files, not execution through the sourced helper. This asserts the
+# door is knowingly open; closing it (and breaking pnpm install) turns this red.
+# See bin/dev-sandbox.sb and the follow-up in #79300.
+if [[ -f "$repo/.husky/_/husky.sh" ]]; then
+    if $SANDBOX ": >> '$repo/.husky/_/husky.sh'" >/dev/null 2>&1; then
+        pass "known-open: .husky/_/husky.sh writable by design (husky reinstalls it)"
+    else
+        die ".husky/_/husky.sh is denied — this breaks the sandboxed pnpm install (husky throws)"
+    fi
+else
+    echo "  --   .husky/_/husky.sh absent, skipping known-open check"
+fi
+# Homebrew's system-scope gitconfig is owned by the developer, not root, and a brew
+# git reads it on every invocation — the same escape from a file outside $HOME.
+for sysgitcfg in /opt/homebrew/etc/gitconfig /usr/local/etc/gitconfig; do
+    if [[ ! -f "$sysgitcfg" ]]; then
+        echo "  --   $sysgitcfg absent, skipping"
+        continue
+    fi
+    check_write_blocked_existing "$sysgitcfg" "system gitconfig ($sysgitcfg)"
+done
+# The .git node itself: in a worktree it is a file holding `gitdir: <path>`, so
+# rewriting it repoints git at an attacker-controlled directory that brings its own
+# config. Build a throwaway worktree rather than probing this checkout's own .git —
+# appending to a directory fails on its own, so on a plain clone that probe would
+# report "blocked" without the sandbox having anything to do with it.
+wt_root="$(cd "$(mktemp -d)" && pwd -P)"
+_tmpdirs+=("$wt_root")
+# Runs the throwaway worktree's own copy of the wrapper, so the deny under test is
+# the one that copy renders. The cd matters: from the outer repo the child's cwd is
+# read-denied, and a getcwd failure would look like the write being blocked.
+wt_write_blocked() { # $1 = shell write expression, $2 = label
+    (cd "$wt_root/wt" && TMPDIR="$wt_root/tmp" ./bin/dev-sandbox "$1") >/dev/null 2>&1
+    report_write_blocked $? "$2"
+}
+# The counterpart: a write the dev stack depends on, which must NOT be blocked.
+# Every other check here asserts something is refused, so an over-broad deny would
+# land green — this is what catches one.
+wt_write_allowed() { # $1 = shell write expression, $2 = label
+    if (cd "$wt_root/wt" && TMPDIR="$wt_root/tmp" ./bin/dev-sandbox "$1") >/dev/null 2>&1; then
+        pass "write allowed: $2"
+    else
+        die "write blocked, should be allowed: $2"
+    fi
+}
+if git init -q "$wt_root/origin" 2>/dev/null &&
+    git -C "$wt_root/origin" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false \
+        commit -q --allow-empty -m init 2>/dev/null &&
+    git -C "$wt_root/origin" worktree add -q "$wt_root/wt" 2>/dev/null &&
+    [[ -f "$wt_root/wt/.git" ]]; then
+    mkdir -p "$wt_root/wt/bin" "$wt_root/tmp"
+    cp -p "$repo/bin/dev-sandbox" "$repo/bin/dev-sandbox.sb" "$wt_root/wt/bin/"
+    wt_write_blocked ": >> .git" "worktree .git redirect file (gitdir redirect escape)"
+    # The worktree's real git dir lives under the MAIN repo, which no
+    # PROJECT-relative rule reaches; the wrapper denies it at runtime.
+    wt_gitdir="$(cd "$wt_root/wt" && git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+    if [[ -n "$wt_gitdir" ]]; then
+        wt_write_blocked "echo x > '$wt_gitdir/config.worktree'" "per-worktree config.worktree"
+        # commondir repoints git at another common git dir, which brings its own
+        # config AND hooks/ — so it reaches the escape from a file the config denies
+        # do not name. Append-only: the real one holds "../.." and must keep working.
+        wt_write_blocked ": >> '$wt_gitdir/commondir'" "per-worktree commondir (common-dir repoint escape)"
+    fi
+    # Positive control: the .git node deny is a literal, not a subpath, so ordinary
+    # entries inside a real .git directory must stay writable or the dev stack breaks.
+    wt_write_allowed "echo x > '$wt_root/origin/.git/DEV_SANDBOX_PROBE'" \
+        "entry inside a real .git dir (the deny is the node, not a subpath)"
+else
+    echo "  --   could not build a throwaway worktree, skipping .git redirect checks"
+fi
+# A checkout whose .git is a symlink to a git dir elsewhere, which is what dotfile
+# managers produce. Seatbelt matches the physical path, so the profile's
+# PROJECT/.git/config literal cannot fire here and the wrapper's runtime
+# canonicalization is the only thing denying the write. Without it this passes
+# silently while the developer's config stays writable.
+sym_root="$(cd "$(mktemp -d)" && pwd -P)"
+_tmpdirs+=("$sym_root")
+if git init -q "$sym_root/repo" 2>/dev/null &&
+    mv "$sym_root/repo/.git" "$sym_root/realgit" 2>/dev/null &&
+    ln -s "$sym_root/realgit" "$sym_root/repo/.git" 2>/dev/null; then
+    mkdir -p "$sym_root/repo/bin" "$sym_root/tmp"
+    cp -p "$repo/bin/dev-sandbox" "$repo/bin/dev-sandbox.sb" "$sym_root/repo/bin/"
+    (cd "$sym_root/repo" && TMPDIR="$sym_root/tmp" ./bin/dev-sandbox ": >> '$sym_root/realgit/config'") >/dev/null 2>&1
+    report_write_blocked $? "symlinked .git, config at the physical target"
+else
+    echo "  --   could not build a symlinked-.git checkout, skipping"
+fi
 
 # 12. The rendered profile + its preflight stamp are read-only inside the sandbox.
 #     Otherwise a dependency could overwrite them and have a poisoned profile
 #     loaded on the next cache hit (which re-runs neither render nor preflight),
-#     bypassing the sandbox entirely. Earlier checks have already rendered it.
-rendered_profiles=("${TMPDIR:-/tmp}"/posthog-dev-sandbox-*.sb)
+#     bypassing the sandbox entirely.
+#     A profile write-denies only itself, so render into a private TMPDIR: the only
+#     profile there is the one these checks run under. Globbing the shared TMPDIR
+#     would also turn up profiles left by other worktrees — writable by this sandbox,
+#     and so read as a failure — and clearing those would evict their live cache.
+prof_tmp="$(cd "$(mktemp -d)" && pwd -P)"
+_tmpdirs+=("$prof_tmp")
+export TMPDIR="$prof_tmp" # check 13 below reuses this same private profile
+$SANDBOX 'true' >/dev/null 2>&1
+rendered_profiles=("$prof_tmp"/posthog-dev-sandbox-*.sb)
 rendered_profile="${rendered_profiles[0]}" # literal glob if none matched -> -f false below
 if [[ -f "$rendered_profile" ]]; then
     check_write_blocked "$rendered_profile" "rendered profile (cache poisoning)"
     check_write_blocked "$rendered_profile.ok" "rendered profile stamp (cache poisoning)"
 else
-    die "rendered profile not found (expected after earlier sandbox runs)"
+    die "rendered profile not found in $prof_tmp (expected from the render just above)"
 fi
 
 # 13. PATH is sanitized: read-denied $HOME dirs are dropped from the child PATH so a
@@ -196,7 +347,6 @@ fi
 #     ahead of the real binary breaks every bare spawn (e.g. pnpm lifecycle scripts).
 #     Assert a $HOME dir is dropped while system + repo bins survive. String-only, so
 #     the probe dir need not exist.
-repo="$(pwd -P)"
 shim="$HOME/.dev_sandbox_selftest_shim/bin"
 child_path="$(PATH="$shim:/usr/bin:/bin:$repo/bin" $SANDBOX 'printf %s "$PATH"' 2>/dev/null)"
 if [[ ":$child_path:" == *":$shim:"* ]]; then
@@ -205,6 +355,47 @@ elif [[ ":$child_path:" != *":/usr/bin:"* ]] || [[ ":$child_path:" != *":$repo/b
     die "PATH over-sanitized: dropped a system or repo dir (got: $child_path)"
 else
     pass "PATH sanitized: denied \$HOME dir dropped, system + repo bins kept"
+fi
+
+# 14. The passthrough hands the caller's real PATH back. On Linux that is the
+#     wrapper's entire job (there is no Seatbelt), and this suite exits before here
+#     on non-Darwin — so reach the same branch on macOS by running a copy of the
+#     wrapper with no profile beside it. If the restore breaks, every sandboxed
+#     service on a Linux dev box starts with only the four pinned system dirs.
+pass_dir="$(cd "$(mktemp -d)" && pwd -P)"
+_tmpdirs+=("$pass_dir")
+mkdir -p "$pass_dir/bin"
+cp -p "$repo/bin/dev-sandbox" "$pass_dir/bin/" # no dev-sandbox.sb -> passthrough branch
+# $HOME-rooted so the marker also fails the sandboxed branch's PATH sanitizer: if
+# passthrough ever handed back the pinned/sanitized PATH instead of the caller's,
+# a system-dir marker would survive and hide the regression, but this one is dropped.
+marker="$HOME/.dev_sandbox_selftest_pathmarker" # string-only, need not exist
+child_path="$(PATH="$marker:$PATH" "$pass_dir/bin/dev-sandbox" 'printf %s "$PATH"' 2>/dev/null)"
+if [[ ":$child_path:" == *":$marker:"* ]]; then
+    pass "passthrough restores the caller's PATH"
+else
+    die "passthrough PATH left pinned to system dirs (got: $child_path)"
+fi
+
+# 15. The shebang resolves a fixed interpreter, not one found by searching the
+#     caller's PATH. `env bash` would let a bash planted by a prior sandboxed run
+#     (e.g. in node_modules/.bin or .flox/cache/venv/bin, both repo-writable) run
+#     BEFORE this script's own PATH pin — or any other line — has a chance to stop
+#     it. Plant a fake bash ahead of the real one and confirm it never runs.
+fake_bin="$(cd "$(mktemp -d)" && pwd -P)"
+_tmpdirs+=("$fake_bin")
+marker="$fake_bin/ran"
+cat >"$fake_bin/bash" <<SCRIPT
+#!/bin/sh
+touch "$marker"
+exec /bin/bash "\$@"
+SCRIPT
+chmod +x "$fake_bin/bash"
+PATH="$fake_bin:$PATH" $SANDBOX 'true' >/dev/null 2>&1
+if [[ -f "$marker" ]]; then
+    die "planted bash ahead on PATH ran via shebang resolution"
+else
+    pass "shebang ignores a PATH-planted bash"
 fi
 
 echo

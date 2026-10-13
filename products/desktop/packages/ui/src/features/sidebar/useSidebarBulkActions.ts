@@ -17,9 +17,9 @@ import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useCh
 import { placeTasksInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
-import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useScopedTaskSelectionStore } from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
@@ -73,10 +73,12 @@ export function useSidebarBulkActions(
   taskIds: string[],
   tasks: BulkSessionInfo[],
 ): SidebarBulkActions {
+  const selectedCount = taskIds.length;
   const queryClient = useQueryClient();
   const archiveCacheKeys = useArchiveCacheKeys();
-  const clearSelection = useTaskSelectionStore((s) => s.clearSelection);
-  const setSelectedTaskIds = useTaskSelectionStore((s) => s.setSelectedTaskIds);
+  const selectionStore = useScopedTaskSelectionStore();
+  const clearSelection = selectionStore((s) => s.clearSelection);
+  const setSelectedTaskIds = selectionStore((s) => s.setSelectedTaskIds);
   const { pinnedTaskIds, setPinnedMany, isSettingPinnedMany } =
     usePinnedTasks();
 
@@ -93,19 +95,10 @@ export function useSidebarBulkActions(
   const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const { fileTask } = useChannelTaskMutations();
 
-  // The command centre's own task list, so a cell counts as free here exactly
-  // when the grid draws it empty. Same query key the grid uses, so this is a
-  // cache read rather than a second poll.
-  const { data: liveTasks } = useTasks();
-  const liveTaskIds = useMemo(
-    () => (liveTasks ? new Set(liveTasks.map((t) => t.id)) : null),
-    [liveTasks],
-  );
+  const liveTaskIds = useLiveTaskIds(selectedCount > 0);
 
   const [isArchiving, setIsArchiving] = useState(false);
   const [isFiling, setIsFiling] = useState(false);
-
-  const selectedCount = taskIds.length;
 
   const selectedTasks = useMemo(() => {
     const ids = new Set(taskIds);
@@ -132,9 +125,7 @@ export function useSidebarBulkActions(
   );
 
   // Full success clears the selection; a partial one narrows it to exactly the
-  // failures so the user can retry those. Setting the ids outright rather than
-  // subtracting the successes matters because the routed task is folded into
-  // the batch without ever being in the store — subtracting would empty it.
+  // failures so the user can retry those.
   const reconcileSelection = useCallback(
     (failedIds: string[]) => {
       if (failedIds.length === 0) clearSelection();
@@ -147,8 +138,7 @@ export function useSidebarBulkActions(
     if (selectedCount === 0 || isArchiving) return;
     setIsArchiving(true);
     const store = useArchivingTasksStore.getState();
-    // Spinner the rows for the whole sequential batch, not just the current one.
-    for (const id of taskIds) store.startArchiving(id);
+    for (const id of taskIds) store.startArchiving(id, "hidden");
     try {
       const { archived, failed } = await archiveTasksImperative(
         taskIds,

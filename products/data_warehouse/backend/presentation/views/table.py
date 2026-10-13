@@ -12,21 +12,32 @@ from rest_framework import filters, parsers, request, response, serializers, sta
 from posthog.schema import DatabaseSerializedFieldType
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, get_data_warehouse_table_name, serialize_fields
+from posthog.hogql.database.database import (
+    MODELS_NAMESPACE_TABLE_ERROR,
+    Database,
+    SerializedField,
+    get_data_warehouse_table_name,
+    is_reserved_models_name,
+    serialize_fields,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
+    FORMAT_CSV,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
@@ -41,11 +52,15 @@ from products.warehouse_sources.backend.facade.hogql import (
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
-    ExternalDataSource,
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
-from products.warehouse_sources.backend.presentation.views.external_data_source import (
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceAccessMethod,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
     SimpleExternalDataSourceSerializers,
 )
 
@@ -55,6 +70,46 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
 # storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
 # the small form fields sent alongside the file.
 MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
+
+# Which request surface each transport attributes a table to. The PostHog apps and the headless
+# agents share `self_driving`, matching how the source path collapses them. Agent transports that
+# wrap MCP but aren't separately tracked (the CLI, Slack, Max, WebMCP) land on `mcp` alongside plain MCP
+# clients, and anything without a surface of its own is a plain API caller.
+_EVENT_SOURCE_TO_CREATED_VIA = {
+    EventSource.WEB: DataWarehouseTableCreatedVia.WEB,
+    EventSource.WIZARD: DataWarehouseTableCreatedVia.WIZARD,
+    EventSource.POSTHOG_CODE: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.DESKTOP: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.MOBILE: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.MCP: DataWarehouseTableCreatedVia.MCP,
+    EventSource.SLACK: DataWarehouseTableCreatedVia.MCP,
+    EventSource.CLI: DataWarehouseTableCreatedVia.MCP,
+    EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
+    EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
+}
+
+
+def resolve_created_via(request: request.Request) -> str:
+    """Attribute a table to the surface the request came from.
+
+    Read entirely from the transport (auth method, user-agent, MCP headers) rather than from the
+    request body, so no caller can label its own tables as wizard- or web-created. The values line
+    up with `ExternalDataSourceCreatedVia`, which reaches the same answer from the other direction:
+    a source takes `created_via` from the body because the MCP server injects it there, then
+    upgrades that value using this same transport signal.
+    """
+    event_source = get_event_source(request)
+    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(event_source, DataWarehouseTableCreatedVia.API)
+    # Every wizard program shares the `posthog/wizard` user-agent, so a self-driving run is only
+    # distinguishable by the marker it adds to that UA.
+    if created_via == DataWarehouseTableCreatedVia.WIZARD and is_wizard_self_driving_program(request):
+        return DataWarehouseTableCreatedVia.SELF_DRIVING
+    return created_via
+
+
+def _file_read_error_message(file_format: str) -> str:
+    hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
+    return f"Couldn't read the columns from your file. {hint}".strip()
 
 
 def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
@@ -85,6 +140,17 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
         capture_exception(e)
 
 
+def _discard_failed_upload(table: DataWarehouseTable) -> None:
+    """Reclaim a table and its hosted file after the upload that created them failed.
+
+    The legacy `file` action writes the object and persists the row before it reads the file even
+    once, so every failure after that point has both to undo. The file goes first, because
+    `_delete_hosted_upload_file` decides by looking for another live table on the same url_pattern.
+    """
+    _delete_hosted_upload_file(table)
+    table.delete()
+
+
 class CredentialSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -96,7 +162,17 @@ class CredentialSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
+        extra_kwargs = {
+            "access_key": {
+                "write_only": "True",
+                "help_text": "Access key ID for the bucket the files live in (an AWS access key ID, "
+                "a Google Cloud HMAC key, or the equivalent for another S3-compatible store).",
+            },
+            "access_secret": {
+                "write_only": "True",
+                "help_text": "Secret for the access key. Stored encrypted and never returned by the API.",
+            },
+        }
 
 
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -110,7 +186,25 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
-    options = serializers.DictField(required=False, default=dict)
+    options = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Per-format read options. The only one read today is `csv_allow_double_quotes` "
+        "(boolean), for CSV files that quote fields with doubled quotes.",
+    )
+    created_via = serializers.ChoiceField(
+        choices=DataWarehouseTableCreatedVia.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Where the table came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a "
+            "self-driving run, `source` for a table a data source syncs, `materialized_view` for "
+            "the table behind a materialized view, and `demo` for a demo project's sample table. "
+            "Set server-side from the request, never from the request body. Null on tables created "
+            "before this was recorded."
+        ),
+    )
 
     class Meta:
         model = DataWarehouseTable
@@ -122,6 +216,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "format",
             "created_by",
             "created_at",
+            "created_via",
             "url_pattern",
             "credential",
             "columns",
@@ -134,12 +229,31 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "id",
             "created_by",
             "created_at",
+            "created_via",
             "hogql_name",
             "columns",
             "external_data_source",
             "external_schema",
             "user_access_level",
         ]
+        extra_kwargs = {
+            "name": {
+                "help_text": "Name the table is queried by in HogQL. Must be unique within the project, "
+                "and must start with a letter or underscore and contain only letters, numbers, and "
+                "underscores.",
+            },
+            "format": {
+                "help_text": "File format of the objects the pattern matches. Every matched file must "
+                "share this format.",
+            },
+            "url_pattern": {
+                "help_text": "HTTPS URL of the files to read, with `*` matching any part of a path "
+                "segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched "
+                "files are read as one table. Must point at a bucket you control, not at PostHog's "
+                "own storage.",
+            },
+            "deleted": {"help_text": "Whether the table is soft-deleted and hidden from queries."},
+        }
 
     @extend_schema_field(serializers.CharField())
     def get_hogql_name(self, table: DataWarehouseTable) -> str:
@@ -190,13 +304,20 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             SimpleExternalDataSchemaSerializer,
         )
 
-        return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
+        schema = instance.externaldataschema_set.first()
+        if schema is None:
+            # `Serializer(None).data` is not falsy: DRF falls back to `get_initial()`, which returns a
+            # dict of the serializer's writable fields. Trusting `or None` emitted an id-less schema
+            # object for every unsynced table, which callers read as "this table has a schema".
+            return None
+        return SimpleExternalDataSchemaSerializer(schema, read_only=True).data
 
     def create(self, validated_data):
         team_id = self.context["team_id"]
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = cast(User, self.context["request"].user)
+        validated_data["created_via"] = resolve_created_via(self.context["request"])
         credential = validated_data.get("credential")
 
         if not credential:
@@ -237,6 +358,18 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return table
 
     def validate_url_pattern(self, url_pattern):
+        # A credential-less table reads from PostHog's own storage by design - PostHog built the URL
+        # when the file was uploaded. Editing anything else about such a table resubmits that URL
+        # unchanged, so checking it against the owned-bucket rule below would reject every edit with
+        # an instruction the user can't follow.
+        keeps_posthog_built_url = (
+            self.instance is not None
+            and self.instance.credential_id is None
+            and url_pattern == self.instance.url_pattern
+        )
+        if keeps_posthog_built_url:
+            return url_pattern
+
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
             raise serializers.ValidationError(error_message)
@@ -262,12 +395,23 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return options
 
     def validate_name(self, name):
+        if self.instance and self.instance.name == name:
+            return name
+        is_direct = (
+            self.instance is not None
+            and self.instance.external_data_source_id is not None
+            and self.instance.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
+        )
+        if is_reserved_models_name(name) and not is_direct:
+            raise serializers.ValidationError(MODELS_NAMESPACE_TABLE_ERROR)
         if not self.instance or self.instance.name != name:
             # has_table covers system/posthog tables and warehouse objects the requesting user can see;
             # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
             # Otherwise a user with denied table could create another one with colliding name.
             if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
-                raise serializers.ValidationError("A table with this name already exists.")
+                raise serializers.ValidationError(
+                    "A table or view with this name already exists. Choose a different name."
+                )
 
         return name
 
@@ -347,6 +491,8 @@ class CreateTableFromUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
             )
+        if is_reserved_models_name(table_name):
+            raise serializers.ValidationError(MODELS_NAMESPACE_TABLE_ERROR)
         return table_name
 
 
@@ -377,7 +523,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
-            .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+            .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
@@ -502,7 +648,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
 
-        table.columns = table.get_columns()
+        # get_columns surfaces read failures as a plain Exception carrying a user-facing message.
+        # Without this it reaches the handler as a 500, the same way TableSerializer.create avoids.
+        try:
+            table.columns = table.get_columns()
+        except Exception as err:
+            raise serializers.ValidationError(str(err))
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)
@@ -654,7 +805,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         database = Database.create_for(team_id=self.team_id, user=cast(User, request.user))
         if database.has_table(table_name) or get_view_or_table_by_name(self.team_id, table_name):
             return response.Response(
-                status=status.HTTP_400_BAD_REQUEST, data={"message": "A table with this name already exists."}
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "A table or view with this name already exists. Choose a different name."},
             )
 
         # Confirm the object is actually there before creating a table that would fail every query.
@@ -678,18 +830,33 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             format=FILE_FORMAT_TO_TABLE_FORMAT[file_format],
             url_pattern=build_file_upload_url_pattern(self.team_id, upload_id, filename),
             created_by=request.user if isinstance(request.user, User) else None,
+            created_via=resolve_created_via(request),
         )
+
+        # An upload carries no quote preference, unlike a self-managed source where the user picks
+        # one, so store a detected setting rather than leave the read to a ClickHouse default.
+        if table._is_csv_format():
+            try:
+                allow_double_quotes = table.detect_csv_double_quotes_setting()
+            except Exception as err:
+                capture_exception(err)
+                allow_double_quotes = None
+            if allow_double_quotes is None:
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": _file_read_error_message(file_format)},
+                )
+            table.options = {"csv_allow_double_quotes": allow_double_quotes}
+
         try:
             table.columns = table.get_columns()
         except Exception as err:
             # The raw column-detection failure is a ClickHouse error that's opaque to users, so keep it
             # in error tracking and hand back plain, format-specific guidance on what to check instead.
             capture_exception(err)
-            hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
-            message = f"Couldn't read the columns from your file. {hint}".strip()
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": message},
+                data={"message": _file_read_error_message(file_format)},
             )
         table.save()
 
@@ -740,7 +907,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         file_format = request.data.get("format", "CSVWithNames")
 
         # Validate format against allowed choices
-        valid_formats = {c[0] for c in DataWarehouseTable.TableFormat.choices}
+        valid_formats = {c[0] for c in DataWarehouseTableFormat.choices}
         if file_format not in valid_formats:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -769,6 +936,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": f"File size exceeds maximum allowed size of 50MB"},
             )
 
+        created_table = table is None
+
         # Create the table record
         try:
             # Create the table if it doesn't exist, otherwise use existing one
@@ -779,6 +948,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     name=table_name,
                     format=file_format,
                     created_by=created_by,
+                    created_via=resolve_created_via(request),
                 )
 
             # Generate URL pattern and store file in object storage
@@ -800,6 +970,23 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{safe_filename}"
                 )
                 table.format = file_format
+
+                # Detect on this path too, so a CSV uploaded here is read under the quoting its
+                # columns are detected with. Only an unset option is filled, so an explicit choice
+                # on an existing table survives a re-upload.
+                if table._is_csv_format() and table.csv_allow_double_quotes is None:
+                    allow_double_quotes = table.detect_csv_double_quotes_setting()
+                    if allow_double_quotes is None:
+                        # Left behind, the row is an incomplete table that the next upload of the
+                        # same name silently reuses. A table that already existed belongs to the
+                        # caller, so leave it alone.
+                        if created_table:
+                            _discard_failed_upload(table)
+                        return response.Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": _file_read_error_message(FORMAT_CSV)},
+                        )
+                    table.options = {**table.options, "csv_allow_double_quotes": allow_double_quotes}
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()
@@ -824,4 +1011,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 )
         except Exception as e:
             capture_exception(e)
+            # Reading the file can fail outright rather than return an answer, in column detection
+            # and in quote detection alike. A table that already existed belongs to the caller, so
+            # leave it alone.
+            if created_table and table is not None:
+                _discard_failed_upload(table)
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})

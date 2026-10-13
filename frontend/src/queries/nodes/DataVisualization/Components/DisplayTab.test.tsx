@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -21,7 +21,7 @@ describe('DisplayTab', () => {
         initKeaTests()
 
         const key = 'display-tab-axis-tick-label-test'
-        const query: DataVisualizationNode = {
+        const query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -60,12 +60,69 @@ describe('DisplayTab', () => {
         expect(screen.queryByText('Show labels')).not.toBeInTheDocument()
     })
 
+    it('keeps annotations off by default and persists the toggle', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-annotations-test'
+        let query: VisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select day, accounts from numbers(2)',
+            },
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: { xAxis: { column: 'day' } },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            cachedResults: {
+                columns: ['day', 'accounts'],
+                types: [
+                    ['day', 'Date'],
+                    ['accounts', 'UInt64'],
+                ],
+                results: [
+                    ['2026-01-01', 1],
+                    ['2026-01-02', 2],
+                ],
+                hogql: '',
+                hasMore: false,
+            } as HogQLQueryResponse,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const annotationsToggle = await screen.findByLabelText('Show annotations')
+        expect(annotationsToggle).not.toBeChecked()
+
+        await userEvent.click(annotationsToggle)
+
+        await waitFor(() => {
+            expect(query.chartSettings?.showAnnotations).toBe(true)
+        })
+    })
+
     it('persists chart axis labels without dropping existing axis settings', async () => {
         initKeaTests()
 
         const setQuery = jest.fn()
         const key = 'display-tab-axis-label-test'
-        let query: DataVisualizationNode = {
+        let query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -130,11 +187,106 @@ describe('DisplayTab', () => {
             )
         })
     })
+    it('offers box plot settings and hides unsupported controls', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-box-plot-test'
+        let query: VisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from summaries',
+            },
+            display: ChartDisplayType.BoxPlot,
+            chartSettings: { boxPlot: { excludeOutliers: true } },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const user = userEvent.setup()
+
+        expect(await screen.findByText('Y-axis')).toBeInTheDocument()
+        expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
+        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+        expect(screen.queryByText('Show total row')).not.toBeInTheDocument()
+        expect(screen.queryByText('Show annotations')).not.toBeInTheDocument()
+
+        await user.click(screen.getByText('Exclude outliers'))
+        await user.click(screen.getByText('Y-axis'))
+        expect(screen.queryByText('Begin at zero')).not.toBeInTheDocument()
+
+        await waitFor(() => expect(query.chartSettings?.boxPlot?.excludeOutliers).toBe(false))
+    })
+
+    it('offers only the metric settings for a metric and persists them', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-metric-test'
+        let query: VisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select day, revenue from summaries',
+            },
+            display: ChartDisplayType.Metric,
+            chartSettings: { metric: { summary: 'average' } },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const user = userEvent.setup()
+
+        expect(await screen.findByText('Headline value')).toBeInTheDocument()
+        expect(screen.queryByText('Show legend')).not.toBeInTheDocument()
+        expect(screen.queryByText('Left Y-axis')).not.toBeInTheDocument()
+        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+
+        await user.click(screen.getByText('Show change'))
+
+        await waitFor(() => expect(query.chartSettings?.metric).toEqual({ summary: 'average', showChange: false }))
+    })
+
     it('offers scatter axis settings and drops the panels a scatter has no support for', async () => {
         initKeaTests()
 
         const key = 'display-tab-scatter-test'
-        let query: DataVisualizationNode = {
+        let query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -185,5 +337,45 @@ describe('DisplayTab', () => {
                 })
             )
         })
+    })
+
+    it.each([
+        [ChartDisplayType.ActionsPie, 'Show total below chart'],
+        [ChartDisplayType.ActionsDonut, 'Show total in center'],
+        [ChartDisplayType.ActionsProportionBar, 'Show total below chart'],
+    ])('honors the legacy top-level showPieTotal when pie.showTotal is unset (%s)', async (display, switchLabel) => {
+        initKeaTests()
+
+        const key = `display-tab-legacy-show-total-test-${display}`
+        const query: VisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select label, total from numbers(2)',
+            },
+            display,
+            chartSettings: { showPieTotal: false },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: jest.fn(),
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const toggle = (await screen.findByText(switchLabel)).closest('div')?.querySelector('[role="switch"]')
+        expect(toggle).toHaveAttribute('aria-checked', 'false')
     })
 })

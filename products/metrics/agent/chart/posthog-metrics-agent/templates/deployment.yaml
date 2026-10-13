@@ -67,6 +67,10 @@ spec:
                       - name: PERSIST_QUEUE
                         value: '1'
                       {{- end }}
+                      {{- if .Values.gcp.credentialsSecret.name }}
+                      - name: GOOGLE_APPLICATION_CREDENTIALS
+                        value: /var/run/secrets/gcp/{{ .Values.gcp.credentialsSecret.key }}
+                      {{- end }}
                       {{- range $k, $v := .Values.podEnv }}
                       - name: {{ $k }}
                         value: {{ $v | quote }}
@@ -79,6 +83,11 @@ spec:
                       {{- if .Values.persistence.enabled }}
                       - name: queue
                         mountPath: /var/lib/posthog-agent
+                      {{- end }}
+                      {{- if .Values.gcp.credentialsSecret.name }}
+                      - name: gcp-credentials
+                        mountPath: /var/run/secrets/gcp
+                        readOnly: true
                       {{- end }}
                   ports:
                       - name: health
@@ -103,6 +112,11 @@ spec:
                 - name: queue
                   persistentVolumeClaim:
                       claimName: {{ include "posthog-metrics-agent.fullname" . }}-queue
+                {{- end }}
+                {{- if .Values.gcp.credentialsSecret.name }}
+                - name: gcp-credentials
+                  secret:
+                      secretName: {{ .Values.gcp.credentialsSecret.name }}
                 {{- end }}
             {{- with .Values.nodeSelector }}
             nodeSelector:

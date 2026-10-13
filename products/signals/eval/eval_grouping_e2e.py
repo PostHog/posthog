@@ -39,7 +39,7 @@ from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_meas
 from tqdm import tqdm
 
 from products.signals.backend.emission.pipeline import (
-    _check_actionability,
+    check_actionability,
     summarize_long_descriptions as _summarize_long_descriptions,
 )
 from products.signals.backend.temporal.grouping import (
@@ -301,7 +301,7 @@ class EvalGroupingPipeline:
         output = outputs[0]
 
         if config.actionability_prompt:
-            is_actionable = await _check_actionability(
+            is_actionable = await check_actionability(
                 self.gateway_client,
                 EVAL_TEAM_ID,
                 output,

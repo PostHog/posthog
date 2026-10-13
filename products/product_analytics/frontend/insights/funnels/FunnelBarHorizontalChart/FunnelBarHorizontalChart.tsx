@@ -5,14 +5,14 @@ import { type ErrorInfo, useMemo } from 'react'
 import { type TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { type ChartParams, type FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 
+import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelBarHorizontalTooltip } from './FunnelBarHorizontalTooltip'
 import {
     buildFunnelBarHorizontalCompareData,
@@ -40,7 +40,6 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 
 export function FunnelBarHorizontalChart({
     showPersonsModal: showPersonsModalProp = true,
-    inCardView,
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useChartTheme()
@@ -63,8 +62,9 @@ export function FunnelBarHorizontalChart({
     const { aggregationLabel } = useValues(groupsModel)
 
     const steps = visibleStepsWithConversionMetrics
+    // One flag drives both the bar's click handler and the tooltip's "Click to view …" hint, so the
+    // hint can never promise a drill-in the bar doesn't do.
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
-    const interactive = showPersonsModal && !inCardView
     const isUnordered = funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
     const hasOptionalSteps = steps.some((_, stepIndex) => isStepOptional(stepIndex + 1))
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
@@ -187,7 +187,7 @@ export function FunnelBarHorizontalChart({
                                             key={bar.series[0].key}
                                             stepData={bar}
                                             theme={theme}
-                                            interactive={interactive}
+                                            interactive={showPersonsModal}
                                             onSegmentClick={onSegmentClick}
                                             renderTooltip={renderTooltip}
                                             onError={handleChartError}
@@ -198,7 +198,7 @@ export function FunnelBarHorizontalChart({
                                     <SingleStepBar
                                         stepData={stepsData[stepIndex]}
                                         theme={theme}
-                                        interactive={interactive}
+                                        interactive={showPersonsModal}
                                         onSegmentClick={onSegmentClick}
                                         renderTooltip={renderTooltip}
                                         onError={handleChartError}

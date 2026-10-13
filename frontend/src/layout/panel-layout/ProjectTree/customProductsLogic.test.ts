@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { UserProductListItem, UserProductListReason } from '~/queries/schema/schema-general'
+import { UserProductListItem } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
@@ -10,8 +10,6 @@ const serverRow = (productPath: string): UserProductListItem => ({
     id: `id-${productPath}`,
     product_path: productPath,
     enabled: true,
-    reason: UserProductListReason.PRODUCT_INTENT,
-    reason_text: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
 })
@@ -48,21 +46,21 @@ describe('customProductsLogic', () => {
     })
 
     it('keeps a toggle made while an earlier save was in flight', async () => {
-        // The server still only knows about tool A. A refetch on A's success would answer with
+        // The server still only knows about product A. A refetch on A's success would answer with
         // just A and wipe B off the screen, which is what the user notices.
         serverPaths = ['a']
 
         await expectLogic(logic, () => {
-            logic.actions.setToolEnabled('a', true)
-            logic.actions.setToolEnabled('b', true)
+            logic.actions.setProductEnabled('a', true)
+            logic.actions.setProductEnabled('b', true)
         }).toFinishAllListeners()
 
-        expect(logic.values.enabledToolPaths).toEqual(new Set(['a', 'b']))
+        expect(logic.values.enabledProductPaths).toEqual(new Set(['a', 'b']))
     })
 
     it('does not refetch when a save succeeds', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setToolEnabled('a', true)
+            logic.actions.setProductEnabled('a', true)
         }).toFinishAllListeners()
 
         expect(listCalls).toBe(0)
@@ -73,10 +71,10 @@ describe('customProductsLogic', () => {
         serverPaths = []
 
         await expectLogic(logic, () => {
-            logic.actions.setToolEnabled('a', true)
+            logic.actions.setProductEnabled('a', true)
         }).toFinishAllListeners()
 
         expect(listCalls).toBe(1)
-        expect(logic.values.enabledToolPaths).toEqual(new Set())
+        expect(logic.values.enabledProductPaths).toEqual(new Set())
     })
 })

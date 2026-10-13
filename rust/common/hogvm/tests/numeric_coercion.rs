@@ -1,16 +1,21 @@
-//! Coverage for ordering-comparison coercion (`Gt`/`GtEq`/`Lt`/`LtEq`) over mixed scalar types.
-//! Cohort numeric leaves compile the threshold as a string constant, so this must match the Python
-//! (`unify_comparison_types`) and TS (`unifyComparisonTypes`) coercion exactly.
+//! Coverage for numeric coercion across the comparison surface: ordering (`Gt`/`GtEq`/`Lt`/`LtEq`)
+//! over mixed scalar types, and equality (`Eq`/`NotEq`) plus membership (`in`, `has`, `indexOf`)
+//! over mixed int/float operands. Cohort numeric leaves compile the threshold as a string constant,
+//! so this must match the Python (`unify_comparison_types`) and TS (`unifyComparisonTypes`)
+//! coercion exactly.
 
 use hogvm::{sync_execute, ExecutionContext, Program, VmFailure};
 use serde_json::{json, Value};
 
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
+const OP_CALL_GLOBAL: i64 = 2;
 const OP_EQ: i64 = 11;
+const OP_NOT_EQ: i64 = 12;
 const OP_GT: i64 = 13;
 const OP_GT_EQ: i64 = 14;
 const OP_LT: i64 = 15;
 const OP_LT_EQ: i64 = 16;
+const OP_IN: i64 = 21;
 const OP_TRUE: i64 = 29;
 const OP_FALSE: i64 = 30;
 const OP_STRING: i64 = 32;
@@ -61,6 +66,157 @@ fn array(values: &[Vec<Value>]) -> Vec<Value> {
     let mut bytecode = values.iter().flatten().cloned().collect::<Vec<_>>();
     bytecode.extend([json!(OP_ARRAY), json!(values.len())]);
     bytecode
+}
+
+/// `needle in haystack`. The VM pops the needle first, so the haystack is emitted first.
+fn in_op(needle: &[Value], haystack: &[Value]) -> Vec<Value> {
+    compare(needle, haystack, OP_IN)
+}
+
+/// `name(args…)`. The compiler emits the args in order, then the call.
+fn call(name: &str, args: &[Vec<Value>]) -> Vec<Value> {
+    let mut bc = vec![json!("_H"), json!(1)];
+    bc.extend(args.iter().flatten().cloned());
+    bc.extend([
+        json!(OP_CALL_GLOBAL),
+        json!(name),
+        json!(args.len()),
+        json!(OP_RETURN),
+    ]);
+    bc
+}
+
+/// Numeric equality is unconditional, so it is not gated behind `with_coercing_comparisons`. Every
+/// equality expectation must therefore hold on the coercing path and on the default path that
+/// cymbal and every other shared-crate consumer runs.
+fn assert_both_paths(bytecode: Vec<Value>, expected: Value, label: &str) {
+    assert_eq!(run(bytecode.clone()), expected, "coercing path: {label}");
+    assert_eq!(
+        run_legacy(bytecode).expect("legacy execution succeeds"),
+        expected,
+        "default path: {label}",
+    );
+}
+
+#[test]
+fn int_float_equality_is_numeric_on_both_paths() {
+    // `Integer(1)` and `Float(1.0)` are one value to both reference VMs, and the Rust VM's own
+    // ordering ops already widen mixed pairs, so equality has to agree: otherwise `1 == 1.0` is
+    // false while `1 >= 1.0` is true.
+    assert_both_paths(
+        compare(&int(1), &float(1.0), OP_EQ),
+        json!(true),
+        "1 == 1.0",
+    );
+    assert_both_paths(
+        compare(&int(1), &float(1.0), OP_NOT_EQ),
+        json!(false),
+        "1 != 1.0",
+    );
+    assert_both_paths(
+        compare(&int(2), &float(1.0), OP_EQ),
+        json!(false),
+        "2 == 1.0",
+    );
+    // A `1e3`-style literal compiles to a Float, so it must still equal the integer 1000.
+    assert_both_paths(
+        compare(&int(1000), &float(1000.0), OP_EQ),
+        json!(true),
+        "1000 == 1000.0",
+    );
+}
+
+#[test]
+fn string_coercion_equality_unifies_numeric_variants() {
+    // The Number/String arm parses "1.0" to a Float, which then has to equal the integer operand.
+    assert_both_paths(
+        compare(&int(1), &string("1.0"), OP_EQ),
+        json!(true),
+        "1 == '1.0'",
+    );
+    assert_both_paths(
+        compare(&string("1"), &float(1.0), OP_EQ),
+        json!(true),
+        "'1' == 1.0",
+    );
+    // Two strings short-circuit as strings rather than being parsed, matching both references.
+    assert_both_paths(
+        compare(&string("1"), &string("1.0"), OP_EQ),
+        json!(false),
+        "'1' == '1.0'",
+    );
+}
+
+#[test]
+fn bool_number_equality_widens() {
+    assert_both_paths(
+        compare(&boolean(true), &float(1.0), OP_EQ),
+        json!(true),
+        "true == 1.0",
+    );
+    assert_both_paths(
+        compare(&boolean(false), &float(0.0), OP_EQ),
+        json!(true),
+        "false == 0.0",
+    );
+}
+
+#[test]
+fn array_equality_is_element_wise_numeric() {
+    assert_both_paths(
+        compare(
+            &array(&[int(1), int(2)]),
+            &array(&[float(1.0), float(2.0)]),
+            OP_EQ,
+        ),
+        json!(true),
+        "[1, 2] == [1.0, 2.0]",
+    );
+    assert_both_paths(
+        compare(&array(&[int(1)]), &array(&[float(2.0)]), OP_EQ),
+        json!(false),
+        "[1] == [2.0]",
+    );
+}
+
+#[test]
+fn membership_uses_numeric_equality() {
+    let ints = array(&[int(1), int(2)]);
+    let floats = array(&[float(1.0), float(2.0)]);
+
+    assert_both_paths(in_op(&float(1.0), &ints), json!(true), "1.0 in [1, 2]");
+    assert_both_paths(in_op(&float(3.0), &ints), json!(false), "3.0 in [1, 2]");
+    assert_both_paths(
+        call("has", &[ints.clone(), float(1.0)]),
+        json!(true),
+        "has([1, 2], 1.0)",
+    );
+    assert_both_paths(
+        call("indexOf", &[floats, int(2)]),
+        json!(2),
+        "indexOf([1.0, 2.0], 2)",
+    );
+    assert_both_paths(
+        call("in", &[int(1), array(&[float(1.0)])]),
+        json!(true),
+        "in(1, [1.0])",
+    );
+}
+
+#[test]
+fn strict_equality_functions_unify_numeric_variants() {
+    // `equals`/`notEquals` are the strict function forms. They stay strict across TYPES, but the
+    // int/float variants of one number unify, matching the reference `===` where all numbers are f64.
+    assert_both_paths(
+        call("equals", &[int(1), float(1.0)]),
+        json!(true),
+        "equals(1, 1.0)",
+    );
+    assert_both_paths(
+        call("notEquals", &[int(1), float(1.0)]),
+        json!(false),
+        "notEquals(1, 1.0)",
+    );
 }
 
 #[test]

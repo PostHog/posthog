@@ -13,6 +13,9 @@ import type {
     DataCatalogCertificationApi,
     DataCatalogCertificationsListParams,
     DataCatalogMetricApi,
+    DataCatalogMetricBulkApproveApi,
+    DataCatalogMetricBulkDeleteApi,
+    DataCatalogMetricBulkNamesRequestApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
@@ -370,6 +373,46 @@ export const dataCatalogMetricsRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricRunRequestApi),
+    })
+}
+
+export const getDataCatalogMetricsBulkApproveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk_approve/`
+}
+
+/**
+ * Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped.
+ */
+export const dataCatalogMetricsBulkApproveCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkNamesRequestApi: DataCatalogMetricBulkNamesRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkApproveApi> => {
+    return apiMutator<DataCatalogMetricBulkApproveApi>(getDataCatalogMetricsBulkApproveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
+    })
+}
+
+export const getDataCatalogMetricsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk_delete/`
+}
+
+/**
+ * Delete many metrics, freeing their names for reuse. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkDeleteCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkNamesRequestApi: DataCatalogMetricBulkNamesRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkDeleteApi> => {
+    return apiMutator<DataCatalogMetricBulkDeleteApi>(getDataCatalogMetricsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
     })
 }
 

@@ -20,8 +20,9 @@ the What's New changelog and the update modals.
   entry drops alone and is counted, never crashing the batch.
 - `selectAnnouncement.ts` is the pure decision function: Zod parse → time
   window (`startsAt`/`endsAt`) → version gate → per-id dismissals → priority.
-  It returns nothing when the app version is unknown, which is what keeps the
-  web host (no `os.getAppVersion`) announcement-free by construction.
+  It returns nothing for development builds or when the app version is unknown,
+  which keeps local development and the web host (no `os.getAppVersion`)
+  announcement-free by construction.
 - Dismissals persist per announcement `id` in `announcementsStore.ts`;
   changing an announcement's `id` resurfaces it for everyone.
 - Surfaces: `AnnouncementBanner` (top of the framed content pane in
@@ -32,14 +33,15 @@ the What's New changelog and the update modals.
   promo dialog): a hedgehog on a colored band by default, overridable per item
   via `hero` — `{ "hedgehog": "<slug>", "color": "#rrggbb" }`,
   `{ "imageUrl": "https://…" }`, or `{ "none": true }` for a plain modal.
-  The slug is a bundled name (`builder`, `explorer`, `happy`, `loop` — local
-  assets, no network) or any hoggie PNG file name from
-  [PostHog/brand](https://brand.posthog.com/hoggies) — variants are
+  The slug is a hoggie PNG file name from
+  [PostHog/brand](https://brand.posthog.com/hoggies). Variants are
   file-name-suffixed (`wizard-3`, `dadd-ai-1`), so the metadata slug alone is
   not always a valid name; the admin editor's picker lists exactly the valid
-  ones. Non-bundled names load from a CDN copy pinned to the package release
-  (`hoggiePngUrl`) with a fallback to the default hedgehog when unreachable.
-  Banners never render a hero.
+  ones. Both the app and the editor bundle the whole hoggie set of the
+  installed release and resolve a name through `hoggiePng`
+  (`packages/shared/src/hoggies.ts`), so a hero needs no network and a name the
+  release does not ship falls back to the kind default (`megaphone`, or
+  `level-up` for a required update). Banners never render a hero.
 
 ## The two kinds
 
@@ -82,20 +84,23 @@ after an announcement was handled in the same session.
 browser. Author payloads with the production scheme; `announcementCta.ts`
 swaps in the dev scheme on dev builds.
 
-## Testing a payload locally
+## Observability
 
-Dev builds expose `window.posthog` in the renderer devtools:
+The app captures these events with `announcement_id`, `announcement_kind`, and
+`announcement_style` properties. CTA clicks add `cta_type`; acknowledgements
+add `ack_type`.
 
-```js
-posthog.featureFlags.overrideFeatureFlags({
-  flags: { "posthog-desktop-announcements": true },
-  payloads: {
-    "posthog-desktop-announcements": {
-      announcements: [
-        { kind: "announcement", id: "test-1", title: "Hello", body: "It works." },
-      ],
-    },
-  },
-});
-// clear with: posthog.featureFlags.overrideFeatureFlags(false)
-```
+- `Announcement shown`
+- `Announcement CTA clicked`
+- `Announcement dismissed`
+- `Announcement acknowledged`
+
+Filter these events by an announcement ID to measure unique people shown,
+CTA engagement, dismissals, and acknowledgements.
+
+## Testing
+
+Development builds intentionally never render remote announcements, including
+feature-flag overrides. Exercise the selection behavior through
+`selectAnnouncement.test.ts` and the announcement component stories. Use a
+production build to smoke-test a live flag payload.

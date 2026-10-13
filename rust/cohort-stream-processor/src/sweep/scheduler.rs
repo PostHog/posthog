@@ -23,8 +23,8 @@ pub trait Sweeper: Send + Sync {
     async fn run_once(&self);
 }
 
-/// The cutoff a worker passes to [`EvictionQueue::pop_due`](super::EvictionQueue::pop_due): a key is
-/// due once its deadline is strictly before `now_ms − safety_margin_ms`.
+/// The cutoff a worker passes to [`EvictionQueue::due_keys`](super::EvictionQueue::due_keys): a key
+/// is due once its deadline is strictly before `now_ms − safety_margin_ms`.
 ///
 /// Centralizes the only arithmetic in the sweep so the queue stays pure. `saturating_sub` keeps it
 /// total: a test clock with `now_ms < safety_margin_ms` yields a far-negative cutoff — below every

@@ -4,7 +4,13 @@ import graphlib  # type: ignore[import,unused-ignore]
 from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
 
+import structlog
 from dateutil import parser
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FanoutParentSource,
+    log_fanout_parent_rows_consumed,
+)
 
 from .config_setup import (
     Incremental,
@@ -18,10 +24,12 @@ from .config_setup import (
 )
 from .jsonpath_utils import TJsonPath
 from .paginators import BasePaginator
-from .resource import Resource
+from .resource import PageCheckpoints, Resource
 from .rest_client import DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_BACKOFF_MAX_SECONDS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
+
+logger = structlog.get_logger(__name__)
 
 
 def convert_types(
@@ -62,6 +70,11 @@ def rest_api_resource(
     ``resume_hook`` and ``initial_paginator_state`` enable integration with
     ``ResumableSourceManager``. They are only supported for non-dependent
     resources (no ``data_from`` parent/child fanout).
+
+    ``resume_hook`` receives the state that fetches the page after the current one. When
+    ``SourceResponse.items`` returns the resource itself, the hook runs before the page reaches the
+    pipeline, so the pipeline commits a page and its state together. When a source wraps the
+    resource, the hook runs when the wrapper asks for the next page.
     """
     resources = rest_api_resources(
         config,
@@ -139,6 +152,7 @@ def _make_paginate_dependent_resource(
     data_selector_required: bool = False,
     data_selector_empty_ok: bool = False,
     on_parent_error: Optional[Callable[[str, Exception], None]] = None,
+    parent_source: FanoutParentSource = "api",
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -150,10 +164,12 @@ def _make_paginate_dependent_resource(
     ``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}``.
     """
     # Closure state persists across parent-page invocations within a single run.
+    parent_rows_consumed = 0
     seed: dict[str, Any] = dict(initial_state) if initial_state else {}
     completed: set[str] = set(seed.get("completed") or [])
     current_path: Optional[str] = seed.get("current")
     current_child_state: Optional[dict[str, Any]] = seed.get("child_state")
+    resumed = bool(completed or current_path)
 
     def checkpoint(current: Optional[str], child_state: Optional[dict[str, Any]]) -> None:
         # resume_hook is non-None here (only called from the resumable path).
@@ -169,8 +185,10 @@ def _make_paginate_dependent_resource(
         hooks: Optional[dict[str, Any]],
         columns_config: Optional[Any] = None,
     ) -> Iterator[list[Any]]:
-        nonlocal current_path, current_child_state
+        nonlocal current_path, current_child_state, parent_rows_consumed
         effective_columns_config = columns_config if columns_config is not None else default_columns_config
+
+        page_rows = 0
 
         if incremental_object:
             params = _set_incremental_params(
@@ -187,13 +205,27 @@ def _make_paginate_dependent_resource(
             if resume_hook is not None and formatted_path in completed:
                 continue
 
+            page_rows += 1
+            parent_rows_consumed += 1
+
             # Resume this parent's child cursor only if it's the one we were mid-way through.
             child_initial = (
                 current_child_state if (resume_hook is not None and current_path == formatted_path) else None
             )
 
-            def child_resume_hook(paginator_state: Optional[dict[str, Any]], _path: str = formatted_path) -> None:
+            def child_page_state_hook(
+                paginator_state: Optional[dict[str, Any]], has_next_page: bool, _path: str = formatted_path
+            ) -> None:
                 nonlocal current_path, current_child_state
+                if not has_next_page:
+                    # The state of a parent's last page is staged before that page is handed on. An
+                    # in-progress checkpoint would make a resumed run read the whole parent again,
+                    # so the parent is recorded as complete here.
+                    completed.add(_path)
+                    current_path = None
+                    current_child_state = None
+                    checkpoint(None, None)
+                    return
                 current_path = _path
                 current_child_state = paginator_state
                 checkpoint(_path, paginator_state)
@@ -206,7 +238,7 @@ def _make_paginate_dependent_resource(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
-                    resume_hook=child_resume_hook if resume_hook is not None else None,
+                    page_state_hook=child_page_state_hook if resume_hook is not None else None,
                     initial_paginator_state=child_initial,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,
@@ -231,13 +263,34 @@ def _make_paginate_dependent_resource(
                     checkpoint(None, None)
                 continue
 
-            if resume_hook is not None:
+            # A parent whose child endpoint answered nothing never reached the hook.
+            if resume_hook is not None and formatted_path not in completed:
                 completed.add(formatted_path)
                 current_path = None
                 current_child_state = None
                 checkpoint(None, None)
 
+        # Counted after the page so parents a resume skips don't inflate it. A running total,
+        # since there's no end-of-parent signal: the last line of a run carries the fan-out's
+        # size, for either parent kind, which the API path never surfaced anywhere.
+        log_fanout_parent_rows_consumed(
+            logger,
+            parent_source=parent_source,
+            rows_total=parent_rows_consumed,
+            resumed=resumed,
+            page_rows=page_rows,
+        )
+
     return paginate_dependent_resource
+
+
+def _retry_limit_overrides(client_config: ClientConfig) -> dict[str, float]:
+    # Passed only when a source sets them, so a client built with neither keeps the settings.
+    return {
+        key: client_config[key]  # type: ignore[literal-required]
+        for key in ("retry_budget_seconds", "retry_after_max_seconds")
+        if key in client_config
+    }
 
 
 def create_resources(
@@ -298,9 +351,21 @@ def create_resources(
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
+            capture=client_config.get("capture", True),
+            **_retry_limit_overrides(client_config),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"), resource_name=resource_name)
+
+        # The resource applies resume states itself, so that a page and its state reach the pipeline
+        # together (see `Resource._iter_generator`).
+        if resolved_params is not None:
+            own_resume_hook = dependent_resume_hook
+        elif has_dependent_resource:
+            own_resume_hook = None
+        else:
+            own_resume_hook = resume_hook
+        page_checkpoints = PageCheckpoints(own_resume_hook) if own_resume_hook is not None else None
 
         resource_kwargs = exclude_keys(
             endpoint_resource, {"endpoint", "include_from_parent", "data_map", "data_iterator"}
@@ -348,9 +413,7 @@ def create_resources(
                 incremental_object: Optional[Incremental] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
-                resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = (
-                    None if has_dependent_resource else resume_hook
-                ),
+                page_checkpoints: Optional[PageCheckpoints] = page_checkpoints,
                 initial_paginator_state: Optional[dict[str, Any]] = (
                     None if has_dependent_resource else initial_paginator_state
                 ),
@@ -377,7 +440,7 @@ def create_resources(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
-                    resume_hook=resume_hook,
+                    page_state_hook=page_checkpoints.defer_page_state if page_checkpoints is not None else None,
                     initial_paginator_state=initial_paginator_state,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,
@@ -399,10 +462,17 @@ def create_resources(
                     "hooks": hooks,
                     "columns_config": columns_config,
                 },
+                page_checkpoints=page_checkpoints,
             )
 
         else:
-            predecessor = resources[resolved_params[0].resolve_config["resource"]]
+            parent_name = resolved_params[0].resolve_config["resource"]
+            predecessor = resources[parent_name]
+
+            # Set by `build_dependent_resource` only once the warehouse table resolves, so an
+            # unresolvable table leaves this "api" and the telemetry names the parent the run
+            # actually read.
+            parent_source: FanoutParentSource = endpoint_resource_map[parent_name].get("parent_source") or "api"
 
             base_params = exclude_keys(request_params, {rp.param_name for rp in resolved_params})
 
@@ -415,11 +485,12 @@ def create_resources(
                 incremental_param=incremental_param,
                 incremental_cursor_transform=incremental_cursor_transform,
                 db_incremental_field_last_value=db_incremental_field_last_value,
-                resume_hook=dependent_resume_hook,
+                resume_hook=page_checkpoints.defer if page_checkpoints is not None else None,
                 initial_state=dependent_initial_state,
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
                 on_parent_error=on_parent_error,
+                parent_source=parent_source,
             )
 
             resources[resource_name] = Resource(
@@ -438,6 +509,7 @@ def create_resources(
                     "columns_config": columns_config,
                 },
                 data_from=predecessor,
+                page_checkpoints=page_checkpoints,
             )
 
         # Declarative per-item transform (e.g. flatten JSON:API attributes), applied after

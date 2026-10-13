@@ -26,7 +26,11 @@ import structlog
 
 from posthog.schema import AlertState
 
-from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+from posthog.tasks.alerts.utils import (
+    dispatch_alert_notification,
+    prepare_alert_insight_chart_url,
+    record_alert_delivery,
+)
 
 from products.alerts.backend.models.alert import AlertCheck, InvestigationStatus
 
@@ -72,6 +76,8 @@ def run_investigation_notification_safety_net() -> int:
             targets_notified={},
             alert_configuration__investigation_agent_enabled=True,
         )
+        # A skipped check copies the alert's FIRING state but evaluated nothing, so it has no fire to deliver.
+        .exclude(triggered_metadata__has_key="skipped_reason")
         .filter(
             # Terminal investigation states (DONE / FAILED): the workflow is not coming
             # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal
@@ -91,13 +97,22 @@ def run_investigation_notification_safety_net() -> int:
         if alert is None or not alert.enabled:
             continue
 
+        # Rendered before the transaction opens: the render blocks for up to
+        # exports.RENDER_TIMEOUT, and the block below holds a row lock the workflow's own
+        # dispatcher waits on. A failed render returns None and the notification still goes
+        # out, just without the chart.
+        insight_chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=check)
+        extra_properties = {"insight_chart_url": insight_chart_url} if insight_chart_url else None
+
         try:
             with transaction.atomic():
                 locked = AlertCheck.objects.select_for_update().get(id=check.id)
                 if locked.notification_sent_at is not None or locked.notification_suppressed_by_agent:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
-                deliveries = dispatch_alert_notification(alert, locked, breaches)
+                deliveries = dispatch_alert_notification(
+                    alert, locked, breaches, extra_properties=extra_properties, render_chart=False
+                )
                 record_alert_delivery(alert, locked, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(

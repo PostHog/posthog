@@ -1,4 +1,4 @@
-import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, ProfilePicture } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
 
@@ -21,21 +21,18 @@ export function MemberSelectRow({ member, isYou, onClick, checked }: MemberSelec
                 role={isMultiSelect ? 'menuitemcheckbox' : 'menuitem'}
                 aria-checked={checked}
                 size="small"
-                icon={<ProfilePicture size="md" user={member.user} />}
+                icon={
+                    isMultiSelect ? (
+                        <LemonCheckbox checked={checked} className="pointer-events-none" decorative />
+                    ) : (
+                        <ProfilePicture size="md" user={member.user} />
+                    )
+                }
                 onClick={onClick}
             >
                 <span className="flex items-center justify-between gap-2 flex-1">
                     <span className="flex items-center gap-2 max-w-full">
-                        {isMultiSelect && (
-                            <input
-                                type="checkbox"
-                                className="cursor-pointer"
-                                checked={checked}
-                                readOnly
-                                tabIndex={-1}
-                                aria-hidden
-                            />
-                        )}
+                        {isMultiSelect && <ProfilePicture size="md" user={member.user} />}
                         <span>{fullName(member.user)}</span>
                     </span>
                     <span className="text-secondary">{isYou ? '(you)' : ''}</span>

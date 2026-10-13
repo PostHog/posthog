@@ -1,7 +1,9 @@
-import { useActions } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
+import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LoginForm } from './LoginForm'
@@ -13,6 +15,10 @@ export const scene: SceneExport = {
 }
 
 export function Login(): JSX.Element {
+    // Mounted here so the login funnel is only reported from the auth scenes
+    useMountedLogic(loginTelemetryLogic)
+    // Mounted at the scene root so the cookie is read once, not on every form state change
+    useMountedLogic(pendingOAuthConnectionLogic)
     const { startConditionalPasskeyLogin } = useActions(passkeyLogic)
 
     // WebKit (Safari/iOS) can't open the passkey modal without a user gesture, so we show

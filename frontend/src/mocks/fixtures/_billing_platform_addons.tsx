@@ -95,6 +95,11 @@ const organizationSecuritySettings = feature(
     'Organization security settings',
     'Configure security permissions for organization members.'
 )
+const memberGovernance = feature(
+    'member_governance',
+    'Member governance',
+    'Give admins more control over the members of your organization.'
+)
 const sessionReplayDataRetention = (months: number): AddonPlanFeature =>
     feature(
         'session_replay_data_retention',
@@ -145,6 +150,11 @@ const roleBasedAccess = feature(
     'Set up custom access control rules for roles within your organization.'
 )
 const scim = feature('scim', 'SCIM', 'Automatically sync users and roles from your identity provider to PostHog.')
+const xaaAuthentication = feature(
+    AvailableFeature.XAA_AUTHENTICATION,
+    'Cross App Access (XAA)',
+    'Automate API and MCP access to PostHog.'
+)
 const dedicatedSupport = feature(
     'dedicated_support',
     'Dedicated account manager',
@@ -183,6 +193,7 @@ const TEAMS_FEATURES: AddonPlanFeature[] = [
     dataColorThemes,
     organizationInviteSettings,
     organizationSecuritySettings,
+    memberGovernance,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
 ]
@@ -200,6 +211,7 @@ const BOOST_FEATURES: AddonPlanFeature[] = [
     supportResponseTime('48 hours'),
     organizationInviteSettings,
     organizationSecuritySettings,
+    memberGovernance,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
 ]
@@ -221,6 +233,7 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     supportResponseTime('24 hours'),
     organizationInviteSettings,
     organizationSecuritySettings,
+    memberGovernance,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
     realTimeAlerts,
@@ -230,6 +243,7 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     dedicatedSupport,
     roleBasedAccess,
     scim,
+    xaaAuthentication,
     training,
     termsAndConditions,
     bespokePricing,
@@ -248,6 +262,7 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     supportResponseTime('8 hours'),
     organizationInviteSettings,
     organizationSecuritySettings,
+    memberGovernance,
     prioritySupport('Target response time 8 hours'),
     saml,
     approvals,

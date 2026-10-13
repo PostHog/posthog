@@ -13,7 +13,6 @@ from django.conf import settings
 import grpc.aio
 import requests
 import dns.resolver
-import dns.asyncresolver
 import temporalio.common
 from structlog import get_logger
 from temporalio import activity, workflow
@@ -26,6 +25,7 @@ from temporalio.client import (
 )
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
+from posthog.dns_utils import async_dnssec_resolver
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -35,6 +35,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameSSLStatus,
     create_custom_hostname,
     get_custom_hostname_by_domain,
+    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
@@ -44,6 +45,7 @@ from posthog.temporal.proxy_service.common import (
     activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
+    get_record,
     record_exists,
     update_record,
     use_cloudflare_proxy,
@@ -122,7 +124,8 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
     try:
-        cnames = await dns.asyncresolver.resolve(inputs.domain, "CNAME")
+        resolver = async_dnssec_resolver()
+        cnames = await resolver.resolve(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
 
         if cnames[0].target == dns.name.from_text(inputs.target_cname):
@@ -140,7 +143,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         # It means there is a record set, but it's not a CNAME record
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
-        arecords = await dns.asyncresolver.resolve(inputs.domain, "A")
+        arecords = await resolver.resolve(inputs.domain, "A")
         if len(arecords) == 0:
             raise
         ip = arecords[0].to_text()
@@ -155,7 +158,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
             # off (grey cloud). If the IPs match our target, the setup is
             # correct — the CNAME is just being flattened.
             try:
-                target_arecords = await dns.asyncresolver.resolve(inputs.target_cname, "A")
+                target_arecords = await resolver.resolve(inputs.target_cname, "A")
                 target_ips = {r.to_text() for r in target_arecords}
                 customer_ips = {r.to_text() for r in arecords}
                 if customer_ips == target_ips:
@@ -288,7 +291,8 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         inputs.domain,
     )
 
-    if not await record_exists(inputs.proxy_record_id):
+    record = await get_record(inputs.proxy_record_id)
+    if record is None:
         raise RecordDeletedException("proxy record was deleted while creating Cloudflare Custom Hostname")
 
     try:
@@ -303,11 +307,19 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         if any(err.get("code") == 1406 for err in e.errors):
             # Custom hostname already exists
             logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
-            return
-        if e.is_rate_limited():
+        elif e.is_rate_limited():
             # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
             raise
-        raise NonRetriableException(f"Cloudflare API error: {e}") from e
+        else:
+            raise NonRetriableException(f"Cloudflare API error: {e}") from e
+
+    if record.root_redirect_url:
+        try:
+            await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, record.root_redirect_url)
+        except CloudflareAPIError as e:
+            if e.is_rate_limited():
+                raise
+            raise NonRetriableException(f"Cloudflare KV error: {e}") from e
 
 
 @activity.defn

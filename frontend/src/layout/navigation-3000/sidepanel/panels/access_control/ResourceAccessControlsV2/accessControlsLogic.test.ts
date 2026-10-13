@@ -52,8 +52,7 @@ const makeEffectiveEntry = (
 ): EffectiveAccessControlEntry => ({
     access_level: level,
     effective_access_level: level,
-    inherited_access_level: null,
-    inherited_access_level_reason: null,
+    inherited_access: null,
     minimum: AccessControlLevel.None,
     maximum: AccessControlLevel.Manager,
     ...overrides,

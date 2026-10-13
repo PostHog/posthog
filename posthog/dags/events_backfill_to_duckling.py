@@ -423,6 +423,14 @@ _CONNECTION_DROPPED_SQLSTATES = {
     "57P01",  # admin_shutdown
     "57P02",  # crash_shutdown
     "57P03",  # cannot_connect_now
+    # idle_session_timeout: duckgres reaped an idle client session (the backfill
+    # holds its connection open across the ClickHouse->S3 export, which can outrun
+    # the server's duckgres.idle_timeout). Older duckgres just closed the socket,
+    # so this arrived as a transport error matching _CONNECTION_DROPPED_MARKERS;
+    # it now sends a proper FATAL first, which is a cleaner signal but a different
+    # shape. Safest possible replay: the session was idle, so no statement was
+    # in flight and a retry cannot double-apply.
+    "57P05",
 }
 
 # Transport/connection-loss phrases ONLY. Deliberately NOT "flight execute":
@@ -448,6 +456,7 @@ _CONNECTION_DROPPED_MARKERS = (
     "error reading from server",
     "server closed the connection",
     "terminating connection due to administrator command",
+    "terminating connection due to idle timeout",
     "transport:",
 )
 

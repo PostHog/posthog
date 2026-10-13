@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -21,13 +23,33 @@ interface QueryPaneProps {
     originalValue?: string
     onRun?: () => void
     editorVimModeEnabled?: boolean
+    editorVimrc?: string
     constrainHeight?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton } = useValues(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton, insightLoading } = useValues(sqlEditorLogic)
+    const queryLoading = insightLoading && !props.queryInput
+    const editorOptions = useMemo<CodeEditorProps['options']>(
+        () => ({
+            minimap: {
+                enabled: false,
+            },
+            wordWrap: 'on',
+            scrollBeyondLastLine: !!props.originalValue,
+            automaticLayout: true,
+            fixedOverflowWidgets: true,
+            glyphMargin: true,
+            suggest: {
+                showInlineDetails: true,
+            },
+            quickSuggestionsDelay: 300,
+            readOnly: queryLoading,
+        }),
+        [props.originalValue, queryLoading]
+    )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
     const fillsColumn = props.constrainHeight === false
@@ -47,7 +69,17 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 ref={queryPaneResizerProps.containerRef}
             >
                 <div className="relative flex flex-col w-full min-h-0">
-                    <div className="flex-1 min-h-0" data-attr="hogql-query-editor">
+                    {/*
+                     * A notebook cell puts this pane in a container that the browser sizes from
+                     * its content. The pane is a flex item there, so the editor inside it sets
+                     * the floor the pane can reach. Monaco reports the height it already has, so
+                     * a drag could only make the pane taller. The editor leaves the flow here so
+                     * that `queryPaneHeight` alone sets the height.
+                     */}
+                    <div
+                        className={cn('flex-1 min-h-0', fillsColumn && 'absolute inset-0')}
+                        data-attr="hogql-query-editor"
+                    >
                         <AutoSizer
                             renderProp={({ height, width }) =>
                                 height && width ? (
@@ -59,27 +91,24 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         width={width}
                                         originalValue={props.originalValue}
                                         enableVimMode={props.editorVimModeEnabled}
-                                        autoFocus={true}
+                                        vimrc={props.editorVimrc}
                                         {...props.codeEditorProps}
-                                        options={{
-                                            minimap: {
-                                                enabled: false,
-                                            },
-                                            wordWrap: 'on',
-                                            scrollBeyondLastLine: !!props.originalValue,
-                                            automaticLayout: true,
-                                            fixedOverflowWidgets: true,
-                                            glyphMargin: true,
-                                            suggest: {
-                                                showInlineDetails: true,
-                                            },
-                                            quickSuggestionsDelay: 300,
-                                        }}
+                                        autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
+                                        options={editorOptions}
                                     />
                                 ) : null
                             }
                         />
                     </div>
+                    {queryLoading && (
+                        <div
+                            className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-primary"
+                            role="status"
+                        >
+                            <Spinner />
+                            <span>Loading query…</span>
+                        </div>
+                    )}
                     {props.originalValue && (
                         <div
                             className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"

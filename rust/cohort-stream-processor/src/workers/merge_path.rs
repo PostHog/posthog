@@ -38,6 +38,7 @@ use crate::stage1::transition::LeafTransition;
 use crate::store::{BehavioralKey, PendingTransferKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::person_seed_path::PersonSeedDeps;
+use crate::workers::seed_run::RunBudget;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
     affected_leaves, first_cascades, produce_cascades, produce_membership, transition_metric_label,
@@ -139,6 +140,8 @@ pub struct MergeWorkerDeps {
     pub reconcile: ReconcileDeps,
     /// Person-property seed admission and its live-priority margin.
     pub person_seed: PersonSeedDeps,
+    /// Ceilings the partition workers group a channel batch's seeds into runs under.
+    pub seed_budget: RunBudget,
 }
 
 impl MergeWorkerDeps {
@@ -161,6 +164,7 @@ impl MergeWorkerDeps {
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
             person_seed: PersonSeedDeps::default(),
+            seed_budget: RunBudget::default(),
         })
     }
 }
@@ -914,6 +918,7 @@ mod tests {
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
             person_seed: PersonSeedDeps::default(),
+            seed_budget: RunBudget::default(),
         }
     }
 

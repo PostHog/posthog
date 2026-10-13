@@ -23,11 +23,30 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Element, Filter
+from posthog.models import Element, Team
+from posthog.models.element.chain_query import normalized_elements_chain_expr
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
+from posthog.models.property.parse import parse_properties_for_team
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.utils import format_query_params_absolute_url
 
 tracer = trace.get_tracer(__name__)
+
+CHAIN_NORMALIZATION_FLAG = "heatmaps-clickmap-chain-normalization"
+
+
+def chain_normalization_enabled(team: Team) -> bool:
+    try:
+        return posthog_feature_flag_enabled(
+            CHAIN_NORMALIZATION_FLAG,
+            str(team.uuid),
+            organization_id=team.organization_id,
+            team_id=team.id,
+            only_evaluate_locally=True,
+        )
+    except Exception:
+        return False
+
 
 ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",
@@ -70,7 +89,7 @@ class ElementStatsSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of events matching this element chain")
     hash = serializers.CharField(
         allow_null=True,
-        help_text="Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages",
+        help_text="Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages",
     )
     type = serializers.CharField(help_text="Event type: $autocapture, $rageclick, or $dead_click")
     elements = ElementSerializer(many=True, help_text="Parsed elements of the chain, clicked element first")
@@ -163,9 +182,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             timer = ServerTimingsGathered()
 
             with timer("prepare_for_query"), tracer.start_as_current_span("elements_api_stats.prepare_for_query"):
-                # Filter parses the properties param (including property groups) and folds the
-                # team's test-account filters in when filter_test_accounts is set
-                filter = Filter(request=request, team=self.team)
+                property_groups = parse_properties_for_team(request.GET.dict(), self.team)
                 date_range = QueryDateRange(
                     date_range=DateRange(
                         date_from=request.query_params.get("date_from", "-7d"),
@@ -206,33 +223,40 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 events_filter = self._events_filter(request)
 
-                attributes_filter = build_attributes_filter(request.query_params.get("data_attributes", "").split(","))
+                wanted_data_attributes = request.query_params.get("data_attributes", "").split(",")
+                attributes_filter = build_attributes_filter(wanted_data_attributes)
+                chain_expr = (
+                    normalized_elements_chain_expr(wanted_data_attributes)
+                    if attributes_filter is not None and chain_normalization_enabled(self.team)
+                    else ast.Field(chain=["elements_chain"])
+                )
 
                 # HogQL resolves property access per the team's modifiers (materialized
                 # columns, person-on-events mode), so no per-mode handling is needed here
                 select = parse_select(
                     """
                     SELECT
-                        elements_chain,
+                        {chain} AS chain,
                         count() / {sampling_factor} AS occurrences,
                         event AS event_type,
-                        cityHash64(elements_chain) AS chain_hash
+                        cityHash64(chain) AS chain_hash
                     FROM events
                     WHERE event IN {event_types}
                         AND elements_chain != ''
                         AND timestamp >= {date_from}
                         AND timestamp <= {date_to}
                         AND {property_filters}
-                    GROUP BY elements_chain, event
+                    GROUP BY chain, event
                     ORDER BY occurrences DESC
                     LIMIT {limit} OFFSET {offset}
                     """,
                     placeholders={
+                        "chain": chain_expr,
                         "sampling_factor": ast.Constant(value=sampling_factor),
                         "event_types": ast.Constant(value=list(events_filter)),
                         "date_from": ast.Constant(value=query_date_from),
                         "date_to": ast.Constant(value=date_range.date_to()),
-                        "property_filters": property_to_expr(filter.property_groups, team=self.team),
+                        "property_filters": property_to_expr(property_groups, team=self.team),
                         "limit": ast.Constant(value=limit + 1),
                         "offset": ast.Constant(value=offset),
                     },

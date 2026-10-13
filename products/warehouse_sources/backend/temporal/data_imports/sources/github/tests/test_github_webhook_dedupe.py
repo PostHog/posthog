@@ -1,5 +1,7 @@
 from typing import Any
 
+import pytest
+
 import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
@@ -71,13 +73,20 @@ def test_drops_rows_with_null_id() -> None:
     assert rows == []
 
 
-def test_equal_version_keys_keep_later_arrival() -> None:
-    # GitHub's second-coarse updated_at can be identical for a fast in_progress -> completed
-    # transition; the later-arriving completed event must win, so a strict > would freeze the row.
+@pytest.mark.parametrize(
+    "arrival_order",
+    [
+        ["in_progress", "completed"],
+        # Webhooks arrive out of order: a skipped run's in_progress event can land after its completed one.
+        ["completed", "in_progress"],
+        ["completed", "queued"],
+    ],
+)
+def test_equal_version_keys_keep_furthest_status(arrival_order: list[str]) -> None:
     table = pa.table(
         {
             "id": [1, 1],
-            "status": ["in_progress", "completed"],
+            "status": arrival_order,
             "updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
         }
     )
@@ -86,8 +95,21 @@ def test_equal_version_keys_keep_later_arrival() -> None:
     assert out.column("status")[0].as_py() == "completed"
 
 
+def test_rerun_attempt_outranks_the_previous_attempts_completion() -> None:
+    table = pa.table(
+        {
+            "id": [1, 1],
+            "status": ["completed", "queued"],
+            "run_attempt": [1, 2],
+            "updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+        }
+    )
+    out = _make_webhook_dedupe_transformer("id", GITHUB_ENDPOINTS["workflow_runs"].version_keys or [])(table)
+    assert out.num_rows == 1
+    assert out.column("status")[0].as_py() == "queued"
+
+
 def test_single_version_key_keeps_max() -> None:
-    # workflow_runs ranks on updated_at alone.
     table = pa.table(
         {
             "id": [1, 1],
@@ -106,19 +128,51 @@ def test_returns_table_unchanged_when_version_columns_absent() -> None:
     assert out.num_rows == 2
 
 
-def test_reviews_config_collapses_events_sharing_an_id() -> None:
-    # A review emits submitted then edited/dismissed events sharing an id; without version_keys on
-    # the reviews config the transformer is never built and the delta merge multi-matches the batch.
-    # submitted_at is constant across those events, so the tie keeps the later arrival.
-    version_keys = GITHUB_ENDPOINTS["reviews"].version_keys
-    assert version_keys is not None
-    table = pa.table(
-        {
-            "id": [900, 900],
-            "state": ["APPROVED", "DISMISSED"],
-            "submitted_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
-        }
-    )
+@pytest.mark.parametrize(
+    "endpoint,expected_version_keys,version_values",
+    [
+        # A review emits submitted then edited/dismissed events sharing an id, and submitted_at is
+        # constant across them, so the tie keeps the later arrival.
+        ("reviews", ["submitted_at"], {"submitted_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"]}),
+        # A comment emits created then edited events sharing an id, and GitHub bumps updated_at on
+        # the edit, so ranking decides rather than arrival order.
+        ("issue_comments", ["updated_at"], {"updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z"]}),
+        ("pull_request_comments", ["updated_at"], {"updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z"]}),
+        ("commit_comments", ["updated_at"], {"updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z"]}),
+        # A check run emits in_progress then completed events sharing an id; completed_at is NULL
+        # until terminal, so NULLs-last ranking keeps the completed row whatever the file order.
+        (
+            "check_runs",
+            ["completed_at", "started_at"],
+            {
+                "completed_at": [None, "2026-01-01T00:05:00Z"],
+                "started_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+            },
+        ),
+    ],
+)
+def test_mutable_endpoint_configs_collapse_events_sharing_an_id(
+    endpoint: str, expected_version_keys: list[str], version_values: dict[str, list[str | None]]
+) -> None:
+    # Without version_keys on the config the transformer is never built, and the delta merge
+    # multi-matches every id that appears twice in one batch.
+    version_keys = GITHUB_ENDPOINTS[endpoint].version_keys
+    assert version_keys == expected_version_keys
+    table = pa.table({"id": [900, 900], "state": ["first", "latest"], **version_values})
+
     out = _make_webhook_dedupe_transformer("id", version_keys)(table)
+
     assert out.num_rows == 1
-    assert out.column("state")[0].as_py() == "DISMISSED"
+    assert out.column("state")[0].as_py() == "latest"
+
+
+def test_no_composite_key_endpoint_declares_version_keys() -> None:
+    # github_source builds the transformer from the FIRST primary-key column only, so a
+    # composite-key endpoint that declared version_keys would collapse every row sharing that
+    # column: commit_statuses keys on ["commit_sha", "id"], so one commit would keep one status.
+    offenders = [
+        name
+        for name, config in GITHUB_ENDPOINTS.items()
+        if config.version_keys and not isinstance(config.primary_key, str)
+    ]
+    assert offenders == []

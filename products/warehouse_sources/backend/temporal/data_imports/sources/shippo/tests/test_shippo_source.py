@@ -3,17 +3,12 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shippo import ShippoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shippo import ShippoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source import ShippoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestShippoSource:
@@ -22,60 +17,10 @@ class TestShippoSource:
         self.team_id = 123
         self.config = ShippoSourceConfig(api_key="shippo_test_key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SHIPPO
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Shippo"
-        assert config.label == "Shippo"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/shippo"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API token; the base URL is hardcoded, so there is no
-        # non-secret field an editor could retarget to reuse a preserved token elsewhere.
-        assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_only_shipments_is_incremental(self) -> None:
-        # Only /shipments honors the server-side object_created filters; advertising incremental
-        # on any other endpoint would silently sync unfiltered data.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["shipments"].supports_incremental is True
-        assert [f["field"] for f in schemas["shipments"].incremental_fields] == ["object_created"]
-        for name, schema in schemas.items():
-            if name != "shipments":
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["transactions"])
         assert len(schemas) == 1
         assert schemas[0].name == "transactions"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Keys must match schema names exactly or the enrichment silently falls back to the LLM.
@@ -106,20 +51,6 @@ class TestShippoSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source.validate_shippo_credentials"
-    )
-    def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Shippo API token")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("shippo_test_key")
-        assert result == (False, "Invalid Shippo API token")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ShippoResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source.shippo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

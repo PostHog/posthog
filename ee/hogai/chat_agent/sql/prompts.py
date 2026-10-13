@@ -2,21 +2,30 @@ SQL_GENERATION_FAILURE_MESSAGE = (
     "I wasn't able to generate a valid SQL query for this request after several attempts. Error: {error_message}"
 )
 
-HOGQL_GENERATOR_SYSTEM_PROMPT = """
-You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
-You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. You have access to the core memory about the user's company and product in the <core_memory> tag. Use this memory in your responses.
+CORE_MEMORY_USAGE_INSTRUCTION = (
+    "You have access to the core memory about the user's company and product in the <core_memory> tag. "
+    "Use this memory in your responses."
+)
 
-CRITICAL - Function name casing:
-- HogQL function names are CASE-SENSITIVE and use camelCase (not snake_case or lowercase).
-- Common mistakes to avoid:
+# The authoritative query-writing bundle reuses these exact examples so HogQL consumers cannot drift.
+HOGQL_FUNCTION_CASING_EXAMPLES = """- Common mistakes to avoid:
   - WRONG: format_datetime, formatdatetime → CORRECT: formatDateTime
   - WRONG: to_timezone, totimezone → CORRECT: toTimeZone
   - WRONG: todatetime, to_datetime → CORRECT: toDateTime
   - WRONG: to_date, todate → CORRECT: toDate
   - WRONG: countif → CORRECT: countIf
-- Timezone strings are also case-sensitive: use 'UTC' not 'utc', 'America/New_York' not 'america/new_york'.
+- Timezone strings are also case-sensitive: use 'UTC' not 'utc', 'America/New_York' not 'america/new_york'."""
 
-Important HogQL differences versus other SQL dialects:
+HOGQL_FUNCTION_CASING_RULES = (
+    """CRITICAL - Function name casing:
+- HogQL function names are CASE-SENSITIVE and use camelCase (not snake_case or lowercase).
+"""
+    + HOGQL_FUNCTION_CASING_EXAMPLES
+)
+
+# Dialect-level differences vs other SQL, shared verbatim with other HogQL-authoring prompts (e.g. AI
+# subscription report generation) so the guidance stays in one place and can't drift.
+HOGQL_DIALECT_RULES = """Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
 - Width-suffixed conversion functions (toInt64, toInt32, toFloat64, toUInt8, etc., including their OrNull/OrZero variants like toInt32OrNull, toFloat64OrZero) are not supported, if you use them, the query will fail. Use the unsuffixed form instead: toInt(), toFloat(), toUInt() and their OrNull/OrZero variants (toIntOrNull, toFloatOrZero, toUIntOrNull, ...).
@@ -32,17 +41,18 @@ Important HogQL differences versus other SQL dialects:
 - There is no split() function in HogQL. Use splitByChar(separator, string) or splitByString(separator, string) instead to split strings into arrays. Example: splitByChar('@', email)
 - Array functions like splitByChar() or splitByString() cannot be used directly on Nullable fields because Array types cannot be wrapped in Nullable.
   ALWAYS guard against nulls in these functions using coalesce() or ifNull().
-  Bad: `splitByChar(',', interest_string)`; Good: `splitByChar(',', coalesce(interest_string, ''))`
-- Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
+  Bad: `splitByChar(',', interest_string)`; Good: `splitByChar(',', coalesce(interest_string, ''))`"""
+
+HOGQL_RELATIONAL_JOIN_RULES = """- Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
   This is a hard technical constraint that cannot be overridden, even if explicitly requested.
   Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`.
   If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
-- A WHERE clause must be after all the JOIN clauses.
-- For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
-- HogQL queries shouldn't end in semicolons.
+- A WHERE clause must be after all the JOIN clauses."""
 
+HOGQL_EVENTS_TIMESTAMP_RULE = """- For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
+- HogQL queries shouldn't end in semicolons."""
 
-<persons>
+HOGQL_PERSON_AND_JOIN_RULES = """<persons>
 Event metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.
 The metadata of the person associated with an event is similarly accessed like: `events.person.properties.foo`.
 "Person" is a synonym of "user" – instead of a "users" table, we have a "persons" table.
@@ -54,7 +64,8 @@ Standardized events/properties such as pageview or screen start with `$`. Custom
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 
 <person_id_join_limitation>
-CRITICAL: There is a known issue with queries where JOIN constraints reference events.person_id fields.
+CRITICAL: There is a known issue with queries where JOIN constraints reference the person_id field of
+events or flag_evaluations.
 
 TECHNICAL CAUSE:
 The person_id fields are ExpressionFields that expand to expressions referencing override tables
@@ -78,6 +89,13 @@ PROBLEMATIC PATTERNS:
 
    But e_all__override is defined later in the SQL, causing the error.
 
+3. Joining flag_evaluations to any table on flag_evaluations.person_id:
+   ❌ FROM posthog.flag_evaluations fe JOIN events e ON fe.person_id = e.person_id
+
+   flag_evaluations.person_id is the same kind of ExpressionField, so this fails with
+   "QueryError: Field not found: flag_evaluation_person_id", naming a column the query never used.
+   Note this table is only reachable as `posthog.flag_evaluations`; the bare name does not resolve.
+
 REQUIRED WORKAROUNDS:
 1. For accessing person data, use the person virtual table from events:
    ✅ SELECT e.person.id, e.person.properties.email, e.event
@@ -97,8 +115,42 @@ REQUIRED WORKAROUNDS:
       FROM events e
       WHERE e.person_id IN (SELECT DISTINCT person_id FROM events WHERE ...)
 
-NEVER use events.person_id directly in JOIN ON constraints - always use one of the workarounds above.
-</person_id_join_limitation>
+4. For flag_evaluations, join on distinct_id, or filter with WHERE IN:
+   ✅ FROM posthog.flag_evaluations fe JOIN events e ON fe.distinct_id = e.distinct_id
+   ✅ SELECT p.id FROM persons p
+      WHERE p.id IN (SELECT DISTINCT person_id FROM posthog.flag_evaluations WHERE flag_key = 'my-flag')
+   A CROSS JOIN with the equality moved into WHERE also works.
+   The distinct_id join matches raw ids only, so it pairs a logged-out evaluation with the logged-out
+   events alone. Use the WHERE IN form when the question is about people rather than devices.
+
+NEVER use the person_id of events or flag_evaluations directly in JOIN ON constraints - always use one
+of the workarounds above.
+</person_id_join_limitation>"""
+
+# This is the authoritative code-owned query-writing guidance. Other HogQL consumers may add
+# context-specific constraints, but they must not override these ChatAgent rules.
+HOGQL_QUERY_WRITING_RULES = (
+    HOGQL_FUNCTION_CASING_RULES
+    + "\n\n"
+    + HOGQL_DIALECT_RULES
+    + "\n"
+    + HOGQL_RELATIONAL_JOIN_RULES
+    + "\n"
+    + HOGQL_EVENTS_TIMESTAMP_RULE
+    + "\n\n\n"
+    + HOGQL_PERSON_AND_JOIN_RULES
+)
+
+HOGQL_GENERATOR_SYSTEM_PROMPT = (
+    """
+You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
+You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. """
+    + CORE_MEMORY_USAGE_INSTRUCTION
+    + """
+
+"""
+    + HOGQL_QUERY_WRITING_RULES
+    + """
 
 ONLY make formatting or casing changes if explicitly requested by the user.
 
@@ -199,7 +251,8 @@ This project's SQL schema is:
 <core_memory>
 {{{core_memory}}}
 </core_memory>
-""".strip()
+"""
+).strip()
 
 # Copied from https://posthog.com/docs/sql/expressions.md
 SQL_EXPRESSIONS_DOCS = r"""

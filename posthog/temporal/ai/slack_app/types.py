@@ -19,6 +19,18 @@ class PostHogSlackInboxOnboardingInputs:
 
 
 @frozen
+class SlackAppForkThreadInputs:
+    """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
+
+    Passed through rather than parsed at the boundary: the webhook's only job is to ack
+    inside Slack's three-second budget, so everything it could read from the payload is
+    read in the activity instead.
+    """
+
+    payload: dict[str, Any]
+
+
+@frozen
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
@@ -43,6 +55,20 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
     is_ext_shared_channel: bool = False
+    # Set only on a forked run. The workflow
+    # runs against a DM thread — that pair owns the task, the mapping, the answer
+    # and every follow-up — but reads its `<slack_thread_context>` from the channel
+    # thread the user forked, which these two point at. Unset everywhere else, so
+    # the two pairs coincide and the fork branch is invisible.
+    fork_source_channel: str | None = None
+    fork_source_thread_ts: str | None = None
+    # The message the reader forked from. The context block stops here: what was said
+    # in the thread afterwards is not what they were looking at when they forked.
+    fork_source_message_ts: str | None = None
+    # The forked thread's own task, when it had one. Named in the context block so the
+    # agent can pull that task's runs, logs and artifacts if the question needs more
+    # than the messages.
+    fork_source_task_id: str | None = None
 
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:
@@ -112,11 +138,16 @@ class SlackAppMessageReactionInput(BaseModel):
 
 
 class SlackAppModelOverrideInput(BaseModel):
-    """Single-argument input for the model-override classifier activity."""
+    """Single-argument input for the model-override classifier activity.
+
+    ``thread_ts`` only groups the captured generation into its thread's trace, so it
+    defaults to None: a task queued before it existed stays bindable on a new worker.
+    """
 
     integration_id: int
     slack_team_id: str
     event_text: str
+    thread_ts: str | None = None
 
 
 class SlackAppModelOverride(BaseModel):
@@ -134,19 +165,55 @@ class SlackAppModelOverride(BaseModel):
     reasoning_effort: str | None = None
 
 
-@dataclass
+class SlackAppModelRouterInput(BaseModel):
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    user_id: int
+    event_text: str
+    thread_ts: str | None = None
+    repository: str | None = None
+    model_override: SlackAppModelOverride | None = None
+
+
+class SlackAppProjectRouteInput(BaseModel):
+    """Single-argument input for the project-route classifier activity.
+
+    ``integration_id`` is the project routing already resolved, which the classifier
+    reads as the default it may move the run off.
+    """
+
+    integration_id: int
+    slack_team_id: str
+    event_text: str
+    user_id: int
+    slack_user_id: str
+    thread_ts: str | None = None
+
+
+class SlackAppProjectRoute(BaseModel):
+    """The project a message asked to be answered from.
+
+    ``integration_id`` is always an install the mentioner can reach (the activity offers
+    the classifier a list bounded by their access and drops anything off it), and never
+    the one routing already resolved. The activity returns ``None`` rather than this when
+    the message named no project, which is the overwhelming majority of mentions.
+    """
+
+    integration_id: int
+
+
+@frozen
 class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]
     integration_ids: list[int]
     slack_team_id: str
-    # Resolved at routing time on the mention path. The slash surface passes
-    # ``None`` on purpose — it defers user resolution into the workflow's first
-    # activity to keep its webhook ack under Slack's 3s budget — so the
-    # in-workflow resolve fallback is permanent, not a legacy shim.
+    # ``None`` defers resolution into the workflow's first activity, keeping the webhook ack under
+    # Slack's 3s budget. The workflow branches on this, so removing either the field or the branch
+    # changes a recorded command sequence and breaks replay for runs in flight.
     user_id: int | None = None
-    # The invoking surface's prefix, used verbatim in user-facing help/error copy:
-    # ``@PostHog`` for mentions, ``/posthog`` for the slash command.
-    command_prefix: str = "@PostHog"
+    # Read from the payload rather than hardcoded, because a workspace can rename the command.
+    command_prefix: str = "/posthog"
 
 
 @frozen
@@ -181,12 +248,6 @@ class SlackRepoSelectionOutcome:
     reason: str
     repo_research_task_id: str | None = None
     repo_research_run_id: str | None = None
-
-
-@dataclass
-class PostHogCodeRulesCommandResult:
-    status: str  # "not_a_command" | "handled" | "needs_picker"
-    pending_rule_text: str | None = None
 
 
 @dataclass

@@ -26,15 +26,21 @@ export function HomepageThread(): JSX.Element {
     // Send the initial query once on mount
     const hasSentInitial = useRef(false)
 
+    // Depends on `query` so a prompt that lands after mount is still sent. With an empty dependency
+    // list the effect read whatever `query` held on the first render, so a prompt set a tick later
+    // was dropped, and the send went out against a stale snapshot.
     useEffect(() => {
         if (query && !hasSentInitial.current) {
             hasSentInitial.current = true
             setQuestion(query)
-            setTimeout(() => {
+            // Cleared on unmount, so a fast navigation away doesn't send a prompt into a thread
+            // the user has already left.
+            const sendTimer = setTimeout(() => {
                 askMax(query)
             }, 100)
+            return () => clearTimeout(sendTimer)
         }
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [query]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const threadProps: MaxThreadLogicProps = {
         panelId: HOMEPAGE_TAB_ID,

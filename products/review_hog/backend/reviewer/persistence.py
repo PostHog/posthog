@@ -6,6 +6,7 @@ within one run and persists them as rows; the DB-driven resume reads those rows 
 on-disk store. Resume is head_sha-scoped and covers the turn-stable sandbox stages — chunk_set /
 perspective_result; dedup recomputes on a re-run because its post-dedup issue set (and thus the
 per-issue ids) isn't stable across runs, while validation resumes per issue off its persisted verdicts.
+Dedup replaces only an unfinished turn's superseded findings and verdicts; completed turns remain intact.
 
 Durable rows this layer writes:
 
@@ -13,6 +14,8 @@ Durable rows this layer writes:
   the turn's `head_sha` so resume reuses only the current head's work,
 - the post-dedup findings → `issue_finding` artefacts and their validation verdicts →
   `validation_verdict` artefacts (paired by `issue_key`, latest-wins),
+- a single-agent turn's findings that dedup or the cap dropped → `dropped_finding` artefacts, for
+  analysis only,
 - this turn's point-in-time reviewed diff → a per-turn `commit` artefact (+ the report watermark),
 - the rendered review body → `ReviewReport.report_markdown`.
 
@@ -23,9 +26,10 @@ per-thread rulings + delivery watermarks, via the helpers below) plus `task_run`
 work-log entries for its session, fix commits, and run summaries.
 """
 
+import json
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -37,6 +41,7 @@ from products.review_hog.backend.models import ReviewReport, ReviewReportArtefac
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     ChunkSetArtefact,
+    DroppedFindingArtefact,
     PerspectiveResultArtefact,
     PerspectiveSelectionArtefact,
     PRSnapshotArtefact,
@@ -46,14 +51,25 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.constants import ReviewArm, draw_review_arm, resolve_review_arm
+from products.review_hog.backend.reviewer.constants import (
+    HUMAN_TRIGGER_SOURCES,
+    REVIEW_ARMS_BY_TIER,
+    ReviewArm,
+    ReviewTier,
+    is_below_human_tier,
+    is_single_agent_pass,
+    resolve_review_arm,
+    select_review_tier,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
+from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuesReview
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
+from products.signals.backend.enums import ReportPriority
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +82,8 @@ def upsert_review_report(
     pr_metadata: PRMetadata,
     signal_report_id: str | None = None,
     trigger_source: str | None = None,
+    signal_priority: ReportPriority | None = None,
+    lift_tier_on_human_trigger: bool = False,
 ) -> str:
     """Create or fetch the living report for this review target and return its id.
 
@@ -77,6 +95,14 @@ def upsert_review_report(
     turn. Provenance (`signal_report_id`, `trigger_source`) is stamped on create; on update
     `signal_report_id` is only filled when missing and `trigger_source` is never overwritten — a
     label re-trigger of an inbox PR must not erase where the report came from, nor vice versa.
+
+    The review tier (and with it the reviewer arm) is decided on create from the same provenance:
+    a report created with a Signals link is an agent PR and routes by `signal_priority`; anything
+    else is a person's PR. It stays for the report's life with one exception: a person's trigger
+    (`HUMAN_TRIGGER_SOURCES`) on a report in a cheaper tier lifts it to the human tier, for that
+    turn and every later one. Never the other way round. Only a review turn asks for the lift
+    (`lift_tier_on_human_trigger`): the resolution stage upserts the same row under the person's
+    trigger too, and a resolve-only request buys nobody a stronger review.
     Goes through `for_team` because the orchestrator runs outside request context and `ReviewReport`
     is fail-closed.
     """
@@ -87,9 +113,14 @@ def upsert_review_report(
             qs, repository=repository, pr_number=pr_number, head_branch=pr_metadata.head_branch
         )
         if report is None:
-            # The experiment arm is drawn exactly once, here: the update path below never touches
-            # these fields, so every later turn of the report reviews on the same model.
-            arm = draw_review_arm()
+            tier = select_review_tier(agent_pr=signal_report_id is not None, signal_priority=signal_priority)
+            if tier is ReviewTier.AGENT_UNPRIORITIZED:
+                logger.warning(
+                    "Signal report %s has no readable priority judgment; reviewing %s#%s at full strength",
+                    signal_report_id,
+                    repository,
+                    pr_number,
+                )
             create_kwargs: dict[str, object] = {
                 "team_id": team_id,
                 "repository": repository,
@@ -100,10 +131,8 @@ def upsert_review_report(
                 "author_login": pr_metadata.author or None,
                 "status": ReviewReport.Status.ACTIVE,
                 "signal_report_id": signal_report_id,
-                "review_runtime_adapter": arm.runtime_adapter.value,
-                "review_model": arm.model,
-                "review_reasoning_effort": arm.reasoning_effort.value,
-                "review_initial_permission_mode": arm.initial_permission_mode,
+                "review_signal_priority": signal_priority.value if signal_priority is not None else None,
+                **_review_tier_fields(tier),
             }
             if trigger_source is not None:
                 create_kwargs["trigger_source"] = trigger_source
@@ -136,8 +165,69 @@ def upsert_review_report(
             updates["author_login"] = pr_metadata.author
         if report.signal_report_id is None and signal_report_id is not None:
             updates["signal_report_id"] = signal_report_id
+        persisted_tier = _parse_persisted_tier(report.review_tier)
+        if (
+            lift_tier_on_human_trigger
+            and trigger_source in HUMAN_TRIGGER_SOURCES
+            and persisted_tier is not None
+            and is_below_human_tier(persisted_tier)
+        ):
+            # Accepted cost of the lift: this turn treats the cheap turn's findings as already
+            # covered, the same as any re-turn. Rare enough (a person asking about an agent PR)
+            # that quality for the person wins over a clean re-review.
+            updates.update(_review_tier_fields(ReviewTier.HUMAN))
         qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
+
+
+def _parse_persisted_tier(value: str | None) -> ReviewTier | None:
+    """The stored tier as a `ReviewTier`, or None if it is empty or a value this deploy doesn't know.
+
+    A tier a newer deploy wrote must not crash an older deploy's upsert, so an unparseable value
+    degrades to None with a warning instead of raising — the same degrade-don't-crash contract the
+    arm read (`resolve_review_arm`) and the artefact reads (`load_chunk_set`, `_load_working_state`)
+    already follow. This read runs on every update-path upsert, so a raise would fail the turn (and
+    its retries) before the review starts. Degrading to None only skips the human-trigger lift for
+    that turn; the persisted tier column is left untouched.
+    """
+    if not value:
+        return None
+    try:
+        return ReviewTier(value)
+    except ValueError:
+        logger.warning("Unknown persisted review tier %r; skipping the human-trigger lift this turn", value)
+        return None
+
+
+def lift_review_tier_for_joined_trigger(*, team_id: int, repository: str, pr_number: int) -> bool:
+    """Lift a report in a cheaper tier to `human` when a person's trigger joins its running review.
+
+    A same-id start joins the in-flight turn (`USE_EXISTING`), so the trigger's source never reaches
+    the fetch upsert and the in-turn lift cannot fire. Written directly instead: the turn's remaining
+    units load the arm per unit, so they already run at human strength, and every later turn does.
+    Returns whether a lift happened.
+    """
+    qs = ReviewReport.objects.for_team(team_id)
+    report = qs.filter(repository__iexact=repository, pr_number=pr_number).first()
+    if report is None:
+        return False
+    persisted_tier = _parse_persisted_tier(report.review_tier)
+    if persisted_tier is None or not is_below_human_tier(persisted_tier):
+        return False
+    qs.filter(pk=report.pk).update(**_review_tier_fields(ReviewTier.HUMAN))
+    return True
+
+
+def _review_tier_fields(tier: ReviewTier) -> dict[str, object]:
+    """The tier column plus the arm bundle a report placed in `tier` reviews on."""
+    arm = REVIEW_ARMS_BY_TIER[tier]
+    return {
+        "review_tier": tier.value,
+        "review_runtime_adapter": arm.runtime_adapter.value,
+        "review_model": arm.model,
+        "review_reasoning_effort": arm.reasoning_effort.value,
+        "review_initial_permission_mode": arm.initial_permission_mode,
+    }
 
 
 def load_review_arm(*, team_id: int, report_id: str) -> ReviewArm:
@@ -168,12 +258,22 @@ def _locate_review_report(
     PR targets match by number first, then fall back to a stored branch-keyed row for the same head
     branch (only ever `pr_number` NULL — a row already carrying another PR's number is a different
     target and must not be clobbered); branch targets match branch-keyed rows only.
+
+    The repository match is case-insensitive, because GitHub slugs are and each trigger carries its
+    own casing: a PR target takes GitHub's from the URL, a branch target takes the caller's. An
+    exact match splits one target into two reports, so the branch row never upgrades and its stored
+    review is lost to the PR turn. Oldest match wins, so a target that already split keeps
+    resolving to the row its earlier turns wrote.
     """
     report = None
     if pr_number is not None:
-        report = qs.filter(repository=repository, pr_number=pr_number).first()
+        report = qs.filter(repository__iexact=repository, pr_number=pr_number).order_by("created_at").first()
     if report is None:
-        report = qs.filter(repository=repository, pr_number__isnull=True, head_branch=head_branch).first()
+        report = (
+            qs.filter(repository__iexact=repository, pr_number__isnull=True, head_branch=head_branch)
+            .order_by("created_at")
+            .first()
+        )
     return report
 
 
@@ -288,9 +388,14 @@ def load_perspective_selection(*, team_id: int, report_id: str, head_sha: str) -
 
 
 def persist_perspective_results(
-    *, team_id: int, report_id: str, head_sha: str, results: dict[tuple[int, int], IssuesReview]
+    *,
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    results: dict[tuple[int, int], IssuesReview],
+    review_arm: ReviewArm,
 ) -> None:
-    """Append one `perspective_result` artefact per (pass, chunk) reviewed this turn."""
+    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration."""
     if not results:
         return
     with transaction.atomic():
@@ -299,21 +404,54 @@ def persist_perspective_results(
                 team_id=team_id,
                 report_id=report_id,
                 content=PerspectiveResultArtefact(
-                    head_sha=head_sha, pass_number=pass_number, chunk_id=chunk_id, review=review
+                    head_sha=head_sha,
+                    pass_number=pass_number,
+                    chunk_id=chunk_id,
+                    review=review,
+                    review_model=review_arm.model,
+                    review_config=json.dumps(asdict(review_arm), sort_keys=True),
                 ),
                 attribution=ArtefactAttribution.system(),
             )
 
 
-def load_perspective_results(*, team_id: int, report_id: str, head_sha: str) -> dict[tuple[int, int], IssuesReview]:
-    """The (pass, chunk) perspective reviews already computed for this turn (latest wins per key)."""
+def load_perspective_results(
+    *, team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm, review_design: str
+) -> dict[  # nosemgrep: tuple-return-prefer-dataclass -- Shared (pass, chunk) cache keys.
+    tuple[int, int], IssuesReview
+]:
+    """The (pass, chunk) reviews this design already computed with this arm (latest wins per key).
+
+    The cache is per commit, so another model or effort's findings must not skip this reviewer's work.
+    A Full turn and a single-agent Flash turn at one head can share an arm, so the design filter keeps
+    each turn from combining the other's findings.
+    """
     out: dict[tuple[int, int], IssuesReview] = {}
+    review_config = json.dumps(asdict(review_arm), sort_keys=True)
+    single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
     ):
         assert isinstance(content, PerspectiveResultArtefact)
+        if content.review_config != review_config or is_single_agent_pass(content.pass_number) != single_agent:
+            continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
+
+
+def reviewed_pipeline_chunk_ids(*, team_id: int, report_id: str, head_sha: str) -> set[int]:
+    """The pipeline chunks at this head that at least one review unit finished, a perspective or the blind spot.
+
+    Any arm counts, because the question is whether a reviewer read the chunk at all.
+    """
+    chunk_ids: set[int] = set()
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
+        if not is_single_agent_pass(content.pass_number):
+            chunk_ids.add(content.chunk_id)
+    return chunk_ids
 
 
 def persist_pr_snapshot(
@@ -324,6 +462,9 @@ def persist_pr_snapshot(
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+    merge_base_sha: str | None = None,
+    skipped_paths: Sequence[str] = (),
 ) -> None:
     """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
 
@@ -335,17 +476,31 @@ def persist_pr_snapshot(
         team_id=team_id,
         report_id=report_id,
         content=PRSnapshotArtefact(
-            head_sha=head_sha, pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files
+            head_sha=head_sha,
+            pr_metadata=pr_metadata,
+            pr_comments=pr_comments,
+            pr_files=pr_files,
+            review_design=review_design,
+            merge_base_sha=merge_base_sha,
+            skipped_paths=list(skipped_paths),
         ),
         attribution=ArtefactAttribution.system(),
     )
 
 
-def load_pr_snapshot(*, team_id: int, report_id: str, head_sha: str) -> PRSnapshotArtefact | None:
-    """The PR inputs fetched for this turn, or None if the fetch hasn't run (latest wins per head)."""
+def load_pr_snapshot(
+    *, team_id: int, report_id: str, head_sha: str, review_design: str | None = None
+) -> PRSnapshotArtefact | None:
+    """The PR inputs fetched for this turn, or None if the fetch hasn't run (latest wins per head).
+
+    A full turn and a Flash turn at the same head can overlap, and the two designs fetch different
+    file sets. A stage that passes `review_design` reads only the snapshot fetched for that design.
+    """
     latest: PRSnapshotArtefact | None = None
     for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.PR_SNAPSHOT, head_sha):
         assert isinstance(content, PRSnapshotArtefact)
+        if review_design is not None and content.review_design != review_design:
+            continue
         latest = content
     return latest
 
@@ -391,6 +546,164 @@ def persist_findings(*, team_id: int, report_id: str, issues: list[Issue], run_i
                 team_id=team_id, report_id=report_id, content=finding, attribution=ArtefactAttribution.system()
             )
     return [issue.id for issue, _finding in pairs]
+
+
+def replace_deduplicated_findings(
+    *,
+    team_id: int,
+    report_id: str,
+    issues: list[Issue],
+    run_index: int,
+    head_sha: str,
+    review_mode: str,
+    review_arm: ReviewArm,
+    validation_arm: ReviewArm | None,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+) -> list[str]:
+    """Replace an unfinished turn's dedup snapshot, retaining only compatible cached verdicts.
+
+    A failed turn keeps its index, so its next attempt can produce different findings or use different
+    models. Only unpublished working rows retire: completed history and per-commit reviewer results
+    stay intact. Identical findings at the same head, mode, design, and arm configurations keep their
+    verdicts. `validation_arm` is None for the single-agent design, which runs no validator.
+    """
+    context = json.dumps(
+        {
+            "head_sha": head_sha,
+            "review_mode": review_mode,
+            "review_design": review_design,
+            "review_arm": asdict(review_arm),
+            "validation_arm": asdict(validation_arm) if validation_arm is not None else None,
+        },
+        sort_keys=True,
+    )
+    pairs = _persistable_findings(issues, run_index, validation_context=context)
+    with transaction.atomic():
+        report = ReviewReport.objects.for_team(team_id).select_for_update().only("run_count").get(id=report_id)
+        if run_index <= report.run_count:
+            raise ValueError("Cannot replace findings from a completed review turn")
+
+        previous: dict[str, ReviewIssueFinding] = {}
+        row_keys: dict[str, str] = {}
+        rows = (
+            ReviewReportArtefact.objects.for_team(team_id)
+            .filter(
+                report_id=report_id,
+                type__in=[
+                    ReviewReportArtefact.ArtefactType.ISSUE_FINDING,
+                    ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT,
+                ],
+            )
+            .order_by("created_at", "id")
+        )
+        for row in rows:
+            try:
+                content = parse_artefact_content(row.type, row.content)
+            except ArtefactContentValidationError:
+                continue
+            if isinstance(content, ReviewIssueFinding) and content.run_index == run_index:
+                previous[content.issue_key] = content
+                row_keys[str(row.id)] = content.issue_key
+            elif isinstance(content, ValidationVerdict) and content.issue_key.startswith(f"r{run_index}:"):
+                row_keys[str(row.id)] = content.issue_key
+
+        preserved = {finding.issue_key for _, finding in pairs if previous.get(finding.issue_key) == finding}
+        obsolete_ids = [row_id for row_id, key in row_keys.items() if key not in preserved]
+        if obsolete_ids:
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=report_id, id__in=obsolete_ids).delete()
+        for _, finding in pairs:
+            ReviewReportArtefact.append_finding(
+                team_id=team_id, report_id=report_id, content=finding, attribution=ArtefactAttribution.system()
+            )
+    return [issue.id for issue, _ in pairs]
+
+
+def replace_dropped_findings(
+    *,
+    team_id: int,
+    report_id: str,
+    run_index: int,
+    head_sha: str,
+    dropped: Sequence[DroppedIssue],
+    cap: int,
+    lens_part_count: int,
+) -> None:
+    """Replace an unfinished single-agent turn's record of the findings it did not keep.
+
+    A failed turn keeps its index, so a retry first retires the earlier attempt's rows, like
+    `replace_deduplicated_findings`; otherwise every attempt would count its drops again. Nothing that
+    publishes or feeds a later turn reads `dropped_finding` rows; they exist for analysis.
+    """
+    artefacts: list[DroppedFindingArtefact] = []
+    for drop in dropped:
+        pass_number, chunk_id, _number = drop.issue.id.split("-")
+        duplicate_of = drop.duplicate_of
+        try:
+            artefacts.append(
+                DroppedFindingArtefact(
+                    head_sha=head_sha,
+                    finding=_to_finding(drop.issue, run_index),
+                    pass_number=int(pass_number),
+                    chunk_id=int(chunk_id),
+                    disposition=drop.disposition,
+                    duplicate_of=_issue_key(duplicate_of, run_index)
+                    if isinstance(duplicate_of, Issue)
+                    else duplicate_of,
+                    rank=drop.rank,
+                    dedup_fallback=drop.dedup_fallback,
+                    cap=cap,
+                    lens_part_count=lens_part_count,
+                )
+            )
+        except ValidationError as e:
+            logger.warning("Skipping dropped finding %s that failed durable validation: %s", drop.issue.id, e)
+    with transaction.atomic():
+        report = ReviewReport.objects.for_team(team_id).select_for_update().only("run_count").get(id=report_id)
+        if run_index <= report.run_count:
+            raise ValueError("Cannot replace dropped findings from a completed review turn")
+        rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+            report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+        )
+        stale_ids = []
+        for row in rows:
+            try:
+                content = parse_artefact_content(row.type, row.content)
+            except ArtefactContentValidationError:
+                continue
+            if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+                stale_ids.append(row.id)
+        if stale_ids:
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=report_id, id__in=stale_ids).delete()
+        for artefact in artefacts:
+            ReviewReportArtefact.append_dropped_finding(
+                team_id=team_id, report_id=report_id, content=artefact, attribution=ArtefactAttribution.system()
+            )
+
+
+def load_dropped_findings(
+    *, team_id: int, report_id: str, run_index: int, head_sha: str | None
+) -> list[DroppedFindingArtefact]:
+    """The findings a single-agent turn did not keep, in the order the turn recorded them.
+
+    Scoped to `run_index` like `load_turn_findings`. A retry replaces its turn's rows, so no latest-wins step is needed.
+    """
+    rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+        report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+    )
+    if head_sha:
+        # The denormalized column narrows the read to the turn's head, so older turns are never parsed.
+        rows = rows.filter(head_sha=head_sha)
+    rows = rows.order_by("created_at", "id")
+    dropped: list[DroppedFindingArtefact] = []
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
+            continue
+        if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+            dropped.append(content)
+    return dropped
 
 
 def persist_verdicts(
@@ -693,10 +1006,13 @@ def finalize_review_report(
     outcome (`publish_persisted_review`), and the workflow's failure activity covers a publish that
     dies past retries.
     """
+    now = timezone.now()
     updates: dict[str, object] = {
         "report_markdown": body_markdown,
         "run_count": run_index,
-        "last_run_at": timezone.now(),
+        "last_run_at": now,
+        # `QuerySet.update()` skips `auto_now`; the reviews table sorts by `updated_at`.
+        "updated_at": now,
         "completed_head_sha": head_sha,
         "run_urgency_threshold": urgency_threshold,
     }
@@ -716,7 +1032,9 @@ def _issue_key(issue: Issue, run_index: int) -> str:
     return f"r{run_index}:{issue.file}:{start}:{perspective}:{issue.id}"
 
 
-def _persistable_findings(issues: list[Issue], run_index: int) -> list[tuple[Issue, ReviewIssueFinding]]:
+def _persistable_findings(
+    issues: list[Issue], run_index: int, *, validation_context: str | None = None
+) -> list[tuple[Issue, ReviewIssueFinding]]:
     """Pair each canonical issue with its durable finding, dropping any that fail durable validation.
 
     Shared by both persist passes so a verdict is only ever written for an issue that produced a
@@ -725,23 +1043,26 @@ def _persistable_findings(issues: list[Issue], run_index: int) -> list[tuple[Iss
     pairs: list[tuple[Issue, ReviewIssueFinding]] = []
     for issue in issues:
         try:
-            pairs.append((issue, _to_finding(issue, run_index)))
+            pairs.append((issue, _to_finding(issue, run_index, validation_context=validation_context)))
         except ValidationError as e:
             logger.warning("Skipping finding %s that failed durable validation: %s", issue.id, e)
     return pairs
 
 
-def _to_finding(issue: Issue, run_index: int) -> ReviewIssueFinding:
+def _to_finding(issue: Issue, run_index: int, *, validation_context: str | None = None) -> ReviewIssueFinding:
     """Map a live pipeline `Issue` onto the durable `ReviewIssueFinding` content schema."""
     return ReviewIssueFinding(
         issue_key=_issue_key(issue, run_index),
         run_index=run_index,
+        validation_context=validation_context,
         title=issue.title,
         file=issue.file,
         lines=issue.lines,
         body=issue.issue,
         suggestion=issue.suggestion,
+        suggestion_code=issue.suggestion_code,
         priority=issue.priority,
+        reported_priority=issue.reported_priority,
         source_perspective=issue.source_perspective,
         is_directly_related_to_changes=issue.is_directly_related_to_changes,
     )
@@ -756,7 +1077,9 @@ def _from_finding(finding: ReviewIssueFinding) -> Issue:
         lines=finding.lines,
         issue=finding.body,
         suggestion=finding.suggestion,
+        suggestion_code=finding.suggestion_code,
         priority=finding.priority,
+        reported_priority=finding.reported_priority,
         source_perspective=finding.source_perspective,
         is_directly_related_to_changes=finding.is_directly_related_to_changes,
     )

@@ -287,7 +287,7 @@ describe("formValuesToLoopWrite", () => {
       },
     });
     expect(attached.context_target).toEqual({
-      folder_id: "f1",
+      channel_id: "f1",
       name: "growth",
       outputs: { post_to_feed: true, update_context: false, canvas_id: null },
     });
@@ -376,6 +376,24 @@ function baseLoop(): LoopSchemas.Loop {
 }
 
 describe("loopToFormValues round trip", () => {
+  it("preserves a loop's sandbox environment in the write payload", () => {
+    const values = loopToFormValues({
+      ...baseLoop(),
+      sandbox_environment_id: "environment-123",
+    });
+
+    expect(values.sandboxEnvironmentId).toBe("environment-123");
+    expect(formValuesToLoopWrite(values).sandbox_environment).toBe(
+      "environment-123",
+    );
+  });
+
+  it("writes null when the loop uses the default sandbox environment", () => {
+    expect(
+      formValuesToLoopWrite(validFormValues()).sandbox_environment,
+    ).toBeNull();
+  });
+
   it("maps a loop back into form values that write the same shape", () => {
     const loop = {
       id: "loop-1",
@@ -403,7 +421,7 @@ describe("loopToFormValues round trip", () => {
         slack: { enabled: false, events: [], params: {} },
       },
       context_target: {
-        folder_id: "f1",
+        channel_id: "f1",
         name: "growth",
         outputs: { post_to_feed: true, update_context: false, canvas_id: null },
       },

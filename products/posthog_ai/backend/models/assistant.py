@@ -6,9 +6,13 @@ from typing import TYPE_CHECKING, Optional
 from django.db import IntegrityError, models
 from django.utils import timezone
 
+import structlog
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -67,8 +71,8 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         DATA_WAREHOUSE = "data_warehouse", "Data warehouse"
         OTHER = "other", "Other"
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.IDLE)
@@ -286,6 +290,18 @@ class CoreMemory(UUIDTModel):
         await self.asave()
 
     async def aset_core_memory(self, text: str) -> None:
+        # Unlike append/replace, this path is fed raw model output (onboarding compression), so it clamps
+        # to the cap instead of rejecting. That keeps the stored row within the limit that the serializer,
+        # the textarea, and the /remember command all enforce, because an over-cap row can afterwards be
+        # neither saved nor edited through any of them.
+        if len(text) > CORE_MEMORY_MAX_CHARACTERS:
+            logger.warning(
+                "core_memory_set_truncated",
+                team_id=self.team_id,
+                length=len(text),
+                limit=CORE_MEMORY_MAX_CHARACTERS,
+            )
+            text = text[:CORE_MEMORY_MAX_CHARACTERS]
         self.text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         await self.asave()
@@ -338,7 +354,7 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
     type = models.CharField(max_length=50, choices=Type)
     data = models.JSONField(help_text="Artifact content. Structure depends on artifact type.")
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="artifacts")
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         indexes = [

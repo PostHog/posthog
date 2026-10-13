@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -27,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.git
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import (
     ENDPOINTS,
+    GITLAB_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -52,7 +51,7 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GIT_LAB,
+            name=ExternalDataSourceType.GITLAB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitLab",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -109,6 +108,13 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             HTTP_NOT_ALLOWED_ERROR: "The GitLab host must use HTTPS. Please update the instance URL to use https://.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A GitLabRetryableError (rate limit or transient upstream 5xx) that survives
+        # fetch_page's own tenacity retry still gets picked up by Temporal's activity retry;
+        # classify it as retryable so it's logged as a warning rather than tracked as an
+        # exception. Mirrors GitHub's equivalent case.
+        return {"GitLab API error (retryable)"}
+
     def get_schemas(
         self,
         config: GitLabSourceConfig,
@@ -122,7 +128,10 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                # An incremental fan-out re-emits every child of a re-fanned parent, which append
+                # would duplicate; merge dedupes them on the primary key.
+                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint))
+                and GITLAB_ENDPOINTS[endpoint].fan_out_parent is None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS

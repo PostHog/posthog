@@ -117,7 +117,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                 )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -129,7 +129,8 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         environment_variables = build_sandbox_environment_variables(
             github_token=github_token,
             access_token=access_token,
-            team_id=ctx.team_id,
+            ctx=ctx,
+            task=task,
             sandbox_environment=sandbox_env,
             otel_telemetry_enabled=ctx.agent_otel_telemetry_enabled,
         )

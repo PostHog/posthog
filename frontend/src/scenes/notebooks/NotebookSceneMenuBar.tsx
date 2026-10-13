@@ -23,7 +23,7 @@ import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { isKernelUiEnabled } from './utils'
+import { isJupyterModeAvailable, isKernelUiEnabled } from './utils'
 
 const RESOURCE_TYPE = 'notebook'
 
@@ -37,15 +37,17 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, showHistory, isLocalOnly, content } = useValues(logic)
+    const { notebook, showHistory, isLocalOnly, content, showVariables } = useValues(logic)
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
-    const { setIsMarkdownExpanded, setShowKernelInfo } = useActions(notebookSettingsLogic)
+    const { isMarkdownExpanded, showKernelInfo, isJupyterMode } = useValues(notebookSettingsLogic)
+    const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables, setIsJupyterMode } =
+        useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
     const showKernelToggle = isKernelUiEnabled(featureFlags) && isMarkdownNotebookContent(content)
+    const showJupyterModeToggle = isJupyterModeAvailable(featureFlags) && isMarkdownNotebookContent(content)
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
@@ -126,6 +128,24 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         data-attr={`${RESOURCE_TYPE}-menubar-kernel-info`}
                     >
                         Kernel info
+                    </SceneMenuBarCheckboxItem>
+                )}
+                {showKernelToggle && (
+                    <SceneMenuBarCheckboxItem
+                        checked={showVariables}
+                        onCheckedChange={(checked) => setShowVariables(checked)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-variables`}
+                    >
+                        Variables
+                    </SceneMenuBarCheckboxItem>
+                )}
+                {showJupyterModeToggle && (
+                    <SceneMenuBarCheckboxItem
+                        checked={isJupyterMode}
+                        onCheckedChange={(checked) => setIsJupyterMode(checked)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-jupyter-mode`}
+                    >
+                        Jupyter mode
                     </SceneMenuBarCheckboxItem>
                 )}
                 <SceneMenuBarSeparator />

@@ -2,19 +2,20 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.logic.person_property_runs import (
-    MAX_CONSECUTIVE_SYNC_FAILURES,
-    record_sync_run,
-)
+from products.customer_analytics.backend.logic.custom_property_source_health import MAX_CONSECUTIVE_SYNC_FAILURES
+from products.customer_analytics.backend.logic.person_property_runs import record_sync_run
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+HEALTH_SERVICE = "products.customer_analytics.backend.logic.custom_property_source_health"
 
 
 class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
@@ -40,7 +41,8 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
     def _record(self, **overrides) -> PersonPropertySyncRunRecord:
         kwargs: dict = {
             "team_id": self.team.id,
-            "schema_id": self.schema_id,
+            "binding_kind": "schema",
+            "binding_id": self.schema_id,
             "source_id": str(self.source.id),
             "job_id": "job-1",
             "trigger": "scheduled",
@@ -185,3 +187,25 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert self.source.consecutive_failures == 0
         assert self.source.last_synced_at is not None
         assert self.source.last_sync_error is None
+
+    def test_view_binding_lands_in_the_saved_query_column(self):
+        # The two binding columns are how a run stays attributable after its schema or view is deleted.
+        # Writing a view's id into schema_id would attribute the run to a schema that never ran it.
+        record_sync_run(self._record(binding_kind="saved_query", binding_id="7bd1a4de-0000-4000-8000-000000000001"))
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=self.source.id)
+        assert str(run.saved_query_id) == "7bd1a4de-0000-4000-8000-000000000001"
+        assert run.schema_id is None
+
+    @patch(f"{HEALTH_SERVICE}.notify_source_auto_disabled")
+    def test_the_disabling_failure_tells_the_owner_once_across_retries(self, mock_notify):
+        self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
+        self.source.save()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            record_sync_run(self._record(status="failed", error="boom"))
+            record_sync_run(self._record(status="failed", error="boom"))
+
+        self.source.refresh_from_db()
+        assert self.source.is_enabled is False
+        mock_notify.assert_called_once_with(team_id=self.team.id, source_id=self.source.id, disable_event_id="job-1")

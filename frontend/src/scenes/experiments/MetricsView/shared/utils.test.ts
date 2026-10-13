@@ -350,6 +350,10 @@ describe('formatMetricValue', () => {
         expect(formatMetricValue({ sum: 50, denominator_sum: 200 }, ratioMetric)).toBe('0.25')
     })
 
+    it('returns "—" for a ratio metric with a zero denominator', () => {
+        expect(formatMetricValue({ sum: 3, denominator_sum: 0 }, ratioMetric)).toBe('—')
+    })
+
     it('returns "—" when the value is not a number', () => {
         expect(formatMetricValue({ sum: 0, number_of_samples: 0 }, meanMetric())).toBe('—')
     })

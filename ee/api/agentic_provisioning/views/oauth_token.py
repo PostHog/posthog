@@ -35,8 +35,9 @@ from ee.api.agentic_provisioning.constants import (
     PARTNER_TOKEN_EXPIRY_SECONDS,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.throttling import enforce_partner_rate_limit
+from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.tokens import (
+    base_team_id_from_scope,
     compute_partner_scoped_teams,
     get_available_teams_for_user,
     lock_application,
@@ -68,7 +69,7 @@ def _require_client_authentication(request: Request, oauth_app: OAuthApplication
         )
         raise ProvisioningError("invalid_client", "client_id and client_secret are required", status=401)
 
-    if not constant_time_compare(credentials.client_id, oauth_app.effective_client_id) or not verify_client_secret(
+    if not constant_time_compare(credentials.client_id, oauth_app.client_id) or not verify_client_secret(
         credentials.client_secret, oauth_app.client_secret or ""
     ):
         capture_provisioning_event(
@@ -87,7 +88,7 @@ def _verify_assertion_or_fail(request: Request, oauth_app: OAuthApplication, gra
 
     # The assertion is verified against the app the grant names, so an assertion validly
     # signed by a different client cannot be used to redeem this one's grant.
-    if not constant_time_compare(assertion.client_id, oauth_app.effective_client_id):
+    if not constant_time_compare(assertion.client_id, oauth_app.client_id):
         capture_provisioning_event(
             "token_exchange", "client_assertion_mismatch", partner=oauth_app, grant_type=grant_type
         )
@@ -109,6 +110,12 @@ class OAuthTokenView(ProvisioningAPIView):
     # authentication happens in _require_client_authentication once the grant is known.
     authenticates_in_handler = True
 
+    # Two buckets, charged manually once the grant names the partner. Refreshes are
+    # split from new authorizations because partner tokens live one hour: charging
+    # rotations to the exchange budget capped a partner's live end users at roughly
+    # that budget. Both keep the typed envelope, their historical wire shape here.
+    @rate_limited("token_exchanges", budget=Budget(burst=10, per_hour=20), charge="manual", envelope="typed")
+    @rate_limited("token_refreshes", charge="manual", envelope="typed")
     def post(self, request: Request) -> Response:
         grant_type = request.data.get("grant_type", "")
 
@@ -175,7 +182,7 @@ class OAuthTokenView(ProvisioningAPIView):
         # re-initiate the OAuth flow if rate-limited.
         cache.delete(cache_key)
 
-        enforce_partner_rate_limit(oauth_app, "token_exchanges")
+        self.charge_rate_limit(request, oauth_app, endpoint="token_exchanges")
 
         user_id = code_data["user_id"]
         team_id = code_data["team_id"]
@@ -324,16 +331,21 @@ class OAuthTokenView(ProvisioningAPIView):
             user = old_refresh.user
             old_scoped_teams = old_refresh.scoped_teams or []
 
-            # base_team_id at refresh: the first team in the prior scope. The consent team
-            # (authorized at grant time) has the lowest id and sorts first at issuance;
-            # partner-provisioned teams are always created later, so they take higher ids
-            # and are only ever appended after it. [0] is therefore the consent team. This
-            # ordering is load-bearing: compute_partner_scoped_teams re-adds the consent
-            # team only when it is base_team_id (it has no TeamProvisioningConfig for this
-            # app), so a lower-id provisioned team becoming [0] would silently drop the
-            # consent team from the refreshed scope. If the prior token was somehow empty-
-            # scoped, fall back to zero so the helper short-circuits without claiming a team.
-            base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+            # Deactivation drops the user's login sessions but leaves their OAuth tokens
+            # intact, and the team check below answers only about membership and roles, so a
+            # deactivated user still passes it. Without this gate the partner rotates into a
+            # fresh token pair for as long as it keeps refreshing. Checked before any token
+            # row is mutated, like the other fail-closed gates here.
+            if not user.is_active:
+                capture_provisioning_event("token_exchange", "user_inactive", grant_type="refresh_token")
+                raise ProvisioningError("invalid_grant", "User is not active; re-authorize.")
+
+            # base_team_id at refresh must be the consent team. compute_partner_scoped_teams
+            # keeps base_team_id unconditionally but keeps other teams only when they have a
+            # TeamProvisioningConfig for this app, so any other base silently drops an
+            # unattributed consent team from the refreshed scope. An empty prior scope yields
+            # zero, so the helper short-circuits without claiming a team.
+            base_team_id = base_team_id_from_scope(oauth_app, old_scoped_teams)
             scoped_teams = compute_partner_scoped_teams(oauth_app, user, base_team_id)
 
             # Same fail-closed rule as issuance: an empty scoped_teams is unrestricted under the
@@ -371,7 +383,7 @@ class OAuthTokenView(ProvisioningAPIView):
             # Not is_provisioning_partner: an admin clearing that flag to disable a partner
             # leaves its outstanding refresh tokens working, and they must stay throttled.
             if oauth_app and oauth_app.carries_provisioning_config:
-                enforce_partner_rate_limit(oauth_app, "token_exchanges")
+                self.charge_rate_limit(request, oauth_app, endpoint="token_refreshes")
 
             old_access = old_refresh.access_token
             old_refresh.access_token = None

@@ -12,9 +12,9 @@ from .ticket_view import TicketView
 class TicketViewFavorite(TeamScopedRootMixin, UUIDModel):
     # db_constraint=False on the hot-table FKs (team, user) so CreateModel takes no lock
     # on posthog_team / posthog_user; app-level enforcement is enough here.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     ticket_view = models.ForeignKey(TicketView, on_delete=models.CASCADE, related_name="favorites")
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_constraint=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -4,7 +4,8 @@
 // legacy import map (freeformWhitelist) is contract-tested against the same
 // pins. When the server manifest changes, update this constant to match.
 export const CANVAS_PLATFORM_MANIFEST = {
-  canvasSdkVersion: "0.1.0",
+  canvasSdkVersion: "0.2.0",
+  supportedSdkVersions: ["0.1.0", "0.2.0"],
   dependencies: {
     react: {
       version: "19.0.0",
@@ -34,7 +35,7 @@ export const CANVAS_PLATFORM_MANIFEST = {
     three: { version: "0.179.1", url: "https://esm.sh/three@0.179.1" },
     "framer-motion": {
       version: "12.23.12",
-      url: "https://esm.sh/framer-motion@12.23.12?external=react,react-dom",
+      url: "https://esm.sh/framer-motion@12.23.12?external=react,react-dom&deps=motion-dom@12.23.12,motion-utils@12.23.6",
     },
     zod: { version: "3.25.76", url: "https://esm.sh/zod@3.25.76" },
     "@tanstack/react-table": {
@@ -67,6 +68,7 @@ export const CANVAS_PLATFORM_MANIFEST = {
     "react-dom/client": "https://esm.sh/react-dom@19.0.0/client?external=react",
   },
   allowedImportSpecifiers: [
+    "@posthog/canvas-sdk",
     "react",
     "react-dom",
     "react-dom/client",
@@ -95,3 +97,42 @@ export const CANVAS_PLATFORM_MANIFEST = {
     maxArtifactTotalBytes: 12582912,
   },
 } as const;
+
+// The platform-provided canvas SDK. It carries no CDN pin because neither tier
+// fetches it: the builder inlines the module and the preview sandbox serves it
+// from a blob, so the project-wide canvasSdkVersion governs it.
+export const CANVAS_SDK_SPECIFIER = "@posthog/canvas-sdk";
+
+// Vendored from products/canvas/packages/canvas_builder/canvas-sdk.mjs with its
+// comments elided. Copied rather than imported because the builder ships inside
+// its own build image and cannot reach this workspace.
+export const CANVAS_SDK_MODULE_SOURCE = `export const ph = globalThis.ph
+export default globalThis.ph
+
+export function editable(name, props, params) {
+    const schema = params || {}
+    const values = {}
+    for (const key of Object.keys(schema)) {
+        const value = props ? props[key] : undefined
+        if (value === undefined || typeof value === 'function') {
+            continue
+        }
+        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+            continue
+        }
+        values[key] = value
+    }
+    const attributes = {
+        'data-ph-block': name,
+        'data-ph-params': JSON.stringify(schema),
+        'data-ph-props': JSON.stringify(values),
+    }
+    if (props && props['data-ph-src']) {
+        attributes['data-ph-src'] = props['data-ph-src']
+    }
+    if (props && props.blockId) {
+        attributes['data-ph-block-id'] = props.blockId
+    }
+    return attributes
+}
+`;

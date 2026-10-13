@@ -5,12 +5,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 
 import type { AnyPropertyFilter } from '../../../../frontend/src/types'
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
-import { GENERATION_SENTIMENT_SELECT } from '../sentimentResults'
 
 export type AIObservabilityGenerationsLogicProps = Record<string, never>
 
@@ -19,7 +19,6 @@ export function getDefaultGenerationsColumns(): string[] {
         'uuid',
         'properties.$ai_trace_id',
         'person',
-        GENERATION_SENTIMENT_SELECT,
         "f'{properties.$ai_model}' -- Model",
         'properties.$ai_tools_called',
         "if(properties.$ai_is_error = 'true', '❌', '') -- Error",
@@ -246,7 +245,21 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
     selectors({
         generationsQuery: [
             (s) => [s.generationsQueryOverride, s.defaultGenerationsQuery],
-            (override: DataTableNode | null, defQuery: DataTableNode) => override || defQuery,
+            (override: DataTableNode | null, defQuery: DataTableNode): DataTableNode => {
+                const query = override || defQuery
+                if (!isEventsQuery(query.source)) {
+                    return query
+                }
+
+                return {
+                    ...query,
+                    source: {
+                        ...query.source,
+                        // Saved column selections can still contain the retired sentiment placeholder.
+                        select: query.source.select?.filter((column) => column !== "'' -- Sentiment"),
+                    },
+                }
+            },
         ],
 
         defaultGenerationsQuery: [

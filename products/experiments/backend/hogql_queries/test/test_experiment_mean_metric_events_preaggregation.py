@@ -171,40 +171,91 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
 
         assert first_result.ready is True
         assert second_result.ready is True
-        assert first_result.job_ids == second_result.job_ids
-        assert mock_sync_execute.call_count == len(first_result.job_ids)
+        # The stable hash shares the complete day-aligned jobs across as_of values;
+        # only the final partial day, claimed up to each as_of, is rebuilt.
+        first_jobs = set(first_result.job_ids)
+        second_jobs = set(second_result.job_ids)
+        assert len(second_jobs) == len(first_jobs)
+        assert len(first_jobs & second_jobs) == len(first_jobs) - 1
+        assert mock_sync_execute.call_count == len(first_jobs) + 1
+
+    @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
+    def test_dau_metric_shares_precompute_jobs_with_count_metric(self, mock_sync_execute):
+        feature_flag = self.create_feature_flag(key="shared-mean-metric-events-jobs")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+        # ID-valued math stores the same rows as a count metric, so the build
+        # queries must hash the same and share jobs instead of building twice.
+        count_metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+        dau_metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.DAU))
+
+        count_result = self._build_runner(experiment, count_metric)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, count_metric)
+        )
+        dau_result = self._build_runner(experiment, dau_metric)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, dau_metric)
+        )
+
+        assert count_result.ready is True
+        assert dau_result.ready is True
+        assert count_result.job_ids == dau_result.job_ids
+        # Only the count run executed INSERTs; the dau run reused its jobs.
+        assert mock_sync_execute.call_count == len(count_result.job_ids)
 
     @parameterized.expand(
         [
-            ("count_default_math", EventsNode(event="purchase"), True),
+            ("count_default_math", EventsNode(event="purchase"), None),
             (
                 "sum",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
-                True,
+                None,
             ),
             (
-                "avg_not_yet_allowlisted",
+                "avg",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.AVG, math_property="amount"),
-                False,
+                None,
             ),
             (
-                "unique_session_id_valued",
+                "min",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.MIN, math_property="amount"),
+                None,
+            ),
+            (
+                "max",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.MAX, math_property="amount"),
+                None,
+            ),
+            (
+                "unique_session",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.UNIQUE_SESSION),
-                False,
+                None,
+            ),
+            (
+                "dau",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.DAU),
+                None,
+            ),
+            (
+                "unique_group",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.UNIQUE_GROUP, math_group_type_index=1),
+                "unsupported_math",
             ),
             (
                 "hogql_user_expression",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.HOGQL, math_hogql="sum(properties.amount)"),
-                False,
+                "unsupported_math",
             ),
             (
                 "session_property",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="$session_duration"),
-                False,
+                "session_property_math",
             ),
         ]
     )
-    def test_mean_metric_events_precompute_gate(self, _name, source, applicable):
+    def test_mean_metric_events_precompute_gate(self, _name, source, skip_reason):
         feature_flag = self.create_feature_flag(key="mean-metric-events-gate")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -215,4 +266,5 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
 
         runner = self._build_runner(experiment, metric)
 
-        assert runner._metric_events_precompute_applicable() is applicable
+        assert runner._metric_events_ineligibility_reason() == skip_reason
+        assert runner._metric_events_precompute_applicable() is (skip_reason is None)

@@ -1,4 +1,5 @@
 import { Warning } from "@phosphor-icons/react";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { AlertDialog, Button, Flex, Text } from "@radix-ui/themes";
 import { useState } from "react";
 
@@ -84,10 +85,10 @@ export function ArchiveRunningTaskDialog({
             <Button
               variant="solid"
               size="1"
-              loading={isSubmitting}
               disabled={isSubmitting}
               onClick={handleConfirm}
             >
+              {isSubmitting && <Spinner size="sm" />}
               Archive
             </Button>
           </AlertDialog.Action>

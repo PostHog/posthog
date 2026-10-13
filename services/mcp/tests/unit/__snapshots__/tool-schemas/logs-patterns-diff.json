@@ -65,7 +65,7 @@
                     "items": {
                         "properties": {
                             "key": {
-                                "description": "Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                                "description": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
                                 "type": "string"
                             },
                             "operator": {
@@ -105,6 +105,10 @@
                     },
                     "type": "array"
                 },
+                "personId": {
+                    "description": "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+                    "type": "string"
+                },
                 "searchTerm": {
                     "description": "Full-text search term to filter log bodies before mining.",
                     "type": "string"
@@ -115,6 +119,10 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "sessionId": {
+                    "description": "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+                    "type": "string"
                 },
                 "severityLevels": {
                     "description": "Filter by log severity levels before mining.",

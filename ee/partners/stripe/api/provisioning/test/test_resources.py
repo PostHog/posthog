@@ -4,13 +4,20 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken
+from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
 
+from products.access_control.backend.models.access_control import AccessControl
+
+from ee.models.license import License
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
@@ -47,6 +54,49 @@ class TestResources(StripeProvisioningTestBase):
         assert first.json()["id"] == second.json()["id"]
         # A project_id provisions a dedicated team, distinct from the consent team.
         assert first.json()["id"] != str(self.team.id)
+
+    def test_deactivated_user_bearer_token_rejected(self):
+        token = self._get_bearer_token()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._post_signed_with_bearer(RESOURCES_URL, data={}, token=token)
+        assert res.status_code == 401
+
+    @parameterized.expand(
+        [
+            ("read_access_control_revoked", "read", "access_control"),
+            ("read_org_membership_removed", "read", "membership"),
+            ("create_access_control_revoked", "create", "access_control"),
+            ("create_org_membership_removed", "create", "membership"),
+        ]
+    )
+    def test_resource_endpoints_rejected_after_team_access_lost(self, _name: str, endpoint: str, revocation: str):
+        token = self._get_bearer_token()
+
+        if revocation == "access_control":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                team=self.team,
+                access_level="none",
+                resource="project",
+                resource_id=str(self.team.id),
+            )
+        else:
+            self.organization_membership.delete()
+
+        if endpoint == "read":
+            res = self._get_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}", token=token)
+        else:
+            res = self._post_signed_with_bearer(RESOURCES_URL, data={}, token=token)
+
+        assert res.status_code == 403
 
     def test_unknown_service_rejected(self):
         token = self._get_bearer_token()
@@ -118,6 +168,47 @@ class TestResources(StripeProvisioningTestBase):
             "id": str(self.team.id),
             "error": {"code": "requires_payment_credentials", "message": "Billing activation failed"},
         }
+
+    @parameterized.expand(
+        [
+            ("partner_billed", None, 400, []),
+            ("partner_billed_org_with_own_stripe_customer", "cus_example", 200, [{"shared_payment_token": "spt_1"}]),
+        ]
+    )
+    def test_spt_activates_billing_unless_billing_is_locked_to_the_partner(
+        self, _name: str, customer_id: str | None, expected_status: int, expected_billing_payloads: list[dict[str, str]]
+    ) -> None:
+        self.stripe_app.update_provisioning(pays_for_customers=True)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+            application=self.stripe_app,
+        )
+        self.organization.customer_id = customer_id
+        self.organization.save(update_fields=["customer_id"])
+        token = self._get_bearer_token()
+        billing_response = requests.Response()
+        billing_response.status_code = 201
+
+        with (
+            patch(
+                "ee.partners.stripe.api.provisioning.billing.get_cached_instance_license",
+                return_value=License(key="12345::67890"),
+            ),
+            patch("ee.partners.stripe.api.provisioning.billing._team_has_active_billing", return_value=False),
+            patch("ee.billing.billing_manager.http_session.post", return_value=billing_response) as billing_post,
+        ):
+            res = self._post_signed_with_bearer(
+                RESOURCES_URL,
+                data={
+                    "service_id": "pay_as_you_go",
+                    "payment_credentials": {"type": "stripe_payment_token", "stripe_payment_token": "spt_1"},
+                },
+                token=token,
+            )
+
+        assert res.status_code == expected_status, res.json()
+        assert [call.kwargs["json"] for call in billing_post.call_args_list] == expected_billing_payloads
 
     def test_detail_returns_resource(self):
         token = self._get_bearer_token()

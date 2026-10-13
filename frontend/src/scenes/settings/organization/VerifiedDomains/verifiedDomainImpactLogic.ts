@@ -41,18 +41,19 @@ export interface verifiedDomainImpactLogicActions {
                 OrganizationType,
                 | 'allow_publicly_shared_resources'
                 | 'default_anonymize_ips'
-                | 'default_experiment_stats_method'
                 | 'default_role_id'
                 | 'enforce_2fa'
                 | 'enforce_verified_domains'
                 | 'is_ai_data_processing_approved'
                 | 'is_ai_training_opted_in'
                 | 'logo_media_id'
+                | 'member_notice'
                 | 'members_can_create_projects'
                 | 'members_can_invite'
                 | 'members_can_see_org_members'
                 | 'members_can_use_personal_api_keys'
                 | 'name'
+                | 'read_only_mcp_access'
             >
         >
     ) => Partial<
@@ -60,18 +61,19 @@ export interface verifiedDomainImpactLogicActions {
             OrganizationType,
             | 'allow_publicly_shared_resources'
             | 'default_anonymize_ips'
-            | 'default_experiment_stats_method'
             | 'default_role_id'
             | 'enforce_2fa'
             | 'enforce_verified_domains'
             | 'is_ai_data_processing_approved'
             | 'is_ai_training_opted_in'
             | 'logo_media_id'
+            | 'member_notice'
             | 'members_can_create_projects'
             | 'members_can_invite'
             | 'members_can_see_org_members'
             | 'members_can_use_personal_api_keys'
             | 'name'
+            | 'read_only_mcp_access'
         >
     > // organizationLogic
     closeEnforcementPrompt: () => {
@@ -209,6 +211,7 @@ export const verifiedDomainImpactLogic = kea<verifiedDomainImpactLogicType>([
             null as EnforcementRemovalResult | null,
             {
                 confirmEnforceVerifiedDomains: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use removeBlockedMembersAndEnforceVerifiedDomainsCreate() from 'products/platform_features/frontend/generated/api' instead.
                     return await api.create<EnforcementRemovalResult>(
                         `api/organizations/${values.currentOrganization?.id}/remove_blocked_members_and_enforce_verified_domains`
                     )

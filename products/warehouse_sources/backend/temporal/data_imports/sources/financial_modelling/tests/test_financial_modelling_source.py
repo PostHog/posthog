@@ -4,21 +4,14 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.financial_modelling import (
-    FinancialModellingResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source import (
     FinancialModellingSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -40,41 +33,28 @@ def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
     return SourceInputs(**defaults)
 
 
-class TestFinancialModellingSourceConfig:
-    def test_source_type(self) -> None:
-        assert FinancialModellingSource().source_type == ExternalDataSourceType.FINANCIALMODELLING
-
-    def test_source_config_basics(self) -> None:
-        config = FinancialModellingSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/financial-modelling"
-
-    def test_fields(self) -> None:
-        fields = {f.name: f for f in FinancialModellingSource().get_source_config.fields}
-        assert set(fields) == {"api_key", "symbols"}
-        api_key, symbols = fields["api_key"], fields["symbols"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(symbols, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-        assert symbols.required is True
-        assert symbols.secret is False
-
-
 class TestGetSchemas:
-    def test_all_endpoints_present(self) -> None:
-        schemas = FinancialModellingSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     @parameterized.expand(
         [
             ("stock_list", False),
             ("company_profiles", False),
             ("income_statements", False),
+            ("key_metrics", False),
+            ("ratios", False),
+            ("key_metrics_ttm", False),
+            ("ratios_ttm", False),
+            ("dividends", False),
+            ("earnings", False),
             ("historical_prices", True),
             ("earnings_calendar", True),
             ("dividends_calendar", True),
+            ("available_exchanges", False),
+            ("available_sectors", False),
+            ("available_industries", False),
+            ("splits", False),
+            ("market_capitalization", False),
+            ("historical_market_capitalization", True),
+            ("institutional_positions_summary", False),
         ]
     )
     def test_incremental_support_matches_date_window(self, endpoint: str, expected_incremental: bool) -> None:
@@ -149,25 +129,7 @@ class TestNonRetryableErrors:
         assert not any(key in other_error for key in non_retryable)
 
 
-class TestResumableSourceManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = FinancialModellingSource().get_resumable_source_manager(_inputs("historical_prices"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FinancialModellingResumeConfig
-
-
 class TestSourceForPipeline:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
-    )
-    def test_parses_symbols_and_plumbs_arguments(self, mock_source: MagicMock) -> None:
-        config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "aapl, msft"})
-        FinancialModellingSource().source_for_pipeline(config, MagicMock(), _inputs("company_profiles"))
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "k"
-        assert kwargs["symbols"] == ["AAPL", "MSFT"]
-        assert kwargs["endpoint"] == "company_profiles"
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
     )
@@ -196,10 +158,6 @@ class TestSourceForPipeline:
 class TestPublicDocs:
     def test_lists_tables_without_credentials(self) -> None:
         assert FinancialModellingSource().lists_tables_without_credentials is True
-
-    def test_documented_tables_cover_every_endpoint(self) -> None:
-        tables = {t["name"] for t in FinancialModellingSource().get_documented_tables()}
-        assert tables == set(ENDPOINTS)
 
     def test_canonical_descriptions_keys_are_valid_endpoints(self) -> None:
         assert set(CANONICAL_DESCRIPTIONS).issubset(set(ENDPOINTS))

@@ -1,6 +1,27 @@
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
-import { SignalReportStatus } from '../../types'
+import type { SignalReportSuppressionSourceEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { SignalReportActionability, SignalReportStatus } from '../../types'
+
+/**
+ * Whether the status chip should be hidden because the actionability chip already tells the same
+ * story: "ready" is the default terminal state (the actionability verdict is the more specific
+ * fact), and "pending_input" next to a requires_human_input verdict would render two identical
+ * "Needs input" chips.
+ */
+export function isStatusRedundantWithActionability(
+    status: SignalReportStatus,
+    actionability: SignalReportActionability | null | undefined
+): boolean {
+    if (!actionability) {
+        return false
+    }
+    return (
+        status === SignalReportStatus.READY ||
+        (status === SignalReportStatus.PENDING_INPUT && actionability === 'requires_human_input')
+    )
+}
 
 export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.READY]: 'Research is complete. You can create a task from this report.',
@@ -10,7 +31,7 @@ export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.POTENTIAL]: 'Gathering signals. The report will be queued once enough evidence accumulates.',
     [SignalReportStatus.RESOLVED]: 'This report has been resolved.',
     [SignalReportStatus.FAILED]: 'Research failed. The report may be retried automatically.',
-    [SignalReportStatus.SUPPRESSED]: 'This report has been suppressed and is out of your inbox.',
+    [SignalReportStatus.SUPPRESSED]: 'This report was dismissed and is out of your inbox.',
     [SignalReportStatus.DELETED]: 'This report has been deleted.',
 }
 
@@ -22,7 +43,7 @@ export const STATUS_LABELS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.POTENTIAL]: 'Gathering',
     [SignalReportStatus.RESOLVED]: 'Resolved',
     [SignalReportStatus.FAILED]: 'Failed',
-    [SignalReportStatus.SUPPRESSED]: 'Suppressed',
+    [SignalReportStatus.SUPPRESSED]: 'Dismissed',
     [SignalReportStatus.DELETED]: 'Deleted',
 }
 
@@ -49,9 +70,20 @@ function inboxStatusBadgeType(status: SignalReportStatus): LemonTagType {
     }
 }
 
-export function SignalReportStatusBadge({ status }: { status: SignalReportStatus }): JSX.Element {
-    const label = STATUS_LABELS[status] ?? status
-    const tooltip = STATUS_TOOLTIPS[status] ?? status
+export function SignalReportStatusBadge({
+    status,
+    suppressionSource,
+}: {
+    status: SignalReportStatus
+    /** A suppressed report nobody dismissed reads as held back, not as dismissed. */
+    suppressionSource?: SignalReportSuppressionSourceEnumApi | null
+}): JSX.Element {
+    const heldBack =
+        status === SignalReportStatus.SUPPRESSED && !!suppressionSource && suppressionSource !== 'dismissed'
+    const label = heldBack ? 'Held back' : (STATUS_LABELS[status] ?? status)
+    const tooltip = heldBack
+        ? 'A safety or actionability check removed this report before anyone reviewed it.'
+        : (STATUS_TOOLTIPS[status] ?? status)
 
     return (
         <Tooltip title={tooltip}>

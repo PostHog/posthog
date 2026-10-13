@@ -1,12 +1,12 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -19,6 +19,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightModel } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { useInsightsLegendConfig } from './useInsightsLegendConfig'
 
@@ -92,14 +94,15 @@ describe('useInsightsLegendConfig', () => {
         setup({ trendsFilter: { showLegend: true }, results: SERIES })
         const { result } = renderHook(() => useInsightsLegendConfig({ insightProps }), { wrapper })
         const logic = trendsDataLogic(insightProps)
+        const persistenceLogic = insightVizDataLogic(insightProps)
         const [first, second] = logic.values.indexedResults
 
-        result.current.onSetHiddenSeries!([String(second.id)])
+        await expectLogic(persistenceLogic, () => {
+            result.current.onSetHiddenSeries!([String(second.id)])
+        }).toFinishListeners()
 
-        await waitFor(() => {
-            const { getTrendsHidden } = logic.values
-            expect([getTrendsHidden(first), getTrendsHidden(second)]).toEqual([false, true])
-        })
+        const { getTrendsHidden } = logic.values
+        expect([getTrendsHidden(first), getTrendsHidden(second)]).toEqual([false, true])
     })
 
     it('groups a compared series two rows onto one visibility key', () => {

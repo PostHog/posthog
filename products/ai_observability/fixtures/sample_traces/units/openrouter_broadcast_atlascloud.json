@@ -1,0 +1,105 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Visa and packing Q&A via OpenRouter",
+  "scenario": "A travel booking platform's support chatbot answers a traveler's visa, packing and train-booking questions for a Porto-to-Madrid trip, routed through OpenRouter to an AtlasCloud-hosted Llama model that returns structured JSON.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "AtlasCloud"
+    ],
+    "frameworks": [],
+    "models": [
+      "deepseek/deepseek-v3.2"
+    ],
+    "content_types": [
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "openrouter_inter_token_latency_ms": 0,
+        "openrouter_provider_headers_ms": 716,
+        "$ai_input_tokens": 420,
+        "openrouter_entity_id": "user_HuGjddgEutIagCSFSKWlMOe3o5g",
+        "openrouter_provider_time_to_first_token_ms": 3824,
+        "openrouter_provider_body_end_ms": 3838,
+        "$ai_total_cost_usd": 0.00017836,
+        "openrouter_provider_request_ms": 14,
+        "$ai_provider": "AtlasCloud",
+        "$ai_span_name": "LLM Generation",
+        "$ai_input_tokens_cached": 0,
+        "openrouter_api_key_name": "wayvelle-travel-prod01",
+        "$ai_span_id": "gen-1758751234-a1b2c3d4e5f6a7b8c9d0e1f2",
+        "$ai_input_cost_usd": 0.0001092,
+        "trace_name": "OpenRouter Request",
+        "$ai_input_tokens_audio": 0,
+        "$ai_output_cost_usd": 6.916e-05,
+        "$ai_output_tokens": 182,
+        "openrouter_source": "openrouter",
+        "openrouter_first_token_ms": 3838,
+        "metadata_provider_responses": [
+          {
+            "endpoint_id": "011f5e8b-5a17-7507-dbbc-0902df0fb6ec",
+            "id": "0a7b6f4ca85de92988a37b2916e748c2",
+            "is_byok": false,
+            "latency": 702,
+            "model_permaslug": "deepseek/deepseek-v3.2-20251201",
+            "provider_name": "AtlasCloud",
+            "status": 158
+          }
+        ],
+        "$ai_output_tokens_reasoning": 0,
+        "openrouter_router_latency_ms": 14,
+        "distinct_id": "user_HuGjddgEutIagCSFSKWlMOe3o5g",
+        "$ai_model": "deepseek/deepseek-v3.2",
+        "$ai_trace_id": "gen-1758751234-a1b2c3d4e5f6a7b8c9d0e1f2",
+        "$ai_latency": 3.846,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are Wayvelle Support, an assistant that answers traveler questions about visas, packing, and multi-city itineraries for a booking platform. Always ground your answer in the traveler's stated route and travel dates, and never invent visa rules for countries not mentioned in the request. Respond only with a single JSON object matching this schema: answerSummary (a plain-language answer in two to three sentences), unresolvedItems (an array of follow-up items you could not resolve from the request), clarifyingPrompts (an array of short questions to ask the traveler if information is missing), matchedCategories (an array of up to three short category tags such as hotel, car, air, visa, or packing), tip (one short practical tip under 60 characters), requiresHumanFollowup (a boolean, true only when the question involves a legal or medical edge case), responseUrgencyLevel (one of low, medium, or high), and relatedGuides (an array of objects with label, linkType, and url describing up to two internal help articles). Do not include markdown, code fences, or any text outside the JSON object. Keep the tone warm, concise, and specific to the traveler's itinerary.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Hey, quick question before I finalize my booking.\nI'm doing Porto then Madrid, flying in Oct 1 and out Oct 9, and I'm a Canadian citizen.\nDo I need a visa for that, and is nine days too short to bother with a SIM card?\nAlso what should I actually pack, everyone says Porto is rainy but I have no idea about Madrid this time of year.\nOne more thing: is the train between the two cities easy to book last minute or should I lock that in now?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"answerSummary\": \"You'll need a Schengen short-stay visa for this trip; pack layers, as Porto and Madrid swing 10-20C in early October.\", \"unresolvedItems\": [], \"clarifyingPrompts\": [], \"matchedCategories\": [\"hotel\", \"car\", \"air\"], \"tip\": \"Check passport validity: 6+ months past return date.\", \"requiresHumanFollowup\": false, \"responseUrgencyLevel\": \"medium\", \"relatedGuides\": [{\"label\": \"Porto Metro schedule and fare guide\", \"linkType\": \"external\", \"url\": \"\"}, {\"label\": \"Schengen visa requirements FAQ\", \"linkType\": \"external\", \"url\": \"\"}]}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

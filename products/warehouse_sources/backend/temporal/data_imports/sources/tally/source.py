@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -55,13 +53,13 @@ class TallySource(ResumableSource[TallySourceConfig, TallyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TALLY,
+            name=ExternalDataSourceType.TALLY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Tally",
             keywords=["forms", "surveys", "tally.so"],
             iconPath="/static/services/tally.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tally",
-            caption="""Enter a Tally API key to sync your workspaces, forms, questions, submissions, and webhooks.
+            caption="""Enter a Tally API key to sync your workspaces, forms, folders, questions, submissions, form analytics, and webhooks.
 
 You can create an API key in your [Tally settings](https://tally.so/settings/api-keys). No extra scopes are needed.
 

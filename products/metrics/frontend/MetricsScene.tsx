@@ -1,7 +1,10 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -12,17 +15,23 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
+import { metricNamePickerLogic } from './components/metricNamePickerLogic'
+import { MetricsDashboardActions } from './components/MetricsDashboardActions'
+import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
+import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardImportModal'
+import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
-import { metricsIngestionLogic } from './metricsIngestionLogic'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
 export const METRICS_LOGIC_KEY = 'metrics'
 
+const METRICS_FEEDBACK_SURVEY_ID = '01a07c35-6be3-0000-16b3-4cd66a6873f3'
+
 const TABS: { key: MetricsSceneActiveTab; label: string; 'data-attr': string }[] = [
+    { key: 'overview', label: 'Overview', 'data-attr': 'metrics-scene-tab-overview' },
     { key: 'viewer', label: 'Viewer', 'data-attr': 'metrics-scene-tab-viewer' },
     { key: 'sql', label: 'SQL', 'data-attr': 'metrics-scene-tab-sql' },
 ]
@@ -31,12 +40,13 @@ export const scene: SceneExport = {
     component: MetricsScene,
     logic: metricsSceneLogic,
     productKey: ProductKey.METRICS,
+    emptyState: metricsEmptyState,
 }
 
 export function MetricsScene(): JSX.Element {
     return (
         <FeaturePreviewSceneGate config={metricsFeaturePreviewGate}>
-            <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+            <SceneContent className="@container/metrics-scene h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
                 <MetricsSceneContent />
             </SceneContent>
         </FeaturePreviewSceneGate>
@@ -46,7 +56,6 @@ export function MetricsScene(): JSX.Element {
 const MetricsSceneContent = (): JSX.Element => {
     const { activeTab } = useValues(metricsSceneLogic)
     const { setActiveTab } = useActions(metricsSceneLogic)
-    const { teamHasMetricsCheckFailed } = useValues(metricsIngestionLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
@@ -56,12 +65,24 @@ const MetricsSceneContent = (): JSX.Element => {
         AccessControlLevel.Viewer
     )
     const tabDisabledReasons: Record<MetricsSceneActiveTab, string | null> = {
+        overview: metricsViewerDisabledReason,
         viewer: metricsViewerDisabledReason,
         sql: metricsSqlDisabledReason,
     }
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)
+    // Prime the metric-name list here rather than inside MetricsViewer, so the fetch
+    // races the has_metrics check instead of waiting on the setup prompt to resolve.
+    useMountedLogic(metricNamePickerLogic)
+    const { primeItems } = useActions(metricNamePickerLogic)
+    useOnMountEffect(() => {
+        primeItems()
+    })
+
+    const onFeedbackClick = (): void => {
+        posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
+    }
 
     return (
         <>
@@ -71,20 +92,29 @@ const MetricsSceneContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Metrics].iconType || 'default_icon_type',
                 }}
+                actions={
+                    <>
+                        {/* In a narrow scene, the tab bar has no space for the import menu. */}
+                        <div className="@min-[48rem]/metrics-scene:hidden">
+                            <MetricsDashboardActions />
+                        </div>
+                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
+                            Feedback
+                        </LemonButton>
+                    </>
+                }
             />
-            {teamHasMetricsCheckFailed && (
-                <LemonBanner
-                    type="info"
-                    dismissKey="metrics-setup-hint-banner"
-                    action={{
-                        to: 'https://posthog.com/docs/metrics',
-                        targetBlank: true,
-                        children: 'Setup guide',
-                    }}
-                >
-                    Unable to verify metrics setup. If you haven't configured metrics yet, check out our setup guide.
-                </LemonBanner>
-            )}
+            <LemonBanner
+                type="warning"
+                dismissKey="metrics-alpha-notice"
+                action={{
+                    icon: <IconFeedback />,
+                    children: 'Share feedback',
+                    onClick: onFeedbackClick,
+                }}
+            >
+                Metrics is in alpha. Please share feedback on how to improve the product.
+            </LemonBanner>
             <LemonTabs<MetricsSceneActiveTab>
                 activeKey={activeTab}
                 onChange={(tab) => {
@@ -97,13 +127,15 @@ const MetricsSceneContent = (): JSX.Element => {
                     disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
                 sceneInset
+                rightSlot={<MetricsDashboardActions />}
+                rightSlotClassName="hidden @min-[48rem]/metrics-scene:flex"
             />
-            <MetricsSetupPrompt>
-                <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    {activeTab === 'viewer' && <MetricsViewer />}
-                    {activeTab === 'sql' && <MetricsSqlEditor />}
-                </div>
-            </MetricsSetupPrompt>
+            <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
+                {activeTab === 'overview' && <MetricsOverview />}
+                {activeTab === 'viewer' && <MetricsViewer />}
+                {activeTab === 'sql' && <MetricsSqlEditor />}
+            </div>
+            <MetricsDashboardImportModal />
         </>
     )
 }

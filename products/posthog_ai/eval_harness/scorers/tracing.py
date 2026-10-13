@@ -16,9 +16,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
+from django.conf import settings
+
 from posthoganalytics import Posthog
 
-from ..trace_events import DISTINCT_ID
+from ..trace_events import DISTINCT_ID, RunMetadata
 from .contract import AsyncOnlyScorerMixin, Scorer
 
 # Context var for injecting per-scorer-invocation trace properties
@@ -41,10 +43,12 @@ def _build_posthog_kwargs() -> dict[str, Any]:
         "posthog_distinct_id": DISTINCT_ID,
         "posthog_trace_id": trace_id,
         "posthog_properties": {
+            **ctx["run_metadata"],
             "$ai_trace_id": trace_id,
             "$ai_parent_id": trace_id,
             "$ai_span_name": "Scorer",
             "ai_product": "evals",
+            "team_id": settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
             "$ai_experiment_id": ctx.get("experiment_id", ""),
             "$ai_experiment_name": ctx.get("experiment_name", ""),
         },
@@ -79,7 +83,7 @@ def create_traced_scorer_clients(posthog_client: Posthog) -> TracedClients:
             kwargs.setdefault(k, v)
         return await original_openai_create(*args, **kwargs)
 
-    openai_client.chat.completions.create = patched_openai_create  # type: ignore
+    openai_client.chat.completions.create = patched_openai_create
 
     class _TracedLLMClient(LLMClient):
         def __post_init__(self):
@@ -196,6 +200,7 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
             distinct_id=DISTINCT_ID,
             event="$ai_span",
             properties={
+                **self._eval_metadata["run_metadata"],
                 "$ai_trace_id": agent_trace_id,
                 "$ai_span_id": str(uuid.uuid4()),
                 "$ai_parent_id": agent_trace_id,
@@ -205,6 +210,7 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
                     **metadata,
                 },
                 "ai_product": "evals",
+                "team_id": settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
                 "$ai_experiment_id": self._eval_metadata.get("experiment_id", ""),
                 "$ai_experiment_name": self._eval_metadata.get("experiment_name", ""),
             },
@@ -217,7 +223,9 @@ def wrap_scorers(
     experiment_id: str,
     experiment_name: str,
     agent_trace_id_lookup: dict[str, str],
-    trace_namespace: str = "sandboxed-agent",
+    *,
+    trace_namespace: str,
+    run_metadata: RunMetadata,
 ) -> tuple[list[Any], dict[tuple[str, str], str]]:
     """Wrap scorers with tracing.
 
@@ -233,6 +241,7 @@ def wrap_scorers(
     eval_metadata = {
         "experiment_id": experiment_id,
         "experiment_name": f"{trace_namespace}/{experiment_name}",
+        "run_metadata": run_metadata,
     }
     wrapped = [
         TracedScorer(

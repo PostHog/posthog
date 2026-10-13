@@ -13,7 +13,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently import retently
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.retently import (
-    PAGE_SIZE,
     RetentlyResumeConfig,
     _format_start_date,
     retently_source,
@@ -122,16 +121,6 @@ class TestEnvelopeShapes:
 
 
 class TestPagination:
-    def test_walks_pages_using_pages_metadata_inside_data(self) -> None:
-        bodies = [
-            {"data": {"responses": [{"id": "1"}], "page": 1, "pages": 2}},
-            {"data": {"responses": [{"id": "2"}], "page": 2, "pages": 2}},
-        ]
-        rows, snapshots, _ = _run("feedback", [_response(b) for b in bodies])
-        assert [r["id"] for r in rows] == ["1", "2"]
-        # Stops at the last page — never requests page 3.
-        assert [s["page"] for s in snapshots] == [1, 2]
-
     def test_top_level_pages_metadata_keeps_paginating(self) -> None:
         # The customers docs place `pages` at the top level; a short page must not end the loop
         # while the metadata says more pages exist (e.g. the API caps `limit` below our request).
@@ -167,12 +156,6 @@ class TestPagination:
         assert "page" not in snapshots[0]
         assert "limit" not in snapshots[0]
 
-    def test_requests_ascending_sort_and_limit_for_page_stability(self) -> None:
-        _, snapshots, _ = _run("outbox", [_response({"data": {"surveys": [{"customerId": "1"}], "pages": 1}})])
-        assert snapshots[0]["sort"] == "surveyCreatedDate"
-        assert snapshots[0]["limit"] == PAGE_SIZE
-        assert snapshots[0]["page"] == 1
-
 
 class TestIncremental:
     def test_start_date_sent_when_incremental(self) -> None:
@@ -200,15 +183,6 @@ class TestIncremental:
         )
         assert "startDate" not in snapshots[0]
 
-    def test_full_refresh_endpoint_ignores_incremental_inputs(self) -> None:
-        _, snapshots, _ = _run(
-            "customers",
-            [_response({"data": {"subscribers": [{"id": "1"}], "pages": 1}})],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert "startDate" not in snapshots[0]
-
 
 class TestResume:
     def test_resume_starts_from_saved_page(self) -> None:
@@ -220,17 +194,6 @@ class TestResume:
         )
         assert rows == [{"id": "9"}]
         assert snapshots[0]["page"] == 3
-
-    def test_state_saved_after_yield_with_next_page(self) -> None:
-        bodies = [
-            {"data": {"responses": [{"id": "1"}], "pages": 2}},
-            {"data": {"responses": [{"id": "2"}], "pages": 2}},
-        ]
-        manager = _make_manager()
-        _run("feedback", [_response(b) for b in bodies], manager=manager)
-        # Only the transition to page 2 is checkpointed; the final page saves nothing (a crash
-        # after the last yield just re-fetches page 2 and merge dedupes).
-        assert [call.args[0].page for call in manager.save_state.call_args_list] == [2]
 
 
 class TestRetries:

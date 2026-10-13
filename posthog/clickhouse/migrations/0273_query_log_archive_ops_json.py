@@ -7,9 +7,11 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_OPS_MV_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+    SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
+from posthog.run_mode import run_mode
 
 # Rebuild query_log_archive as a JSON-backed data table living on the OPS cluster:
 #   - sharded_query_log_archive : OPS data table, stores log_comment as a curated JSON column and
@@ -58,6 +60,23 @@ operations = [
     run_sql_with_exceptions(
         f"RENAME TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE} TO {QUERY_LOG_ARCHIVE_OLD_TABLE}",
         node_roles=[NodeRole.OPS],
+    ),
+    # Only cloud has data to backfill. Off cloud the rename above is either a no-op (OPS
+    # carries no query_log_archive until step H creates it) or, where every role shares one
+    # node, it catches the DATA-side table and leaves an empty copy behind — so drop it.
+    *(
+        []
+        if run_mode().is_deployed_cloud
+        else [
+            run_sql_with_exceptions(
+                f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_OLD_TABLE}",
+                node_roles=[NodeRole.OPS],
+            ),
+            run_sql_with_exceptions(
+                f"DROP TABLE IF EXISTS {SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE}",
+                node_roles=[NodeRole.ENDPOINTS],
+            ),
+        ]
     ),
     # ---------- C. New JSON-backed data table on OPS ----------
     run_sql_with_exceptions(SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[NodeRole.OPS]),

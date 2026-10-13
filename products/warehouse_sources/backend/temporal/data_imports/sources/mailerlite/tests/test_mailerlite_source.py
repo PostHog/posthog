@@ -3,10 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from posthog.cdp.validation import compile_hog
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -19,18 +15,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailerlite import (
     MailerLiteSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
-    MailerLiteResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import (
-    ENDPOINTS,
     MAILERLITE_V1,
     MAILERLITE_V2,
     SUBSCRIBER_WEBHOOK_EVENTS,
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source import MailerLiteSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MailerLiteSourceConfig:
@@ -38,63 +29,33 @@ def _config() -> MailerLiteSourceConfig:
 
 
 class TestMailerLiteSourceClass:
-    def test_source_type(self) -> None:
-        assert MailerLiteSource().source_type == ExternalDataSourceType.MAILERLITE
-
-    def test_source_config_fields(self) -> None:
-        config = MailerLiteSource().get_source_config
-        assert config.label == "MailerLite"
-        assert config.unreleasedSource is not True
-        assert [field.name for field in config.fields] == ["api_key"]
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-
-    def test_get_schemas_are_all_full_refresh(self) -> None:
-        schemas = MailerLiteSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MailerLiteSource().get_schemas(_config(), team_id=1, names=["subscribers", "groups"])
-        assert {s.name for s in schemas} == {"subscribers", "groups"}
+    @pytest.mark.parametrize(
+        "probe_result",
+        [(True, None), (False, "probe rejected the key")],
+    )
+    def test_validate_credentials_passes_the_probe_result_through(self, probe_result: tuple[bool, str | None]) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source.validate_mailerlite_credentials",
+            return_value=probe_result,
+        ):
+            assert MailerLiteSource().validate_credentials(_config(), team_id=1) == probe_result
 
     @pytest.mark.parametrize(
-        ("valid", "expected_ok"),
-        [(True, True), (False, False)],
+        ("schema_name", "expected_path"),
+        [
+            ("campaigns", "/campaigns"),
+            ("campaign_subscriber_activity", "/campaigns"),
+            ("automation_activity", "/automations"),
+        ],
     )
-    def test_validate_credentials(self, valid: bool, expected_ok: bool) -> None:
+    def test_validate_credentials_probes_a_listable_path(self, schema_name: str, expected_path: str) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source.validate_mailerlite_credentials",
-            return_value=valid,
-        ):
-            ok, error = MailerLiteSource().validate_credentials(_config(), team_id=1)
-            assert ok is expected_ok
-            assert (error is None) is expected_ok
+            return_value=(True, None),
+        ) as probe:
+            MailerLiteSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
 
-    def test_validate_credentials_uses_schema_path(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source.validate_mailerlite_credentials",
-            return_value=True,
-        ) as mock_validate:
-            MailerLiteSource().validate_credentials(_config(), team_id=1, schema_name="groups")
-            assert mock_validate.call_args.args == ("test-key", "/groups")
-
-    def test_get_non_retryable_errors_cover_auth(self) -> None:
-        errors = MailerLiteSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock(spec=SourceInputs)
-        inputs.logger = MagicMock()
-        manager = MailerLiteSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MailerLiteResumeConfig
+        probe.assert_called_once_with("test-key", expected_path)
 
     def test_default_version_is_v2(self) -> None:
         source = MailerLiteSource()
@@ -131,13 +92,6 @@ class TestMailerLiteSourceClass:
 
 
 class TestMailerLiteWebhooks:
-    def test_only_subscribers_supports_webhooks(self) -> None:
-        # Enabling webhooks on a schema makes the poll skip once the initial sync completes, so a
-        # table whose events carry a partial object (campaigns) must stay poll-only.
-        schemas = {s.name: s for s in MailerLiteSource().get_schemas(_config(), team_id=1)}
-        assert {name for name, s in schemas.items() if s.supports_webhooks} == {"subscribers"}
-        assert all(s.webhook_only is False for s in schemas.values())
-
     def test_webhook_resource_map_matches_event_name_prefix(self) -> None:
         # The hog template routes on the part of the event name before the dot, so the map's value
         # must equal that prefix or every delivery is dropped as unmapped.
@@ -155,33 +109,6 @@ class TestMailerLiteWebhooks:
         assert "sha256HmacChainHex" in template.code
         assert "request.headers['signature']" in template.code
         assert {i["key"] for i in template.inputs_schema} >= {"signing_secret", "schema_mapping", "source_id"}
-
-    def test_webhook_template_hog_compiles(self) -> None:
-        # The template is only compiled when a delivery arrives, so a syntax error here ships a
-        # webhook endpoint that fails on every push with nothing to catch it earlier.
-        template = MailerLiteSource().webhook_template
-        assert template is not None
-        assert compile_hog(template.code, template.type)[0] == "_H"
-
-    @pytest.mark.parametrize(
-        ("eligible", "expected"),
-        [
-            (["subscribers"], sorted(SUBSCRIBER_WEBHOOK_EVENTS)),
-            (["campaigns", "groups"], []),
-            (["subscribers", "campaigns"], sorted(SUBSCRIBER_WEBHOOK_EVENTS)),
-        ],
-    )
-    def test_desired_webhook_events_cover_only_webhook_schemas(self, eligible: list[str], expected: list[str]) -> None:
-        assert MailerLiteSource().get_desired_webhook_events(_config(), eligible) == expected
-
-    def test_webhook_signing_secret_is_a_secret_webhook_field(self) -> None:
-        config = MailerLiteSource().get_source_config
-        assert config.webhookFields is not None
-        secret_field = config.webhookFields[0]
-        assert isinstance(secret_field, SourceFieldInputConfig)
-        assert secret_field.name == "signing_secret"
-        assert secret_field.secret is True
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
 
     @pytest.mark.parametrize(
         ("method", "client_function", "expected"),

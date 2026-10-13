@@ -113,6 +113,52 @@ export { useRadialLayout } from './core/radial-context'
 export type { RadialLayoutContextValue } from './core/radial-context'
 export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
+// Proportion bar
+export { ProportionBar } from './charts/ProportionBar/ProportionBar'
+export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
+
+// Bar list
+export { BarList } from './charts/BarList/BarList'
+export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
+
+// Sankey
+export { SankeyChart } from './charts/SankeyChart/SankeyChart'
+export type {
+    SankeyChartConfig,
+    SankeyChartProps,
+    SankeyHighlight,
+    SankeyTooltipContext,
+    SankeyTooltipHit,
+} from './charts/SankeyChart/types'
+export type {
+    SankeyChartLayout,
+    SankeyLinkDatum,
+    SankeyLinkInput,
+    SankeyNodeAlign,
+    SankeyNodeDatum,
+    SankeyNodeInput,
+} from './charts/SankeyChart/sankey-data'
+export { MAX_SANKEY_COLUMN } from './charts/SankeyChart/sankey-data'
+export { useSankeyLayout } from './charts/SankeyChart/sankey-context'
+export type { SankeyLayoutContextValue } from './charts/SankeyChart/sankey-context'
+export type { SankeyLastColumnLabels } from './charts/SankeyChart/sankey-labels'
+// The layout engine on its own, for hosts that draw their own SVG (user paths).
+export {
+    sankeyCenter,
+    sankeyJustify,
+    sankeyLayout,
+    sankeyLeft,
+    sankeyLinkHorizontal,
+    sankeyRight,
+} from './charts/SankeyChart/sankey-layout'
+export type {
+    SankeyGraph,
+    SankeyInputGraph,
+    SankeyLayout,
+    SankeyLink,
+    SankeyNode,
+} from './charts/SankeyChart/sankey-layout'
+
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'
 export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue } from './core/chart-context'
@@ -151,7 +197,7 @@ export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
 export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
-export { DEFAULT_CHART_CONFIG } from './core/chart-config'
+export { applyChartDefaults, DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
@@ -185,7 +231,7 @@ export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 export { movingAverageKey } from './charts/utils/derived-series'
 
 // Timeseries utils
-export { createXAxisTickCallback } from './utils/dates'
+export { createTooltipDateFormatter, createXAxisTickCallback } from './utils/dates'
 export type { TimeInterval } from './utils/dates'
 export { buildYTickFormatter } from './utils/y-formatters'
 export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'
@@ -206,8 +252,4 @@ export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
 export { useChartLegend, applyHiddenSeries } from './components/Legend/useChartLegend'
-export type {
-    ChartLegendRenderProps,
-    ChartLegendState,
-    LegendItemControls,
-} from './components/Legend/useChartLegend'
+export type { ChartLegendRenderProps, ChartLegendState, LegendItemControls } from './components/Legend/useChartLegend'

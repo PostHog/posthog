@@ -172,8 +172,9 @@ function AutocompleteItem({
             title={title ?? (typeof children === 'string' ? children : undefined)}
             render={
                 <Button
+                    size="row"
                     left
-                    className="font-normal min-w-0 aria-selected:bg-fill-selected data-highlighted:border-ring data-highlighted:ring-2 data-highlighted:ring-ring/30 ring-offset-1"
+                    className="min-w-0 aria-selected:bg-fill-selected data-highlighted:border-ring data-highlighted:ring-2 data-highlighted:ring-ring/30 ring-offset-1"
                 />
             }
             tabIndex={-1}
@@ -203,21 +204,15 @@ function AutocompleteCollection({ ...props }: AutocompletePrimitive.Collection.P
     return <AutocompletePrimitive.Collection data-slot="autocomplete-collection" {...props} />
 }
 
-function AutocompleteEmpty({ className, children, ...props }: AutocompletePrimitive.Empty.Props): React.ReactElement {
-    // Nest MenuEmpty as a child rather than passing it via `render`. With
-    // `render`, MenuEmpty's `buttonVariants` `inline-flex` would merge onto
-    // the SAME element as our `quill-autocomplete__empty`, conflicting with
-    // the `display: none` visibility rule. As a child, the parent's
-    // `display: none` collapses the whole subtree without needing
-    // `!important` to outrank the utility layer.
+function AutocompleteEmpty({ className, ...props }: AutocompletePrimitive.Empty.Props): React.ReactElement {
+    // Base UI renders the children only when nothing matches, so `empty:hidden` is the whole visibility rule.
     return (
         <AutocompletePrimitive.Empty
             data-slot="autocomplete-empty"
-            className={cn('quill-autocomplete__empty', className)}
+            className={cn('empty:hidden', className)}
+            render={<MenuEmpty />}
             {...props}
-        >
-            <MenuEmpty>{children}</MenuEmpty>
-        </AutocompletePrimitive.Empty>
+        />
     )
 }
 

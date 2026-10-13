@@ -17,11 +17,13 @@ import {
 } from '../types'
 import { dualRead } from '../utils/dual-store'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
+import { InvocationFailureSink } from './dead-letter/cdp-dead-letter.service'
 import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
+import { CdpUsageReporterService } from './usage/cdp-usage-reporter.service'
 
 export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -37,9 +39,12 @@ export interface HogFunctionInvocationPipelineDeps {
     hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    cdpUsageReporter?: CdpUsageReporterService
     quotaLimiting: QuotaLimiting
     redis: RedisV2
     valkeyShadow: CdpValkeyShadowPools
+    /** Absent for consumers that have no dead-letter topic; their build failures stay metrics-only. */
+    deadLetterService?: InvocationFailureSink
 }
 
 export interface BuildHogFunctionInvocationsOptions {
@@ -91,16 +96,35 @@ export class HogFunctionInvocationPipeline {
                         ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
                         : hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = await buildHogFunctionInvocations(
-                        this.deps.hogInputsService,
-                        teamHogFunctions,
-                        globals
-                    )
+                    try {
+                        const { invocations, metrics, logs, buildFailures } = await buildHogFunctionInvocations(
+                            this.deps.hogInputsService,
+                            teamHogFunctions,
+                            globals
+                        )
 
-                    this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
-                    this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                        this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
+                        this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                        this.deps.deadLetterService?.recordBuildFailures(globals, buildFailures)
 
-                    return invocations
+                        return invocations
+                    } catch (error) {
+                        // Anything the per-function handling did not expect: a filter global that
+                        // cannot be built, a bug in the builder itself. Without this the whole batch
+                        // fails and the partition stalls on one event, forever, until someone
+                        // deploys a fix. Retriable errors still fail the batch, because a dependency
+                        // being down is not the event's fault.
+                        if (error?.isRetriable === true) {
+                            throw error
+                        }
+                        // Swallowing the event is only safe once it is parked. A consumer with no
+                        // dead-letter service, or one running with the flag off, fails the batch
+                        // instead, which is what kept the event before any of this existed.
+                        if (!this.deps.deadLetterService?.recordProcessFailure(globals, error, 'hog_function')) {
+                            throw error
+                        }
+                        return []
+                    }
                 })
             )
         ).flat()
@@ -228,6 +252,11 @@ export class HogFunctionInvocationPipeline {
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
                         count: 1,
+                    })
+                    this.deps.cdpUsageReporter?.reportBillableInvocation({
+                        teamId: item.teamId,
+                        usageKey: 'cdp_billable_invocations',
+                        recordId: `event:${eventUuid}`,
                     })
                 }
             }

@@ -44,35 +44,31 @@ test.describe("Main Process", () => {
     window,
   }) => {
     const targetUrl = "custom-scheme://sandbox-navigation-test/payload";
-    const navigationResult = electronApp.evaluate(
-      async ({ BrowserWindow }, expectedUrl) => {
-        const mainWindow = BrowserWindow.getAllWindows()[0];
-        if (!mainWindow) throw new Error("Main window not found");
+    type NavigationRecord = { defaultPrevented: boolean; isMainFrame: boolean };
+    type NavigationProbe = typeof globalThis & {
+      __e2eSubframeNavigation?: NavigationRecord;
+    };
 
-        return await new Promise<{
-          defaultPrevented: boolean;
-          isMainFrame: boolean;
-        }>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            mainWindow.webContents.off("will-frame-navigate", listener);
-            reject(new Error("Timed out waiting for subframe navigation"));
-          }, 5000);
-          const listener = (
-            event: Electron.Event<Electron.WebContentsWillFrameNavigateEventParams>,
-          ): void => {
-            if (event.url !== expectedUrl) return;
-            clearTimeout(timeout);
-            mainWindow.webContents.off("will-frame-navigate", listener);
-            resolve({
-              defaultPrevented: event.defaultPrevented,
-              isMainFrame: event.isMainFrame,
-            });
-          };
-          mainWindow.webContents.on("will-frame-navigate", listener);
-        });
-      },
-      targetUrl,
-    );
+    // The listener records the event instead of racing a timer against the
+    // renderer setup below, which takes tens of seconds under Rosetta.
+    await electronApp.evaluate(({ BrowserWindow }, expectedUrl) => {
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (!mainWindow) throw new Error("Main window not found");
+
+      const probe = globalThis as NavigationProbe;
+      probe.__e2eSubframeNavigation = undefined;
+      const listener = (
+        event: Electron.Event<Electron.WebContentsWillFrameNavigateEventParams>,
+      ): void => {
+        if (event.url !== expectedUrl) return;
+        mainWindow.webContents.off("will-frame-navigate", listener);
+        probe.__e2eSubframeNavigation = {
+          defaultPrevented: event.defaultPrevented,
+          isMainFrame: event.isMainFrame,
+        };
+      };
+      mainWindow.webContents.on("will-frame-navigate", listener);
+    }, targetUrl);
 
     const frameHandle = await window.evaluateHandle(() => {
       const iframe = document.createElement("iframe");
@@ -93,9 +89,19 @@ test.describe("Main Process", () => {
 
     await frame.getByText("Navigate externally").click();
 
-    await expect(navigationResult).resolves.toEqual({
-      defaultPrevented: true,
-      isMainFrame: false,
-    });
+    // The event fires as soon as the click lands, so this only bounds the
+    // delivery. It starts after the setup above, which is the slow part.
+    await expect
+      .poll(
+        () =>
+          electronApp.evaluate(
+            () => (globalThis as NavigationProbe).__e2eSubframeNavigation,
+          ),
+        { timeout: 30000 },
+      )
+      .toEqual({
+        defaultPrevented: true,
+        isMainFrame: false,
+      });
   });
 });

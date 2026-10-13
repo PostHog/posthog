@@ -1,5 +1,11 @@
 import { Theme } from "@radix-ui/themes";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
     repositories: string[];
     createdBy: null;
@@ -17,7 +23,9 @@ const mocks = vi.hoisted(() => ({
     title: string;
     channel: string;
     updated_at: string;
+    authorId?: number;
   }[],
+  currentUserId: 999 as number | undefined,
   totals: {} as Record<string, number>,
   unreadSessions: {} as Record<string, number>,
   blockedSessions: {} as Record<string, number>,
@@ -26,12 +34,21 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/components/CreateChannelModal", () => ({
+  CreateChannelModal: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog">New space dialog</div> : null,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: mocks.channels, isLoading: false }),
-  useChannelMutations: () => ({ deleteChannel: vi.fn(), isDeleting: false }),
+  useChannelMutations: () => ({
+    deleteChannel: vi.fn(),
+    isDeleting: false,
+    updateAutoArchive: vi.fn(),
+    isUpdatingAutoArchive: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStarToggle: () => ({
@@ -57,9 +74,30 @@ vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
   useBlockedSessionCount: () => (channelId: string | undefined) =>
     mocks.blockedSessions[channelId ?? ""] ?? 0,
 }));
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+}));
+// The row menu's spaces list and filing mutation are tRPC-backed; the flag
+// lookup sits behind a service provider that isn't mounted here.
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => true,
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
+  useFileTaskToChannel: () => ({ fileTask: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
+vi.mock(
+  "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
+  () => ({
+    HandoffTaskDialog: () => null,
+  }),
+);
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
   usePrefetchSpaceTasks: () => () => undefined,
+  useSpacePresence: () => new Map(),
   useRecentSpaceTasks: (spaceIds: string[]) =>
     new Map(
       spaceIds.map((spaceId) => {
@@ -73,10 +111,17 @@ vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
             ts: Date.parse(task.updated_at),
             pinned: false,
             rawStatus: null,
-            authorUser: null,
+            authorUser:
+              task.authorId != null
+                ? {
+                    id: task.authorId,
+                    uuid: `u-${task.authorId}`,
+                    email: "owner@example.com",
+                  }
+                : null,
             authorName: null,
             authorUuid: null,
-            task: null,
+            task: task.authorId != null ? { id: task.id } : null,
           }));
         // `total` is what the space holds, not what the tree shows — the tests
         // that exercise "View all" set it above the row count.
@@ -110,20 +155,26 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/website",
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { location: { pathname: string } }) => unknown;
+  }) => select({ location: { pathname: "/spaces" } }),
 }));
 
 import {
-  consumeKeepListForNextRoute,
+  shouldKeepListForRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
-  requestSpaceSearchFocus,
-  useSpaceTreeStore,
-} from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+  requestSidebarSearchFocus,
+  useSidebarSearchStore,
+} from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -175,8 +226,14 @@ describe("ChannelsList", () => {
     useSidebarStore.setState({ collapsedSections: new Set() });
     useSpaceTreeStore.setState({
       expandedSpaceIds: new Set(),
-      searchFocusRequest: 0,
       highlightedValue: undefined,
+    });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
+    });
+    useSidebarSearchStore.setState({
+      focusRequest: 0,
     });
     mocks.totals = {};
     useCurrentChannelStore.setState({ currentChannelId: null });
@@ -203,6 +260,7 @@ describe("ChannelsList", () => {
     await user.click(screen.getByText("engineering"));
 
     expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    expect(useChannelPaneStore.getState().animateTransition).toBe(true);
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
@@ -218,18 +276,49 @@ describe("ChannelsList", () => {
     expect(me.parentElement?.textContent).toMatch(/personal(⌘|Ctrl)/);
   });
 
+  it.each(["personal", "engineering"])(
+    "offers automatic archiving for the %s space",
+    async (spaceName) => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(
+        screen.getByRole("button", { name: `Options for ${spaceName}` }),
+      );
+
+      expect(
+        await screen.findByRole("menuitem", { name: "Auto-archive: off…" }),
+      ).toBeVisible();
+    },
+  );
+
   describe("group headings", () => {
     beforeEach(() => {
       mocks.channels = [ME, { ...ENG, starred: true }, DESIGN];
     });
 
     it("rebrands only the spaces layout", () => {
-      renderList();
-      expect(screen.getByText("Spaces")).toBeTruthy();
+      const view = renderList();
+      expect(screen.getByRole("heading", { name: "Spaces" })).toBeTruthy();
 
+      view.unmount();
       mocks.channelsLayout = false;
       renderList();
+      expect(screen.queryByRole("heading", { name: "Spaces" })).toBeNull();
       expect(screen.getByText("Channels")).toBeTruthy();
+    });
+
+    // The heading's "+" is the list's way to a new space now that nothing
+    // floats over it; off the layout the floating button still offers one.
+    it("starts a new space from the Spaces heading on the layout only", async () => {
+      const view = renderList();
+      await userEvent.click(screen.getByRole("button", { name: "New space" }));
+      expect(screen.getByRole("dialog")).toHaveTextContent("New space dialog");
+
+      view.unmount();
+      mocks.channelsLayout = false;
+      renderList();
+      expect(screen.queryByRole("button", { name: "New space" })).toBeNull();
     });
   });
 
@@ -270,6 +359,16 @@ describe("ChannelsList", () => {
       expect(screen.getByText("personal").parentElement?.textContent).toBe(
         "personal",
       );
+    });
+
+    it("offers a new space when nothing matches", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.type(screen.getByLabelText("Search spaces"), "zzz");
+      await user.click(screen.getByRole("button", { name: "New space" }));
+
+      expect(screen.getByRole("dialog")).toHaveTextContent("New space dialog");
     });
 
     it("says so when nothing matches", async () => {
@@ -382,7 +481,7 @@ describe("ChannelsList", () => {
       renderList();
       expect(screen.getByText("engineering")).toBeTruthy();
 
-      await user.click(screen.getByText("Spaces"));
+      await user.click(screen.getByRole("option", { name: "Spaces" }));
 
       expect(screen.queryByText("engineering")).toBeNull();
     });
@@ -440,6 +539,28 @@ describe("ChannelsList", () => {
       expect(screen.queryByText("Ship the tree")).toBeNull();
     });
 
+    it("offers Hand off… on an owned task's context menu only", async () => {
+      // The API 404s a non-owner's handoff, so the menu must not offer it to one.
+      mocks.tasks[0] = { ...mocks.tasks[0], authorId: 999 };
+      mocks.tasks[1] = { ...mocks.tasks[1], authorId: 7 };
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      fireEvent.contextMenu(screen.getByText("Ship the tree"));
+      expect(
+        await screen.findByRole("menuitem", { name: "Hand off…" }),
+      ).toBeTruthy();
+      await user.keyboard("{Escape}");
+
+      fireEvent.contextMenu(screen.getByText("Write the tests"));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("menuitem", { name: "Hand off…" }),
+        ).toBeNull(),
+      );
+    });
+
     // Picking a session out of the tree is browsing across spaces, not a
     // request to go into one — sliding into the space would take the tree the
     // reader is working through off the screen.
@@ -459,10 +580,30 @@ describe("ChannelsList", () => {
       expect(useChannelPaneStore.getState().pane).toBe("list");
       // The other half of it: the route effect in ChannelsSidebar slides into
       // the space unless the navigation says to stay put.
-      expect(consumeKeepListForNextRoute()).toBe(true);
+      expect(shouldKeepListForRoute(ENG.id)).toBe(true);
       // Still scoped, so whatever asks for the channel pane next opens on the
       // space the session came from.
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("shows inert archive progress for a session in the expanded tree", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      act(() => useArchivingTasksStore.getState().startArchiving("task-new"));
+
+      const row = screen.getByText("Ship the tree").closest("button");
+      expect(row).toHaveAttribute("aria-busy", "true");
+      expect(row).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+
+      if (row) {
+        fireEvent.click(row);
+        fireEvent.contextMenu(row);
+      }
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).toBeNull();
     });
 
     // The row after the last session: the keyboard has to know about it, or the
@@ -500,14 +641,21 @@ describe("ChannelsList", () => {
     // ⌘⇧S is bound in ChannelHotkeys, which can only ask; the list is what
     // actually takes the keyboard.
     it("takes the keyboard on a focus request", async () => {
-      renderList();
+      const firstRender = renderList();
 
-      act(() => requestSpaceSearchFocus());
+      act(() => requestSidebarSearchFocus());
 
       await waitFor(() =>
         expect(document.activeElement).toBe(
           screen.getByLabelText("Search spaces"),
         ),
+      );
+
+      firstRender.unmount();
+      renderList();
+
+      expect(document.activeElement).not.toBe(
+        screen.getByLabelText("Search spaces"),
       );
     });
 

@@ -1,4 +1,4 @@
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
+import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
 
 import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 

@@ -6,21 +6,28 @@ and automatically fix issues.
 """
 
 import gc
+import json
 import time
+import pickle
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 from django.db.models import QuerySet
 
 import structlog
+import redis.exceptions
 from celery.exceptions import SoftTimeLimitExceeded
+from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import Counter
 from tenacity import RetryCallState, Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.models.team.team import Team
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig, batch_check_expiry_tracking
+from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
@@ -32,11 +39,55 @@ VerifyTeamFn = Callable[[Team, dict | None, dict | None], dict]
 # batches gives us ~48 progress logs total.
 PROGRESS_LOG_BATCH_INTERVAL = 20
 
-# Prometheus counter for tracking fixes during scheduled verification
+# Prometheus counter for tracking fixes during scheduled verification. `writer`
+# attributes the fix to the team's primary cache writer (see
+# HyperCacheManagementConfig.get_primary_writer_fn); "python" when unattributed.
 HYPERCACHE_VERIFY_FIX_COUNTER = Counter(
     "posthog_hypercache_verify_fixes_total",
     "Cache entries fixed during scheduled verification",
-    labelnames=["cache_type", "issue_type"],
+    labelnames=["cache_type", "issue_type", "writer"],
+)
+
+# Closed sets, so posthog/tasks/hypercache_verification.py can pre-create every series:
+# increase() never reports a series' first increment, and the first occurrence is what
+# these counters exist to catch. The exception class name goes to the log line instead.
+VerifyFailureReason = Literal["dependency_unavailable", "data_error", "unknown"]
+FixFailureReason = Literal["update_fn_returned_false", "dependency_unavailable", "data_error", "unknown"]
+
+
+# Outages of the stores the sweep reads and writes. django-redis wraps redis connection and
+# timeout errors in ConnectionInterrupted, but a raw redis client raises them unwrapped.
+# OperationalError and InterfaceError are the connection drops that _fetch_team_batch retries.
+_DEPENDENCY_ERRORS = (
+    HyperCacheDependencyUnavailable,
+    ConnectionInterrupted,
+    redis.exceptions.ConnectionError,
+    redis.exceptions.TimeoutError,
+    ObjectStorageError,
+    OperationalError,
+    InterfaceError,
+)
+
+
+def classify_failure(error: Exception) -> VerifyFailureReason:
+    if isinstance(error, _DEPENDENCY_ERRORS):
+        return "dependency_unavailable"
+    # A plain ValueError can come from a dependency before it wraps the failure.
+    if isinstance(error, json.JSONDecodeError | UnicodeDecodeError | pickle.UnpicklingError | EOFError):
+        return "data_error"
+    return "unknown"
+
+
+HYPERCACHE_VERIFY_ERROR_COUNTER = Counter(
+    "posthog_hypercache_verify_errors_total",
+    "Teams whose verification raised during scheduled verification",
+    labelnames=["cache_type", "reason"],
+)
+
+HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER = Counter(
+    "posthog_hypercache_verify_fix_failures_total",
+    "Repairs that failed to write during scheduled verification",
+    labelnames=["cache_type", "issue_type", "reason"],
 )
 
 # Maximum number of team IDs to store for logging
@@ -95,7 +146,7 @@ def _fetch_team_batch(base_qs: QuerySet[Team], last_id: int, chunk_size: int) ->
         ) from e
 
 
-@dataclass
+@dataclass(frozen=False)
 class VerificationResult:
     """Result of verifying all teams' caches."""
 
@@ -110,6 +161,10 @@ class VerificationResult:
     skipped_team_ids: list[int] = field(default_factory=list)
     # Per-run logging cap state, not a verification outcome.
     fix_detail_info_logs_emitted: int = 0
+    # True when the sweep hit its monotonic deadline and wound down before
+    # covering every team, so the caller can record the wind-down. Per-run state,
+    # not a verification outcome.
+    wound_down_early: bool = False
 
     @property
     def total_fixed(self) -> int:
@@ -141,6 +196,8 @@ def verify_and_fix_all_teams(
     verify_team_fn: VerifyTeamFn,
     cache_type: str,
     chunk_size: int | None = None,
+    *,
+    stop_time: float | None = None,
 ) -> VerificationResult:
     """
     Verify caches for teams in the configured scope and auto-fix any issues.
@@ -159,6 +216,9 @@ def verify_and_fix_all_teams(
         cache_type: Name for metrics/logging (e.g., "team_metadata", "flags")
         chunk_size: Number of teams to process per batch. Defaults to
             settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE (the more conservative setting).
+        stop_time: Monotonic deadline (from ``time.monotonic()``). When set, the sweep
+            winds down at the first batch boundary past it, returning a partial result
+            instead of running until Celery's hard time limit SIGKILLs the worker.
 
     Returns:
         VerificationResult with stats and list of fixed team IDs
@@ -218,6 +278,24 @@ def verify_and_fix_all_teams(
                 fix_failures_total=result.fix_failed,
                 last_team_id=teams[-1].id,
             )
+
+        # Wind down at a batch boundary once the deadline passes, so the run ends
+        # cleanly and records the wind-down instead of being SIGKILLed mid-batch past
+        # the hard time limit (which reports nothing). The cursor is not persisted, so
+        # the next cycle restarts from id 0 rather than resuming here: a run that winds
+        # down repeatedly leaves the same tail of high-id teams unverified until it can
+        # finish within the deadline. Only wind down when teams actually remain: a
+        # deadline that trips on the final batch has already covered every team, so it
+        # completed rather than winding down early.
+        if stop_time is not None and time.monotonic() > stop_time and _fetch_team_batch(base_qs, teams[-1].id, 1):
+            result.wound_down_early = True
+            logger.warning(
+                "Cache verification wound down early, deadline reached",
+                cache_type=cache_type,
+                teams_verified_total=result.total,
+                last_team_id=teams[-1].id,
+            )
+            break
 
         last_id = teams[-1].id
 
@@ -299,7 +377,8 @@ def _verify_and_fix_batch(
             raise
         except Exception as e:
             result.errors += 1
-            logger.exception("Error verifying team", team_id=team.id, error=str(e))
+            HYPERCACHE_VERIFY_ERROR_COUNTER.labels(cache_type=cache_type, reason=classify_failure(e)).inc()
+            logger.exception("Error verifying team", team_id=team.id, error_type=type(e).__name__, error=str(e))
             continue
 
         # Ensure db_data is available for cache fixes even if the verify
@@ -377,8 +456,21 @@ def _fix_and_record(
             If it contains a "db_data" key, that data is written directly to
             cache to avoid a redundant DB query.
     """
+    writer = "python"
+    if config.get_primary_writer_fn is not None:
+        try:
+            writer = config.get_primary_writer_fn(team.id)
+        except SoftTimeLimitExceeded:
+            # The task ran out of time during attribution, not an attribution
+            # failure. Let it propagate so the run winds down, matching the write
+            # path below and the other guards in this file.
+            raise
+        except Exception:
+            # Attribution must never fail the repair itself.
+            writer = "unknown"
+
     # Log what's being fixed, including diff details for mismatches
-    log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type}
+    log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type, "writer": writer}
     if "diff_fields" in verification:
         log_kwargs["diff_fields"] = verification["diff_fields"]
     if "diff_flags" in verification:
@@ -387,6 +479,7 @@ def _fix_and_record(
         logger.info("Fixing cache entry", **log_kwargs)
         result.fix_detail_info_logs_emitted += 1
 
+    failure_reason: FixFailureReason = "update_fn_returned_false"
     try:
         # Use preloaded db_data if available to avoid redundant DB query
         if "db_data" in verification:
@@ -406,7 +499,10 @@ def _fix_and_record(
         raise
     except Exception as e:
         success = False
-        logger.exception("Error fixing cache", team_id=team.id, issue_type=issue_type, error=str(e))
+        failure_reason = classify_failure(e)
+        logger.exception(
+            "Error fixing cache", team_id=team.id, issue_type=issue_type, error_type=type(e).__name__, error=str(e)
+        )
 
     if success:
         # Increment appropriate counter
@@ -420,9 +516,12 @@ def _fix_and_record(
         result.fixed_team_ids.append(team.id)
 
         # Update Prometheus metric
-        HYPERCACHE_VERIFY_FIX_COUNTER.labels(cache_type=cache_type, issue_type=issue_type).inc()
+        HYPERCACHE_VERIFY_FIX_COUNTER.labels(cache_type=cache_type, issue_type=issue_type, writer=writer).inc()
     else:
         result.fix_failed += 1
+        HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER.labels(
+            cache_type=cache_type, issue_type=issue_type, reason=failure_reason
+        ).inc()
 
 
 def _run_verification_for_cache(
@@ -430,6 +529,7 @@ def _run_verification_for_cache(
     verify_team_fn: VerifyTeamFn,
     cache_type: str,
     chunk_size: int,
+    stop_time: float | None = None,
 ) -> VerificationResult:
     """
     Run verification for a single cache type and log results.
@@ -439,6 +539,8 @@ def _run_verification_for_cache(
         verify_team_fn: Function to verify a single team
         cache_type: Name for metrics/logging
         chunk_size: Number of teams to process per batch
+        stop_time: Monotonic deadline forwarded to verify_and_fix_all_teams for
+            early wind-down.
 
     Returns:
         VerificationResult with stats
@@ -451,6 +553,7 @@ def _run_verification_for_cache(
         verify_team_fn=verify_team_fn,
         cache_type=cache_type,
         chunk_size=chunk_size,
+        stop_time=stop_time,
     )
 
     duration = time.time() - start_time

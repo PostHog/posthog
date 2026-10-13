@@ -1,21 +1,23 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { MergePersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
-import { PersonsStore } from './persons-store'
+import type { BatchWritingPersonsStore } from './batch-writing-person-store'
 
 /**
- * PersonsStoreTransaction that delegates to a store with a transaction.
- * This can be used by any store that implements PersonsStore.
+ * PersonsStoreTransaction that delegates to the Postgres store with a
+ * transaction. Transactional verbs are the pg backend's own surface: the
+ * cross-backend PersonsStore interface has no transactional member.
  */
 export class PersonsStoreTransaction {
     constructor(
-        private store: PersonsStore,
+        private store: BatchWritingPersonsStore,
         private tx: PersonRepositoryTransaction
     ) {}
 
@@ -50,11 +52,10 @@ export class PersonsStoreTransaction {
 
     async updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
-        distinctId: string,
-        batchId: number
+        update: MergePersonUpdate,
+        distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return await this.store.updatePersonForMerge(person, update, distinctId, batchId, this.tx)
+        return await this.store.updatePersonForMerge(person, update, distinctId, this.tx)
     }
 
     async updatePersonWithPropertiesDiffForUpdate(
@@ -97,6 +98,15 @@ export class PersonsStoreTransaction {
 
     async isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
         return await this.store.isPersonLive(person, distinctId, this.tx)
+    }
+
+    async readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        distinctId: string
+    ): Promise<InternalPerson[]> {
+        return await this.store.readMergeRows(teamId, targetId, sourceIds, distinctId, this.tx)
     }
 
     async addDistinctId(

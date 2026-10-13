@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import (
+    EXPORT_TRUNCATED_ERROR,
     MixpanelResumeConfig,
     mixpanel_source,
     validate_credentials as validate_mixpanel_credentials,
@@ -31,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.s
     DEFAULT_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MIXPANEL_ENDPOINTS,
     SUPPORTED_API_VERSIONS,
     SUPPORTS_INCREMENTAL,
 )
@@ -59,10 +59,10 @@ class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MIXPANEL,
+            name=ExternalDataSourceType.MIXPANEL,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mixpanel",
-            caption="""Connect your Mixpanel project to pull events, user profiles, cohorts and annotations into the PostHog Data warehouse.
+            caption="""Connect your Mixpanel project to pull events, user profiles, cohorts, annotations, funnels and retention into the PostHog Data warehouse.
 
 Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/reference/service-accounts). In Mixpanel, go to **Organization Settings → Service Accounts → Create Service Account** and grant it access to the project you want to sync. You'll need:
 
@@ -72,7 +72,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
 """,
             iconPath="/static/services/mixpanel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mixpanel",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -137,7 +137,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 supports_incremental=endpoint in SUPPORTS_INCREMENTAL,
                 supports_append=endpoint in SUPPORTS_INCREMENTAL,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Only syncs the last 365 days on initial sync" if endpoint == "export" else None,
+                description=MIXPANEL_ENDPOINTS[endpoint].description,
             )
             for endpoint in ENDPOINTS
         ]
@@ -171,13 +171,20 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 "The Mixpanel service account does not have access to this project or resource. Grant it "
                 "access to the project and reconnect."
             ),
+            # Mixpanel returns 402 when the project's plan does not include the data export API or the
+            # account is in a payment-overdue state. Retrying cannot resolve a billing issue.
+            "402 Client Error: Payment Required": (
+                "Your Mixpanel plan does not include data export, or its billing is overdue. Upgrade your "
+                "Mixpanel plan or settle its billing, then resync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
         # A 429 (rate limit) or 5xx is retried internally honoring Retry-After; if those retries
         # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
-        # activity without surfacing it as tracked exception noise.
-        return {"Mixpanel API error (retryable)"}
+        # activity without surfacing it as tracked exception noise. An export Mixpanel aborts
+        # mid-body reaches us on the same contract, after `_stream_export_day` re-fetches the day.
+        return {"Mixpanel API error (retryable)", EXPORT_TRUNCATED_ERROR}
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MixpanelResumeConfig]:
         return ResumableSourceManager[MixpanelResumeConfig](inputs, MixpanelResumeConfig)

@@ -165,6 +165,12 @@ export function GatewayAgentScene({
                         runs. A team share covers them.
                     </div>
                 )}
+                {account.agent_key === 'workflow' && (
+                    <div className="text-sm text-secondary">
+                        Workflow tasks always run without a person behind them, so only team shares are available to
+                        them. A workflow's "Create AI task" step picks among those.
+                    </div>
+                )}
                 <div className="border rounded overflow-hidden divide-y">
                     {allServersLoading && allServers.length === 0 ? (
                         <div className="flex items-center justify-center gap-2 p-4 text-sm text-secondary">

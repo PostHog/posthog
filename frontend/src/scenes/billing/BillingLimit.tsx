@@ -9,7 +9,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
+import { canHaveBillingLimit } from './billing-utils'
 import { billingLogic } from './billingLogic'
+import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 
 export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
@@ -31,7 +33,12 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
     const hasBillingLimitNextPeriod = billingLimitNextPeriod !== null
 
-    if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
+    if (
+        billing?.billing_period?.interval !== 'month' ||
+        !product.subscribed ||
+        product.inclusion_only ||
+        !canHaveBillingLimit(product)
+    ) {
         return null
     }
 
@@ -65,7 +72,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                                     data-attr={`billing-limit-set-${product.type}`}
                                                 >
                                                     You have a <b>${customLimitUsd?.toLocaleString()}</b> billing limit
-                                                    set for {product.name}.
+                                                    set for {billingProductDisplayName(product)}.
                                                 </span>
                                             </Tooltip>
                                         )}
@@ -81,7 +88,8 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 ) : (
                                     <>
                                         <span className="text-sm" data-attr={`billing-limit-not-set-${product.type}`}>
-                                            You do not have a billing limit set for {product.name}.
+                                            You do not have a billing limit set for {billingProductDisplayName(product)}
+                                            .
                                         </span>
                                         <LemonButton
                                             onClick={() => setIsEditingBillingLimit(true)}

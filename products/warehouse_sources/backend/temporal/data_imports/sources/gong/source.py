@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,10 +40,10 @@ class GongSource(ResumableSource[GongSourceConfig, GongResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GONG,
+            name=ExternalDataSourceType.GONG,
             category=DataWarehouseSourceCategory.SALES,
             label="Gong",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Gong API credentials to pull your Gong data into the PostHog Data warehouse.
 
 Create an **Access Key** and **Access Key Secret** in Gong under **Company Settings > Ecosystem > API**.
@@ -56,8 +54,20 @@ Grant the following read scopes so the connected endpoints can sync:
 - `api:settings:scorecards:read`
 - `api:workspaces:read`
 
-To also sync the `calls_extensive` table (call participants and CRM associations), additionally grant:
+To also sync the `calls_extensive` table (call participants and CRM associations) and the `calls_content` table (Gong's Call Spotlight summaries), additionally grant:
 - `api:calls:read:extensive`
+
+To also sync the `transcripts` table (what was said on each call), additionally grant:
+- `api:calls:read:transcript`
+
+To also sync these tables, additionally grant the scope listed next to each:
+- `trackers` (keyword tracker definitions): `api:settings:trackers:read`
+- `answered_scorecards` (scorecard reviews of calls): `api:stats:scorecards`
+- `interaction_stats` (daily talk ratio, patience, and other conversation metrics per user): `api:stats:interaction`
+- `daily_activity` (calls each user hosted, attended, listened to, shared, and gave feedback on, per day): `api:stats:user-actions:detailed`
+- `call_outcomes` (the call outcome values defined for your company): `api:call-outcomes:read`
+- `library_folders` and `library_folder_calls` (public call library folders and the calls in them): `api:library:read`
+- `flows` (Gong Engage flows): `api:flows:read`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",
@@ -106,6 +116,8 @@ To also sync the `calls_extensive` table (call participants and CRM associations
                 supports_incremental=endpoint_config.supports_incremental,
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
+                default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                should_sync_default=endpoint_config.should_sync_default,
                 description="Only syncs the last 365 days on initial sync"
                 if endpoint_config.uses_date_window
                 else None,

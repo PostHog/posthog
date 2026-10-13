@@ -1,3 +1,4 @@
+import { Context } from '@opentelemetry/api'
 import { Message } from 'node-rdkafka'
 
 import { IngestionWarning } from '~/ingestion/common/ingestion-warnings'
@@ -57,6 +58,16 @@ export type PipelineContext<C = { message: Message }> = C & {
      * `C` narrows the type via its own `debugContext` declaration.
      */
     debugContext?: unknown
+    /** The batch's trace context. Steps parent on it because the pump that runs them is a shared loop. */
+    traceContext?: Context
+    /**
+     * Work that outlives the step, drained with the batch. A side effect must
+     * not reject. What a rejection does depends on the host: consumer-v2
+     * latches a fatal and holds the offset, consumer-v1 stores the offset from
+     * a `.finally` and then stops the process on the unhandled rejection,
+     * ingestion-api-server stops the pod, and the gRPC driver fails every open
+     * stream. Settle the promise inside the step and record the failure there.
+     */
     sideEffects: Promise<unknown>[]
     warnings: PipelineWarning[]
 }

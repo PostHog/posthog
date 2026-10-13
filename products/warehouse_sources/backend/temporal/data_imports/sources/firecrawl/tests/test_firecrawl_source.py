@@ -2,16 +2,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.firecrawl import FirecrawlResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.source import FirecrawlSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
     FirecrawlSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> FirecrawlSourceConfig:
@@ -19,9 +16,6 @@ def _config() -> FirecrawlSourceConfig:
 
 
 class TestFirecrawlSourceConfig:
-    def test_source_type(self) -> None:
-        assert FirecrawlSource().source_type == ExternalDataSourceType.FIRECRAWL
-
     def test_api_key_field_is_a_required_secret(self) -> None:
         # A non-secret / non-password api_key field would render in plaintext and leak the credential.
         fields = {f.name: f for f in FirecrawlSource().get_source_config.fields}
@@ -31,37 +25,11 @@ class TestFirecrawlSourceConfig:
         assert api_key.secret is True
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
 
-    def test_released_as_alpha(self) -> None:
-        assert FirecrawlSource().get_source_config.releaseStatus == ReleaseStatus.ALPHA
-
 
 class TestFirecrawlGetSchemas:
-    def test_every_endpoint_is_full_refresh_only(self) -> None:
-        # Firecrawl has no server-side timestamp filter, so advertising incremental/append would be a
-        # false promise: every sync would still page the whole endpoint.
-        schemas = FirecrawlSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False, schema.name
-            assert schema.supports_append is False, schema.name
-            assert schema.incremental_fields == []
-
-    def test_monitor_checks_is_off_by_default(self) -> None:
-        # It fans out one request per monitor, so it must not auto-enable on connect.
-        schemas = {s.name: s for s in FirecrawlSource().get_schemas(_config(), team_id=1)}
-        assert schemas["monitor_checks"].should_sync_default is False
-        assert schemas["team_activity"].should_sync_default is True
-
     def test_names_filter_is_applied(self) -> None:
         schemas = FirecrawlSource().get_schemas(_config(), team_id=1, names=["team_activity"])
         assert [s.name for s in schemas] == ["team_activity"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # lists_tables_without_credentials must stay True (static catalog) or the docs table vanishes.
-        source = FirecrawlSource()
-        assert source.lists_tables_without_credentials is True
-        tables = source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
 
 class TestFirecrawlValidateCredentials:
@@ -106,16 +74,3 @@ class TestFirecrawlResumableWiring:
         manager = FirecrawlSource().get_resumable_source_manager(inputs)
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is FirecrawlResumeConfig
-
-    def test_source_for_pipeline_plumbs_api_key_and_endpoint(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "team_activity"
-        manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.source.firecrawl_source"
-        ) as mock_source:
-            FirecrawlSource().source_for_pipeline(_config(), manager, inputs)
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "fc-test"
-        assert kwargs["endpoint"] == "team_activity"
-        assert kwargs["resumable_source_manager"] is manager

@@ -44,14 +44,19 @@ from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
 from posthog.settings.temporal import *
 from posthog.settings.web import *
+from posthog.settings.web_bot_auth import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.managed_migrations import *
+from posthog.settings.nextgensquash import *
 from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
+from posthog.settings.signals import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
 from posthog.settings.personhog import *
+from posthog.settings.security_hub import *
 from posthog.settings.ses import *
+from posthog.settings.streamlit_apps import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
 
@@ -80,10 +85,10 @@ INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 # empty to use the real Slack email while keeping DEBUG on. Ignored outside DEBUG.
 SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@posthog.com")
 
-# Vapi voice-AI integration (used by user_interviews to host public interview pages).
-VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
-VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
-VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
+# Forward GitHub App deliveries onto the internal events topic, where a workflow with a GitHub
+# trigger can pick them up. Off by default: a busy repository is a firehose, and this is the only
+# thing admitting it.
+GITHUB_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("GITHUB_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
 
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
@@ -118,6 +123,10 @@ PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", opti
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
 
+# When on, the person bulk delete API hands profile deletion to a Celery task that pages through
+# each person's distinct IDs, instead of tombstoning them inline in the request.
+PERSON_BULK_DELETE_ASYNC: bool = get_from_env("PERSON_BULK_DELETE_ASYNC", False, type_cast=str_to_bool)
+
 # Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
 # enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
 EVENTS_DATA_RETENTION_ENFORCED: bool | None = get_from_env(
@@ -136,8 +145,6 @@ OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
-
-QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

@@ -52,9 +52,8 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PostHogCodeSlackMentionCommandWorkflowInputs) -> None:
-        # The mention surface resolves the user at routing time and passes it in.
-        # The slash surface passes ``None`` on purpose so its webhook ack stays
-        # inside Slack's 3s budget, and resolution happens here instead.
+        # The slash surface passes ``None`` so its webhook ack stays inside Slack's 3s budget,
+        # and resolution happens here instead.
         user_id = inputs.user_id
         if user_id is None:
             user_id = await workflow.execute_activity(
@@ -82,7 +81,11 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
         event = inputs.event
         channel = event.get("channel")
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        # A command posted at channel root is answered at channel root. Falling back to the
+        # message's own ``ts`` would open a thread under it, putting the answer where only
+        # someone already reading that thread would find it. A command sent inside a thread
+        # still keeps its answer there.
+        thread_ts = event.get("thread_ts") or ""
         slack_user_id = event.get("user")
         if not isinstance(channel, str) or not isinstance(thread_ts, str) or not isinstance(slack_user_id, str):
             return

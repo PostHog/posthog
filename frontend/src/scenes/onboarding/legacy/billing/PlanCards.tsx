@@ -4,13 +4,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { HeartHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -53,6 +52,8 @@ type PlanCardProps = {
     hogPosition?: 'top-right' | 'top-left'
 }
 
+const HedgehogHeart = pngHoggie(heartPng)
+
 // Retention differs per product: analytics is measured in years, session replay in months. Billing
 // supplies the unit ('year(s)' | 'month(s)' | 'day(s)'), so format from it rather than assuming years.
 export function formatDataRetentionFeature(feature?: BillingFeatureType): string | null {
@@ -65,16 +66,8 @@ export function formatDataRetentionFeature(feature?: BillingFeatureType): string
 
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
     const { billing } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product }))
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
-
-    // When platform packages are surfaced after subscribing (experiment on), there are more features
-    // to unlock beyond pay-as-you-go, so soften the paid CTA from "Unlock all features".
-    const ctaText =
-        planData.plan === Plan.RIDICULOUSLY_CHEAP && featureFlags[FEATURE_FLAGS.ONBOARDING_PLATFORM_PACKAGES] === 'test'
-            ? 'Unlock more features'
-            : planData.ctaText
 
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
@@ -130,7 +123,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
     return (
         <div className="relative" onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
             {!cardDisabled && (
-                <HeartHog
+                <HedgehogHeart
                     width="100"
                     height="100"
                     className={clsx(
@@ -213,7 +206,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             fullWidth
                             tabIndex={-1}
                         >
-                            {ctaText}
+                            {planData.ctaText}
                         </BillingUpgradeCTA>
                     )}
                     {planData.ctaAction === 'next' && (
@@ -268,7 +261,8 @@ const PLANS_DATA: PlanData[] = [
             { name: 'Group analytics + Data pipeline addons', available: true },
             { name: 'Happy hedgehogs', available: true },
         ],
-        ctaText: 'Unlock all features',
+        // Platform packages are offered after subscribing, so pay-as-you-go doesn't unlock everything.
+        ctaText: 'Unlock more features',
         ctaAction: 'billing',
     },
 ]

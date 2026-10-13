@@ -19,7 +19,23 @@ Order decides whether they understand the change at all.
 Form and length only decide how fast.
 So get the order right first, and never buy shape at the cost of it.
 
-Work in five passes: lead, route, cut, shape, check. Run all five.
+Work in five passes: lead, route, cut, shape, check. Run all five. When a body already exists, pass 0 comes first.
+
+## Pass 0: keep what the body already holds
+
+`gh pr edit --body` replaces the whole body, so every part of your draft that has no home is gone the moment you push it.
+An existing body holds work you cannot recreate: screenshots and recordings a person uploaded, links they collected, a checkbox they ticked, a note to a named reviewer.
+
+Read the current body and edit it, rather than writing a fresh one over the top:
+
+```sh
+gh pr view <number> --json body --jq .body > pr-body.md
+# edit pr-body.md
+gh pr edit <number> --body-file pr-body.md
+```
+
+Carry every image, video, link and ticked box into the new body, under the heading it belongs to, and add the heading when your draft has none.
+Replace one only when the change made it wrong, and say in the body that you replaced it.
 
 ## Pass 1: lead with the effect
 
@@ -35,6 +51,8 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
 - The first bullet of Changes is the change itself. Renames, regenerated snapshots and comment fixes go last.
+- Every Changes bullet a person can notice says what they now see or do differently, then the mechanism under it. One user-facing line in Problem does not discharge this.
+- Say in one line which part of Changes is mechanical. A reviewer cannot otherwise tell a purely internal change from a visible one you described as internal.
 - If one part of the diff is riskier than the rest, name that part and say the rest is mechanical.
 
 Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
@@ -64,7 +82,8 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
-| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two `flowchart` blocks, before first                      |
+| A new action and its effect, which one screenshot cannot show                        | A feature reel in place of the "after" screenshot         |
+| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
 | Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
@@ -74,7 +93,21 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 
 No PR needs every form. Reach for one because it makes review faster, never as decoration. An empty section gets one bullet or "None".
 
-### Screenshots
+### Screenshots and reels
+
+A screenshot is the default for every visual change.
+A feature reel is an animated WebP of one UI flow, made with reel mode of `/qa-frontend`.
+Use a reel only for a new action and its effect, when a screenshot of the end state hides the action.
+Examples are a right-click menu on an element that had none, or a bar that appears when rows are selected.
+A new item in an existing menu, a new column, or new copy gets a screenshot, because the reviewer already knows how a person gets there.
+Before you make a reel, read `references/screenshots-and-reels.md`. It has the test, worked examples, and what a reel leaves out.
+
+Take each screenshot from the first source that can show the change:
+
+1. The running app, when one is up.
+2. Storybook, through a headless browser. Use the story that covers the surface. When no story does, write a scratch story for the screenshot and keep it out of the commit.
+
+Capture at `deviceScaleFactor: 2`. A 1x image looks soft on a high-density screen, and GitHub shrinks a wider image to fit the column. Take the before from the base branch the same way. A new surface has no before, so say that in one line.
 
 Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
 
@@ -153,8 +186,8 @@ Everything under them is evidence and provenance, and a reviewer reaches it last
 When the lower half outgrows the upper half, cut the lower half.
 
 - Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
-- Agent context: autonomy, tools, skills invoked, and what changed across the session.
-- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the changelog checkbox to find it.
+- Agent context: autonomy, tool and exact model, skills invoked, and what changed across the session.
+- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the release status section to find it.
 
 The test: **the body must come out shorter than your first draft.** Pass 5 checks it.
 
@@ -225,17 +258,21 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
-5. Read each bullet and name the reader who needs it. Delete the ones you cannot.
-6. Read each bullet alone. Does it state one fact? If it states two, split it.
-7. Count the words in the longest sentence. Over 25, split it.
-8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
-9. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
-10. Is any fact in the wrong form? A visual change needs a screenshot. A flow change needs before and after diagrams. A comparison needs a table.
-11. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-12. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-13. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-14. Does the body claim manual testing that did not happen? Delete it.
-15. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+5. Read Changes alone. Can you say what a person will now see or do differently, or that nothing user-visible changed? If neither, go back to pass 1.
+6. Read each bullet and name the reader who needs it. Delete the ones you cannot.
+7. Read each bullet alone. Does it state one fact? If it states two, split it.
+8. Count the words in the longest sentence. Over 25, split it.
+9. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
+10. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
+11. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
+12. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
+13. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+14. Does prose compare several values across the same dimensions? Replace it with a table.
+15. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
+16. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+17. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked?
+18. Does the body claim manual testing that did not happen? Delete it.
+19. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 

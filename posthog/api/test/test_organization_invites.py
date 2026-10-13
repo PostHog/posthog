@@ -1,7 +1,7 @@
 import random
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
@@ -24,8 +24,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from ee.models import Role, RoleMembership
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -417,25 +417,53 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
-        email = "xx@posthog.com"
+    @parameterized.expand(
+        [
+            (subject, most_specific, bulk)
+            for subject in ["default", "default_role", "member"]
+            for most_specific in [False, True]
+            for bulk in [False, True]
+        ]
+    )
+    def test_invite_fails_if_inviter_does_not_have_access_to_team(
+        self, subject: str, most_specific: bool, bulk: bool
+    ) -> None:
+        email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
         private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        role = None
+        if subject == "default_role":
+            role = Role.objects.create(name="Restricted role", organization=self.organization)
+            self.organization.default_role = role
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        self.organization.save()
 
-        # Set up new access control system - restrict project to no default access
         AccessControl.objects.create(
             team=private_team,
             access_level="none",
             resource="project",
             resource_id=str(private_team.id),
+            role=role,
+            organization_member=self.organization_membership if subject == "member" else None,
         )
+        denied_response = self.client.get(f"/api/projects/{private_team.id}/")
+        self.assertEqual(denied_response.status_code, status.HTTP_404_NOT_FOUND)
+        payload = {
+            "target_email": email,
+            "level": OrganizationMembership.Level.MEMBER,
+            "private_project_access": [{"id": private_team.id, "level": "admin"}],
+        }
         response = self.client.post(
-            "/api/organizations/@current/invites/",
-            {
-                "target_email": email,
-                "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": "admin"}],
-            },
+            "/api/organizations/@current/invites/bulk/" if bulk else "/api/organizations/@current/invites/",
+            [{"target_email": "other-invitee@example.com"}, payload] if bulk else payload,
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
@@ -494,24 +522,36 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(self):
-        """
-        Regression test: when a project's default access_level is "member" (not "none"),
-        a standard member must still be prevented from requesting admin access.
-        """
-        email = "escalation@posthog.com"
+    @parameterized.expand(
+        [(subject, most_specific) for subject in ["default", "role", "member"] for most_specific in [False, True]]
+    )
+    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(
+        self, subject: str, most_specific: bool
+    ) -> None:
+        email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
         restricted_team = Team.objects.create(organization=self.organization, name="Member-Restricted Team")
         organization_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         organization_membership.level = OrganizationMembership.Level.MEMBER
         organization_membership.save()
 
-        # Restrict the project with default access level "member" (not "none")
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        role = None
+        if subject == "role":
+            role = Role.objects.create(name="Member role", organization=self.organization)
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=organization_membership)
         AccessControl.objects.create(
             team=restricted_team,
             access_level="member",
             resource="project",
             resource_id=str(restricted_team.id),
+            role=role,
+            organization_member=organization_membership if subject == "member" else None,
         )
         response = self.client.post(
             "/api/organizations/@current/invites/",
@@ -844,12 +884,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(invite["target_email"], email)
         self.assertEqual(invite["private_project_access"], [])
 
-    @freeze_time("2024-01-10")
+    @time_machine.travel("2024-01-10", tick=False)
     def test_combine_pending_invites_with_expired_invites(self):
         email = "xyz@posthog.com"
 
         # Create an expired invite
-        with freeze_time("2023-01-05"):
+        with time_machine.travel("2023-01-05", tick=False):
             OrganizationInvite.objects.create(
                 organization=self.organization,
                 target_email=email,
@@ -1418,8 +1458,17 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
         self.assertEqual(OrganizationInvite.objects.count(), 1)
 
-    def test_add_organization_invite_case_insensitive_existing_member_check(self):
-        """Test that invites are rejected if a user with case variation already exists as member"""
+    @parameterized.expand(
+        [
+            ("single", "/api/organizations/@current/invites/", {"target_email": "existing.user@example.com"}),
+            (
+                "bulk_does_not_save_earlier_rows",
+                "/api/organizations/@current/invites/bulk/",
+                [{"target_email": "new.user@example.com"}, {"target_email": "existing.user@example.com"}],
+            ),
+        ]
+    )
+    def test_add_organization_invite_case_insensitive_existing_member_check(self, _name, url, payload):
         existing_user = User.objects.create_user(
             email="Existing.User@Example.COM", password="password123", first_name="Existing"
         )
@@ -1428,13 +1477,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             organization=self.organization, user=existing_user, level=OrganizationMembership.Level.MEMBER
         )
 
-        invite_email = "existing.user@example.com"
-        response = self.client.post(
-            "/api/organizations/@current/invites/",
-            {"target_email": invite_email},
-        )
+        response = self.client.post(url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "existing_member")
+        self.assertEqual(response.json()["attr"], "target_email")
         self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     def test_user_join_with_default_role(self):
@@ -1452,6 +1499,19 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Check that the user was assigned to the default role
         assert RoleMembership.objects.filter(role=role, user=new_user, organization_member=membership).exists()
+
+    @patch("posthog.models.user.capture_exception")
+    def test_user_join_does_not_assign_default_role_from_another_organization(self, mock_capture_exception):
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        self.organization.default_role = role
+        self.organization.save()
+        new_user = User.objects.create(email="test@example.com", first_name="Test")
+
+        new_user.join(organization=self.organization)
+
+        assert not RoleMembership.objects.filter(role=role, user=new_user).exists()
+        mock_capture_exception.assert_called_once()
 
     def test_user_join_without_default_role(self):
         """Test that new users don't get assigned any role when no default is set"""
@@ -1961,7 +2021,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
     def test_burst_bucket_resets_after_window(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         base_time = now()
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             for i in range(2):
                 response = self.client.post(
                     "/api/organizations/@current/invites/",
@@ -1974,7 +2034,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-        with freeze_time(base_time + timedelta(hours=1, seconds=1)):
+        with time_machine.travel(base_time + timedelta(hours=1, seconds=1), tick=False):
             response = self.client.post(
                 "/api/organizations/@current/invites/",
                 {"target_email": "reset_later@posthog.com"},
@@ -1988,14 +2048,14 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         # Space requests more than 1 hour apart (defeating any burst bucket)
         # but still well within the 24h sustained window.
         for i in range(3):
-            with freeze_time(base_time + timedelta(hours=2 * i)):
+            with time_machine.travel(base_time + timedelta(hours=2 * i), tick=False):
                 response = self.client.post(
                     "/api/organizations/@current/invites/",
                     {"target_email": f"sustained_{i}@posthog.com"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        with freeze_time(base_time + timedelta(hours=8)):
+        with time_machine.travel(base_time + timedelta(hours=8), tick=False):
             response = self.client.post(
                 "/api/organizations/@current/invites/",
                 {"target_email": "sustained_blocked@posthog.com"},

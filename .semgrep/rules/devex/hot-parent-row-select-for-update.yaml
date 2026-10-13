@@ -1,0 +1,36 @@
+rules:
+    - id: hot-parent-row-select-for-update
+      message: |
+          Locking Team or Organization makes unrelated child-row writers wait on a hot parent row.
+          If the lock guards one product's per-team settings, lock that product's Team<Product>Config
+          extension row instead, reached through get_or_create_team_extension. Contention then reaches
+          only the writers of that one config. See posthog/models/team/README.md. If the lock enforces
+          a per-team count limit or allocates a per-team number, use a unique constraint, a conditional
+          update, or a dedicated allocation row. Otherwise lock the
+          quiet row that represents the serialized resource. If the parent row is
+          the resource being changed or deleted, suppress this finding with
+          `# nosemgrep: hot-parent-row-select-for-update -- <short justification>`.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern: $MODEL.objects. ... .select_for_update(...)
+          - pattern-not: $MODEL.objects. ... .select_for_update(..., no_key=True, ...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: ^(Team|Organization)$
+      paths:
+          include:
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+      metadata:
+          category: performance
+          subcategory: audit
+          confidence: HIGH

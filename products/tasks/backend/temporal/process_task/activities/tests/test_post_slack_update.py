@@ -9,6 +9,7 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
     SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN,
     _classify_failure_recovery,
     _failure_recovery_prompt,
+    _post_cancelled_once,
     _post_error_once,
 )
 
@@ -63,4 +64,17 @@ def test_suppressed_permission_rejection_posts_note_instead_of_error(mock_update
 
     handler.post_note.assert_called_once_with(SLACK_DENIAL_STOP_MESSAGE)
     handler.post_error.assert_not_called()
+    mock_update_state.assert_called_once()
+
+
+@patch("products.tasks.backend.models.TaskRun.update_state_atomic")
+def test_cancelled_run_clears_progress_without_posting(mock_update_state: MagicMock) -> None:
+    task_run = MagicMock()
+    task_run.state = {}
+    handler = MagicMock(spec=["update_reaction", "delete_progress"])
+
+    _post_cancelled_once(task_run, handler)
+
+    handler.update_reaction.assert_called_once_with("hedgehog")
+    handler.delete_progress.assert_called_once_with()
     mock_update_state.assert_called_once()

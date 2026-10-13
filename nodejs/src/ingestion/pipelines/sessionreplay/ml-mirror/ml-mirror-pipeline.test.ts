@@ -10,7 +10,6 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
-import { runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
@@ -23,9 +22,10 @@ import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shar
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
+import { buildMlMirrorStagedRunner, runMlMirrorBatch } from '~/tests/helpers/ml-mirror-staged-batch'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import { createMlMirrorReplayPipeline } from './ml-mirror-pipeline'
+import { MlMirrorStagedBatchRunner } from './staged-batch-runner'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
@@ -58,6 +58,9 @@ function createMockTopHog(): TopHogRegistry {
 }
 
 describe('ml-mirror-pipeline', () => {
+    const V2_SESSION_ID = '01a0a4f0-3200-7000-8000-000000000001'
+    const V2_SESSION_ID_2 = '01a0a4f0-3200-7000-8000-000000000002'
+    const V2_SESSION_ID_3 = '01a0a4f0-3200-7000-8000-000000000003'
     let recordMock: jest.Mock
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
     let mockTeamService: TeamService
@@ -127,8 +130,8 @@ describe('ml-mirror-pipeline', () => {
         mockCreateApplyEventRestrictionsStep.mockReturnValue((input: unknown) => Promise.resolve(ok(input)))
     })
 
-    function buildPipeline(): ReturnType<typeof createMlMirrorReplayPipeline> {
-        return createMlMirrorReplayPipeline(
+    function buildRunner(): MlMirrorStagedBatchRunner {
+        return buildMlMirrorStagedRunner(
             {
                 outputs,
                 eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
@@ -143,7 +146,7 @@ describe('ml-mirror-pipeline', () => {
                 topHog,
                 isDebugLoggingEnabled: () => false,
             },
-            { anonymizeMaxConcurrency: 4 }
+            { anonymizeMaxConcurrency: 4, nowMs: () => Date.UTC(2026, 8, 15, 13) }
         )
     }
 
@@ -160,6 +163,28 @@ describe('ml-mirror-pipeline', () => {
                             type: 3,
                             timestamp: now.toMillis(),
                             data: { source: 5, id: 1, text: 'Hello SecretName', isChecked: false },
+                        },
+                        {
+                            type: 5,
+                            timestamp: now.plus({ milliseconds: 1 }).toMillis(),
+                            data: {
+                                tag: '$json_ld',
+                                href: 'https://example.com/private-name?email=private#secret',
+                                payload: {
+                                    '@context': 'https://schema.org',
+                                    '@type': 'Product',
+                                    name: 'Camera',
+                                    email: 'viewer@example.com',
+                                    offers: {
+                                        '@type': 'Offer',
+                                        price: 100,
+                                        seller: {
+                                            '@type': 'Person',
+                                            name: 'Example Viewer',
+                                        },
+                                    },
+                                },
+                            },
                         },
                     ],
                 },
@@ -244,13 +269,29 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-1')], mockBatchRecorder, promiseScheduler)
+        await runMlMirrorBatch(buildRunner(), [message(V2_SESSION_ID)], mockBatchRecorder)
 
         expect(recordMock).toHaveBeenCalledTimes(1)
         const [windowId, event] = recordedEvents()[0]
         expect(windowId).toBe('window-1')
         // The Input event's text was scrubbed before it reached the recorder.
         expect(event.data.text).toBe('Hello **********')
+        expect(recordedEvents()[1][1].data).toEqual({
+            tag: '$json_ld',
+            href: 'https://example.com/[redacted]?[key]=private',
+            payload: {
+                '@context': 'https://schema.org',
+                '@type': 'Product',
+                name: 'Camera',
+                offers: {
+                    '@type': 'Offer',
+                    price: 100,
+                    seller: {
+                        '@type': 'Person',
+                    },
+                },
+            },
+        })
     })
 
     it('drops sessions for a team that did not opt into AI training', async () => {
@@ -259,8 +300,20 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-2')], mockBatchRecorder, promiseScheduler)
+        await runMlMirrorBatch(buildRunner(), [message(V2_SESSION_ID_2)], mockBatchRecorder)
 
+        expect(recordMock).not.toHaveBeenCalled()
+    })
+
+    it('drops sessions whose ID is not UUIDv7 before session resolution', async () => {
+        mockTeamService = {
+            getTeamByToken: jest.fn().mockResolvedValue(team(true)),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        } as unknown as TeamService
+
+        await runMlMirrorBatch(buildRunner(), [message('legacy-session-id')], mockBatchRecorder)
+
+        expect(retentionService.resolveSessionRetentions).not.toHaveBeenCalled()
         expect(recordMock).not.toHaveBeenCalled()
     })
 
@@ -270,12 +323,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(
-            buildPipeline(),
-            [fullSnapshotMessage('sess-3')],
-            mockBatchRecorder,
-            promiseScheduler
-        )
+        await runMlMirrorBatch(buildRunner(), [fullSnapshotMessage(V2_SESSION_ID_3)], mockBatchRecorder)
 
         expect(recordMock).toHaveBeenCalledTimes(1)
         const node = recordedEvents()[0][1].data.node.childNodes[0]

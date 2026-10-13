@@ -3,33 +3,25 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentsCalculateRunningTimeCreate } from 'products/experiments/frontend/generated/api'
 import type {
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
-import { experimentLogic } from '../experimentLogic'
+import type { CachedNewExperimentQueryResponse } from '../../../queries/schema/schema-general'
+import { experimentLogic, saveExperimentUpdate } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
-import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import {
-    getFlagVariants,
-    getOrderedMetricsWithResults,
-    initializeMetricOrdering,
-    isExperimentConflictError,
-    toConcurrencyPayload,
-} from '../utils'
+import { getFlagVariants, metricResults, isExperimentConflictError, toConcurrencyPayload } from '../utils'
+import type { MetricWithResult } from '../utils'
 import {
     ManualCalculatorMetricType,
     baselineStatsFromResults,
@@ -37,6 +29,7 @@ import {
     calculateDaysElapsed,
     calculateExposureRate,
     getCalculatorMetricType,
+    hasRequiredBaselineStats,
 } from './calculations'
 
 export interface RunningTimeLogicProps {
@@ -60,19 +53,11 @@ export interface ManualPreview {
 export interface runningTimeLogicValues {
     currentProjectId: number | null // experimentLogic
     experiment: Experiment // experimentLogic
-    orderedPrimaryMetricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[] // experimentLogic
-    primaryMetricsResultsLoading: boolean // experimentLogic
     unmodifiedExperiment: Experiment | null // experimentLogic
-    recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
-    recalcPrimaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
+    isRecalculating: boolean // experimentMetricsLogic
+    primaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
+    primaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     isRunningTimeConfigModalOpen: boolean // modalsLogic
     automaticCalculation: RunningTimeCalculationResultApi | null
     automaticCalculationInput: RunningTimeCalculationInputApi | null
@@ -82,6 +67,7 @@ export interface runningTimeLogicValues {
     currentExposures: number | null
     dailyExposureRate: number | null
     initialConfig: RunningTimeConfig
+    isCalculating: boolean
     isComplete: boolean
     isManualMode: boolean
     isSaving: boolean
@@ -90,13 +76,7 @@ export interface runningTimeLogicValues {
     manualPreviewInput: RunningTimeCalculationInputApi | null
     manualPreviewLoading: boolean
     mde: number
-    metricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[]
+    metricsWithResults: MetricWithResult[]
     mode: RunningTimeConfig['mode']
     numberOfVariants: number
     remainingDays: number | null
@@ -189,41 +169,13 @@ export interface runningTimeLogicMeta {
         mode: (config: RunningTimeConfig) => RunningTimeConfig['mode']
         metricsWithResults: (
             experiment: Experiment,
-            featureFlags: FeatureFlagsSet,
-            orderedPrimaryMetricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[],
-            recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[],
-            recalcPrimaryMetricsResultsErrors: unknown[]
-        ) => {
-            displayIndex: number
-            error: any
-            metric: ExperimentMetricUnion
-            metricIndex: number
-            result: any
-        }[]
-        currentExposures: (
-            metricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[]
-        ) => number | null
+            primaryMetricsResults: CachedNewExperimentQueryResponse[],
+            primaryMetricsResultsErrors: unknown[]
+        ) => MetricWithResult[]
+        currentExposures: (metricsWithResults: MetricWithResult[]) => number | null
         automaticCalculationInput: (
             mode: 'automatic' | 'manual',
-            metricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[],
+            metricsWithResults: MetricWithResult[],
             numberOfVariants: number,
             mde: number
         ) => RunningTimeCalculationInputApi | null
@@ -249,6 +201,11 @@ export interface runningTimeLogicMeta {
             experiment: Experiment
         ) => number | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
+        isCalculating: (
+            isManualMode: boolean,
+            isRecalculating: boolean,
+            automaticCalculationLoading: boolean
+        ) => boolean
         manualFormPreview: (
             manualPreviewInput: RunningTimeCalculationInputApi | null,
             manualPreview: ManualPreview
@@ -273,25 +230,13 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         return {
             values: [
                 experimentLogic({ experimentId }),
-                [
-                    'experiment',
-                    'unmodifiedExperiment',
-                    'orderedPrimaryMetricsWithResults',
-                    'primaryMetricsResultsLoading',
-                    'currentProjectId',
-                ],
-                // On the recalculation flow, metric results live in experimentMetricsLogic, not experimentLogic.
+                ['experiment', 'unmodifiedExperiment', 'currentProjectId'],
                 experimentMetricsLogic({ experiment: props.experiment }),
-                [
-                    'primaryMetricsResults as recalcPrimaryMetricsResults',
-                    'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
-                ],
+                ['primaryMetricsResults', 'primaryMetricsResultsErrors', 'isRecalculating'],
                 modalsLogic,
                 ['isRunningTimeConfigModalOpen'],
                 experimentsConfigLogic,
                 ['defaultMinimumDetectableEffect'],
-                featureFlagLogic,
-                ['featureFlags'],
             ],
             actions: [
                 experimentLogic({ experimentId }),
@@ -403,34 +348,14 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         mde: [(s) => [s.config], (config: RunningTimeConfig): number => config.mde],
         mode: [(s) => [s.config], (config: RunningTimeConfig): RunningTimeConfig['mode'] => config.mode],
 
-        // Legacy flow exposes metric results via experimentLogic; the recalculation flow exposes them
-        // via experimentMetricsLogic. Pick whichever is active so automatic mode always has a baseline.
+        // Primary metrics zipped with their results, so automatic mode always has a baseline to read.
         metricsWithResults: [
-            (s) => [
-                s.experiment,
-                s.featureFlags,
-                s.orderedPrimaryMetricsWithResults,
-                s.recalcPrimaryMetricsResults,
-                s.recalcPrimaryMetricsResultsErrors,
-            ],
+            (s) => [s.experiment, s.primaryMetricsResults, s.primaryMetricsResultsErrors],
             (
                 experiment: Experiment,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                legacyMetricsWithResults: {
-                    displayIndex: number
-                    error: any
-                    metric: import('../../../queries/schema').ExperimentMetricUnion
-                    metricIndex: number
-                    result: any
-                }[],
-                recalcResults: import('../../../queries/schema').CachedNewExperimentQueryResponse[],
-                recalcErrors: (unknown | null)[]
-            ) => {
-                if (experiment && featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                    return getOrderedMetricsWithResults(experiment, recalcResults, recalcErrors, [], [], false)
-                }
-                return legacyMetricsWithResults
-            },
+                results: import('../../../queries/schema').CachedNewExperimentQueryResponse[],
+                errors: (unknown | null)[]
+            ) => (experiment ? metricResults(experiment)(results, errors, 'primary') : []),
         ],
 
         currentExposures: [
@@ -471,8 +396,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 if (!firstMetric?.metric || !firstMetric?.result?.baseline) {
                     return null
                 }
+                const metricType = getCalculatorMetricType(firstMetric.metric)
+                if (!hasRequiredBaselineStats(metricType, firstMetric.result.baseline)) {
+                    return null
+                }
                 return {
-                    metric_type: getCalculatorMetricType(firstMetric.metric),
+                    metric_type: metricType,
                     minimum_detectable_effect: mde,
                     number_of_variants: numberOfVariants,
                     baseline_stats: baselineStatsFromResults(firstMetric.result.baseline),
@@ -540,7 +469,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 rate: number | null,
                 experiment: Experiment
             ): number | null => {
-                if (!target || !rate || rate <= 0) {
+                if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
                 }
 
@@ -566,6 +495,19 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (s) => [s.currentExposures, s.targetSampleSize],
             (current: number | null, target: number | null): boolean =>
                 current !== null && target !== null && current >= target,
+        ],
+        // True while the estimate is still resolving: metric results loading or the automatic calculation
+        // request in flight. Lets the UI distinguish "still loading" from "settled but can't estimate"
+        // instead of flashing a pending state during the gap between the two. Manual mode has no async
+        // estimate to wait on, so it never counts as calculating.
+        isCalculating: [
+            (s) => [s.isManualMode, s.isRecalculating, s.automaticCalculationLoading],
+            (isManualMode: boolean, isRecalculating: boolean, automaticCalculationLoading: boolean): boolean => {
+                if (isManualMode) {
+                    return false
+                }
+                return isRecalculating || automaticCalculationLoading
+            },
         ],
         manualFormPreview: [
             (s) => [s.manualPreviewInput, s.manualPreview],
@@ -613,7 +555,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 isManualMode ||
                 !isLaunched(experiment) ||
                 remainingDays === null ||
-                targetSampleSize === null
+                targetSampleSize === null ||
+                // Never store a non-positive estimate — a negative sample size or running time is
+                // meaningless and would surface in the header and list view.
+                remainingDays < 0 ||
+                targetSampleSize <= 0
             ) {
                 return
             }
@@ -634,6 +580,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             // carry the handshake and absorb the response — otherwise every open tab of a running
             // experiment goes silently stale on results load and later scalar saves 409.
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 const response: Experiment = await api.update(
                     `api/projects/${currentProjectId}/experiments/${props.experiment.id}`,
                     {
@@ -641,7 +588,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                         running_time_calculation: updatedRunningTimeCalculation,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     running_time_calculation: response.running_time_calculation ?? updatedRunningTimeCalculation,
                 })
@@ -653,10 +600,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 // and resync the snapshot so this tab stops being stale (and the guard above stops
                 // re-persisting the same values against fresh server state).
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                     const fresh: Experiment = await api.get(
                         `api/projects/${currentProjectId}/experiments/${props.experiment.id}`
                     )
-                    actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(fresh)))
+                    actions.setUnmodifiedExperiment(structuredClone(fresh))
                     actions.setExperiment({ running_time_calculation: fresh.running_time_calculation })
                 } catch {
                     // Leave state as-is; the next full experiment load resyncs the snapshot.
@@ -668,6 +616,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             const { config, numberOfVariants, experiment, currentProjectId } = values
 
             actions.setSaving(true)
+            let saved = false
             try {
                 let update: Partial<Experiment> & { update_feature_flag_params?: boolean }
                 if (config.mode === 'manual') {
@@ -723,13 +672,17 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 // Await so the experiment reflects the saved config before resetConfig below. Otherwise the
                 // transient (overrides cleared, experiment not yet updated) would re-trigger the automatic
                 // auto-persist with stale values and revert the save.
-                await experimentLogic({ experimentId: props.experiment.id }).asyncActions.updateExperiment(update)
+                saved = await saveExperimentUpdate(props.experiment.id, update)
             } catch {
                 // Keep the modal open (don't close/reset below) so the user can retry.
                 lemonToast.error('Failed to save running time settings. Please try again.')
                 return
             } finally {
                 actions.setSaving(false)
+            }
+            // A failed experiment save has already shown its error. Keep the modal open so the user can retry.
+            if (!saved) {
+                return
             }
             actions.closeRunningTimeConfigModal()
             actions.resetConfig()

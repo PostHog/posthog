@@ -3,6 +3,11 @@ from urllib.parse import urlencode
 from django.http import HttpRequest
 from django.utils.http import url_has_allowed_host_and_scheme
 
+UNVERIFIED_SOCIAL_EMAIL_ERROR = (
+    "Your sign-in provider hasn't verified this email address. Verify it with the provider, then sign in again."
+)
+GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
+
 
 def get_safe_next_url(next_url: str | None, request: HttpRequest) -> str | None:
     """Return next_url only when it's a safe same-origin/relative redirect target, else None.

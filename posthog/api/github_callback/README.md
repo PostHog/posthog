@@ -9,10 +9,10 @@ the integration records.
 
 There are two integration records, created by two related flows:
 
-| Record                                | Model                                | Created by                                                        | Used by                                        |
-| ------------------------------------- | ------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------- |
-| **Team** `Integration(kind="github")` | `posthog/models/integration.py`      | `team_services.create_team_github_integration_from_oauth_code`    | Tasks/Code, signals custom agents, deployments |
-| **Personal** `UserIntegration`        | `posthog/models/user_integration.py` | `personal_finish.github_link_complete` (`/complete/github-link/`) | per-user GitHub linking                        |
+| Record                                | Model                                 | Created by                                                        | Used by                                        |
+| ------------------------------------- | ------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------- |
+| **Team** `Integration(kind="github")` | `posthog/models/integration/model.py` | `team_services.create_team_github_integration_from_oauth_code`    | Tasks/Code, signals custom agents, deployments |
+| **Personal** `UserIntegration`        | `posthog/models/user_integration.py`  | `personal_finish.github_link_complete` (`/complete/github-link/`) | per-user GitHub linking                        |
 
 Both are created from a GitHub App **installation** plus a user-to-server OAuth
 **code**. The App-as-App JWT (for installation tokens) is signed in
@@ -116,6 +116,24 @@ adoption.
 | `/integrations/github/callback` | `integrationsLogic` (frontend) → `Integration` create | team integration   |
 | `/complete/github-link/`        | `personal_finish.github_link_complete`                | personal user-link |
 | `/webhooks/github` (+ `/pr`)    | `posthog/urls.py:github_webhook`                      | inbound events     |
+
+Inbound `installation` events (`installation_events.py`) delete every row for an
+uninstalled App and flip `GitHubInstallRequest` rows to approved when an org owner
+accepts a member's install request. `installation_repositories` events mirror the
+new `repository_selection` ("all" or "selected") onto every row for the
+installation and drop their repository caches, so the UI can say "all
+repositories" instead of listing them.
+
+### Install requests (org owner approval)
+
+A member installing the App gets `setup_action=request` back from GitHub, which
+`install_requests.record_install_request` stores as a pending
+`GitHubInstallRequest`. Clients read `GET /api/users/@me/integrations/github/install_requests/`
+(rows plus a shareable `install_url` for the org owner) and poll it while a request
+is pending; `DELETE .../install_requests/{id}/` dismisses one. The team and personal
+integration serializers also expose `installation_shared` (whether disconnecting
+leaves the App installed) and `installation_status` (`unavailable` once a token mint
+404s), which the disconnect dialogs and status banners are built on.
 
 The team code exchange (`team_services`) calls `github_user_from_code(code)`
 **without** a `redirect_uri`, so GitHub does not enforce a redirect_uri match on

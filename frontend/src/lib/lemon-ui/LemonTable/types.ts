@@ -54,6 +54,12 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sticky?: boolean
     /** Set width. */
     width?: string | number
+    /** Allow people to resize this column from its header. */
+    resizable?: boolean
+    /** Called while a person resizes this column. */
+    onResize?: (width: number) => void
+    /** Called after a person finishes resizing this column. */
+    onResizeEnd?: () => void
     /** Whether the column's contents should expand to the size of the column. */
     fullWidth?: boolean
     /** Cell actions to display in a "More" menu for each cell. Return null to hide actions for specific cells. */

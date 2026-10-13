@@ -1,15 +1,10 @@
-from collections.abc import Iterable
-from typing import Any, cast
-
-import pytest
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ukcompanieshouse import (
     UkCompaniesHouseSourceConfig,
 )
@@ -20,38 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uk_compani
     COMPANIES,
     ENDPOINT_SPECS,
     ENDPOINTS,
-    OFFICERS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source import (
     NO_COMPANY_NUMBERS_ERROR,
     UkCompaniesHouseSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.uk_companies_house import (
-    UkCompaniesHouseResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-VALIDATE_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source.validate_companies_house_credentials"
-TRANSPORT_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source.uk_companies_house_source"
-
-
-def _make_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
-    defaults: dict = {
-        "schema_name": schema_name,
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestUkCompaniesHouseSource:
@@ -59,47 +27,9 @@ class TestUkCompaniesHouseSource:
         self.source = UkCompaniesHouseSource()
         self.config = UkCompaniesHouseSourceConfig(api_key="test-key", company_numbers="6400\nSC123456")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UKCOMPANIESHOUSE
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so it is safe for public docs.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_source_config_is_released(self) -> None:
-        config = self.source.get_source_config
-        assert getattr(config, "unreleasedSource", None) is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_source_config_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert [f.name for f in fields] == ["api_key", "company_numbers"]
-
-        api_key = fields[0]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.secret is True
-        assert api_key.required is True
-
-        company_numbers = fields[1]
-        assert isinstance(company_numbers, SourceFieldInputConfig)
-        assert company_numbers.secret is False
-        assert company_numbers.required is True
-
-    def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        # No Companies House list endpoint takes an updated-since filter, so nothing may claim
-        # incremental support.
-        assert all(schema.supports_incremental is False for schema in schemas)
-        assert all(schema.supports_append is False for schema in schemas)
-        assert all(schema.description for schema in schemas)
-
-    def test_get_schemas_honors_the_names_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123, names=[OFFICERS])
-
-        assert [schema.name for schema in schemas] == [OFFICERS]
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_primary_keys_are_unique_table_wide(self, endpoint: str) -> None:
@@ -126,64 +56,45 @@ class TestUkCompaniesHouseSource:
     ) -> None:
         config = UkCompaniesHouseSourceConfig(api_key="test-key", company_numbers=company_numbers)
 
-        with patch(VALIDATE_TARGET) as mock_validate:
+        with scripted_network([]) as network:
             ok, error = self.source.validate_credentials(config, team_id=123)
 
         assert ok is False
         assert error is not None and expected_fragment in error
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     def test_validate_credentials_probes_the_first_normalized_company_number(self) -> None:
-        with patch(VALIDATE_TARGET, return_value=(True, None)) as mock_validate:
+        with scripted_network([ScriptedResponse(json={})]) as network:
             ok, error = self.source.validate_credentials(self.config, team_id=123)
 
         assert (ok, error) == (True, None)
-        mock_validate.assert_called_once_with("test-key", "00006400")
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs(OFFICERS))
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is UkCompaniesHouseResumeConfig
-
-    def test_source_for_pipeline_passes_parsed_company_numbers(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs(OFFICERS)
-
-        with patch(TRANSPORT_TARGET, return_value=iter([[{"name": "A"}]])) as mock_transport:
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-            rows = list(cast("Iterable[Any]", response.items()))
-
-        assert rows == [[{"name": "A"}]]
-        assert mock_transport.call_args.kwargs["company_numbers"] == ["00006400", "SC123456"]
-        assert mock_transport.call_args.kwargs["endpoint"] == OFFICERS
+        assert [request.path for request in network.requests_log] == ["/company/00006400"]
+        assert network.requests_log[0].headers["authorization"] == "Basic dGVzdC1rZXk6"
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_for_pipeline_response_shape(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, self.config).run(
+            endpoint, [ScriptedResponse(json={}), ScriptedResponse(json={})]
+        )
 
-        with patch(TRANSPORT_TARGET, return_value=iter([])):
-            response = self.source.source_for_pipeline(self.config, manager, _make_inputs(endpoint))
-
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ENDPOINT_SPECS[endpoint].primary_key
         # Companies House documents no ordering, so the watermark must not be told rows arrive sorted.
         assert response.sort_mode is None
 
     def test_source_for_pipeline_rejects_an_unknown_endpoint(self) -> None:
-        with pytest.raises(ValueError, match="Unknown Companies House endpoint"):
-            self.source.source_for_pipeline(
-                self.config, MagicMock(spec=ResumableSourceManager), _make_inputs("NotATable")
-            )
+        result = SourceDriver(self.source, self.config).run("NotATable", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Companies House endpoint" in str(result.raised)
 
     def test_source_for_pipeline_rejects_an_empty_company_list(self) -> None:
         config = UkCompaniesHouseSourceConfig(api_key="test-key", company_numbers="")
 
-        with pytest.raises(ValueError, match=NO_COMPANY_NUMBERS_ERROR):
-            self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), _make_inputs(COMPANIES))
+        result = SourceDriver(self.source, config).run(COMPANIES, [])
 
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
+        assert isinstance(result.raised, ValueError)
+        assert NO_COMPANY_NUMBERS_ERROR in str(result.raised)

@@ -5,19 +5,74 @@ These are thin ``@temporalio.activity.defn`` wrappers; the DB-touching implement
 and lets the logic be unit-tested without the activity decorator.
 """
 
+import asyncio
+
+import structlog
 import temporalio.activity
 
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
+    METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
+    _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
     _update_recalculation_progress_sync,
 )
+
+logger = structlog.get_logger(__name__)
+
+_CANCEL_KILL_RETRY_INTERVAL_SECONDS = 2.0
+
+
+async def _drain_cancelled_body(
+    task: asyncio.Task[MetricRecalculationResult],
+    deadline: float,
+    recalculation_id: str,
+    metric_uuid: str,
+    attempt: int,
+) -> None:
+    # sync_to_async cannot stop its worker thread, and returning while it runs leaves the ClickHouse query, its
+    # DB connection and the runner's result buffers alive and unsupervised. Kill the query so the thread returns
+    # now instead of at max_execution_time, then wait it out until the attempt's own deadline, which the body
+    # cannot outlive by design. The kill repeats because it only hits a query ClickHouse has registered, and a
+    # cancel during the body's Postgres phase precedes that. It also runs once past the deadline, because it is
+    # the cheap part and the thread keeps reading otherwise.
+    loop = asyncio.get_running_loop()
+    while not task.done():
+        try:
+            await _cancel_metric_query_sync(recalculation_id, metric_uuid, attempt)
+        except Exception:
+            logger.warning(
+                "experiment_metric_recalculation_query_cancel_failed",
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+                exc_info=True,
+            )
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            logger.warning(
+                "experiment_metric_recalculation_drain_after_cancel_timed_out",
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+            )
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=min(_CANCEL_KILL_RETRY_INTERVAL_SECONDS, remaining))
+        except TimeoutError:
+            continue
+        except Exception:
+            logger.warning(
+                "experiment_metric_recalculation_drain_after_cancel_failed",
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+                exc_info=True,
+            )
+            return
 
 
 @temporalio.activity.defn
@@ -57,6 +112,22 @@ async def calculate_experiment_metric_for_recalculation(
     """
     attempt = temporalio.activity.info().attempt
     is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
-    return await _calculate_experiment_metric_for_recalculation_sync(
-        experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+    deadline = asyncio.get_running_loop().time() + METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS
+    task = asyncio.ensure_future(
+        _calculate_experiment_metric_for_recalculation_sync(
+            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+        )
     )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Keep the worker slot while the uncancellable thread finishes, but bound shutdown cleanup.
+        drain = asyncio.create_task(_drain_cancelled_body(task, deadline, recalculation_id, metric_uuid, attempt))
+        while True:
+            try:
+                await asyncio.shield(drain)
+                break
+            except asyncio.CancelledError:
+                if drain.cancelled():
+                    break
+        raise

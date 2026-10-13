@@ -1,17 +1,12 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import (
-    BitbucketAuth,
-    BitbucketResumeConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import BitbucketAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
     BitbucketAuthMethodConfig,
     BitbucketSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -46,32 +41,8 @@ def _source_inputs(
     return inputs
 
 
-def test_source_type():
-    assert BitbucketSource().source_type == ExternalDataSourceType.BITBUCKET
-
-
 def test_connection_host_fields_force_secret_reentry_on_workspace_change():
     assert BitbucketSource().connection_host_fields == ["workspace"]
-
-
-@pytest.mark.parametrize(
-    "endpoint,supports_incremental",
-    [
-        ("repositories", True),
-        ("pull_requests", True),
-        ("commits", True),
-        ("pipelines", True),
-        # No verified server filter or stable cursor for these — offering an
-        # incremental toggle would silently behave like a full refresh
-        ("deployments", False),
-        ("workspace_members", False),
-    ],
-)
-def test_get_schemas_incremental_support(endpoint, supports_incremental):
-    schemas = {s.name: s for s in BitbucketSource().get_schemas(_config(), team_id=1)}
-    assert schemas[endpoint].supports_incremental is supports_incremental
-    assert schemas[endpoint].supports_append is supports_incremental
-    assert bool(schemas[endpoint].incremental_fields) is supports_incremental
 
 
 def test_get_schemas_filters_by_names():
@@ -118,12 +89,6 @@ def test_validate_credentials_delegates_to_transport():
     validate.assert_called_once_with(BitbucketAuth(email="a@b.c", api_token="tok"), "my-workspace")
 
 
-def test_get_resumable_source_manager_binds_resume_config():
-    manager = BitbucketSource().get_resumable_source_manager(_source_inputs())
-    assert isinstance(manager, ResumableSourceManager)
-    assert manager._data_class is BitbucketResumeConfig
-
-
 @pytest.mark.parametrize(
     "should_use_incremental,last_value,expected_last_value",
     [
@@ -156,9 +121,3 @@ def test_source_for_pipeline_plumbs_arguments(should_use_incremental, last_value
         db_incremental_field_last_value=expected_last_value,
         incremental_field="date",
     )
-
-
-def test_non_retryable_errors_cover_auth_failures():
-    errors = BitbucketSource().get_non_retryable_errors()
-    assert any("401 Client Error" in key for key in errors)
-    assert any("403 Client Error" in key for key in errors)

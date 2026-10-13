@@ -1,0 +1,51 @@
+"""
+Cross-product contracts for product_analytics.
+
+Stable, framework-free frozen dataclasses that define what this product hands to the rest of the
+codebase. No Django imports.
+
+These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant — same syntax, same
+``is_dataclass()`` compatibility, but with runtime validation on construction, so a mapper that
+loses a field surfaces at the facade boundary instead of further down the caller's stack.
+
+``Insight``, ``InsightVariable`` and the QueryRunner wiring still cross as classes
+(``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
+"""
+
+from datetime import datetime
+from typing import Any
+from uuid import UUID
+
+from pydantic.dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class InsightVariableDefinition:
+    """A saved query variable, as callers outside product analytics read it.
+
+    ``type`` carries an ``InsightVariableType`` value. Comparing it to
+    ``InsightVariableType.LIST`` works because the enum is a ``StrEnum``.
+    """
+
+    id: UUID
+    name: str
+    code_name: str | None
+    type: str
+    default_value: Any = None
+    is_multi: bool = False
+
+
+@dataclass(frozen=True)
+class TrendsQueryRunResult:
+    """The response fields consumers need from a blocking cached Trends query."""
+
+    results: list[dict[str, Any]]
+    last_refresh: datetime | None = None
+
+
+@dataclass(frozen=True)
+class SavedInsightDefinition:
+    id: int
+    short_id: str
+    name: str | None
+    query: dict[str, Any]

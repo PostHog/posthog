@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 
@@ -8,6 +8,7 @@ from rest_framework import status
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook
 
 
@@ -75,28 +76,28 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("without_content", None, None),
+            ("without_content", None, None, ""),
             (
-                "with_content",
-                {"some": "kind", "of": "tip", "tap": "content"},
-                "some kind of tip tap content",
-            ),
-            (
-                "with_markdown_content",
+                "with_rich_text_content",
                 {
                     "type": "doc",
                     "content": [
-                        {
-                            "type": "ph-markdown-notebook",
-                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
-                        }
+                        {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Test"}]},
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Body"}]},
                     ],
                 },
+                "Test Body",
+                "# Test\n\nBody",
+            ),
+            (
+                "with_markdown_content_and_stale_text",
+                build_markdown_notebook_content("# Test\n\nBody"),
+                "stale search text",
                 "# Test\n\nBody",
             ),
         ]
     )
-    def test_create_a_notebook(self, _, content: dict | None, text_content: str | None) -> None:
+    def test_create_a_notebook(self, _, content: dict | None, text_content: str | None, expected_markdown: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={"content": content, "text_content": text_content},
@@ -106,8 +107,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response_json == {
             "id": response_json["id"],
             "short_id": response_json["short_id"],
-            "content": content,
-            "text_content": text_content,
+            "content": build_markdown_notebook_content(expected_markdown),
+            "text_content": expected_markdown,
             "title": None,
             "version": 0,
             "created_at": response_json["created_at"],
@@ -117,6 +118,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "last_modified_by": response_json["last_modified_by"],
             "user_access_level": "manager",
             "parent_resource": None,
+            "variables": None,
         }
 
         self.assert_notebook_activity(
@@ -128,26 +130,14 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("legacy_rich_text", {"some": "kind", "of": "tip", "tap": "content"}, None),
-            (
-                "markdown_notebook",
-                {
-                    "type": "doc",
-                    "content": [
-                        {
-                            "type": "ph-markdown-notebook",
-                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
-                        }
-                    ],
-                },
-                "# Test\n\nBody",
-            ),
+            ("markdown_notebook", build_markdown_notebook_content("# Test\n\nBody"), "# Test\n\nBody"),
         ]
     )
     def test_gets_notebook_markdown_by_shortid(self, _, content: dict, expected_markdown: str | None) -> None:
-        create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"content": content})
-        short_id = create_response.json()["short_id"]
+        # Seeded through the ORM, because the create endpoint converts rich text and the legacy case needs a legacy notebook.
+        notebook = Notebook.objects.create(team=self.team, content=content, created_by=self.user)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{short_id}/markdown")
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/markdown")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"markdown": expected_markdown}
@@ -166,7 +156,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert "short_id" in response_json
         short_id = response_json["short_id"]
 
-        with freeze_time("2022-01-02"):
+        with time_machine.travel("2022-01-02", tick=False):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
                 {
@@ -196,9 +186,9 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                                 "type": "Notebook",
                             },
                             {
-                                "action": "created",
+                                "action": "changed",
                                 "after": {"some": "updated content"},
-                                "before": None,
+                                "before": build_markdown_notebook_content(""),
                                 "field": "content",
                                 "type": "Notebook",
                             },
@@ -265,29 +255,49 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": bad_content},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        stored_query = response.json()["content"]["content"][0]["attrs"]["query"]
-        assert stored_query == {
-            "kind": "DataVisualizationNode",
-            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
-            "display": "ActionsBar",
-        }
+        stored_markdown = response.json()["content"]["content"][0]["attrs"]["markdown"]
+        assert "InsightVizNode" not in stored_markdown
+        assert (
+            '{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"SELECT 1"},"display":"ActionsBar"}'
+            in stored_markdown
+        )
 
-    def test_create_notebook_rejects_insight_viz_wrapping_unknown_kind(self) -> None:
-        bad_content = {
-            "type": "doc",
-            "content": [
+    @parameterized.expand(
+        [
+            (
+                "insight_viz_wrapping_unknown_kind",
                 {
-                    "type": "ph-query",
-                    "attrs": {
-                        "nodeId": "n1",
-                        "query": {
-                            "kind": "InsightVizNode",
-                            "source": {"kind": "DefinitelyNotAQuery"},
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "nodeId": "n1",
+                                "query": {"kind": "InsightVizNode", "source": {"kind": "DefinitelyNotAQuery"}},
+                            },
                         },
-                    },
+                    ],
                 },
-            ],
-        }
+                "DefinitelyNotAQuery",
+            ),
+            (
+                "rich_text_that_cannot_convert",
+                {
+                    "type": "doc",
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": 1}]}],
+                },
+                "cannot be stored as a markdown notebook",
+            ),
+            (
+                "markdown_over_the_cell_limit",
+                build_markdown_notebook_content(
+                    "\n\n".join(f'<SQLV2 nodeId="s{i}" code="select 1" />' for i in range(51))
+                ),
+                "limit of 50 cells",
+            ),
+        ]
+    )
+    def test_create_notebook_rejects_invalid_content(self, _, bad_content: dict, expected_detail: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={"content": bad_content},
@@ -295,7 +305,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert body["attr"] == "content"
-        assert "DefinitelyNotAQuery" in body["detail"]
+        assert expected_detail in body["detail"]
+        assert not Notebook.objects.filter(team=self.team).exists()
 
     def test_update_notebook_normalizes_invalid_query_node(self) -> None:
         create = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})
@@ -327,28 +338,6 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "kind": "DataVisualizationNode",
             "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
         }
-
-    def test_python_node_static_analysis(self) -> None:
-        content = {
-            "type": "doc",
-            "content": [
-                {
-                    "type": "ph-python",
-                    "attrs": {"code": "value = count + 1\nresult = len(value)\n"},
-                }
-            ],
-        }
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/notebooks",
-            data={"content": content},
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        attrs = response.json()["content"]["content"][0]["attrs"]
-        assert attrs["globalsUsed"] == ["count"]
-        assert attrs["globalsExportedWithTypes"] == [
-            {"name": "result", "type": "unknown"},
-            {"name": "value", "type": "unknown"},
-        ]
 
     def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
@@ -505,3 +494,56 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestNotebookVariables(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", {"content": None})
+        self.short_id = response.json()["short_id"]
+        self.url = f"/api/projects/{self.team.id}/notebooks/{self.short_id}"
+
+    def test_variables_round_trip(self):
+        # The bar reads what it saved, so a shape the serializer drops on the way out would show
+        # the user an empty bar after a reload.
+        variables = [
+            {"name": "country", "type": "string", "value": "US"},
+            {"name": "lookback_days", "type": "number", "value": 30},
+        ]
+        response = self.client.patch(self.url, {"variables": variables})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["variables"] == variables
+        assert self.client.get(self.url).json()["variables"] == variables
+
+    def test_a_notebook_without_variables_reads_as_null(self):
+        assert self.client.get(self.url).json()["variables"] is None
+
+    @parameterized.expand(
+        [
+            # A SQL cell reads the name as `{name}` and a Python cell as a global, so only a
+            # plain identifier can ever resolve.
+            ("a hyphen", "look-back"),
+            ("a leading digit", "7days"),
+            ("a space", "look back"),
+            # HogQL injects its own {filters}, so a variable of that name could never be read.
+            ("the reserved filters name", "filters"),
+        ]
+    )
+    def test_rejects_an_unusable_name(self, _name: str, variable_name: str) -> None:
+        response = self.client.patch(self.url, {"variables": [{"name": variable_name, "type": "string", "value": "x"}]})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_rejects_duplicate_names(self):
+        # A Python cell reads variables out of one namespace, so a duplicate would make which
+        # value binds depend on ordering.
+        response = self.client.patch(
+            self.url,
+            {
+                "variables": [
+                    {"name": "country", "type": "string", "value": "US"},
+                    {"name": "country", "type": "string", "value": "DE"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "unique" in str(response.json())

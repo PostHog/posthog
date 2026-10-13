@@ -305,7 +305,14 @@ class LinkedinAdsClient:
         return RESOURCE_SCHEMAS[resource]["field_names"]
 
     @retry(
-        retry=retry_if_exception_type((LinkedinAdsRetryableError, requests.ConnectionError, requests.Timeout)),
+        retry=retry_if_exception_type(
+            (
+                LinkedinAdsRetryableError,
+                requests.ConnectionError,
+                requests.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(5),
         wait=_retry_wait,
         reraise=True,
@@ -316,7 +323,10 @@ class LinkedinAdsClient:
         LinkedIn's edge occasionally drops TLS connections mid-handshake (SSLEOFError) or
         returns 504s; those surface here as `requests.ConnectionError` / `requests.Timeout`
         from the underlying requests.Session, or as a non-2xx response we convert to
-        `LinkedinAdsRetryableError`. Non-retryable 4xx responses still raise immediately.
+        `LinkedinAdsRetryableError`. A connection reset mid-response-body surfaces instead as
+        `requests.exceptions.ChunkedEncodingError`, which — unlike `SSLError` — isn't a
+        `ConnectionError` subclass, so it needs its own entry here. Non-retryable 4xx responses
+        still raise immediately.
 
         429s are split by throttle window: a DAY throttle is the per-member/app daily call budget
         (resets only at midnight UTC) and raises a non-retryable `LinkedinAdsDailyRateLimitError`

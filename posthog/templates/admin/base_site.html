@@ -1,11 +1,57 @@
 {% extends "admin/base_site.html" %}
 {% block extrahead %}
     <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2023-07-07">
+    {% comment %}
+    Admin pages serve a CSP whose script-src carries no 'unsafe-inline' and no 'unsafe-hashes', so an
+    inline onclick or onsubmit attribute is dropped and the confirmation it holds never runs. Mark the
+    control with data-confirm, or the form with class="js-disable-on-submit", instead of writing a
+    handler on it. Both listeners are delegated from the document, so a control the admin injects into
+    a change form after load, such as a readonly-field widget rendered through render_to_string(), is
+    covered without a script, and therefore without a nonce, of its own.
+    {% endcomment %}
+    <script nonce="{{ request.csp_nonce }}">
+        document.addEventListener("click", function (event) {
+            var trigger = event.target.closest("[data-confirm]");
+            if (trigger && !window.confirm(trigger.dataset.confirm)) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        }, true);
+
+        document.addEventListener("submit", function (event) {
+            if (!event.target.matches("form.js-disable-on-submit")) {
+                return;
+            }
+            var form = event.target;
+            // The form data set is built after the submit event finishes dispatching, so a control
+            // disabled inside this handler is left out of the POST body. Defer past that.
+            window.setTimeout(function () {
+                form.querySelectorAll("input[type=submit], button[type=submit]").forEach(function (control) {
+                    control.disabled = true;
+                    control.dataset.disabledOnSubmit = "1";
+                });
+            }, 0);
+        });
+
+        // Back/forward can restore this page from the bfcache with these controls still disabled,
+        // which leaves the operator on a page they cannot submit until they reload. A restore means
+        // the POST is done with. Only a control the handler above marked is released, so a control
+        // the template disabled on purpose stays disabled.
+        window.addEventListener("pageshow", function (event) {
+            if (!event.persisted) {
+                return;
+            }
+            document.querySelectorAll("[data-disabled-on-submit]").forEach(function (control) {
+                control.disabled = false;
+                control.removeAttribute("data-disabled-on-submit");
+            });
+        });
+    </script>
 {% endblock %}
 {% block extrastyle %}
     {{ block.super }}
     {% if is_impersonated_session %}
-    <style>
+        <style>
         .impersonation-banner {
             background: #fff3cd;
             border-bottom: 2px solid #f0c000;
@@ -25,16 +71,16 @@
         .impersonation-banner a.impersonation-stop:hover {
             color: #000 !important;
         }
-    </style>
+        </style>
     {% endif %}
 {% endblock %}
 {% block header %}
     {% if is_impersonated_session and impersonated_user %}
-    <div class="impersonation-banner">
-        Acting as <strong>{{ user.email }}</strong> in admin while impersonating
-        <strong>{{ impersonated_user.email }}</strong>.
-        <a class="impersonation-stop" href="/admin/logout/">Stop impersonating</a>
-    </div>
+        <div class="impersonation-banner">
+            Acting as <strong>{{ user.email }}</strong> in admin while impersonating
+            <strong>{{ impersonated_user.email }}</strong>.
+            <a class="impersonation-stop" href="/admin/logout/">Stop impersonating</a>
+        </div>
     {% endif %}
     {{ block.super }}
 {% endblock %}

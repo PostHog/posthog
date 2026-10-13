@@ -25,9 +25,10 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 <AlphaRelease />
 
 [Aviator](https://www.aviator.co/) is a developer productivity suite built around a merge queue for GitHub.
-This connector pulls your Aviator data — repositories, daily merge-queue analytics, currently queued pull
-requests, live queue depth, and merge-queue config history — into the PostHog Data warehouse so you can
-join it with your product and engineering data.
+This connector pulls your Aviator data — repositories, base branches, daily merge-queue analytics,
+currently queued pull requests, batch (bot) pull requests, live queue depth, merge-queue config history,
+and the account audit log — into the PostHog Data warehouse so you can join it with your product and
+engineering data.
 
 ## Prerequisites
 
@@ -50,6 +51,12 @@ and re-reads a short trailing window each run, because recent daily aggregates c
 tables are current-state snapshots or small lists with no server-side timestamp filter, so they sync as
 full refresh.
 
+Two tables are off by default because they do not apply to every account:
+
+- **Bot pull requests** only has data if a repository runs the merge queue in parallel mode. Aviator only
+  looks a batch up by pull request, so this table makes one request per queued pull request.
+- **User actions** is the account audit log, which needs an Aviator Enterprise plan.
+
 ## Configuration
 
 <SourceParameters />
@@ -63,6 +70,7 @@ full refresh.
 - **401 Unauthorized** — the API token is invalid or has been revoked. Create a new user access token in
   your Aviator account settings and reconnect.
 - **403 Forbidden** — the token is valid but does not have access to a repository's data. Check the
-  token's repository access in Aviator and reconnect.
+  token's repository access in Aviator and reconnect. **User actions** also returns this on plans below
+  Enterprise — deselect the table if you do not have audit log access.
 
 <TroubleshootingLink />

@@ -4,12 +4,26 @@ import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import type { ErrorEventType } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
+import type { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
+import { linkedReportsLogic } from './linkedReportsLogic'
+
+const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const ISSUE: ErrorTrackingRelationalIssue = {
+    id: VALID_ISSUE_ID,
+    name: 'TypeError',
+    description: 'Something broke',
+    assignee: null,
+    status: 'active',
+    severity: 'low',
+    first_seen: '2026-01-01T00:00:00Z',
+}
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
-    { fingerprint, issue_id: 'issue-1', created_at: '2026-01-01T00:00:00Z' },
+    { fingerprint, issue_id: VALID_ISSUE_ID, created_at: '2026-01-01T00:00:00Z' },
 ]
 
 describe('errorTrackingIssueSceneLogic', () => {
@@ -18,7 +32,7 @@ describe('errorTrackingIssueSceneLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/error_tracking/issues/:id/': {},
+                '/api/environments/:team_id/error_tracking/issues/:id/': ISSUE,
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
                 // Fails by default, so every test in this file also proves the panel degrades quietly.
                 '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
@@ -26,13 +40,43 @@ describe('errorTrackingIssueSceneLogic', () => {
             post: {
                 '/api/environments/:team_id/query/': { results: [] },
             },
+            patch: {
+                '/api/projects/:team_id/error_tracking/issues/:id/': ISSUE,
+            },
         })
         initKeaTests()
-        logic = errorTrackingIssueSceneLogic({ id: 'issue-1' })
+        logic = errorTrackingIssueSceneLogic({ id: VALID_ISSUE_ID })
         logic.mount()
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // The catch-all `/error_tracking/:id` route can capture a legacy settings slug. Without the
+    // guard the scene fired every loader against a non-UUID id, spraying "issue_id must be a valid
+    // UUID" toasts over a blank page.
+    it.each(['symbol_sets', 'symbol-sets', 'settings', 'configuration'])(
+        'marks a non-UUID id as invalid and skips the loaders (%s)',
+        async (id) => {
+            const scopedLogic = errorTrackingIssueSceneLogic({ id })
+            await expectLogic(scopedLogic, () => {
+                scopedLogic.mount()
+            }).toNotHaveDispatchedActions(['loadIssue'])
+            expect(scopedLogic.values.issueIdValid).toBe(false)
+            scopedLogic.unmount()
+        }
+    )
+
+    it('loads the issue when the id is a valid UUID', async () => {
+        const scopedLogic = errorTrackingIssueSceneLogic({ id: VALID_ISSUE_ID })
+        await expectLogic(scopedLogic, () => {
+            scopedLogic.mount()
+        }).toDispatchActions(['loadIssue'])
+        expect(scopedLogic.values.issueIdValid).toBe(true)
+        scopedLogic.unmount()
+    })
 
     it('keeps the events query stable when the loaded fingerprints change', () => {
         logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
@@ -47,7 +91,10 @@ describe('errorTrackingIssueSceneLogic', () => {
 
     it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
         // Letting the loader reject would toast an error on every issue page during a signals outage.
-        await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
+        const reportsLogic = linkedReportsLogic({ issueId: VALID_ISSUE_ID })
+        await expectLogic(reportsLogic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({
+            linkedReports: [],
+        })
     })
 
     it('changes the events query key when the search query changes', () => {
@@ -72,6 +119,47 @@ describe('errorTrackingIssueSceneLogic', () => {
         logic.actions.selectEvent(null)
 
         expect(logic.values.selectedEvent).toBeNull()
+    })
+
+    it('updates severity on the issue detail and persists it', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setIssue(ISSUE)
+            logic.actions.updateSeverity('critical')
+        })
+            .toDispatchActions(['updateIssueSeverity'])
+            .toMatchValues({ issue: expect.objectContaining({ severity: 'critical' }) })
+    })
+
+    it('restores the persisted severity when an update fails', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIssue({ ...ISSUE, severity: 'critical' })
+        const loadIssue = jest.spyOn(logic.actions, 'loadIssue')
+
+        logic.actions.mutationFailure('updateIssueSeverity', new Error('Update failed'), 'another-issue')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(loadIssue).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            logic.actions.mutationFailure('updateIssueSeverity', new Error('Update failed'), VALID_ISSUE_ID)
+        })
+            .toDispatchActions(['loadIssueSuccess'])
+            .toMatchValues({ issue: expect.objectContaining({ severity: 'low' }) })
+        expect(loadIssue).toHaveBeenCalledTimes(1)
+    })
+
+    it('reloads only the issue that was split and does not reload merged issues', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const loadIssue = jest.spyOn(logic.actions, 'loadIssue')
+
+        logic.actions.splitIssueSuccess('another-issue', [])
+        issueActionsLogic().actions.mutationSuccess('mergeIssues', VALID_ISSUE_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(loadIssue).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            logic.actions.splitIssueSuccess(VALID_ISSUE_ID, [])
+        }).toDispatchActions(['loadIssue'])
+        expect(loadIssue).toHaveBeenCalledTimes(1)
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

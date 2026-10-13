@@ -45,7 +45,7 @@ async function sha256Base64Url(input: string): Promise<string> {
   return base64Url(new Uint8Array(digest));
 }
 
-export function getToken(): string | null {
+function getToken(): string | null {
   const token = localStorage.getItem(TOKEN_KEY);
   const expiry = Number(localStorage.getItem(EXPIRY_KEY) ?? 0);
   if (!token || Date.now() >= expiry) return null;

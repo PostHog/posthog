@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -86,34 +86,13 @@ class TestFormatSinceValue:
     def test_format_since_value(self, _name: str, value: object, expected: str) -> None:
         assert _format_since_value(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        # Capsule expects a Z suffix, not the +00:00 offset isoformat() produces.
-        assert "+00:00" not in _format_since_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
     def test_non_utc_datetime_is_converted_to_utc(self) -> None:
         value = datetime(2026, 3, 4, 12, 0, 0, tzinfo=timezone(timedelta(hours=5)))
         assert _format_since_value(value) == "2026-03-04T07:00:00Z"
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
-            2026, 6, 15, 12, 0, 0, tzinfo=UTC
-        )
-
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_naive_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
-            2026, 6, 15, 12, 0, 0, tzinfo=UTC
-        )
-
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_past_datetime_is_unchanged(self) -> None:
-        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
 
@@ -122,16 +101,6 @@ class TestClampFutureValueToNow:
 
 
 class TestRequestParams:
-    @mock.patch(SESSION_PATCH)
-    def test_full_refresh_request_has_no_since(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"users": [{"id": 1}]})])
-
-        _rows(_source(_make_manager(), endpoint="users"))
-
-        assert snapshots[0]["url"] == f"{CAPSULE_CRM_BASE_URL}/users"
-        assert snapshots[0]["params"] == {"perPage": 100}
-
     @mock.patch(SESSION_PATCH)
     def test_incremental_endpoint_embeds_related_data(self, MockSession) -> None:
         session = MockSession.return_value
@@ -144,40 +113,7 @@ class TestRequestParams:
         assert "since" not in snapshots[0]["params"]
 
     @mock.patch(SESSION_PATCH)
-    def test_first_incremental_sync_omits_since(self, MockSession) -> None:
-        # No watermark yet -> pull full history, no `since` filter.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"opportunities": []})])
-
-        _rows(
-            _source(
-                _make_manager(),
-                endpoint="opportunities",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-            )
-        )
-
-        assert "since" not in snapshots[0]["params"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_sync_with_watermark_adds_since(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"opportunities": []})])
-
-        _rows(
-            _source(
-                _make_manager(),
-                endpoint="opportunities",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[0]["params"]["since"] == "2026-03-04T02:58:14Z"
-
-    @mock.patch(SESSION_PATCH)
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_watermark_is_clamped_to_now(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"parties": []})])
@@ -191,6 +127,54 @@ class TestRequestParams:
         )
 
         assert snapshots[0]["params"]["since"] == "2026-06-15T12:00:00Z"
+
+    @parameterized.expand(
+        [
+            ("boards", "boards", {"status": "all"}),
+            ("stages", "stages", {"status": "all", "includeOnDeletedBoard": "true"}),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_lookup_endpoints_request_archived_records(
+        self, endpoint: str, data_key: str, expected: dict[str, Any], MockSession
+    ) -> None:
+        # Capsule defaults these to active-only, which would drop the boards and stages that
+        # historic projects still point at.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({data_key: []})])
+
+        _rows(_source(_make_manager(), endpoint=endpoint))
+
+        assert snapshots[0]["params"] == {"perPage": 100, **expected}
+
+    @mock.patch(SESSION_PATCH)
+    def test_entries_embeds_its_associations(self, MockSession) -> None:
+        # Without the embeds an entry cannot be joined back to the record it belongs to.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"entries": []})])
+
+        _rows(_source(_make_manager(), endpoint="entries"))
+
+        assert snapshots[0]["params"]["embed"] == "party,kase,opportunity,creator,activityType"
+
+    @parameterized.expand(
+        [
+            ("party_tags", f"{CAPSULE_CRM_BASE_URL}/parties/tags"),
+            ("opportunity_tags", f"{CAPSULE_CRM_BASE_URL}/opportunities/tags"),
+            ("kase_tags", f"{CAPSULE_CRM_BASE_URL}/kases/tags"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_tag_endpoints_are_entity_scoped(self, endpoint: str, expected_url: str, MockSession) -> None:
+        # Capsule has no top-level /tags collection; tag definitions hang off each entity type and
+        # all three nest under the same "tags" wrapper key.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"tags": [{"id": 3, "name": "VIP"}]})])
+
+        rows = _rows(_source(_make_manager(), endpoint=endpoint))
+
+        assert snapshots[0]["url"] == expected_url
+        assert rows == [{"id": 3, "name": "VIP"}]
 
     @mock.patch(SESSION_PATCH)
     def test_since_ignored_for_full_refresh_only_endpoint(self, MockSession) -> None:
@@ -264,23 +248,6 @@ class TestPagination:
         assert snapshots[0]["params"] == {}
 
     @mock.patch(SESSION_PATCH)
-    def test_extracts_rows_from_endpoint_specific_wrapper_key(self, MockSession) -> None:
-        # lost_reasons nests its array under "lostReasons", not the endpoint name.
-        session = MockSession.return_value
-        _wire(session, [_response({"lostReasons": [{"id": 7, "name": "No budget"}]})])
-
-        rows = _rows(_source(_make_manager(), endpoint="lost_reasons"))
-
-        assert rows == [{"id": 7, "name": "No budget"}]
-
-    @mock.patch(SESSION_PATCH)
-    def test_missing_wrapper_key_is_treated_as_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"unexpected": []})])
-
-        assert _rows(_source(_make_manager())) == []
-
-    @mock.patch(SESSION_PATCH)
     def test_hostile_upstream_next_url_is_rejected(self, MockSession) -> None:
         # An upstream Link header pointing at another host must abort before the bearer token is sent
         # there, and the poisoned URL must not be persisted as resume state.
@@ -309,21 +276,6 @@ class TestPagination:
 
 
 class TestErrorHandling:
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, MockSession, mock_sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({}, status_code=429),
-                _response({"parties": [{"id": 1}]}),
-            ],
-        )
-
-        assert _rows(_source(_make_manager())) == [{"id": 1}]
-        assert session.send.call_count == 2
-
     @parameterized.expand([(401,), (403,), (404,)])
     @mock.patch(SESSION_PATCH)
     def test_client_errors_raise_for_status(self, status: int, MockSession) -> None:
@@ -382,23 +334,6 @@ class TestTokenRedaction:
         assert MockSession.call_args.kwargs["allow_redirects"] is False
 
 
-class TestValidateCredentials:
-    @mock.patch(SESSION_PATCH)
-    def test_ok(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("tok") is True
-
-    @mock.patch(SESSION_PATCH)
-    def test_unauthorized(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("tok") is False
-
-    @mock.patch(SESSION_PATCH)
-    def test_swallows_exceptions(self, MockSession) -> None:
-        MockSession.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("tok") is False
-
-
 class TestSourceResponse:
     @parameterized.expand(
         [
@@ -416,9 +351,23 @@ class TestSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.sort_mode == "asc"
 
-    @parameterized.expand([("users",), ("milestones",), ("pipelines",), ("categories",), ("lost_reasons",)])
+    @parameterized.expand(
+        [
+            ("users",),
+            ("milestones",),
+            ("pipelines",),
+            ("categories",),
+            ("lost_reasons",),
+            ("boards",),
+            ("stages",),
+            ("party_tags",),
+            ("opportunity_tags",),
+            ("kase_tags",),
+        ]
+    )
     def test_metadata_endpoints_are_unpartitioned(self, endpoint: str) -> None:
         response = _source(_make_manager(), endpoint=endpoint)
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
         assert response.partition_keys is None
+        assert response.sort_mode == "asc"

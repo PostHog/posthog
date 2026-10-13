@@ -51,7 +51,7 @@ def _make_fake_sandbox_cls(exit_code: int, publish_failures: int = 0):
         def create(cls, config):
             return cls()
 
-        def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
             self.written_files[path] = payload
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
@@ -112,14 +112,27 @@ class TestBakeDevStackImage:
             assert refresh_dev_stack_image_if_base_changed(publish_name) is False
         dispatch_mock.assert_not_called()
 
-    def test_failed_bake_never_publishes_but_still_destroys_sandbox(self):
+    @pytest.mark.parametrize(
+        "output",
+        [[], ["warming step\n"] * 2_000, ["x" * 25_000], ["€" * 12_000]],
+        ids=["empty", "many-lines", "long-line", "multibyte-line"],
+    )
+    def test_failed_bake_never_publishes_but_still_destroys_sandbox(self, output: list[str]) -> None:
         # Publishing after a failed bake would overwrite the last good image with a broken
         # one under the same name — every internal VM run would then boot from it.
         fake_cls = _make_fake_sandbox_cls(exit_code=1)
-        with patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls):
-            with pytest.raises(DevStackImageBakeError):
+        failing_marker = "FATAL: migration command exited 1\n"
+        final_line = (output[-1] if output else "") + failing_marker
+        with (
+            patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls),
+            patch.object(_FakeStream, "iter_stdout", return_value=iter([*output[:-1], final_line])),
+        ):
+            with pytest.raises(DevStackImageBakeError) as exc_info:
                 bake_dev_stack_image(_unique_publish_name())
 
+        message = str(exc_info.value)
+        assert message.endswith(failing_marker)
+        assert len(message.encode("utf-8")) < 10_000
         (sandbox,) = fake_cls.instances
         assert sandbox.published_name is None
         assert sandbox.destroyed is True

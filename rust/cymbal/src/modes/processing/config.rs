@@ -119,6 +119,12 @@ pub struct ProcessingConfig {
     pub max_assignment_rule_cache_size: u64,
 
     #[envconfig(default = "300")]
+    pub severity_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    pub max_severity_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
     pub grouping_rule_cache_ttl_secs: u64,
 
     #[envconfig(default = "100000")]
@@ -193,6 +199,10 @@ pub struct ProcessingConfig {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
+
+    // Teams whose frame code variables are dropped, for old SDK senders we cannot upgrade.
+    #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
+    pub drop_code_variables_team_ids: String,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).

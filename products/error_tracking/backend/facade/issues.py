@@ -8,8 +8,9 @@ django.setup() path of the read-oriented main facade.
 from typing import Any
 from uuid import UUID
 
+from posthog.models.user import User
+
 from ..logic import issue_mutations as _mutations
-from ..models import ErrorTrackingIssueMergeResult
 from . import api, contracts
 
 CohortNotFoundError = _mutations.CohortNotFoundError
@@ -19,17 +20,24 @@ InvalidIssueStatusError = _mutations.InvalidIssueStatusError
 
 def update_issue(
     team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: Any, was_impersonated: bool
-) -> contracts.ErrorTrackingIssue:
-    issue = _mutations.update_issue(team_id, issue_id, fields=fields, user=user, was_impersonated=was_impersonated)
-    return api._to_issue(issue)
+) -> contracts.ErrorTrackingIssueUpdate:
+    outcome = _mutations.update_issue(team_id, issue_id, fields=fields, user=user, was_impersonated=was_impersonated)
+    return contracts.ErrorTrackingIssueUpdate(
+        issue=api._to_issue(outcome.issue), changed_fields=list(outcome.changed_fields)
+    )
 
 
-def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> ErrorTrackingIssueMergeResult:
-    return _mutations.merge_issues(team_id, issue_id, source_ids)
+def merge_issues(
+    team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
+) -> contracts.ErrorTrackingIssueMerge:
+    outcome = _mutations.merge_issues(team_id, issue_id, source_ids, user=user, was_impersonated=was_impersonated)
+    return contracts.ErrorTrackingIssueMerge(result=outcome.result.value, merged_issue_count=outcome.merged_issue_count)
 
 
-def split_issue(team_id: int, issue_id: UUID, fingerprints: list[dict]) -> list[UUID]:
-    return _mutations.split_issue(team_id, issue_id, fingerprints)
+def split_issue(
+    team_id: int, issue_id: UUID, fingerprints: list[dict], *, user: User, was_impersonated: bool
+) -> list[UUID]:
+    return _mutations.split_issue(team_id, issue_id, fingerprints, user=user, was_impersonated=was_impersonated)
 
 
 def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
@@ -38,8 +46,8 @@ def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
 
 def assign_issue(
     team_id: int, issue_id: UUID, assignee: dict[str, Any] | None, *, user: Any, was_impersonated: bool
-) -> None:
-    _mutations.assign_issue(team_id, issue_id, assignee, user=user, was_impersonated=was_impersonated)
+) -> bool:
+    return _mutations.assign_issue(team_id, issue_id, assignee, user=user, was_impersonated=was_impersonated)
 
 
 def bulk_update_issues(
@@ -51,8 +59,8 @@ def bulk_update_issues(
     assignee: dict[str, Any] | None,
     user: Any,
     was_impersonated: bool,
-) -> None:
-    _mutations.bulk_update_issues(
+) -> int:
+    return _mutations.bulk_update_issues(
         team_id,
         issue_ids,
         action=action,

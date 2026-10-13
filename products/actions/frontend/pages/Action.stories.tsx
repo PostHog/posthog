@@ -152,6 +152,13 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                // Every event these actions point at is arriving, so no step carries a health warning.
+                '/api/projects/:team_id/event_definitions/': ({ request }) =>
+                    toPaginatedResponse(
+                        new URL(request.url).searchParams
+                            .getAll('names')
+                            .map((name, index) => ({ id: `${index}`, name, last_seen_at: '2023-02-14T10:00:00Z' }))
+                    ),
                 '/api/projects/:team_id/actions/': toPaginatedResponse([MOCK_ACTION, MOCK_SCREEN_ACTION]),
                 '/api/projects/:team_id/actions/1/': MOCK_ACTION,
                 '/api/projects/:team_id/actions/2/': MOCK_SCREEN_ACTION,
@@ -180,4 +187,26 @@ export const NewAction: Story = {
     parameters: {
         pageUrl: urls.createAction(),
     },
+}
+
+const unhealthyEventsDecorator = mswDecorator({
+    get: {
+        // `$pageview` stopped arriving months ago and `$autocapture` has no definition at all.
+        '/api/projects/:team_id/event_definitions/': toPaginatedResponse([
+            { id: '1', name: '$pageview', last_seen_at: '2022-11-01T10:00:00Z' },
+            { id: '2', name: '$screen', last_seen_at: '2023-02-14T10:00:00Z' },
+            { id: '3', name: '$identify', last_seen_at: '2023-02-14T10:00:00Z' },
+        ]),
+    },
+})
+
+export const ActionsListWithUnhealthyEvents: Story = {
+    decorators: [unhealthyEventsDecorator],
+}
+
+export const ActionWithUnhealthyEvents: Story = {
+    parameters: {
+        pageUrl: urls.action(MOCK_ACTION.id),
+    },
+    decorators: [unhealthyEventsDecorator],
 }

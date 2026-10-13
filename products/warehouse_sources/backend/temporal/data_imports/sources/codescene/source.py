@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene import (
     CodesceneResumeConfig,
     codescene_source,
@@ -54,11 +52,11 @@ class CodesceneSource(ResumableSource[CodesceneSourceConfig, CodesceneResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODESCENE,
+            name=ExternalDataSourceType.CODESCENE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CodeScene",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Sync projects, per-file Code Health metrics, and architectural components from CodeScene.
+            caption="""Sync projects, analysis runs, per-file Code Health metrics, architectural components, code health issues, technical debt refactoring targets, and author statistics from CodeScene.
 
 Create a Personal Access Token from the CodeScene API tokens page with an Admin, Architect, or RestApi role. Leave the API base URL blank to use CodeScene Cloud, or enter your on-prem CodeScene server's API URL (for example `https://codescene.yourcompany.com:3003/api/v2`).""",
             iconPath="/static/services/codescene.png",

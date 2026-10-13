@@ -214,7 +214,9 @@ def parse_custom_reports(custom_reports_json: str | None) -> dict[str, GoogleAna
     try:
         parsed = json.loads(custom_reports_json)
     except json.JSONDecodeError as e:
-        raise CustomReportError(f"Custom reports must be valid JSON: {e}.") from e
+        raise CustomReportError(
+            "Custom reports must be valid JSON. Provide a JSON array of report objects, then try again."
+        ) from e
 
     if not isinstance(parsed, list):
         raise CustomReportError("Custom reports must be a JSON array of report objects.")
@@ -233,7 +235,8 @@ def parse_custom_reports(custom_reports_json: str | None) -> dict[str, GoogleAna
 
         if name in GOOGLE_ANALYTICS_REPORT_SCHEMAS:
             raise CustomReportError(
-                f"'{name}' is a built-in report name. Choose a different name for your custom report."
+                f"'{name}' is already a built-in report you can select on the next step. "
+                "Give your custom report a different name."
             )
         if name in reports:
             raise CustomReportError(f"Duplicate custom report name '{name}'. Each report needs a unique name.")

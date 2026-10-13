@@ -3,6 +3,8 @@ import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
+import { buildHogboxPreviewSection } from './post-hogbox-preview-section.mjs'
+import { buildTrunkLaneSection, parseCrossLane, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
     previewMode: true,
@@ -12,6 +14,124 @@ const commonHobby = {
 }
 
 describe('CI report section builders', () => {
+    for (const testCase of [
+        {
+            name: 'does not post a stale lane assignment',
+            expectedHeadSha: 'old-sha',
+            currentHeadSha: 'new-sha',
+            expectedPosts: 0,
+        },
+        {
+            name: 'posts the current lane assignment',
+            expectedHeadSha: 'current-sha',
+            currentHeadSha: 'current-sha',
+            expectedPosts: 1,
+        },
+    ]) {
+        it(testCase.name, async () => {
+            const postedSections = []
+            await postTrunkLaneSection({
+                impactedTargets: ['fe:core'],
+                isUniversal: false,
+                expectedHeadSha: testCase.expectedHeadSha,
+                getCurrentHeadSha: async () => testCase.currentHeadSha,
+                post: async (section) => postedSections.push(section),
+            })
+            assert.equal(postedSections.length, testCase.expectedPosts)
+        })
+    }
+
+    for (const testCase of [
+        {
+            name: 'describes the universal lane',
+            input: { impactedTargets: ['py:core', 'fe:core'], isUniversal: true },
+            expected: {
+                status: 'alert',
+                summary: 'universal lane',
+                body: 'This PR is assigned to the universal lane. It cannot merge in parallel with other PRs, so it can take longer to merge. Ask dev-ex if you think this is wrong.',
+            },
+        },
+        {
+            name: 'describes the backend Python lane',
+            input: { impactedTargets: ['py:product:surveys', 'fe:product:<script>'], isUniversal: false },
+            expected: {
+                status: 'warn',
+                summary: 'backend Python lane',
+                body: 'This PR is assigned to the backend Python lane. It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'describes a non-backend lane',
+            input: { impactedTargets: ['fe:core', 'node:ingestion'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane',
+                body: 'This PR is assigned to the non-backend lane. It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'names the single non-backend target',
+            input: { impactedTargets: ['fe:product:desktop'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>fe:product:desktop</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>fe:product:desktop</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'names the single backend Python target',
+            input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
+            expected: {
+                status: 'warn',
+                summary: 'backend Python lane (<code>py:product:surveys</code>)',
+                body: 'This PR is assigned to the backend Python lane (<code>py:product:surveys</code>). It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'escapes a target before rendering it',
+            input: { impactedTargets: ['</summary><img src="x">'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+    ]) {
+        it(testCase.name, () => {
+            assert.deepEqual(buildTrunkLaneSection(testCase.input), testCase.expected)
+        })
+    }
+
+    it('warns and names both sides when a PR mixes lanes', () => {
+        const section = buildTrunkLaneSection({
+            impactedTargets: ['node:ingestion', 'py:core'],
+            isUniversal: false,
+            crossLane: { mixed: true, heavyFiles: ['posthog/api/x.py'], lightFiles: ['nodejs/src/y.ts'] },
+        })
+        assert.equal(section.status, 'warn')
+        assert.match(section.summary, /mixes lanes/)
+        assert.match(section.body, /<code>posthog\/api\/x\.py<\/code>/)
+        assert.match(section.body, /<code>nodejs\/src\/y\.ts<\/code>/)
+    })
+
+    it('counts the files the telemetry cut from a capped list', () => {
+        const crossLane = parseCrossLane({
+            cross_lane: true,
+            cross_lane_heavy_files: ['a.py', 'b.py', 'c.py', 'd.py'],
+            cross_lane_heavy_file_count: 150,
+            cross_lane_light_files: ['nodejs/src/y.ts'],
+        })
+        const section = buildTrunkLaneSection({ impactedTargets: ['node:ingestion', 'py:core'], crossLane })
+        assert.match(section.body, /<code>c\.py<\/code> and 147 more/)
+    })
+
+    it('gives no cross-lane warning when the file lists have the wrong shape', () => {
+        assert.equal(
+            parseCrossLane({ cross_lane: true, cross_lane_heavy_files: 'a.py', cross_lane_light_files: [1] }),
+            null
+        )
+    })
+
     it('renders a docs preview link after a successful trigger', () => {
         const section = buildDocsPreviewSection({
             triggerStatus: 'success',
@@ -33,6 +153,36 @@ describe('CI report section builders', () => {
         assert.equal(section.status, 'fail')
         assert.match(section.body, /actions\/runs\/42/)
     })
+
+    for (const testCase of [
+        {
+            name: 'claims the PR frontend only when it was swapped in',
+            frontendSwapped: true,
+            expected: /\*\*and\*\* frontend/,
+        },
+        {
+            name: 'says the frontend is unchanged when it was not swapped in',
+            frontendSwapped: false,
+            expected: /frontend unchanged by this PR/,
+        },
+    ]) {
+        it(testCase.name, () => {
+            const section = buildHogboxPreviewSection({
+                state: 'ready',
+                sha: '1234567890abcdef',
+                runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+                url: 'https://preview.example.com',
+                boxId: 'box-1',
+                penId: 'None',
+                consoleHost: 'console.example.com',
+                frontendSwapped: testCase.frontendSwapped,
+            })
+            assert.equal(section.status, 'ok')
+            assert.match(section.summary, /https:\/\/preview\.example\.com/)
+            assert.match(section.body, testCase.expected)
+            assert.doesNotMatch(section.body, /console\/fleet\/pens/)
+        })
+    }
 
     it('moves a hobby preview through setup, ready, and failed states', () => {
         const initial = buildHobbySection({ state: 'initial', ...commonHobby })

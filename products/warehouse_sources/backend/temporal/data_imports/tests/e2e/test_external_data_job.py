@@ -1,0 +1,728 @@
+import uuid
+import dataclasses
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
+
+import pytest
+from unittest import mock
+
+from django.conf import settings
+from django.test import override_settings
+
+from asgiref.sync import sync_to_async
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.models import Team
+
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_all_schemas_for_source_id,
+    get_latest_run_if_exists,
+)
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    Any_Source_Errors,
+    ExternalDataJobWorkflow,
+    ExternalDataWorkflowInputs,
+    UpdateExternalDataJobStatusInputs,
+    create_source_templates,
+    update_external_data_job_model,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
+    ENDPOINTS as STRIPE_ENDPOINTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+    acquire_v3_pipeline_lock_activity,
+    release_v3_pipeline_lock_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
+    calculate_table_size_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
+    check_billing_limits_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+    CreateExternalDataJobModelActivityInputs,
+    create_external_data_job_model_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
+    SyncNewSchemasActivityInputs,
+    sync_new_schemas_activity,
+)
+
+BUCKET_NAME = "test-pipeline"
+
+
+def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
+    return ExternalDataSchema.objects.create(
+        name=schema_name,
+        team_id=team.pk,
+        source_id=source.pk,
+        table_id=table_id,
+    )
+
+
+def _run_create_job_activity(activity_environment, inputs: CreateExternalDataJobModelActivityInputs):
+    # The default test activity info has a one second start-to-close timeout counted from import time,
+    # which the activity's deadline check would see as already passed.
+    activity_environment.info = dataclasses.replace(activity_environment.info, start_to_close_timeout=None)
+    return activity_environment.run(create_external_data_job_model_activity, inputs)
+
+
+@sync_to_async
+def _create_external_data_job(
+    external_data_source_id: uuid.UUID,
+    external_data_schema_id: uuid.UUID,
+    workflow_id: str,
+    workflow_run_id: str,
+    team_id: int,
+) -> ExternalDataJob:
+    job = ExternalDataJob.objects.create(
+        team_id=team_id,
+        pipeline_id=external_data_source_id,
+        schema_id=external_data_schema_id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+        pipeline_version=ExternalDataJob.PipelineVersion.V1,
+    )
+
+    return job
+
+
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity(activity_environment, team, **kwargs):
+    """
+    Test that the create external job activity creates a new job
+    """
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    test_1_schema = _create_schema("test-1", new_source, team)
+
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
+    )
+
+    result = _run_create_job_activity(activity_environment, inputs)
+
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
+    assert runs.exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_schemas_exist(activity_environment, team, **kwargs):
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    schema = ExternalDataSchema.objects.create(
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+    )
+
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
+
+    result = _run_create_job_activity(activity_environment, inputs)
+
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
+    assert runs.exists()
+
+
+@pytest.mark.parametrize(
+    "ai_consent,source_config_enabled,expected",
+    [
+        (True, True, True),
+        (True, False, False),
+        (True, None, False),
+        (False, True, False),
+        (None, True, False),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_emit_signals_respects_ai_consent(
+    activity_environment, team, ai_consent, source_config_enabled, expected
+):
+    from products.signals.backend.models import SignalSourceConfig
+
+    organization = team.organization
+    organization.is_ai_data_processing_approved = ai_consent
+    organization.save()
+    if source_config_enabled is not None:
+        SignalSourceConfig.objects.create(
+            team=team,
+            source_product="zendesk",
+            source_type="ticket",
+            enabled=source_config_enabled,
+        )
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Zendesk",
+    )
+    schema = _create_schema("tickets", new_source, team)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
+    result = _run_create_job_activity(activity_environment, inputs)
+    assert result.emit_signals_enabled is expected
+
+
+@pytest.mark.parametrize(
+    "ai_consent,expected",
+    [
+        (True, True),  # AI consent → enrichment runs
+        (False, False),  # AI opt-out blocks it
+        (None, False),  # unset consent is not consent
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_enrichment_gates_on_consent(activity_environment, team, ai_consent, expected):
+    organization = team.organization
+    organization.is_ai_data_processing_approved = ai_consent
+    organization.save()
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+    schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
+    result = _run_create_job_activity(activity_environment, inputs)
+    assert result.enrichment_needed is expected
+
+
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_update_schemas(activity_environment, team, **kwargs):
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
+    )
+
+    ExternalDataSchema.objects.create(
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    inputs = SyncNewSchemasActivityInputs(source_id=str(new_source.pk), team_id=team.id)
+
+    activity_environment.run(sync_new_schemas_activity, inputs)
+
+    all_schemas = get_all_schemas_for_source_id(str(new_source.pk), team.id)
+
+    assert len(all_schemas) == len(STRIPE_ENDPOINTS)
+
+
+@pytest.mark.parametrize("source_state", ["never_existed", "soft_deleted"])
+@pytest.mark.django_db(transaction=True)
+def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(
+    activity_environment, team, source_state, **kwargs
+):
+    if source_state == "never_existed":
+        source_id = str(uuid.uuid4())
+    else:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
+        )
+        source.soft_delete()
+        source_id = str(source.pk)
+
+    inputs = SyncNewSchemasActivityInputs(source_id=source_id, team_id=team.id)
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas.delete_discover_schemas_schedule"
+    ) as mock_delete_schedule:
+        activity_environment.run(sync_new_schemas_activity, inputs)
+
+    mock_delete_schedule.assert_called_once_with(source_id)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity(activity_environment, team, **kwargs):
+    """
+    Test that the update external job activity updates the job status
+    """
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=None,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_resolves_job_by_workflow_run_id_when_job_id_missing(
+    activity_environment, team, **kwargs
+):
+    # A schema can carry several stranded RUNNING rows, so finalizing a zero-batch run (job_id=None)
+    # must resolve this run's job by workflow_run_id, not the newest RUNNING job for the schema.
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Slack",
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="C09M2GF0M8R",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    # This run's job, created first so it is NOT the newest RUNNING row for the schema.
+    this_run_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+    # A newer, unrelated RUNNING job for the same schema — what the positional heuristic would pick.
+    other_run_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=str(uuid.uuid4()),
+        workflow_run_id=str(uuid.uuid4()),
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=None,
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=None,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(this_run_job.refresh_from_db)()
+    await sync_to_async(other_run_job.refresh_from_db)()
+
+    assert this_run_job.status == ExternalDataJob.Status.COMPLETED
+    assert other_run_job.status == ExternalDataJob.Status.RUNNING
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error="Some other retryable error",
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert schema.should_sync is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_non_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error="NoSuchTableError: TableA",
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with (
+        mock.patch(
+            # patched at its defining module: update_should_sync imports it function-locally now
+            "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+            return_value=False,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"
+        ) as mock_teardown,
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert schema.should_sync is False
+    # The disable must tear down the run's leftovers without cancelling its own workflow.
+    mock_teardown.assert_called_once()
+    assert mock_teardown.call_args.kwargs["exclude_workflow_id"] == activity_environment.info.workflow_id
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_not_source_sepecific_non_retryable_error(
+    activity_environment, team, **kwargs
+):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=next(iter(Any_Source_Errors.keys())),
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with (
+        mock.patch(
+            # patched at its defining module: update_should_sync imports it function-locally now
+            "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+            return_value=False,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"
+        ) as mock_teardown,
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert schema.should_sync is False
+    # The disable must tear down the run's leftovers without cancelling its own workflow.
+    mock_teardown.assert_called_once()
+    assert mock_teardown.call_args.kwargs["exclude_workflow_id"] == activity_environment.info.workflow_id
+
+
+# The full message carries volatile parts (host, URL, `_ssl.c:NNNN`) around the stable alert name.
+# Both `_ssl.c` line variants have been seen in the wild and must stay non-retryable.
+@pytest.mark.parametrize(
+    "tls_handshake_error",
+    [
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1032)')))\"))"
+        ),
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1010)')))\"))"
+        ),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_tls_handshake_failure_is_non_retryable(
+    activity_environment, team, tls_handshake_error, **kwargs
+):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Zendesk",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=tls_handshake_error,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch(
+        "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+        return_value=False,
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert schema.should_sync is False
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "SSHTunnel auth is not valid",
+        "Exception: SSHTunnel auth is not valid",
+    ],
+)
+def test_invalid_ssh_tunnel_auth_is_non_retryable_for_any_source(error_msg):
+    is_non_retryable = any(pattern in error_msg for pattern in Any_Source_Errors.keys())
+    assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_external_data_job_workflow_with_schema(team, **kwargs):
+    """
+    Test workflow with schema.
+    """
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    async def mock_func(inputs):
+        return {"should_trigger_cdp_producer": False}
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
+            return_value={"id": "string"},
+        ),
+        mock.patch.object(PipelineV3, "run", mock_func),
+    ):
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{BUCKET_NAME}",
+                BUCKET_PATH=BUCKET_NAME,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+            ),
+        ):
+            async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+                async with Worker(
+                    activity_environment.client,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    workflows=[ExternalDataJobWorkflow],
+                    activities=[
+                        acquire_v3_pipeline_lock_activity,
+                        release_v3_pipeline_lock_activity,
+                        create_external_data_job_model_activity,
+                        update_external_data_job_model,
+                        import_data_activity_sync,
+                        create_source_templates,
+                        calculate_table_size_activity,
+                        check_billing_limits_activity,
+                        sync_new_schemas_activity,
+                    ],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                    activity_executor=ThreadPoolExecutor(max_workers=50),
+                    max_concurrent_activities=50,
+                ):
+                    await activity_environment.client.execute_workflow(
+                        ExternalDataJobWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=new_source.pk)
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED

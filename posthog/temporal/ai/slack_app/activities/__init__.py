@@ -5,9 +5,12 @@ from posthog.temporal.ai.slack_app.activities.classifiers import (
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override,
     classify_slack_app_model_override_activity,
+    classify_slack_app_project_route,
+    classify_slack_app_project_route_activity,
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
+from posthog.temporal.ai.slack_app.activities.fork import process_slack_app_fork_thread_activity
 from posthog.temporal.ai.slack_app.activities.messaging import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
@@ -20,6 +23,7 @@ from posthog.temporal.ai.slack_app.activities.messaging import (
     post_posthog_code_repo_picker_activity,
     request_untagged_followup_confirmation_activity,
 )
+from posthog.temporal.ai.slack_app.activities.model_router import classify_slack_app_model_router_activity
 from posthog.temporal.ai.slack_app.activities.onboarding import (
     run_posthog_slack_inbox_onboarding,
     run_posthog_slack_inbox_onboarding_activity,
@@ -30,7 +34,6 @@ from posthog.temporal.ai.slack_app.activities.repo_selection import (
 )
 from posthog.temporal.ai.slack_app.activities.rules import (
     create_posthog_code_routing_rule_activity,
-    handle_posthog_code_rules_command_activity,
     handle_posthog_code_slack_mention_command_activity,
 )
 from posthog.temporal.ai.slack_app.activities.task_creation import (
@@ -51,6 +54,8 @@ __all__ = [
     "classify_posthog_code_task_needs_repo_activity",
     "classify_slack_app_model_override",
     "classify_slack_app_model_override_activity",
+    "classify_slack_app_project_route",
+    "classify_slack_app_project_route_activity",
     "classify_task_needs_repo",
     "classify_untagged_followup_activity",
     "collect_posthog_code_thread_messages_activity",
@@ -60,7 +65,6 @@ __all__ = [
     "discover_posthog_code_repository_via_agent_activity",
     "enforce_posthog_code_billing_quota_activity",
     "forward_posthog_code_followup_activity",
-    "handle_posthog_code_rules_command_activity",
     "handle_posthog_code_slack_mention_command_activity",
     "mark_slack_app_message_processing_activity",
     "mark_slack_app_message_queued_activity",
@@ -68,8 +72,10 @@ __all__ = [
     "post_posthog_code_no_repos_activity",
     "post_posthog_code_picker_timeout_activity",
     "post_posthog_code_repo_picker_activity",
+    "process_slack_app_fork_thread_activity",
     "request_untagged_followup_confirmation_activity",
     "resolve_posthog_code_slack_command_user_activity",
+    "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding",
     "run_posthog_slack_inbox_onboarding_activity",
 ]

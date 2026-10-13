@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 
 from django.test import override_settings
 
@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMathType, ExperimentQuery
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.models.experiment import ExperimentHoldout
@@ -34,7 +33,7 @@ class TestExcludedVariants(ExperimentQueryRunnerBaseTest):
             ("excluded_variants_naming_holdout_is_idempotent", [], True, [_HOLDOUT_KEY]),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_runner_variant_filtering(self, name, extra_variants, attach_holdout, excluded_variants):
         feature_flag = self.create_feature_flag(key=f"{name.replace('_', '-')}-test")
         for index, variant_key in enumerate(extra_variants):
@@ -72,21 +71,3 @@ class TestExcludedVariants(ExperimentQueryRunnerBaseTest):
         if holdout is not None:
             assert f"holdout-{holdout.id}" not in runner.variants
             assert runner.experiment.holdout is not None  # still readable for UI/etc.
-
-
-def test_fingerprint_changes_when_excluded_variants_change():
-    metric = {"kind": "ExperimentMeanMetric", "source": {"kind": "EventsNode", "event": "$pageview"}}
-    start = "2026-01-01T00:00:00+00:00"
-
-    fp_none = compute_metric_fingerprint(metric, start, excluded_variants=None)
-    fp_empty = compute_metric_fingerprint(metric, start, excluded_variants=[])
-    fp_one = compute_metric_fingerprint(metric, start, excluded_variants=["test-2"])
-    fp_two = compute_metric_fingerprint(metric, start, excluded_variants=["test-2", "test-3"])
-    fp_two_reversed = compute_metric_fingerprint(metric, start, excluded_variants=["test-3", "test-2"])
-    fp_one_other = compute_metric_fingerprint(metric, start, excluded_variants=["test-3"])
-
-    assert fp_none == fp_empty
-    assert fp_one != fp_empty
-    assert fp_two != fp_one
-    assert fp_two_reversed == fp_two, "Order of excluded keys must not affect fingerprint"
-    assert fp_one != fp_one_other

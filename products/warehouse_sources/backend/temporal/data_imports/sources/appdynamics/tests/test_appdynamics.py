@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -26,8 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+    ANOMALIES_PAGE_SIZE,
     APPDYNAMICS_ENDPOINTS,
     MAX_METRIC_PATHS,
+    MAX_ROWS_PER_TIME_WINDOW,
+    METRIC_TREE_MAX_REQUESTS_PER_APPLICATION,
 )
 
 BASE_URL = "https://acme.saas.appdynamics.com"
@@ -267,23 +270,12 @@ class TestValidateCredentials:
 
 
 class TestAppdynamicsClient:
-    def test_basic_auth_sends_account_qualified_username(self) -> None:
-        session = FakeSession()
-        with _patch_session(session):
-            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
-        client.get_json("/controller/rest/applications", {})
-
-        _, params, kwargs = session.get_calls[0]
-        assert kwargs["auth"] == ("user@acme", "pass")
-        assert "Authorization" not in kwargs["headers"]
-        assert params["output"] == "JSON"
-
     def test_oauth_token_cached_until_expiry(self) -> None:
         session = FakeSession()
         with _patch_session(session):
             client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
 
-        with freeze_time("2024-01-31T00:00:00Z") as frozen:
+        with time_machine.travel("2024-01-31T00:00:00Z", tick=False) as frozen:
             client.get_json("/controller/rest/applications", {})
             client.get_json("/controller/rest/applications", {})
             assert len(session.post_calls) == 1
@@ -295,20 +287,6 @@ class TestAppdynamicsClient:
         for _, _, kwargs in session.get_calls:
             assert kwargs["headers"]["Authorization"] == "Bearer tok"
             assert kwargs["auth"] is None
-
-    def test_short_lived_token_is_refreshed_before_its_ttl(self) -> None:
-        # A short TTL must not be cached past expiry: the refresh margin is capped at half the
-        # TTL, so a 10s token is re-fetched well before 10s rather than trusted for a fixed 30s.
-        session = FakeSession(post_response=FakeResponse(json_data={"access_token": "tok", "expires_in": 10}))
-        with _patch_session(session):
-            client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
-
-        with freeze_time("2024-01-31T00:00:00Z") as frozen:
-            client.get_json("/controller/rest/applications", {})
-            assert len(session.post_calls) == 1
-            frozen.move_to("2024-01-31T00:00:06Z")  # past the 5s cache window (10 - min(60, 5))
-            client.get_json("/controller/rest/applications", {})
-            assert len(session.post_calls) == 2
 
     def test_oauth_failure_raises_non_retryable(self) -> None:
         session = FakeSession(post_response=FakeResponse(status_code=400, json_data={}))
@@ -330,14 +308,6 @@ class TestAppdynamicsClient:
             client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
         with pytest.raises(requests.HTTPError):
             client.get_json("/controller/rest/applications", {})
-
-    def test_response_body_is_streamed(self) -> None:
-        session = FakeSession()
-        with _patch_session(session):
-            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
-        client.get_json("/controller/rest/applications", {})
-        _, _, kwargs = session.get_calls[0]
-        assert kwargs["stream"] is True
 
     def test_oversized_response_is_rejected(self) -> None:
         session = FakeSession(responder=lambda path, params: FakeResponse(json_data=[{"a": "b" * 100}]))
@@ -379,6 +349,8 @@ def _run_get_rows(
     endpoint: str,
     manager: FakeResumeManager,
     metric_paths: list[str] | None = None,
+    event_types: list[str] | None = None,
+    logger: Any = None,
     **kwargs: Any,
 ) -> tuple[list[list[dict[str, Any]]], FakeSession]:
     session = FakeSession(responder=responder)
@@ -388,24 +360,43 @@ def _run_get_rows(
                 base_url=BASE_URL,
                 endpoint=endpoint,
                 auth=BASIC_AUTH,
-                logger=mock.MagicMock(),
+                logger=logger or mock.MagicMock(),
                 resumable_source_manager=manager,  # type: ignore[arg-type]
                 metric_paths=metric_paths or ["Overall Application Performance|*"],
+                event_types=event_types or ["APPLICATION_DEPLOYMENT"],
                 **kwargs,
             )
         )
     return batches, session
 
 
+def _application_list_responder(tree: dict[str, Any], application_ids: list[int] | None = None) -> Any:
+    """Serve the application list, then look each later request up by its `metric-path`."""
+
+    def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+        if path == "/controller/rest/applications":
+            return FakeResponse(json_data=[{"id": app_id} for app_id in (application_ids or [1])])
+        return FakeResponse(json_data=tree.get(params.get("metric-path", ""), []))
+
+    return responder
+
+
 class TestGetRows:
-    def test_applications_yields_rows_without_state(self) -> None:
+    @parameterized.expand(
+        [
+            ("applications", "/controller/rest/applications"),
+            ("database_servers", "/controller/rest/databases/servers"),
+        ]
+    )
+    def test_account_level_endpoint_is_read_without_fanning_out(self, endpoint: str, expected_path: str) -> None:
         manager = FakeResumeManager()
-        batches, _ = _run_get_rows(
-            lambda path, params: FakeResponse(json_data=[{"id": 1, "name": "app"}]),
-            "applications",
+        batches, session = _run_get_rows(
+            lambda path, params: FakeResponse(json_data=[{"id": 1, "name": "thing"}]),
+            endpoint,
             manager,
         )
-        assert batches == [[{"id": 1, "name": "app"}]]
+        assert batches == [[{"id": 1, "name": "thing"}]]
+        assert [path for path, _, _ in session.get_calls] == [expected_path]
         assert manager.saved == []
 
     def test_too_many_applications_is_rejected(self) -> None:
@@ -423,15 +414,16 @@ class TestGetRows:
         with pytest.raises(AppdynamicsError):
             _run_get_rows(lambda path, params: FakeResponse(json_data=apps), "metric_data", manager, metric_paths=paths)
 
-    def test_duplicate_application_ids_are_deduplicated(self) -> None:
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}, {"id": 1}, {"id": 2}])
-            return FakeResponse(json_data=[{"name": "bt"}])
-
+    def test_metric_tree_fan_out_budget_counts_the_per_application_request_cap(self) -> None:
+        # Browsing the hierarchy costs many requests per application, so the budget check has
+        # to multiply by that cap rather than assume one request per application.
+        applications = 10
+        apps = [{"id": i} for i in range(applications)]
         manager = FakeResumeManager()
-        batches, _ = _run_get_rows(responder, "business_transactions", manager)
-        assert [row["application_id"] for batch in batches for row in batch] == [1, 2]
+        budget = applications * METRIC_TREE_MAX_REQUESTS_PER_APPLICATION - 1
+        with mock.patch.object(appdynamics_module, "MAX_FANOUT_REQUESTS", budget):
+            with pytest.raises(AppdynamicsError):
+                _run_get_rows(lambda path, params: FakeResponse(json_data=apps), "metrics", manager)
 
     def test_fan_out_injects_application_id_and_bookmarks_next_app(self) -> None:
         def responder(path: str, params: dict[str, Any]) -> FakeResponse:
@@ -458,88 +450,7 @@ class TestGetRows:
         fetched_apps = [row["application_id"] for batch in batches for row in batch]
         assert fetched_apps == [2, 3]
 
-    def test_fan_out_deleted_bookmark_application_starts_over(self) -> None:
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            return FakeResponse(json_data=[{"id": 10}])
-
-        manager = FakeResumeManager(initial=AppdynamicsResumeConfig(application_id=99))
-        batches, _ = _run_get_rows(responder, "tiers", manager)
-        assert [row["application_id"] for batch in batches for row in batch] == [1]
-
-    @freeze_time("2024-01-31T00:00:00Z")
-    def test_windowed_full_refresh_uses_lookback_and_chunks(self) -> None:
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            return FakeResponse(json_data=[{"id": 5, "startTimeInMillis": params["start-time"]}])
-
-        manager = FakeResumeManager()
-        batches, session = _run_get_rows(responder, "health_rule_violations", manager)
-
-        window_calls = [(params["start-time"], params["end-time"]) for path, params, _ in session.get_calls[1:]]
-        expected_start = FROZEN_NOW_MS - 30 * MILLIS_PER_DAY
-        # 30-day lookback fetched in 7-day chunks: 4 full chunks + a 2-day remainder
-        assert len(window_calls) == 5
-        assert window_calls[0][0] == expected_start
-        assert window_calls[-1][1] == FROZEN_NOW_MS
-        for start, end in window_calls:
-            assert start < end
-        assert all(params["time-range-type"] == "BETWEEN_TIMES" for _, params, _ in session.get_calls[1:])
-        # each window's state is saved after its rows are yielded
-        assert [s.window_start for s in manager.saved] == [end for _, end in window_calls]
-
-    @freeze_time("2024-01-31T00:00:00Z")
-    def test_windowed_incremental_starts_one_ms_after_watermark(self) -> None:
-        watermark = FROZEN_NOW_MS - MILLIS_PER_DAY
-
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            return FakeResponse(json_data=[])
-
-        manager = FakeResumeManager()
-        _, session = _run_get_rows(
-            responder,
-            "health_rule_violations",
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        _, params, _ = session.get_calls[1]
-        assert params["start-time"] == watermark + 1
-        assert params["end-time"] == FROZEN_NOW_MS
-        assert len(session.get_calls) == 2
-
-    @freeze_time("2024-01-31T00:00:00Z")
-    def test_windowed_resume_uses_saved_window_for_bookmarked_app_only(self) -> None:
-        resume_start = FROZEN_NOW_MS - MILLIS_PER_DAY
-
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}, {"id": 2}])
-            return FakeResponse(json_data=[])
-
-        manager = FakeResumeManager(initial=AppdynamicsResumeConfig(application_id=1, window_start=resume_start))
-        _, session = _run_get_rows(
-            responder,
-            "health_rule_violations",
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=FROZEN_NOW_MS - 2 * MILLIS_PER_DAY,
-        )
-
-        app_1_call = session.get_calls[1]
-        app_2_call = session.get_calls[2]
-        assert "/applications/1/" in app_1_call[0]
-        assert app_1_call[1]["start-time"] == resume_start
-        # the app after the bookmark starts from the regular watermark-derived window
-        assert "/applications/2/" in app_2_call[0]
-        assert app_2_call[1]["start-time"] == FROZEN_NOW_MS - 2 * MILLIS_PER_DAY + 1
-
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_metric_data_flattens_metric_values_per_path(self) -> None:
         metric = {
             "metricId": 42,
@@ -583,6 +494,119 @@ class TestGetRows:
         assert rows[0]["metricId"] == 42
         assert rows[0]["value"] == 12
 
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_window_that_cannot_be_split_further_warns_and_keeps_its_rows(self) -> None:
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}])
+            return FakeResponse(json_data=[{"id": i} for i in range(MAX_ROWS_PER_TIME_WINDOW)])
+
+        logger = mock.MagicMock()
+        manager = FakeResumeManager()
+        with mock.patch.object(appdynamics_module, "MAX_WINDOW_SPLITS", 0):
+            batches, session = _run_get_rows(
+                responder,
+                "events",
+                manager,
+                logger=logger,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
+            )
+
+        assert len(session.get_calls) == 2  # the application list, then one un-split window
+        assert len(batches[0]) == MAX_ROWS_PER_TIME_WINDOW
+        assert logger.warning.call_count == 1
+
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_splitting_draws_from_the_sync_wide_request_allowance(self) -> None:
+        # Splitting is per window but the fan-out limit is per sync, so a controller that
+        # returns a full response every time must not multiply an accepted sync by the
+        # per-window split cap.
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}])
+            return FakeResponse(json_data=[{"id": i} for i in range(MAX_ROWS_PER_TIME_WINDOW)])
+
+        logger = mock.MagicMock()
+        # One window is estimated, so an allowance of one leaves room for a single split.
+        with mock.patch.object(appdynamics_module, "MAX_FANOUT_REQUESTS", 2):
+            _, session = _run_get_rows(
+                responder,
+                "events",
+                FakeResumeManager(),
+                logger=logger,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
+            )
+
+        # The whole window, then its two halves; neither half may split again.
+        assert len(session.get_calls) == 1 + 3
+        assert logger.warning.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("events", {"event-types": "APPLICATION_DEPLOYMENT,APP_SERVER_RESTART", "severities": "INFO,WARN,ERROR"}),
+            ("request_snapshots", {"maximum-results": MAX_ROWS_PER_TIME_WINDOW}),
+            ("anomalies", {"fetchSuspectedCause": "false"}),
+        ]
+    )
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_windowed_endpoint_sends_its_required_params(self, endpoint: str, expected: dict[str, Any]) -> None:
+        # The Controller rejects an events request with no `event-types`/`severities`, and caps
+        # snapshots at its own default unless `maximum-results` is asked for.
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}])
+            return FakeResponse(json_data=[])
+
+        _, session = _run_get_rows(
+            responder,
+            endpoint,
+            FakeResumeManager(),
+            event_types=["APPLICATION_DEPLOYMENT", "APP_SERVER_RESTART"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
+        )
+
+        _, params, _ = session.get_calls[1]
+        assert expected.items() <= params.items()
+
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_anomalies_paging_draws_from_the_sync_wide_request_allowance(self) -> None:
+        # Paging is per window but the fan-out limit is per sync, so a controller that returns
+        # a full page every time can't multiply an accepted sync by the per-window page cap.
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}])
+            return FakeResponse(json_data={"violationListItem": [{"id": n} for n in range(ANOMALIES_PAGE_SIZE)]})
+
+        logger = mock.MagicMock()
+        # One window is estimated, so an allowance of one leaves room for a single extra page.
+        with mock.patch.object(appdynamics_module, "MAX_FANOUT_REQUESTS", 2):
+            _, session = _run_get_rows(
+                responder,
+                "anomalies",
+                FakeResumeManager(),
+                logger=logger,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
+            )
+
+        assert [params["pageNumber"] for _, params, _ in session.get_calls[1:]] == [0, 1]
+        assert logger.warning.call_count == 1
+
+    def test_metric_tree_walk_stops_at_the_request_budget(self) -> None:
+        tree = {"": [{"name": "f1", "type": "folder"}, {"name": "f2", "type": "folder"}]}
+        tree["f1"] = [{"name": "leaf", "type": "leaf"}]
+        tree["f2"] = [{"name": "leaf", "type": "leaf"}]
+
+        logger = mock.MagicMock()
+        with mock.patch.object(appdynamics_module, "METRIC_TREE_MAX_REQUESTS_PER_APPLICATION", 2):
+            _, session = _run_get_rows(_application_list_responder(tree), "metrics", FakeResumeManager(), logger=logger)
+
+        assert len(session.get_calls) == 1 + 2
+        assert logger.warning.call_count == 1
+
 
 class TestAppdynamicsSourceResponse:
     @parameterized.expand(list(APPDYNAMICS_ENDPOINTS.keys()))
@@ -595,6 +619,7 @@ class TestAppdynamicsSourceResponse:
             resumable_source_manager=FakeResumeManager(),  # type: ignore[arg-type]
             team_id=1,
             metric_paths=["Overall Application Performance|*"],
+            event_types=["APPLICATION_DEPLOYMENT"],
         )
         config = APPDYNAMICS_ENDPOINTS[endpoint]
         assert response.name == endpoint

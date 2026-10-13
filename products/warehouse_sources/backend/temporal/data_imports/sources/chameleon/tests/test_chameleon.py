@@ -132,6 +132,26 @@ class TestStandardEndpointPagination:
         assert snapshots[1]["params"]["before"] == "S2"
         assert snapshots[2]["params"]["before"] == "S3"
 
+    @parameterized.expand(
+        [
+            # /analyze/profiles answers 422 to the `limit=500` the other list endpoints accept, so
+            # it must go out with no `limit` and let Chameleon pick the page size.
+            ("profiles_sends_no_limit", "profiles", None),
+            ("other_endpoints_keep_the_page_size", "segments", 500),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_size_is_only_sent_where_the_endpoint_accepts_it(
+        self, _name: str, endpoint: str, expected_limit: int | None, MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({endpoint: [{"id": "X1"}], "cursor": {}})])
+
+        rows = _rows(endpoint, _make_manager())
+
+        assert [r["id"] for r in rows] == ["X1"]
+        assert snapshots[0]["params"].get("limit") == expected_limit
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_when_cursor_missing(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -211,31 +231,61 @@ class TestStandardEndpointPagination:
         assert session.headers.get("Accept") == "application/json"
 
 
-class TestResponsesFanOut:
+class TestFanOut:
+    @parameterized.expand(
+        [
+            ("responses", "responses", "surveys", "survey_id", "/edit/surveys", "/analyze/responses"),
+            ("interactions", "interactions", "tours", "tour_id", "/edit/tours", "/analyze/interactions"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_surveys_and_stamps_survey_id(self, MockSession: mock.MagicMock) -> None:
+    def test_fans_out_over_parents_and_stamps_the_parent_id(
+        self,
+        _name: str,
+        endpoint: str,
+        parent_key: str,
+        stamped_column: str,
+        parent_path: str,
+        child_path: str,
+        MockSession: mock.MagicMock,
+    ) -> None:
         session = MockSession.return_value
         snapshots = _wire(
             session,
             [
-                _response({"surveys": [{"id": "SV1"}, {"id": "SV2"}], "cursor": {}}),
-                _response({"responses": [{"id": "R1"}, {"id": "R2"}], "cursor": {}}),
-                _response({"responses": [{"id": "R3"}], "cursor": {}}),
+                _response({parent_key: [{"id": "P1"}, {"id": "P2"}], "cursor": {}}),
+                _response({endpoint: [{"id": "C1"}, {"id": "C2"}], "cursor": {}}),
+                _response({endpoint: [{"id": "C3"}], "cursor": {}}),
             ],
         )
 
-        rows = _rows("responses", _make_manager())
+        rows = _rows(endpoint, _make_manager())
 
         assert rows == [
-            {"id": "R1", "survey_id": "SV1"},
-            {"id": "R2", "survey_id": "SV1"},
-            {"id": "R3", "survey_id": "SV2"},
+            {"id": "C1", stamped_column: "P1"},
+            {"id": "C2", stamped_column: "P1"},
+            {"id": "C3", stamped_column: "P2"},
         ]
         assert [s["url"] for s in snapshots] == [
-            "https://api.chameleon.io/v3/edit/surveys",
-            "https://api.chameleon.io/v3/analyze/responses?id=SV1",
-            "https://api.chameleon.io/v3/analyze/responses?id=SV2",
+            f"https://api.chameleon.io/v3{parent_path}",
+            f"https://api.chameleon.io/v3{child_path}?id=P1",
+            f"https://api.chameleon.io/v3{child_path}?id=P2",
         ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_parent_id_overwrites_the_one_the_api_returned(self, MockSession: mock.MagicMock) -> None:
+        # Interactions already carry `tour_id`; stamping must leave one column holding the parent
+        # actually queried, not two conflicting ones.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"tours": [{"id": "T1"}], "cursor": {}}),
+                _response({"interactions": [{"id": "I1", "tour_id": "T1", "state": "completed"}], "cursor": {}}),
+            ],
+        )
+
+        assert _rows("interactions", _make_manager()) == [{"id": "I1", "tour_id": "T1", "state": "completed"}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_within_a_survey(self, MockSession: mock.MagicMock) -> None:
@@ -350,6 +400,50 @@ class TestResponsesFanOut:
         rows = _rows("responses", manager)
 
         assert [r["id"] for r in rows] == ["R1"]
+
+
+class TestPropertiesKinds:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_each_kind_and_stamps_it(self, MockSession: mock.MagicMock) -> None:
+        # /edit/properties requires `kind`, so a complete table is the union of one request per kind,
+        # and the payload doesn't echo the kind back — without stamping the two are indistinguishable.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"properties": [{"id": "P1", "prop": "plan_cost"}]}),
+                _response({"properties": [{"id": "P2", "prop": "arr"}]}),
+            ],
+        )
+
+        rows = _rows("properties", _make_manager())
+
+        assert rows == [
+            {"id": "P1", "prop": "plan_cost", "kind": "profile"},
+            {"id": "P2", "prop": "arr", "kind": "company"},
+        ]
+        assert [s["url"] for s in snapshots] == [
+            "https://api.chameleon.io/v3/edit/properties?kind=profile",
+            "https://api.chameleon.io/v3/edit/properties?kind=company",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_does_not_paginate_a_kind(self, MockSession: mock.MagicMock) -> None:
+        # The endpoint returns the whole set at once. Paginating it on a stray cursor would re-request
+        # the same complete set until the guard trips, once per kind.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"properties": [{"id": "P1"}], "cursor": {"before": "P1"}}),
+                _response({"properties": [{"id": "P2"}], "cursor": {"before": "P2"}}),
+            ],
+        )
+
+        rows = _rows("properties", _make_manager())
+
+        assert [r["id"] for r in rows] == ["P1", "P2"]
+        assert session.send.call_count == 2
 
 
 class TestResumeStateCompatibility:

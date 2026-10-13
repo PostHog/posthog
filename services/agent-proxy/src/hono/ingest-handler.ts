@@ -27,7 +27,11 @@ import {
 import { validateSandboxEventIngestToken } from '../lib/jwt.js'
 import { logger } from '../lib/logging.js'
 import { TaskRunRedisStream, getStreamKey } from '../lib/redis-stream.js'
-import { heartbeatWorkflowIfNeeded } from '../lib/side-effects.js'
+import {
+    captureBudgetSteerIfNeeded,
+    captureProcessKilledIfNeeded,
+    heartbeatWorkflowIfNeeded,
+} from '../lib/side-effects.js'
 import {
     ClientDisconnected,
     EventIngestBadRequest,
@@ -42,7 +46,7 @@ import {
     type EventIngestResult,
     type SandboxEventIngestTokenPayload,
 } from '../lib/types.js'
-import { observeIngestClientDisconnect, observeStreamIngestEvents } from './metrics.js'
+import { observeIngestClientDisconnect, observeStreamIngestEvents, observeStreamWriteSkipped } from './metrics.js'
 
 // Diagnostic (temporary): records when request-body chunks arrive at the Node
 // process, to tell a live upload (chunks spread across the request lifetime)
@@ -105,7 +109,10 @@ export async function handleIngest(
 
     // NDJSON body parsing + Redis writes.
     const streamKey = getStreamKey(claims.runId)
-    const redisStream = new TaskRunRedisStream(streamKey, redis)
+    const redisStream = new TaskRunRedisStream(streamKey, redis, {
+        presenceGated: claims.presenceGated,
+        thinTail: claims.thinTail,
+    })
 
     const bodyTiming: IngestBodyTiming = {
         startedAt: Date.now(),
@@ -244,17 +251,23 @@ async function ingestEventLines(
             }
 
             const { seq, event } = eventLine
-            const streamId = await redisStream.writeEventWithSequence(event, seq)
+            const write = await redisStream.writeEventWithSequence(event, seq)
+            captureBudgetSteerIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
-            if (streamId === null) {
+            if (!write.accepted) {
                 // Duplicate: advance last_accepted_seq to whatever Redis has.
                 result.duplicate++
                 result.last_accepted_seq = Math.max(result.last_accepted_seq, await redisStream.getLastSequence())
                 continue
             }
 
+            if (write.streamId === null) {
+                observeStreamWriteSkipped('ingest', claims.originProduct)
+            }
+
             result.accepted++
             result.last_accepted_seq = seq
+            captureProcessKilledIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
             await heartbeatWorkflowIfNeeded(
                 redisStream,

@@ -25,7 +25,7 @@ export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateP
             ref={ref}
             data-message-type={type}
         >
-            <div className={twMerge('max-w-full', wrapperClassName)}>
+            <div className={twMerge(type === 'human' ? 'max-w-4/5' : 'max-w-full', wrapperClassName)}>
                 {header}
                 {children && (
                     <div

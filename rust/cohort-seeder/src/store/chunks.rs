@@ -1,29 +1,31 @@
 //! The day-chunk claim/CAS ledger in PostgreSQL: the sole owner of the `cohort_backfill_chunks` SQL.
 //!
-//! Written chunk statuses bind [`ChunkStatus::as_str`] as a parameter; the two multi-status `IN`
-//! predicates are hoisted into [`ACTIVE_STATUSES_SQL`]/[`RETRYABLE_STATUSES_SQL`], scanned by a unit
-//! test through [`ChunkStatus::from_str`] so the SQL vocabulary can never drift from the enum.
+//! Written chunk statuses bind [`ChunkStatus::as_str`] as a parameter; the multi-status `IN`
+//! predicates are hoisted into [`ACTIVE_STATUSES_SQL`] and [`SEEDABLE_RUN_STATUSES_SQL`], each
+//! scanned by a unit test through the enum's `from_str` so the SQL vocabulary can never drift.
 //! Every claim charges an attempt (saturating at the cap) and bumps the fencing `claim_epoch`;
 //! expired `produced` leases are reclaimable without an attempt cap (their tiles are already in
 //! Kafka and must reach `confirmed`), while expired `scanning` leases are capped and dead-lettered
 //! by [`PgChunkStore::reap_poisoned_chunks`] so a chunk that hard-crashes its worker cannot
-//! re-scan forever. Depends on `domain` (the pure chunk states it mints and the typed ids) and
-//! nothing above.
+//! re-scan forever. A `failed` chunk additionally waits out the retry backoff its
+//! [`PgChunkStore::fail`] stamped, which is the only claim arm that reads `next_attempt_at`.
+//! Depends on `domain` (the pure chunk states it mints and the typed ids) and nothing above.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use cohort_core::filters::TeamId;
 use cohort_core::{day_idx_of_naive_date, DayIdx};
 use sqlx::types::Json;
 use sqlx::{Connection, FromRow, PgPool};
 use std::fmt;
 use std::num::NonZeroU16;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::domain::{
-    bands_for_day, person_chunk_sentinel_day, Band, BandSpec, BandSpecError, ChunkId, ChunkLease,
-    ChunkSpec, ChunkStatus, ClaimEpoch, ClaimKind, ClaimedChunk, EnqueuedChunk, Halted,
-    PersonRange, PersonRangeError, ProduceHwms, ProducedChunk, RunId, SChunkMs, ScannedChunk,
-    StreamedChunk,
+    bands_for_day, person_chunk_sentinel_day, AttemptCount, Band, BandSpec, BandSpecError, ChunkId,
+    ChunkLease, ChunkSpec, ChunkStatus, ClaimEpoch, ClaimKind, ClaimedChunk, DaySchedule,
+    EnqueuedChunk, Halted, PersonRange, PersonRangeError, PlannedDay, ProduceHwms, ProducedChunk,
+    RunId, SChunkMs, ScanVolume, ScannedChunk, StreamedChunk, UtcMillis,
 };
 
 use super::lease::LeaseHandle;
@@ -31,8 +33,10 @@ use super::{Claimant, LeaseDuration, MaxAttempts, RenderedError, PERSISTED_ERROR
 
 /// Chunk statuses holding a live lease — the targets of the fenced heartbeat/fail/confirm writes.
 const ACTIVE_STATUSES_SQL: &str = "('scanning', 'produced')";
-/// Chunk statuses eligible for a fresh claim while under the attempt cap.
-const RETRYABLE_STATUSES_SQL: &str = "('pending', 'failed')";
+
+/// Run statuses whose chunks the seeder claims and heartbeats: the SQL twin of
+/// [`super::runs::RunStatus::seed_phase`].
+const SEEDABLE_RUN_STATUSES_SQL: &str = "('seeding', 'trailing')";
 
 #[derive(Debug, Clone)]
 pub struct PgChunkStore {
@@ -47,18 +51,27 @@ impl PgChunkStore {
     pub async fn plan_chunks(
         &self,
         run_id: RunId,
-        days: impl IntoIterator<Item = DayIdx>,
+        days: impl IntoIterator<Item = PlannedDay>,
         bands_per_day: NonZeroU16,
     ) -> Result<PlanOutcome, ChunkStoreError> {
         let mut ids = Vec::new();
         let mut dates = Vec::new();
         let mut bands = Vec::new();
-        for day in days {
+        let mut holds = Vec::new();
+        for PlannedDay { day, schedule } in days {
             let date = date_for_day(day).ok_or(ChunkStoreError::InvalidDay(day))?;
+            let hold = match schedule {
+                DaySchedule::Historical => None,
+                DaySchedule::Trailing { claimable_after } => Some(
+                    DateTime::<Utc>::from_timestamp_millis(claimable_after.as_i64())
+                        .ok_or(ChunkStoreError::InvalidClaimableAfter(claimable_after))?,
+                ),
+            };
             for band in bands_for_day(day, bands_per_day) {
                 ids.push(Uuid::now_v7());
                 dates.push(date);
                 bands.push(band.0);
+                holds.push(hold);
             }
         }
         if ids.is_empty() {
@@ -76,13 +89,14 @@ impl PgChunkStore {
                 WHERE id = $1 AND status = 'seeding'
                 FOR UPDATE
             ), input AS (
-                SELECT * FROM unnest($2::uuid[], $3::date[], $4::smallint[]) AS u(id, day, band)
+                SELECT * FROM unnest($2::uuid[], $3::date[], $4::smallint[], $6::timestamptz[])
+                    AS u(id, day, band, claimable_after)
             ), inserted AS (
                 INSERT INTO cohort_backfill_chunks
                     (id, run_id, team_id, day, band, status, claim_epoch, claimed_by, attempts,
-                     last_error, tiles_produced, created_at, updated_at)
+                     last_error, tiles_produced, claimable_after, created_at, updated_at)
                 SELECT u.id, r.id, r.team_id, u.day, u.band, $5, 0, '', 0, '', 0,
-                       now(), now()
+                       u.claimable_after, now(), now()
                 FROM input u CROSS JOIN target_run r
                 ON CONFLICT (run_id, day, band) DO NOTHING
                 RETURNING id
@@ -97,6 +111,7 @@ impl PgChunkStore {
         .bind(dates)
         .bind(bands)
         .bind(ChunkStatus::Pending.as_str())
+        .bind(holds)
         .fetch_one(&self.pool)
         .await?;
         if !result.run_seeding {
@@ -239,8 +254,18 @@ impl PgChunkStore {
                 SELECT c.id, c.status IN {active} AS was_reclaim
                 FROM cohort_backfill_chunks c
                 JOIN cohort_backfill_runs r ON r.id = c.run_id
-                WHERE c.run_id = ANY($1) AND r.status = 'seeding'
-                  AND ((c.status IN {retryable} AND c.attempts < $4)
+                WHERE c.run_id = ANY($1) AND r.status IN {seedable}
+                  -- A trailing day is scanned only once it has ended and its run is `trailing`.
+                  -- Claimed while the run still seeds, it would lose its lease when the
+                  -- reconciling CAS fires, because the heartbeat joins the same run statuses.
+                  AND (c.claimable_after IS NULL
+                       OR (c.claimable_after <= now() AND r.status = 'trailing'))
+                  AND ((c.status = $7 AND c.attempts < $4)
+                       -- Only the failed→claim transition is gated on the backoff stamp. A chunk
+                       -- that never ran (`pending`) and an expired lease reclaim both stay
+                       -- immediate: neither is the tight failure loop the wait exists to break.
+                       OR (c.status = $8 AND c.attempts < $4
+                           AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now()))
                        OR (c.status = $6 AND c.lease_expires_at < now())
                        OR (c.status = $5 AND c.lease_expires_at < now() AND c.attempts < $4))
                 -- Cross-kind priority rides on this ordering: person chunks are planned under a
@@ -253,12 +278,12 @@ impl PgChunkStore {
             UPDATE cohort_backfill_chunks c
             SET status = $5, claim_epoch = c.claim_epoch + 1, claimed_by = $2,
                 claimed_at = now(), lease_expires_at = now() + make_interval(secs => $3),
-                s_chunk_at = now(),
+                s_chunk_at = now(), next_attempt_at = NULL,
                 attempts = CASE WHEN c.attempts < $4 THEN c.attempts + 1 ELSE c.attempts END,
                 updated_at = now()
             FROM next_chunk
             WHERE c.id = next_chunk.id
-            RETURNING c.id, c.run_id, c.team_id, c.day, c.band, c.claim_epoch,
+            RETURNING c.id, c.run_id, c.team_id, c.day, c.band, c.claim_epoch, c.attempts,
                       c.person_range_lo, c.person_range_hi,
                       (extract(epoch FROM c.s_chunk_at) * 1000)::bigint AS s_chunk_ms,
                       (SELECT count(*) FROM cohort_backfill_chunks s
@@ -266,7 +291,7 @@ impl PgChunkStore {
                       next_chunk.was_reclaim
             "#,
             active = ACTIVE_STATUSES_SQL,
-            retryable = RETRYABLE_STATUSES_SQL,
+            seedable = SEEDABLE_RUN_STATUSES_SQL,
         );
         let row = sqlx::query_as::<_, ClaimedRow>(&sql)
             .bind(run_ids)
@@ -275,6 +300,8 @@ impl PgChunkStore {
             .bind(max_attempts.get())
             .bind(ChunkStatus::Scanning.as_str())
             .bind(ChunkStatus::Produced.as_str())
+            .bind(ChunkStatus::Pending.as_str())
+            .bind(ChunkStatus::Failed.as_str())
             .fetch_optional(&self.pool)
             .await?;
 
@@ -316,6 +343,48 @@ impl PgChunkStore {
         Ok(result.rows_affected())
     }
 
+    /// Runs holding ≥1 chunk that exhausted its retry budget, with a representative chunk and its
+    /// persisted error.
+    ///
+    /// The `attempts >= max_attempts` half is the whole point: a `failed` chunk still under the cap
+    /// is reclaimable by [`Self::claim_next`] and will retry, while a capped one never will. Only
+    /// the capped ones are terminal, and only they wedge the run — the completion CAS demands every
+    /// readiness chunk `confirmed`, so a run carrying one sits in `seeding` forever and holds its
+    /// cohort's uniqueness slot against every future run, and a `trailing` run carrying one never
+    /// completes.
+    pub async fn runs_with_exhausted_chunks(
+        &self,
+        run_ids: &[RunId],
+        max_attempts: MaxAttempts,
+    ) -> Result<Vec<ExhaustedRun>, ChunkStoreError> {
+        if run_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let run_ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
+        let rows = sqlx::query_as::<_, ExhaustedRunRow>(
+            r#"
+            SELECT DISTINCT ON (c.run_id)
+                   c.run_id,
+                   count(*) OVER (PARTITION BY c.run_id) AS exhausted,
+                   c.id::text AS chunk_id,
+                   c.last_error
+            FROM cohort_backfill_chunks c
+            JOIN cohort_backfill_runs r ON r.id = c.run_id
+            WHERE c.run_id = ANY($1) AND c.status = $2 AND c.attempts >= $3
+              -- Readiness does not wait for a trailing chunk, so its failure fails the run only
+              -- once the run has stamped readiness and is `trailing`.
+              AND (c.claimable_after IS NULL OR r.status = 'trailing')
+            ORDER BY c.run_id, c.id
+            "#,
+        )
+        .bind(run_ids)
+        .bind(ChunkStatus::Failed.as_str())
+        .bind(max_attempts.get())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(ExhaustedRun::from).collect())
+    }
+
     /// The person path's mark: seeds were already streamed to Kafka during the scan, so only the
     /// count crosses the `scanning`→`produced` CAS.
     pub async fn mark_produced_streamed(
@@ -324,7 +393,11 @@ impl PgChunkStore {
     ) -> Result<EnqueuedChunk, Halted<StreamedChunk, ChunkStoreError>> {
         let spec = chunk.spec();
         let seeds_produced = chunk.seeds_produced();
-        if let Err(error) = self.mark_produced_raw(spec.lease, seeds_produced).await {
+        let volume = chunk.volume();
+        if let Err(error) = self
+            .mark_produced_raw(spec.lease, seeds_produced, volume)
+            .await
+        {
             return Err(Halted::failed(chunk, error));
         }
         Ok(EnqueuedChunk::new(spec, seeds_produced))
@@ -344,7 +417,11 @@ impl PgChunkStore {
                 ));
             }
         };
-        if let Err(error) = self.mark_produced_raw(spec.lease, tiles_produced).await {
+        let volume = chunk.volume();
+        if let Err(error) = self
+            .mark_produced_raw(spec.lease, tiles_produced, volume)
+            .await
+        {
             return Err(Halted::failed(chunk, error));
         }
         Ok(EnqueuedChunk::new(spec, tiles_produced))
@@ -361,15 +438,26 @@ impl PgChunkStore {
         Ok(spec.lease)
     }
 
+    /// Fail a chunk for retry, holding it out of the claim gate for `retry_delay`.
+    ///
+    /// A post-mark failure is stamped too, so a chunk whose `confirm` lost a race waits before it
+    /// retries. The wait is not free: it is added to the run's wall-clock, and the run cannot
+    /// complete until every chunk is `confirmed`. It is charged anyway because the retry re-scans
+    /// from the start rather than re-running the failed write, and a `confirm` that failed once is
+    /// likely to fail again immediately. At the first attempts the wait is small next to the day
+    /// band it spaces out; by the time it reaches the cap it plausibly exceeds that scan, which is
+    /// the point at which the attempt budget, not the wait, is what should stop the chunk.
     pub async fn fail(
         &self,
         lease: ChunkLease,
         error: &RenderedError,
+        retry_delay: Duration,
     ) -> Result<(), ChunkStoreError> {
         let updated = sqlx::query_scalar::<_, ChunkId>(&format!(
             r#"
             UPDATE cohort_backfill_chunks
-            SET status = $3, last_error = left($4, $5), updated_at = now()
+            SET status = $3, last_error = left($4, $5),
+                next_attempt_at = now() + make_interval(secs => $6), updated_at = now()
             WHERE id = $1 AND claim_epoch = $2 AND status IN {active}
             RETURNING id
             "#,
@@ -380,6 +468,7 @@ impl PgChunkStore {
         .bind(ChunkStatus::Failed.as_str())
         .bind(error.as_str())
         .bind(PERSISTED_ERROR_LIMIT)
+        .bind(retry_delay.as_secs_f64())
         .fetch_optional(&self.pool)
         .await?;
         fenced(updated, lease, ChunkOperation::Fail)
@@ -403,6 +492,7 @@ impl PgChunkStore {
         fenced(updated, lease, ChunkOperation::Unclaim)
     }
 
+    /// Unconfirmed chunks the runs' readiness still waits for, which leaves out trailing chunks.
     pub async fn remaining_chunks(&self, run_ids: &[RunId]) -> Result<u64, ChunkStoreError> {
         if run_ids.is_empty() {
             return Ok(0);
@@ -412,7 +502,7 @@ impl PgChunkStore {
             r#"
             SELECT count(*)::bigint
             FROM cohort_backfill_chunks
-            WHERE run_id = ANY($1) AND status <> $2
+            WHERE run_id = ANY($1) AND status <> $2 AND claimable_after IS NULL
             "#,
         )
         .bind(run_ids)
@@ -422,13 +512,14 @@ impl PgChunkStore {
         u64::try_from(count).map_err(|_| ChunkStoreError::InvalidRemainingCount(count))
     }
 
+    /// Progress over the chunks the run's readiness waits for, which leaves out its trailing chunks.
     pub async fn chunk_progress(&self, run_id: RunId) -> Result<ChunkProgress, ChunkStoreError> {
         let row = sqlx::query_as::<_, ChunkProgressRow>(
             r#"
             SELECT count(*)::bigint AS total,
                    count(*) FILTER (WHERE status <> $2)::bigint AS remaining
             FROM cohort_backfill_chunks
-            WHERE run_id = $1
+            WHERE run_id = $1 AND claimable_after IS NULL
             "#,
         )
         .bind(run_id)
@@ -461,10 +552,11 @@ impl PgChunkStore {
             FROM cohort_backfill_runs r
             WHERE c.id = $1 AND c.claim_epoch = $2 AND c.claimed_by = $4
               AND c.status IN {active}
-              AND r.id = c.run_id AND r.status = 'seeding'
+              AND r.id = c.run_id AND r.status IN {seedable}
             RETURNING c.id
             "#,
             active = ACTIVE_STATUSES_SQL,
+            seedable = SEEDABLE_RUN_STATUSES_SQL,
         ))
         .bind(lease.chunk_id())
         .bind(lease.epoch())
@@ -475,17 +567,32 @@ impl PgChunkStore {
         fenced(updated, lease, ChunkOperation::Heartbeat)
     }
 
+    /// The `scanning`→`produced` CAS, recording what the chunk produced and what its scan moved.
+    ///
+    /// Only this transition writes the byte columns, matching `tiles_produced`: a failed or
+    /// cancelled chunk is re-scanned from the start, so persisting a partial volume against it
+    /// would double-count once the retry succeeds. The counters still cover those scans.
+    ///
+    /// A retry that turns out vacuous — every referencing window slid past the day, or the plan
+    /// resolved to no scan at all — reports zero and overwrites whatever the earlier attempt
+    /// measured. The ledger row then reads like a chunk that never moved anything. That is the same
+    /// trade `tiles_produced` already makes, and the counters keep the real bytes; only the
+    /// per-chunk column loses them.
     pub(crate) async fn mark_produced_raw(
         &self,
         lease: ChunkLease,
         tiles_produced: u64,
+        volume: ScanVolume,
     ) -> Result<(), ChunkStoreError> {
         let tiles_produced = i64::try_from(tiles_produced)
             .map_err(|_| ChunkStoreError::TilesProducedOutOfRange(tiles_produced))?;
+        let received_bytes = scan_bytes_column(volume.received_bytes())?;
+        let decoded_bytes = scan_bytes_column(volume.decoded_bytes())?;
         let updated = sqlx::query_scalar::<_, ChunkId>(
             r#"
             UPDATE cohort_backfill_chunks
-            SET status = $3, tiles_produced = $4, updated_at = now()
+            SET status = $3, tiles_produced = $4, scan_received_bytes = $5,
+                scan_decoded_bytes = $6, updated_at = now()
             WHERE id = $1 AND claim_epoch = $2 AND status = 'scanning'
             RETURNING id
             "#,
@@ -494,6 +601,8 @@ impl PgChunkStore {
         .bind(lease.epoch())
         .bind(ChunkStatus::Produced.as_str())
         .bind(tiles_produced)
+        .bind(received_bytes)
+        .bind(decoded_bytes)
         .fetch_optional(&self.pool)
         .await?;
         fenced(updated, lease, ChunkOperation::MarkProduced)
@@ -543,6 +652,7 @@ impl PgChunkStore {
             band,
             s_chunk: SChunkMs(row.s_chunk_ms),
             person_range,
+            attempt: AttemptCount::from_row(row.attempts),
         };
         let handle = LeaseHandle::start(self.clone(), lease, claimant.clone(), lease_duration);
         Ok(Claim {
@@ -625,8 +735,12 @@ pub enum ChunkStoreError {
     },
     #[error("tiles produced {0} exceeds PostgreSQL bigint range")]
     TilesProducedOutOfRange(u64),
+    #[error("scan byte count {0} exceeds PostgreSQL bigint range")]
+    ScanBytesOutOfRange(u64),
     #[error("day index {0} is outside chrono's date range")]
     InvalidDay(DayIdx),
+    #[error("claim hold {0:?} is outside chrono's timestamp range")]
+    InvalidClaimableAfter(UtcMillis),
     #[error(transparent)]
     Band(#[from] BandSpecError),
     #[error(transparent)]
@@ -657,6 +771,48 @@ impl ChunkProgress {
     }
 }
 
+/// A run wedged by chunks that exhausted their retry budget, as reported by
+/// [`PgChunkStore::runs_with_exhausted_chunks`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExhaustedRun {
+    pub run_id: RunId,
+    pub exhausted: u64,
+    /// One of the exhausted chunks, for the operator-facing error text. Which one is arbitrary but
+    /// stable (lowest id) — the point is a concrete row to go read, not a complete list.
+    pub chunk_id: String,
+    /// That same chunk's error, never another one's: an operator handed chunk A with chunk B's
+    /// failure text reads the wrong row. [`NO_ERROR_RECORDED`] when the chunk recorded none.
+    pub last_error: String,
+}
+
+/// Stands in for an empty `last_error` so the operator-facing message never ends in a bare colon.
+/// A capped chunk normally carries one, but `attempts` can reach the cap without a persisted error.
+pub const NO_ERROR_RECORDED: &str = "no error recorded";
+
+impl From<ExhaustedRunRow> for ExhaustedRun {
+    fn from(row: ExhaustedRunRow) -> Self {
+        Self {
+            run_id: row.run_id,
+            // `count(*) OVER (PARTITION BY run_id)` is ≥ 1 and bounded by the run's chunk count, so
+            // the cast cannot lose information.
+            exhausted: row.exhausted.max(0) as u64,
+            chunk_id: row.chunk_id.unwrap_or_default(),
+            last_error: row
+                .last_error
+                .filter(|error| !error.is_empty())
+                .unwrap_or_else(|| NO_ERROR_RECORDED.to_owned()),
+        }
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct ExhaustedRunRow {
+    run_id: RunId,
+    exhausted: i64,
+    chunk_id: Option<String>,
+    last_error: Option<String>,
+}
+
 #[derive(Debug, FromRow)]
 struct ClaimedRow {
     id: ChunkId,
@@ -665,6 +821,7 @@ struct ClaimedRow {
     day: NaiveDate,
     band: Band,
     claim_epoch: ClaimEpoch,
+    attempts: i32,
     person_range_lo: Option<Uuid>,
     person_range_hi: Option<Uuid>,
     s_chunk_ms: i64,
@@ -694,6 +851,10 @@ fn fenced(
         .ok_or(ChunkStoreError::LeaseLost { lease, operation })
 }
 
+fn scan_bytes_column(bytes: u64) -> Result<i64, ChunkStoreError> {
+    i64::try_from(bytes).map_err(|_| ChunkStoreError::ScanBytesOutOfRange(bytes))
+}
+
 fn date_for_day(day: DayIdx) -> Option<NaiveDate> {
     let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)?;
     epoch.checked_add_signed(chrono::Duration::days(i64::from(day)))
@@ -702,20 +863,37 @@ fn date_for_day(day: DayIdx) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::runs::RunStatus;
+
+    fn sql_fragment_names(fragment: &str) -> impl Iterator<Item = &str> {
+        fragment
+            .trim_matches(|c| c == '(' || c == ')')
+            .split(',')
+            .map(|token| token.trim().trim_matches('\''))
+    }
+
+    #[test]
+    fn seedable_run_statuses_sql_names_exactly_the_seed_phase_statuses() {
+        let named = sql_fragment_names(SEEDABLE_RUN_STATUSES_SQL)
+            .map(|status| status.parse::<RunStatus>())
+            .collect::<Result<Vec<_>, _>>()
+            .expect("SQL fragment names a non-vocabulary run status");
+        for status in RunStatus::ALL {
+            assert_eq!(
+                named.contains(&status),
+                status.seed_phase().is_some(),
+                "{status:?} disagrees between the SQL fragment and seed_phase()"
+            );
+        }
+    }
 
     #[test]
     fn hoisted_status_fragments_only_name_live_chunk_statuses() {
-        for fragment in [ACTIVE_STATUSES_SQL, RETRYABLE_STATUSES_SQL] {
-            let statuses = fragment
-                .trim_matches(|c| c == '(' || c == ')')
-                .split(',')
-                .map(|token| token.trim().trim_matches('\''));
-            for status in statuses {
-                assert!(
-                    status.parse::<ChunkStatus>().is_ok(),
-                    "SQL fragment names non-vocabulary status {status:?}"
-                );
-            }
+        for status in sql_fragment_names(ACTIVE_STATUSES_SQL) {
+            assert!(
+                status.parse::<ChunkStatus>().is_ok(),
+                "SQL fragment names non-vocabulary status {status:?}"
+            );
         }
     }
 }

@@ -354,7 +354,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Notifications',
-                            path: returnTo,
+                            path: returnTo ?? urls.destinations('notifications'),
                         },
                         finalCrumb,
                     ]
@@ -433,6 +433,8 @@ function HogFunctionHeader(): JSX.Element {
             <SceneTitleSection
                 name={configuration.name}
                 description={configuration.description || ''}
+                markdown
+                descriptionAlwaysVisible
                 resourceType={{
                     type: 'data_pipeline',
                     forceIcon: (

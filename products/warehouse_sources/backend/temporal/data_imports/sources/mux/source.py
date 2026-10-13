@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -46,7 +44,7 @@ class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MUX,
+            name=ExternalDataSourceType.MUX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mux",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -56,7 +54,7 @@ Create an access token under [Settings → Access Tokens](https://dashboard.mux.
 
 Grant the following read permissions:
 - **Mux Video** (read) — required for assets, live streams, uploads, playback restrictions and transcription vocabularies
-- **Mux Data** (read) — required for video views, errors and aggregate metrics (watch time, plays, viewer experience)
+- **Mux Data** (read) — required for video views, errors, aggregate metrics (watch time, plays, viewer experience), metric timeseries and breakdowns, and dimensions
 - **Mux System** (read) — required for signing keys
 """,
             iconPath="/static/services/mux.png",
@@ -98,6 +96,27 @@ Grant the following read permissions:
             # fixed by retrying. Match the stable status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.mux.com": "Your Mux access token is invalid or has been revoked. Create a new access token in your Mux dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.mux.com": "Your Mux access token is missing the read permissions needed to sync this data. Grant Mux Video, Mux Data and Mux System read access, then reconnect.",
+            # A Mux Data endpoint returns a 400 with `type: invalid_timeframe` when the requested
+            # `timeframe[]` window reaches past the history the account keeps. Mux Data retention
+            # depends on the plan, so the same window can succeed for one account and be rejected by
+            # another; the request never becomes valid on retry. The REST engine appends the Mux error
+            # `type` to the message as `code=invalid_timeframe`, so match that.
+            "code=invalid_timeframe": (
+                "Mux rejected the time range this sync requested as invalid. This usually means the range "
+                "reaches further back than your Mux plan keeps. Check your Mux Data retention window, or "
+                "contact PostHog support if this keeps happening."
+            ),
+            # Some Mux Data accounts reject `max_request_latency` timeseries queries with a 400 and
+            # the generic `code=bad_request` (no specific sub-code), regardless of the timeframe —
+            # every request/credential/scope here is otherwise valid, so retrying replays the same
+            # rejection. Matched on the path plus the query prefix (not just `code=bad_request`,
+            # which Mux also returns for genuinely malformed requests on other endpoints) so a 5xx/
+            # timeout for this same URL — whose message carries no query string — stays retryable.
+            "metrics/max_request_latency/timeseries?timeframe": (
+                "Mux rejected the request-latency metric sync for this account. This can happen when "
+                "the account's Mux Data plan doesn't include request-latency metrics. Contact PostHog "
+                "support if this keeps happening."
+            ),
         }
 
     def get_schemas(

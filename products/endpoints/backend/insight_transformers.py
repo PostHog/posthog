@@ -20,9 +20,11 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
 
 if TYPE_CHECKING:
-    from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-    from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
-    from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+    from products.product_analytics.backend.facade.queries import (
+        LifecycleQueryRunner,
+        RetentionQueryRunner,
+        TrendsQueryRunner,
+    )
 
     InsightRunner = Union["LifecycleQueryRunner", "RetentionQueryRunner", "TrendsQueryRunner"]
 
@@ -49,7 +51,7 @@ def transform_materialized_insight_response(
         result: The result.data dict from _execute_query_and_respond(). Modified in-place.
         original_query: The original insight query definition (TrendsQuery, etc.)
         team: The team for query runner context.
-        now: Pin date range to this timestamp (e.g., saved_query.last_run_at) instead of datetime.now().
+        now: Pin date range to the materialization time instead of datetime.now().
     """
     query_kind = original_query.get("kind")
 
@@ -82,6 +84,12 @@ def _make_runner(original_query: dict, team: Team, now: datetime | None = None) 
         # Pin the date range to materialization time so response labels reflect
         # when the data was snapshotted, not when the request was served.
         runner.query_date_range.pin_now(now)
+        if (
+            original_query.get("kind") == "TrendsQuery"
+            and runner.query.compareFilter is not None
+            and runner.query.compareFilter.compare
+        ):
+            runner.query_previous_date_range.pin_now(now)
     return runner
 
 
@@ -182,6 +190,12 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
 
     columns = result.get("columns", [])
     rows = result.get("results", [])
+
+    if runner.query.compareFilter is not None and runner.query.compareFilter.compare:
+        result["resolved_compare_date_range"] = {
+            "date_from": runner.query_previous_date_range.date_from(),
+            "date_to": runner.query_previous_date_range.date_to(),
+        }
 
     if not rows:
         result["results"] = []

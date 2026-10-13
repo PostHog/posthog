@@ -19,8 +19,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--kind",
             type=str,
-            help="Whether to migrate destinations or transformations",
-            choices=["destination", "transformation"],
+            help="Whether to migrate destinations, transformations or site apps",
+            choices=["destination", "transformation", "site_app"],
         )
         parser.add_argument("--batch-size", type=int, help="The number of plugins to migrate at a time", default=100)
         parser.add_argument("--limit", type=int, help="The number of plugins to migrate", default=None)

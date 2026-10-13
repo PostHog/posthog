@@ -1,14 +1,29 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_GROUP_TYPES } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { dayjs } from 'lib/dayjs'
+
 import { useMocks } from '~/mocks/jest'
+import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType, ScheduledChangeOperationType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecurrenceInterval,
+    ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
+    ScheduledChangeType,
+} from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
+import { makeScheduledChange } from './makeScheduledChange'
 
 jest.mock('./FeatureFlagReleaseConditionsCollapsible', () => ({
     FeatureFlagReleaseConditionsCollapsible: () => null,
@@ -22,12 +37,28 @@ const MULTIVARIATE_FILTERS: FeatureFlagType['filters']['multivariate'] = {
     ],
 }
 
+/** The banner's sentence also lives in the live region beside it, so banner queries skip that node. */
+const IGNORE_LIVE_REGION = { ignore: '[aria-live]' }
+
+const PERSON_FILTER: AnyPropertyFilter = {
+    key: 'email',
+    value: 'a',
+    type: PropertyFilterType.Person,
+    operator: PropertyOperator.Exact,
+}
+
 function buildFeatureFlag({
     active,
     rolloutPercentage,
+    aggregationGroupTypeIndex,
+    flagAggregationGroupTypeIndex,
+    properties = [],
 }: {
     active: boolean
     rolloutPercentage: number | null
+    aggregationGroupTypeIndex?: number | null
+    flagAggregationGroupTypeIndex?: number | null
+    properties?: AnyPropertyFilter[]
 }): FeatureFlagType {
     return {
         ...NEW_FLAG,
@@ -35,10 +66,26 @@ function buildFeatureFlag({
         active,
         filters: {
             ...NEW_FLAG.filters,
-            groups: [{ properties: [], rollout_percentage: rolloutPercentage, variant: null }],
+            aggregation_group_type_index: flagAggregationGroupTypeIndex,
+            groups: [
+                {
+                    properties,
+                    rollout_percentage: rolloutPercentage,
+                    variant: null,
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
+                },
+            ],
             multivariate: MULTIVARIATE_FILTERS,
         },
     }
+}
+
+function stepLineStart(timeline: Element): { x: number; y: number } {
+    const starts = [...timeline.querySelectorAll('path')].map((path) => {
+        const [, x, y] = path.getAttribute('d')!.split(' ')
+        return { x: Number(x), y: Number(y) }
+    })
+    return starts.reduce((leftmost, point) => (point.x < leftmost.x ? point : leftmost))
 }
 
 describe('FeatureFlagSchedule', () => {
@@ -59,6 +106,23 @@ describe('FeatureFlagSchedule', () => {
             logic.actions.setFeatureFlag(featureFlag)
             logic.actions.setScheduledChangeOperation(operation)
         })
+    }
+
+    function scheduleConditionAdd(rolloutPercentage: number, aggregationGroupTypeIndex?: number | null): void {
+        featureFlagLogic(logicProps).actions.setSchedulePayload(
+            {
+                groups: [
+                    {
+                        properties: [],
+                        rollout_percentage: rolloutPercentage,
+                        variant: null,
+                        aggregation_group_type_index: aggregationGroupTypeIndex,
+                    },
+                ],
+                multivariate: null,
+            },
+            null
+        )
     }
 
     beforeEach(() => {
@@ -83,6 +147,54 @@ describe('FeatureFlagSchedule', () => {
         cleanup()
     })
 
+    // A bad sum is only rejected when the change fires, long after it was scheduled.
+    it.each([
+        {
+            name: 'sums to 100',
+            percentages: [50, 50],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: false,
+        },
+        {
+            name: 'falls short',
+            percentages: [50, 20],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: true,
+        },
+        {
+            name: 'exceeds 100',
+            percentages: [60, 60],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: true,
+        },
+        // Variants are read from the flag whatever the operation, so a legacy flag stored at 70
+        // must still be schedulable for a change that leaves them alone.
+        {
+            name: 'falls short but the operation leaves variants untouched',
+            percentages: [50, 20],
+            operation: ScheduledChangeOperationType.UpdateStatus,
+            expectedDisabled: false,
+        },
+    ])('variant rollout $name: Schedule disabled=$expectedDisabled', ({ percentages, operation, expectedDisabled }) => {
+        const featureFlag = buildFeatureFlag({ active: true, rolloutPercentage: 100 })
+        featureFlag.filters.multivariate = {
+            variants: percentages.map((rollout_percentage, index) => ({
+                key: `variant-${index}`,
+                name: '',
+                rollout_percentage,
+            })),
+        }
+        renderSchedule(featureFlag, operation)
+
+        act(() => {
+            featureFlagLogic(logicProps).actions.setScheduleDateMarker(dayjs('2030-01-01T00:00:00Z'))
+        })
+
+        // LemonButton uses aria-disabled, not the disabled attribute.
+        const scheduleButton = screen.getByText('Schedule').closest('button')
+        expect(scheduleButton).toHaveAttribute('aria-disabled', String(expectedDisabled))
+    })
+
     it.each([
         {
             name: 'disabled flag',
@@ -98,6 +210,281 @@ describe('FeatureFlagSchedule', () => {
         renderSchedule(featureFlag, ScheduledChangeOperationType.UpdateVariants)
 
         expect(screen.getByText(new RegExp(expectedText))).toBeInTheDocument()
+    })
+
+    const conditionAddCases: {
+        name: string
+        active?: boolean
+        currentRollout: number
+        currentGroupTypeIndex?: number | null
+        scheduledGroupTypeIndex?: number | null
+        scheduledRollout: number
+        expectWarning: boolean
+    }[] = [
+        { name: 'below the current rollout', currentRollout: 100, scheduledRollout: 25, expectWarning: true },
+        { name: 'level with the current rollout', currentRollout: 40, scheduledRollout: 40, expectWarning: true },
+        { name: 'above the current rollout', currentRollout: 40, scheduledRollout: 60, expectWarning: false },
+        { name: 'left at the form default', currentRollout: 100, scheduledRollout: 0, expectWarning: false },
+        {
+            name: 'covered only by a condition on another aggregation target',
+            currentRollout: 100,
+            currentGroupTypeIndex: 0,
+            scheduledRollout: 25,
+            expectWarning: false,
+        },
+        {
+            name: 'scheduled on another aggregation target',
+            currentRollout: 100,
+            scheduledGroupTypeIndex: 0,
+            scheduledRollout: 25,
+            expectWarning: false,
+        },
+        {
+            name: 'covered by a condition on its own aggregation target',
+            currentRollout: 100,
+            currentGroupTypeIndex: 0,
+            scheduledGroupTypeIndex: 0,
+            scheduledRollout: 25,
+            expectWarning: true,
+        },
+        { name: 'on a disabled flag', active: false, currentRollout: 100, scheduledRollout: 25, expectWarning: true },
+    ]
+
+    it.each(conditionAddCases)(
+        'condition add $name: warns=$expectWarning',
+        ({
+            active = true,
+            currentRollout,
+            currentGroupTypeIndex,
+            scheduledGroupTypeIndex,
+            scheduledRollout,
+            expectWarning,
+        }) => {
+            renderSchedule(
+                buildFeatureFlag({
+                    active,
+                    rolloutPercentage: currentRollout,
+                    aggregationGroupTypeIndex: currentGroupTypeIndex,
+                }),
+                ScheduledChangeOperationType.AddReleaseCondition
+            )
+
+            act(() => {
+                scheduleConditionAdd(scheduledRollout, scheduledGroupTypeIndex)
+            })
+
+            const warning = screen.queryByText(/^This flag (already serves|is disabled)/, IGNORE_LIVE_REGION)
+            expect(!!warning).toEqual(expectWarning)
+        }
+    )
+
+    it.each([
+        {
+            name: 'an active flag aggregating on persons',
+            active: true,
+            flagAggregationGroupTypeIndex: undefined,
+            expectedText: 'This flag already serves 100% of all users,',
+        },
+        {
+            name: 'an active flag aggregating on a group type',
+            active: true,
+            flagAggregationGroupTypeIndex: 0,
+            expectedText: 'This flag already serves 100% of all organizations,',
+        },
+        {
+            name: 'a disabled flag',
+            active: false,
+            flagAggregationGroupTypeIndex: undefined,
+            expectedText: 'This flag is disabled, but it is already set to serve 100% of all users,',
+        },
+    ])(
+        'condition add warning on $name reads "$expectedText"',
+        ({ active, flagAggregationGroupTypeIndex, expectedText }) => {
+            renderSchedule(
+                buildFeatureFlag({ active, rolloutPercentage: 100, flagAggregationGroupTypeIndex }),
+                ScheduledChangeOperationType.AddReleaseCondition
+            )
+
+            act(() => {
+                groupsModel.actions.loadAllGroupTypesSuccess(MOCK_GROUP_TYPES)
+                scheduleConditionAdd(25)
+            })
+
+            expect(
+                screen.getByText(/^This flag (already serves|is disabled)/, IGNORE_LIVE_REGION).closest('.LemonBanner')
+            ).toHaveTextContent(expectedText)
+            // The live region carries its own copy of the sentence, so assert it says the same thing.
+            // A reader who never sees the banner gets this instead.
+            const announced = document.querySelector('[aria-live="polite"]')
+            expect(announced).toHaveTextContent(expectedText)
+            expect(announced).toHaveTextContent('A condition at 25% will not change who sees the flag.')
+        }
+    )
+
+    it('leaves the live region mounted and empty when the warning does not apply', () => {
+        // A region that appears already populated is not announced, so it cannot mount with the banner.
+        renderSchedule(
+            buildFeatureFlag({ active: true, rolloutPercentage: 40 }),
+            ScheduledChangeOperationType.AddReleaseCondition
+        )
+
+        act(() => {
+            scheduleConditionAdd(60)
+        })
+
+        expect(screen.queryByText(/This flag already serves/, IGNORE_LIVE_REGION)).not.toBeInTheDocument()
+        expect(document.querySelector('[aria-live="polite"]')).toBeEmptyDOMElement()
+    })
+
+    // useMocks trips the hooks naming lint inside named helpers, so each test registers
+    // its own mock before calling this.
+    const renderWithSchedules = (): void => {
+        renderSchedule(
+            buildFeatureFlag({ active: false, rolloutPercentage: 100 }),
+            ScheduledChangeOperationType.UpdateStatus
+        )
+        act(() => {
+            featureFlagLogic(logicProps).actions.loadScheduledChanges()
+        })
+    }
+
+    const addConditionChange = (rolloutPercentage: number, daysFromNow: number): ScheduledChangeType =>
+        makeScheduledChange({
+            scheduled_at: dayjs().add(daysFromNow, 'day').toISOString(),
+            payload: {
+                operation: ScheduledChangeOperationType.AddReleaseCondition,
+                value: { groups: [{ properties: [], rollout_percentage: rolloutPercentage, variant: null }] },
+            },
+        })
+
+    const schedulesMock = (
+        schedules: ScheduledChangeType[]
+    ): Record<string, () => [number, { results: ScheduledChangeType[] }]> => ({
+        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/scheduled_changes`]: () => [200, { results: schedules }],
+    })
+
+    it('gives a viewer without edit rights the banner and no way into the form', async () => {
+        // Three separate conditions gate what this user sees: the banner, the collapsed-form
+        // button, and the form itself. A regression in any one of them hands a viewer a form whose
+        // submit the API rejects.
+        useMocks({ get: schedulesMock([makeScheduledChange({})]) })
+        const featureFlag = buildFeatureFlag({ active: false, rolloutPercentage: 100 })
+        renderWithSchedules()
+        // One schedule collapses the form, so the button's own can_edit check is what hides it here.
+        await screen.findByText('Active & upcoming')
+        // Set can_edit last. The mount loads a flag of its own, and that response would overwrite
+        // an earlier value during the await above.
+        act(() => {
+            featureFlagLogic(logicProps).actions.setFeatureFlag({ ...featureFlag, can_edit: false })
+        })
+
+        expect(screen.getByText(/You don't have the necessary permissions/)).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')).not.toBeInTheDocument()
+        expect(
+            screen.queryByText('Automatically change flag properties at a future point in time.')
+        ).not.toBeInTheDocument()
+    })
+
+    it('collapses the creation form behind a button when schedules exist, and toggles via the button and close', async () => {
+        useMocks({ get: schedulesMock([makeScheduledChange({})]) })
+        renderWithSchedules()
+
+        const formHint = 'Automatically change flag properties at a future point in time.'
+        await screen.findByText('Active & upcoming')
+        expect(screen.queryByText(formHint)).not.toBeInTheDocument()
+
+        fireEvent.click(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')!)
+        expect(screen.getByText(formHint)).toBeInTheDocument()
+
+        fireEvent.click(document.querySelector('[data-attr="feature-flag-close-schedule-form"]')!)
+        expect(screen.queryByText(formHint)).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')).toBeInTheDocument()
+    })
+
+    it('opens the step line at the first scheduled level when only a targeted condition covers the flag', async () => {
+        useMocks({
+            get: schedulesMock([addConditionChange(25, 30), addConditionChange(50, 60)]),
+        })
+        renderWithSchedules()
+        await screen.findByText('What happens next')
+        // The mount loads a flag of its own. Set the targeted condition after that load settles.
+        act(() => {
+            featureFlagLogic(logicProps).actions.setFeatureFlag(
+                buildFeatureFlag({ active: true, rolloutPercentage: 100, properties: [PERSON_FILTER] })
+            )
+        })
+
+        const timeline = document.querySelector('[data-attr="feature-flag-schedule-timeline"]')!
+        const firstMark = timeline.querySelector('circle')!
+        expect(stepLineStart(timeline)).toEqual({
+            x: Number(firstMark.getAttribute('cx')),
+            y: Number(firstMark.getAttribute('cy')),
+        })
+    })
+
+    describe('approval visibility', () => {
+        it('shows the Needs approval tag and an approval link for a pending gated schedule', async () => {
+            useMocks({
+                get: schedulesMock([
+                    makeScheduledChange({
+                        change_request: { id: 'cr-pending', state: ScheduledChangeRequestState.Pending },
+                    }),
+                ]),
+            })
+            renderWithSchedules()
+
+            expect(await screen.findByText('Needs approval')).toBeInTheDocument()
+            const link = screen.getByText('View approval request').closest('a')
+            // The router prefixes links with the current project path, so match the suffix only.
+            expect(link?.getAttribute('href')).toMatch(/\/approvals\/cr-pending$/)
+        })
+
+        it.each([
+            { state: ScheduledChangeRequestState.Rejected, expectedTag: 'Rejected' },
+            { state: ScheduledChangeRequestState.Expired, expectedTag: 'Approval expired' },
+        ])('lists a $state one-time schedule in history with a $expectedTag tag', async ({ state, expectedTag }) => {
+            useMocks({ get: schedulesMock([makeScheduledChange({ change_request: { id: 'cr-denied', state } })]) })
+            renderWithSchedules()
+
+            fireEvent.click(await screen.findByText('History (1)'))
+
+            expect(await screen.findByText(expectedTag)).toBeInTheDocument()
+            expect(screen.queryByText('Active & upcoming')).not.toBeInTheDocument()
+        })
+
+        it.each([
+            { state: ScheduledChangeRequestState.Rejected, expectedTag: 'Rejected' },
+            { state: ScheduledChangeRequestState.Expired, expectedTag: 'Approval expired' },
+        ])(
+            'keeps a recurring schedule with a $state approval active but tags it $expectedTag',
+            async ({ state, expectedTag }) => {
+                useMocks({
+                    get: schedulesMock([
+                        makeScheduledChange({
+                            is_recurring: true,
+                            recurrence_interval: RecurrenceInterval.Daily,
+                            change_request: { id: 'cr-recurring', state },
+                        }),
+                    ]),
+                })
+                renderWithSchedules()
+
+                expect(await screen.findByText(expectedTag)).toBeInTheDocument()
+                expect(screen.getByText('Active & upcoming')).toBeInTheDocument()
+                expect(screen.queryByText(/^History \(/)).not.toBeInTheDocument()
+                // The link is the way to unblock a stalled recurring schedule.
+                expect(screen.getByText('View approval request')).toBeInTheDocument()
+            }
+        )
+
+        it('shows the failure reason as visible text on an errored schedule', async () => {
+            const failureReason = 'Feature flag not found (will retry automatically, 2 attempts remaining)'
+            useMocks({ get: schedulesMock([makeScheduledChange({ failure_reason: failureReason })]) })
+            renderWithSchedules()
+
+            expect(await screen.findByText('Error')).toBeInTheDocument()
+            expect(screen.getByText(failureReason)).toBeVisible()
+        })
     })
 
     it.each([

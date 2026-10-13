@@ -13,6 +13,15 @@ The `SessionRecordingIngester` consumes session recording events from Kafka and:
 - **Extracts console logs** for separate storage and search
 - **Handles failures** via dead letter queue and overflow topics
 
+## Navigation URLs
+
+Navigation URL extraction ignores `$json_ld` custom events, so their URLs do not add page visits or clear pending dead-click detection.
+Other events retain the existing extraction behavior: read `data.href`, then fall back to `data.payload.href`.
+This includes the `$pageview` and `$url_changed` custom events used for SPA navigation.
+
+The ML mirror extracts URL metadata separately through the native anonymizer.
+A URL on a mirrored JSON-LD event identifies its page; it does not represent a navigation.
+
 ## Local Development
 
 ### Prerequisites
@@ -28,10 +37,10 @@ The `SessionRecordingIngester` consumes session recording events from Kafka and:
    hogli dev:setup
    ```
 
-   Or manually:
+   Or manually, with the profile that carries the DynamoDB the keystore tests need:
 
    ```bash
-   docker compose -f docker-compose.dev.yml up
+   docker compose -f docker-compose.dev.yml --profile dynamodb up
    ```
 
 2. Set up the test database (creates test_posthog DB and runs migrations):

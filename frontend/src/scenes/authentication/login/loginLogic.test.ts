@@ -4,7 +4,7 @@ import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
+import { handleLoginRedirect, loginLogic, redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
@@ -153,12 +153,16 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('auto-triggers the passkey prompt on non-WebKit browsers', async () => {
+        it('auto-triggers the passkey prompt once per email on non-WebKit browsers', async () => {
             logic.actions.precheck({ email: 'user@example.com' })
             // Drain the whole passkey flow (begin request included) so nothing leaks into the next test.
             await expectLogic(passkeyLogic)
                 .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
                 .toFinishAllListeners()
+            expect(beginHandler).toHaveBeenCalledTimes(1)
+
+            logic.actions.precheck({ email: 'user@example.com', autoAttempt: true })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             expect(beginHandler).toHaveBeenCalledTimes(1)
         })
 
@@ -202,11 +206,12 @@ describe('loginLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
 
             expect(logic.values.codeVerificationRequired).toBe(true)
-            expect(logic.values.generalError?.code).toBe('code_based_verification_sent')
+            expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+            expect(logic.values.generalError).toBe(null)
 
             logic.actions.exitCodeVerification()
             expect(logic.values.codeVerificationRequired).toBe(false)
-            expect(logic.values.generalError).toBe(null)
+            expect(logic.values.codeVerificationEmail).toBe(null)
         })
     })
 
@@ -281,6 +286,24 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'b@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             expect(precheckHandler).toHaveBeenCalledTimes(2)
+        })
+
+        it('prechecks the latest email only after typing pauses for 3 seconds', async () => {
+            jest.useFakeTimers()
+            try {
+                logic.actions.setLoginValue('email', 'a@example.co')
+                await jest.advanceTimersByTimeAsync(2999)
+                logic.actions.setLoginValue('email', 'a@example.com')
+                await jest.advanceTimersByTimeAsync(2999)
+                expect(precheckHandler).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(1)
+                expect(precheckHandler).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.precheckResponse).toMatchObject({ status: 'completed', email: 'a@example.com' })
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('retries a failed precheck instead of caching its fallback for the page session', async () => {
@@ -378,6 +401,17 @@ describe('loginLogic', () => {
         it('offers SAML for a passwordless account on a SAML domain', async () => {
             await precheck({ saml_available: true, password_login_available: false, social_providers: [] })
             expect(logic.values.availableLoginMethods).toEqual(['saml'])
+            expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+        })
+
+        it('offers OIDC for a passwordless account on an OIDC domain', async () => {
+            await precheck({
+                saml_available: false,
+                oidc_available: true,
+                password_login_available: false,
+                social_providers: [],
+            })
+            expect(logic.values.availableLoginMethods).toEqual(['oidc'])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
         })
 
@@ -542,6 +576,91 @@ describe('loginLogic', () => {
             router.actions.push(`/login?next=${encodeURIComponent('/project/phc_ABC123/pipeline/destinations')}`)
             handleLoginRedirect()
             expect(hrefSpy).toHaveBeenCalledWith('/project/phc_ABC123/pipeline/destinations')
+        })
+    })
+
+    describe('redirectAfterLogin', () => {
+        const originalLocation = window.location
+        let replaceSpy: jest.Mock
+        let assignSpy: jest.Mock
+        let reloadSpy: jest.Mock
+
+        beforeEach(() => {
+            initKeaTests()
+            replaceSpy = jest.fn()
+            assignSpy = jest.fn()
+            reloadSpy = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: {
+                    origin: 'http://localhost',
+                    pathname: '/login',
+                    search: '',
+                    hash: '',
+                    replace: replaceSpy,
+                    assign: assignSpy,
+                    reload: reloadSpy,
+                },
+                configurable: true,
+            })
+        })
+
+        afterEach(() => {
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        })
+
+        it('lands on the app root in a single document load', () => {
+            router.actions.push('/login')
+            redirectAfterLogin()
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+            // A second navigation would cancel every chunk the first boot had started fetching
+            expect(reloadSpy).not.toHaveBeenCalled()
+        })
+
+        it('takes the place of the login entry, so Back does not return to it', () => {
+            router.actions.push('/login')
+            redirectAfterLogin()
+            expect(assignSpy).not.toHaveBeenCalled()
+        })
+
+        it('lands on the next path, keeping its query and hash', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights?foo=bar')}#tab=raw`)
+            redirectAfterLogin()
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
+        })
+
+        it('ignores a next path pointing at another origin', () => {
+            router.actions.push('/login?next=//google.com')
+            redirectAfterLogin()
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('prefers an explicit destination over the next path', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights')}`)
+            redirectAfterLogin('/project/5/replay/home')
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/replay/home')
+        })
+
+        it('rejects an explicit cross-origin destination', () => {
+            router.actions.push('/login')
+            redirectAfterLogin('https://evil.example/steal')
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('rejects a protocol-relative cross-origin destination', () => {
+            router.actions.push('/login')
+            redirectAfterLogin('//evil.example/steal')
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('accepts an absolute destination on our own origin, as its path', () => {
+            // The guard must not over-reject: a same-origin absolute URL is a legitimate
+            // destination, and it arrives as a path.
+            router.actions.push('/login')
+            redirectAfterLogin('http://localhost/project/5/insights?foo=bar#tab=raw')
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
         })
     })
 })

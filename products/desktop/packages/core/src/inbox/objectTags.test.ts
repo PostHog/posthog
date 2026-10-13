@@ -24,6 +24,12 @@ describe("parseObjectTags", () => {
     ]);
   });
 
+  it("keeps Inbox reports distinct from support tickets", () => {
+    expect(tags('<report id="rep-1">Latency regression</report>')).toEqual([
+      { kind: "report", id: "rep-1", label: "Latency regression" },
+    ]);
+  });
+
   it("uses the body as the label for an open/close tag", () => {
     expect(tags('<insight id="9pQx3">checkout funnel</insight>')).toEqual([
       { kind: "insight", id: "9pQx3", label: "checkout funnel" },
@@ -67,6 +73,7 @@ describe("parseObjectTags", () => {
 describe("objectWebPath", () => {
   it("builds a page path for a known kind", () => {
     expect(objectWebPath("insight", "9pQx3")).toBe("/insights/9pQx3");
+    expect(objectWebPath("report", "rep-1")).toBe("/inbox/rep-1");
   });
 
   it("returns null for a flag cited by key", () => {

@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
 from parameterized import parameterized
@@ -11,8 +11,8 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.posthog_client import _PostHogClientActivityInboundInterceptor
 
 
-def _wrapped_by_django(message: str, cause: Exception) -> OperationalError:
-    error = OperationalError(message)
+def _wrapped_by_django(message: str, cause: Exception, error_cls: type[Exception] = OperationalError) -> Exception:
+    error = error_cls(message)
     error.__cause__ = cause
     return error
 
@@ -53,6 +53,27 @@ class TestTransientDatabaseErrorReporting:
                 _wrapped_by_django(
                     "terminating connection due to administrator command",
                     psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+                ),
+            ),
+            # psycopg classes read_only_sql_transaction (a primary briefly refusing writes mid
+            # failover) under its own InternalError, not OperationalError — Django follows suit.
+            (
+                "read_only_transaction_failover",
+                _wrapped_by_django(
+                    "cannot execute SELECT FOR UPDATE in a read-only transaction",
+                    psycopg.errors.ReadOnlySqlTransaction(
+                        "cannot execute SELECT FOR UPDATE in a read-only transaction"
+                    ),
+                    error_cls=InternalError,
+                ),
+            ),
+            # Code using a raw psycopg connection instead of Django's ORM (e.g. the
+            # warehouse-sources postgres queue producer) raises psycopg's own exception classes
+            # directly, never wrapped in Django's OperationalError/InterfaceError/InternalError.
+            (
+                "native_psycopg_pgbouncer_login_retry",
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
                 ),
             ),
         ]

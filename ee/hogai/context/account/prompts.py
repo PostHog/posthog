@@ -5,6 +5,7 @@ ACCOUNT_CONTEXT_TEMPLATE = """
 **External ID:** {external_id}
 **Created:** {created_at}
 **Churned:** {churned_at}
+**Tracking:** {ignored_at}
 {roles_section}
 {external_ids_section}
 {tags_section}

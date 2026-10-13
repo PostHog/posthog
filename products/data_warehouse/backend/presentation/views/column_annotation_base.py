@@ -7,10 +7,10 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.warehouse_sources.backend.facade.models import WarehouseColumnAnnotation
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 # Both annotation models reuse this provenance enum, so the two surfaces never drift.
-DescriptionSource = WarehouseColumnAnnotation.DescriptionSource
+DescriptionSource = WarehouseColumnAnnotationDescriptionSource
 
 # Untrusted-content warning surfaced to MCP clients via the generated tool schema — the description is
 # user- or source-supplied and must never be treated as instructions.

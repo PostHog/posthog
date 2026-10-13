@@ -10,13 +10,14 @@ def _source_schema(*, catalog=None, schema=None, table=None):
 
 
 class TestDirectQueryEngineRegistry:
-    @parameterized.expand(["postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"])
+    @parameterized.expand(["postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck", "trino"])
     def test_known_engine_resolves(self, engine: str):
         adapter = get_direct_query_engine(engine)
         assert adapter is not None
         assert adapter.engine == engine
 
-    @parameterized.expand([("none", None), ("unknown", "bigquery")])
+    # BigQuery is direct-capable but registers no materialization engine; the setup flow skips table registration.
+    @parameterized.expand([("none", None), ("raw_only_bigquery", "bigquery"), ("unknown", "sqlite")])
     def test_non_direct_engine_returns_none(self, _name: str, engine):
         assert get_direct_query_engine(engine) is None
 
@@ -30,6 +31,7 @@ class TestDirectQueryEngineRegistry:
             ("redshift", False),
             ("clickhouse", False),
             ("motherduck", False),
+            ("trino", False),
         ]
     )
     def test_resolves_location_in_warehouse_mode(self, engine: str, expected: bool):
@@ -45,6 +47,7 @@ class TestDirectQueryEngineRegistry:
             ("snowflake", ("db", "public", "users")),
             ("redshift", ("db", "public", "users")),
             ("motherduck", ("db", "public", "users")),
+            ("trino", ("db", "public", "users")),
             ("mysql", (None, "public", "users")),
             # ClickHouse has no catalog level — the database occupies the "schema" slot.
             ("clickhouse", (None, "public", "users")),
@@ -87,7 +90,7 @@ class TestDirectQueryEngineRegistry:
         )
         assert location == ("WAREHOUSE", "analytics", "events")
 
-    @parameterized.expand(["mysql", "snowflake", "redshift", "clickhouse", "motherduck"])
+    @parameterized.expand(["mysql", "snowflake", "redshift", "clickhouse", "motherduck", "trino"])
     def test_non_postgres_engines_return_no_name_substitutions(self, engine: str):
         # Returning None (not {}) is the sentinel that makes the view fall through to the generic
         # multi-schema migration path; only Postgres has bespoke legacy-row remapping.

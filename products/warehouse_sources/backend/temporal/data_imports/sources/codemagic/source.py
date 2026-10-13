@@ -1,22 +1,22 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.codemagic import (
     CodemagicResumeConfig,
     codemagic_source,
     validate_credentials as validate_codemagic_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -39,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CodemagicSource(ResumableSource[CodemagicSourceConfig, CodemagicResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.codemagic.io/rest-api/codemagic-rest-api/"
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -47,7 +49,7 @@ class CodemagicSource(ResumableSource[CodemagicSourceConfig, CodemagicResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODEMAGIC,
+            name=ExternalDataSourceType.CODEMAGIC,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["ci/cd", "mobile ci/cd"],
             label="Codemagic",
@@ -108,7 +110,7 @@ Supported tables:
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_codemagic_credentials(config.api_token)
+        return validate_codemagic_credentials(config.api_token, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CodemagicResumeConfig]:
         return ResumableSourceManager[CodemagicResumeConfig](inputs, CodemagicResumeConfig)
@@ -125,4 +127,5 @@ Supported tables:
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

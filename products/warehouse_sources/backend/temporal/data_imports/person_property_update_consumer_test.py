@@ -35,13 +35,15 @@ class TestBuildCaptureKwargs:
             "event_name": "$set",
             "event_source": "x",
             "distinct_id": "42",
-            "properties": {"$set": {"plan_tier": "pro"}},
+            "properties": {"$set": {"plan_tier": "pro"}, "$geoip_disable": True},
             "process_person_profile": True,
         }
 
     def test_group_message_maps_to_groupidentify(self):
         # Regression: a group message must become a $groupidentify with $group_type/$group_key/$group_set
-        # and process_person_profile=False, mirroring the canonical group-identify write.
+        # and process_person_profile=True. With false, ingestion drops the event before the group
+        # upsert (invalid_event_when_process_person_profile_is_false), so the sync reports success
+        # while writing nothing to the group.
         kwargs = build_capture_kwargs(
             {
                 "token": "tok",
@@ -58,8 +60,13 @@ class TestBuildCaptureKwargs:
             "event_name": "$groupidentify",
             "event_source": EVENT_SOURCE,
             "distinct_id": "team-uuid",
-            "properties": {"$group_type": "organization", "$group_key": "acme", "$group_set": {"plan_tier": "pro"}},
-            "process_person_profile": False,
+            "properties": {
+                "$group_type": "organization",
+                "$group_key": "acme",
+                "$group_set": {"plan_tier": "pro"},
+                "$geoip_disable": True,
+            },
+            "process_person_profile": True,
         }
 
     @parameterized.expand(

@@ -49,11 +49,11 @@
         "ts-jest": "^29.1.2",
         "typescript": "^5.3.3"
     },
-    "engines": {
-        "node": ">= 24"
-    },
     "overrides": {
         "@actions/http-client": "^3.0.2",
         "undici": "^6.27.0"
+    },
+    "engines": {
+        "node": ">= 24"
     }
 }

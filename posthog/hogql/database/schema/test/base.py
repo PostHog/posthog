@@ -3,7 +3,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -118,7 +118,7 @@ class RevenueAnalyticsManagedViewsetsTestMixin(RevenueAnalyticsTestBase):
         super().tearDown()
 
     def create_and_materialize_viewsets(self):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
             )

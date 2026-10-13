@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from posthog.schema import AssistantTrendsQuery, Compare, DateRange, TrendsQuery
 
-from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+from posthog.hogql_queries.utils.breakdowns import humanize_breakdown_label
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
@@ -15,6 +15,12 @@ from .utils import (
     partial_bucket_note,
     strip_datetime_seconds,
 )
+
+
+def _format_range_bound(value: datetime | str) -> str:
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    return str(value.replace(microsecond=0))
 
 
 class TrendsResultsFormatter:
@@ -35,11 +41,15 @@ class TrendsResultsFormatter:
         results: list[dict[str, Any]],
         team: Optional[Team] = None,
         utc_now_datetime: Optional[datetime] = None,
+        resolved_date_range: Optional[dict[str, Any]] = None,
+        resolved_compare_date_range: Optional[dict[str, Any]] = None,
     ):
         self._query = query
         self._results = results
         self._team = team
         self._utc_now_datetime = utc_now_datetime or datetime.now(UTC)
+        self._resolved_date_range = resolved_date_range
+        self._resolved_compare_date_range = resolved_compare_date_range
 
     def format(self) -> str:
         results = self._results
@@ -57,16 +67,23 @@ class TrendsResultsFormatter:
 
         # If there isn't data in comparison, the series will be omitted.
         if len(previous) > 0 and len(current) > 0:
-            template = f"Previous period:\n{self._format_results(previous)}\n\nCurrent period:\n{self._format_results(current)}"
+            # `action.days` holds the current period's days on both series, so aggregated rows take their range from the response.
+            previous_formatted = self._format_results(previous, self._resolved_compare_date_range)
+            current_formatted = self._format_results(current, self._resolved_date_range)
+            template = f"Previous period:\n{previous_formatted}\n\nCurrent period:\n{current_formatted}"
             return template
 
         return self._format_results(results)
 
-    def _format_aggregated_values(self, results: list[dict[str, Any]]) -> str:
+    def _format_aggregated_values(
+        self, results: list[dict[str, Any]], resolved_date_range: Optional[dict[str, Any]] = None
+    ) -> str:
         # Get dates and series labels
         result = results[0]
         dates = (result.get("action") or {}).get("days") or []
-        if len(dates) == 0:
+        if resolved_date_range and resolved_date_range.get("date_from") and resolved_date_range.get("date_to"):
+            range = f"{_format_range_bound(resolved_date_range['date_from'])} to {_format_range_bound(resolved_date_range['date_to'])}"
+        elif len(dates) == 0:
             range = "All time"
         else:
             range = f"{dates[0]} to {dates[-1]}"
@@ -83,7 +100,7 @@ class TrendsResultsFormatter:
 
         row = [range]
         for series in results:
-            row.append(format_number(series["aggregated_value"]))
+            row.append(format_number(series.get("aggregated_value")))
         matrix.append(row)
 
         return format_matrix(matrix)
@@ -150,11 +167,11 @@ class TrendsResultsFormatter:
 
         return humanize_breakdown_label(name)
 
-    def _format_results(self, results: list[dict]) -> str:
-        # Get dates and series labels
-        result = results[0]
-        aggregation_applied = result.get("aggregated_value") is not None
+    def _format_results(self, results: list[dict], resolved_date_range: Optional[dict[str, Any]] = None) -> str:
+        # Route on any aggregated series rather than the first, because a mixed set can lead
+        # with a time-series series while a later one carries the aggregate.
+        aggregation_applied = any(series.get("aggregated_value") is not None for series in results)
         if aggregation_applied:
-            return self._format_aggregated_values(results)
+            return self._format_aggregated_values(results, resolved_date_range)
         else:
             return self._format_non_aggregated_values(results)

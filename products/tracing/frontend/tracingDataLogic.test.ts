@@ -4,12 +4,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { NEW_QUERY_STARTED_ERROR_MESSAGE, tracingDataLogic } from './tracingDataLogic'
+import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
@@ -127,7 +128,12 @@ describe('tracingDataLogic', () => {
         it('ignores non-root spans when deriving the range', () => {
             const withChild = [
                 createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-                { ...createMockSpan('child-1', '2024-01-01T05:00:00Z'), parent_span_id: 'root-1', is_root_span: false },
+                {
+                    ...createMockSpan('child-1', '2024-01-01T05:00:00Z'),
+                    trace_id: 'trace-root-1',
+                    parent_span_id: 'root-1',
+                    is_root_span: false,
+                },
                 createMockSpan('root-2', '2024-01-01T01:00:00Z'),
             ]
             logic.actions.fetchSpansSuccess(withChild)
@@ -198,7 +204,12 @@ describe('tracingDataLogic', () => {
     describe('view mode', () => {
         const withChildSpans: Span[] = [
             createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-            { ...createMockSpan('child-1', '2024-01-01T00:00:01Z'), parent_span_id: 'root-1', is_root_span: false },
+            {
+                ...createMockSpan('child-1', '2024-01-01T00:00:01Z'),
+                trace_id: 'trace-root-1',
+                parent_span_id: 'root-1',
+                is_root_span: false,
+            },
             createMockSpan('root-2', '2024-01-01T01:00:00Z'),
         ]
 
@@ -230,7 +241,10 @@ describe('tracingDataLogic', () => {
             const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchSpans()
-            expect(listSpansSpy).toHaveBeenCalledWith(expect.objectContaining({ flatSpans: false }), expect.anything())
+            expect(listSpansSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ flatSpans: false, rootSpans: false }),
+                expect.anything()
+            )
             listSpansSpy.mockRestore()
         })
 
@@ -317,6 +331,19 @@ describe('tracingDataLogic', () => {
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
+
+        it('re-fetches the sparkline on an explicit refresh with an unchanged scope', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            // The refresh button asks for newer data without touching the filters, so the
+            // memoized scope must not stop it from hitting the endpoint again.
+            await expectLogic(logic, () => {
+                logic.actions.refreshQuery()
+            }).toDispatchActions(['fetchSparklineSuccess'])
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
+            sparklineSpy.mockRestore()
+        })
     })
 
     describe('loading state across superseded queries', () => {
@@ -363,6 +390,108 @@ describe('tracingDataLogic', () => {
                 fail(logic, 'boom')
                 expect(loadingValue(logic)).toBe(false)
                 apiSpy.mockRestore()
+            }
+        )
+    })
+
+    describe('query failures', () => {
+        let toastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            toastSpy.mockRestore()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])(
+            'sets the $name error instead of toasting once the retry also fails',
+            async ({ apiMethod, fetch, error }) => {
+                const apiSpy = jest.spyOn(api.tracing, apiMethod).mockRejectedValue(new Error('boom'))
+                logic = mountWithSpans([])
+
+                await fetch(logic).catch(() => {})
+
+                expect(apiSpy).toHaveBeenCalledTimes(2)
+                expect(error(logic)).toBe('boom')
+                expect(toastSpy).not.toHaveBeenCalled()
+            }
+        )
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                result: { results: [], hasMore: false },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                result: { results: [] },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])('recovers when the retry of a fast $name failure succeeds', async ({ apiMethod, result, fetch, error }) => {
+            const apiSpy = jest
+                .spyOn(api.tracing, apiMethod)
+                .mockRejectedValueOnce(new Error('boom'))
+                .mockResolvedValueOnce(result as any)
+            logic = mountWithSpans([])
+
+            await fetch(logic)
+
+            expect(apiSpy).toHaveBeenCalledTimes(2)
+            expect(error(logic)).toBeNull()
+        })
+
+        it('clears the spans error when the next query starts', () => {
+            jest.spyOn(api.tracing, 'listSpans').mockReturnValue(new Promise(() => {}) as any)
+            logic = mountWithSpans([])
+            logic.actions.fetchSpansFailure('boom')
+            expect(logic.values.spansError).toBe('boom')
+
+            logic.actions.fetchSpans()
+
+            expect(logic.values.spansError).toBeNull()
+        })
+    })
+
+    describe('cancelled requests', () => {
+        // A superseded query and a scene teardown both abort whatever is in flight. Neither is a
+        // fault the user can act on, so neither may reach them as a toast or land in error
+        // telemetry as a failed tracing query.
+        it.each([NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE])(
+            'does not report "%s" as a query failure',
+            (reason) => {
+                silenceKeaLoadersErrors()
+                const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+                const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+                logic = mountWithSpans([])
+
+                logic.actions.fetchSpansFailure(reason)
+
+                expect(toastSpy).not.toHaveBeenCalled()
+                expect(captureSpy).not.toHaveBeenCalledWith('tracing query failed', expect.anything())
+                toastSpy.mockRestore()
+                captureSpy.mockRestore()
             }
         )
     })
@@ -421,6 +550,45 @@ describe('tracingDataLogic', () => {
             } finally {
                 isolatedData.unmount()
                 isolatedFilters.unmount()
+            }
+        })
+    })
+
+    describe('refresh', () => {
+        // The sparkline, count and heatmap skip their fetch while the scope key is unchanged. A
+        // relative range ('-30M') holds that key identical however far the window has moved, so
+        // the refresh button reloaded the list while the chart and the "N traces" label stayed put.
+        // The default range is relative and open-ended ('-1h'), which is the case that broke.
+        it('refetches the count and sparkline when the user refreshes an unchanged relative range', async () => {
+            logic = mountWithSpans([])
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 1, traceCount: 1 })
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.runQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).toHaveBeenCalled()
+                countSpy.mockClear()
+                sparklineSpy.mockClear()
+
+                // A sort or view-mode toggle re-runs the query without changing scope — still skipped.
+                await expectLogic(logic, () => {
+                    logic.actions.runQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).not.toHaveBeenCalled()
+                expect(sparklineSpy).not.toHaveBeenCalled()
+
+                await expectLogic(logic, () => {
+                    logic.actions.refreshQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).toHaveBeenCalled()
+                expect(sparklineSpy).toHaveBeenCalled()
+            } finally {
+                listSpansSpy.mockRestore()
+                countSpy.mockRestore()
+                sparklineSpy.mockRestore()
             }
         })
     })

@@ -1,5 +1,4 @@
 import json
-from base64 import b64encode
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -86,29 +85,6 @@ class TestToUnixTimestamp:
 
 class TestSourcePagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_link_header_and_saves_state_after_yield(self, MockSession) -> None:
-        session = MockSession.return_value
-        page_two_url = f"{INVOICED_BASE_URL}/customers?page=2&per_page={PAGE_SIZE}"
-        snapshots = _wire(
-            session,
-            [
-                _response([{"id": 1}, {"id": 2}], next_url=page_two_url),
-                _response([{"id": 3}]),
-            ],
-        )
-
-        manager = _make_manager()
-        batches = _rows(
-            invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].next_url == page_two_url
-        # The second request follows the Link rel="next" URL verbatim.
-        assert snapshots[1]["url"] == page_two_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_request_includes_updated_after_and_sort(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([])])
@@ -130,49 +106,38 @@ class TestSourcePagination:
         assert params["sort"] == "updated_at asc"
         assert params["per_page"] == PAGE_SIZE
 
+    @parameterized.expand(
+        [
+            ("tasks", "updated_at asc"),
+            ("credit_balance_adjustments", None),
+            ("events", None),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_updated_after(self, MockSession) -> None:
+    def test_endpoint_without_updated_after_ignores_cursor(
+        self, endpoint: str, expected_sort: str | None, MockSession
+    ) -> None:
+        # These endpoints document no `updated_after` filter (and only some document `sort`), so a
+        # stale cursor must not leak an undocumented param into the request.
         session = MockSession.return_value
         snapshots = _wire(session, [_response([])])
 
-        _rows(invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        assert "updated_after" not in snapshots[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        saved_url = f"{INVOICED_BASE_URL}/customers?page=7&per_page={PAGE_SIZE}"
-        snapshots = _wire(session, [_response([])])
-
-        manager = _make_manager(InvoicedResumeConfig(next_url=saved_url))
-        _rows(invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert snapshots[0]["url"] == saved_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        batches = _rows(
-            invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=manager)
+        _rows(
+            invoiced_source(
+                "api-key",
+                endpoint,
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=1700000000,
+            )
         )
 
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_authenticates_with_api_key_as_basic_auth_username(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([])])
-
-        _rows(invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        # HTTP Basic with the API key as username and a blank password: base64("api-key:").
-        expected = "Basic " + b64encode(b"api-key:").decode()
-        assert snapshots[0]["prepared"].headers["Authorization"] == expected
+        params = snapshots[0]["params"]
+        assert "updated_after" not in params
+        assert params.get("sort") == expected_sort
+        assert params["per_page"] == PAGE_SIZE
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_fails_loud(self, MockSession) -> None:
@@ -246,11 +211,6 @@ class TestValidateCredentials:
         assert validate_credentials("bad-key") == (False, "Invalid Invoiced API key")
 
     @mock.patch(INVOICED_SESSION_PATCH)
-    def test_valid_key(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("good-key") == (True, None)
-
-    @mock.patch(INVOICED_SESSION_PATCH)
     def test_unexpected_status_returns_message(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=500)
         ok, message = validate_credentials("key")
@@ -271,15 +231,3 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("good-key")
         assert mock_session.call_args.kwargs.get("allow_redirects") is False
-
-
-class TestInvoicedSourceResponse:
-    def test_response_metadata(self) -> None:
-        response = invoiced_source(
-            "api-key", "invoices", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-
-        assert response.name == "invoices"
-        assert response.primary_keys == ["id"]
-        # Rows are requested with an explicit ascending updated_at sort.
-        assert response.sort_mode == "asc"

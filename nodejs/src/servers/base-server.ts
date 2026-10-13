@@ -13,6 +13,7 @@ import { logger } from '~/common/utils/logger'
 import { NodeInstrumentation } from '~/common/utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
+import { closeSharedAgents } from '~/common/utils/request'
 import { delay } from '~/common/utils/utils'
 
 import { onShutdown } from '../lifecycle'
@@ -163,6 +164,7 @@ export class ServerLifecycle {
             ...resources.kafkaProducers.map((p) => p.disconnect()),
             ...resources.redisPools.map((p) => p.drain()),
             resources.postgres?.end(),
+            closeSharedAgents(),
         ])
         for (const pool of resources.redisPools) {
             await pool.clear()
@@ -210,6 +212,14 @@ export class ServerLifecycle {
         process.on('unhandledRejection', rejectionHandler)
 
         const exceptionHandler = async (error: Error) => {
+            // Log before stopping. Without this the process exits silently, so a crash loop
+            // shows only a rising restart count and whatever the service logged last.
+            logger.error('🤮', `Uncaught Exception`, { error: String(error), stack: error?.stack })
+
+            captureException(error, {
+                extra: { detected_at: `ServerLifecycle on uncaughtException` },
+            })
+
             await this.stop(getCleanupResources, error)
         }
         this.processListeners.set('uncaughtException', exceptionHandler)

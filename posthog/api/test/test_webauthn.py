@@ -10,12 +10,42 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
+from webauthn.helpers import bytes_to_base64url
 
-from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet
-from posthog.models import User
+from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet, user_uuid_to_handle
+from posthog.auth import WebauthnBackend
+from posthog.models import Organization, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.models import Session
+
+
+def _enforce_sso(user: User, organization: Organization) -> None:
+    email_domain = user.email.split("@", 1)[1]
+    organization.available_product_features = [
+        {"key": "sso_enforcement", "name": "sso_enforcement"},
+        {"key": "saml", "name": "saml"},
+    ]
+    organization.save()
+
+    domain = OrganizationDomain.objects.create(
+        domain=email_domain,
+        organization=organization,
+        verified_at=timezone.now(),
+        sso_enforcement="saml",
+    )
+    config = IdentityProviderConfig.objects.create(
+        organization=organization,
+        config_scope="saml",
+        domain_scope="all",
+        saml_entity_id="https://idp.example.com",
+        saml_acs_url="https://idp.example.com/saml",
+        saml_x509_cert="test-certificate",
+    )
+    LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
 
 
 class TestWebAuthnRegistration(APIBaseTest):
@@ -61,40 +91,14 @@ class TestWebAuthnRegistration(APIBaseTest):
         self.assertEqual(len(data["excludeCredentials"]), 1)
 
     def test_registration_begin_disallowed_when_sso_enforced(self):
-        email_domain = self.user.email.split("@", 1)[1]
-
-        self.organization.available_product_features = [
-            {"key": "sso_enforcement", "name": "sso_enforcement"},
-            {"key": "saml", "name": "saml"},
-        ]
-        self.organization.save()
-
-        OrganizationDomain.objects.create(
-            domain=email_domain,
-            organization=self.organization,
-            verified_at=timezone.now(),
-            sso_enforcement="saml",
-        )
+        _enforce_sso(self.user, self.organization)
 
         response = self.client.post("/api/webauthn/register/begin/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("requires SSO", response.json().get("detail", ""))
 
     def test_registration_complete_disallowed_when_sso_enforced(self):
-        email_domain = self.user.email.split("@", 1)[1]
-
-        self.organization.available_product_features = [
-            {"key": "sso_enforcement", "name": "sso_enforcement"},
-            {"key": "saml", "name": "saml"},
-        ]
-        self.organization.save()
-
-        OrganizationDomain.objects.create(
-            domain=email_domain,
-            organization=self.organization,
-            verified_at=timezone.now(),
-            sso_enforcement="saml",
-        )
+        _enforce_sso(self.user, self.organization)
 
         session = self.client.session
         session[WEBAUTHN_REGISTRATION_CHALLENGE_KEY] = "dummy"
@@ -182,25 +186,41 @@ class TestWebAuthnLogin(APIBaseTest):
         response = self.client.post("/api/webauthn/login/complete/", {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_login_complete_without_user_handle_fails(self):
+    @parameterized.expand(
+        [
+            (
+                "missing_user_handle",
+                {"authenticatorData": "data", "clientDataJSON": "data", "signature": "sig"},
+                "some-raw-id",
+                "userHandle",
+            ),
+            (
+                "missing_raw_id",
+                {"authenticatorData": "data", "clientDataJSON": "data", "signature": "sig", "userHandle": "handle"},
+                None,
+                "credential ID",
+            ),
+            (
+                "missing_signature",
+                {"authenticatorData": "data", "clientDataJSON": "data", "userHandle": "handle"},
+                "some-raw-id",
+                "Missing required fields",
+            ),
+        ]
+    )
+    def test_login_complete_with_unreadable_assertion_fails(
+        self, _name: str, response_data: dict, raw_id: str | None, expected_error: str
+    ):
         self.client.post("/api/webauthn/login/begin/")
 
-        response = self.client.post(
-            "/api/webauthn/login/complete/",
-            {
-                "id": "some-id",
-                "rawId": "some-raw-id",
-                "type": "public-key",
-                "response": {
-                    "authenticatorData": "data",
-                    "clientDataJSON": "data",
-                    "signature": "sig",
-                },
-            },
-            format="json",
-        )
+        payload = {"id": "some-id", "type": "public-key", "response": response_data}
+        if raw_id is not None:
+            payload["rawId"] = raw_id
+
+        response = self.client.post("/api/webauthn/login/complete/", payload, format="json")
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("userHandle", response.json()["error"])
+        self.assertIn(expected_error, response.json()["error"])
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_complete_success(self, mock_verify):
@@ -237,8 +257,45 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
 
+    def test_backend_does_not_restore_session_for_inactive_user(self):
+        # A queryset update skips the pre_save signal that revokes sessions on deactivation.
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        self.assertIsNone(WebauthnBackend().get_user(self.user.pk))
+
+    @patch(
+        "posthog.api.webauthn.refuse_blocked_account",
+        side_effect=AuthenticationFailed("We couldn't sign you in.", code="access_blocked"),
+    )
+    @patch("posthog.auth.verify_passkey_authentication_response")
+    def test_login_complete_is_refused_by_an_access_rule(self, mock_verify, _refuse):
+        self.client.logout()
+        self.client.post("/api/webauthn/login/begin/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        response = self.client.post(
+            "/api/webauthn/login/complete/",
+            {
+                "id": bytes_to_base64url(self.credential.credential_id),
+                "rawId": bytes_to_base64url(self.credential.credential_id),
+                "type": "public-key",
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                    "userHandle": bytes_to_base64url(user_uuid_to_handle(self.user.uuid)),
+                },
+            },
+            format="json",
+        )
+
+        # The view's catch-all would turn the refusal into a generic 400 and hide its code.
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+        self.assertEqual(response.json()["code"], "access_blocked")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_blocks_explicitly_unverified_email_accounts(
         self, mock_verify, mock_send_email_verification, mock_is_email_available
@@ -270,14 +327,17 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("awaiting verification", response.json()["error"].lower())
+        # The contract is the same as the password login path: the frontend uses the
+        # uuid to route to the code entry page at /verify_email/<uuid>.
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "verify_email_pending")
+        self.assertEqual(response.json()["detail"], str(self.user.uuid))
 
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_send_email_verification.assert_called_once_with(self.user, None)
+        mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):
@@ -386,20 +446,7 @@ class TestWebAuthnLogin(APIBaseTest):
 
         from posthog.api.webauthn import user_uuid_to_handle
 
-        email_domain = self.user.email.split("@", 1)[1]
-
-        self.organization.available_product_features = [
-            {"key": "sso_enforcement", "name": "sso_enforcement"},
-            {"key": "saml", "name": "saml"},
-        ]
-        self.organization.save()
-
-        OrganizationDomain.objects.create(
-            domain=email_domain,
-            organization=self.organization,
-            verified_at=timezone.now(),
-            sso_enforcement="saml",
-        )
+        _enforce_sso(self.user, self.organization)
 
         self.client.post("/api/webauthn/login/begin/")
         mock_verify.return_value = MagicMock(new_sign_count=1)

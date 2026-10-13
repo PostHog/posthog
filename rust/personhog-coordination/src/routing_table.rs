@@ -231,6 +231,12 @@ pub struct RoutingTableConfig {
     /// Base backoff between coordination attempts; doubles per
     /// consecutive failure up to a fixed cap.
     pub run_retry_backoff: Duration,
+    /// How many freeze acks may share one transaction. Not a tuning
+    /// knob but a mirror of the server's `--max-txn-ops`: a batch above
+    /// it is refused outright, while a smaller one only costs an extra
+    /// round trip. Defaults to etcd's own default, so it needs setting
+    /// only against a server configured otherwise.
+    pub max_txn_ops: usize,
 }
 
 impl Default for RoutingTableConfig {
@@ -248,6 +254,7 @@ impl Default for RoutingTableConfig {
             reconcile_failure_budget: 12,
             run_retry_budget: 10,
             run_retry_backoff: Duration::from_millis(500),
+            max_txn_ops: 128,
         }
     }
 }
@@ -272,6 +279,13 @@ impl Default for RoutingTableConfig {
 /// `RouterFreezeAck` so the coordinator can collect freeze quorum. At
 /// `Complete` the table flips to the new owner and `drain_stash` flushes
 /// any buffered requests through the standard forwarding path.
+/// How long any of the routing table's lease revokes may take before
+/// its exit path stops waiting. The routing table's own bound, not the
+/// coordinator's constant: they happen to agree today, but each answers
+/// to its own component budget, and sharing one number across two
+/// budgets is how a retune of either silently reshapes the other.
+const REVOKE_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub struct RoutingTable {
     store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
@@ -401,7 +415,9 @@ impl RoutingTable {
     /// joined, lease revoked best-effort (an unreachable etcd lets it
     /// lapse by TTL, which quorums already treat as departure) — so the
     /// supervisor above can always start the next attempt from a clean
-    /// slate.
+    /// slate. The cancellation exits before registration are the one
+    /// shape apart: nothing exists to tear down yet, and the mid-
+    /// registration exit revokes its own lease inline.
     ///
     /// The `handler` implements stashing and drain. It's invoked on handoff
     /// phase transitions: `begin_stash` at Freezing, `drain_stash` at Complete.
@@ -417,10 +433,29 @@ impl RoutingTable {
         // stall every handoff frozen in the meantime.
         const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
 
-        // Register this router so the coordinator can count it for ack quorum
+        // Register this router so the coordinator can count it for ack
+        // quorum. Both calls race cancellation; past the grant, any
+        // abandonment revokes the known lease, since a registration
+        // that landed anyway would stall every freeze in its TTL
+        // window.
         let granted_at = Instant::now();
-        let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
-        self.register_router(lease_id).await?;
+        let lease_id = tokio::select! {
+            _ = cancel.cancelled() => return Ok(()),
+            granted = self.store.grant_lease(self.config.lease_ttl) => granted?,
+        };
+        let registered = tokio::select! {
+            _ = cancel.cancelled() => {
+                drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
+                return Ok(());
+            }
+            registered = self.register_router(lease_id) => registered,
+        };
+        if let Err(e) = registered {
+            // A failed registration may also have half-landed; revoking
+            // clears it rather than leaving the lease to its TTL.
+            drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
+            return Err(e);
+        }
 
         // From here to the supervised select below, this router is
         // registered — counted in every freeze quorum — but not yet
@@ -454,17 +489,17 @@ impl RoutingTable {
         };
         let (pods_stream, handoff_stream) = tokio::select! {
             _ = cancel.cancelled() => {
-                drop(self.store.revoke_lease(lease_id).await);
+                drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
                 return Ok(());
             }
             r = tokio::time::timeout(BOOTSTRAP_DEADLINE, bootstrap) => match r {
                 Ok(Ok(streams)) => streams,
                 Ok(Err(e)) => {
-                    drop(self.store.revoke_lease(lease_id).await);
+                    drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
                     return Err(e);
                 }
                 Err(_) => {
-                    drop(self.store.revoke_lease(lease_id).await);
+                    drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
                     return Err(Error::invalid_state(format!(
                         "router bootstrap exceeded {BOOTSTRAP_DEADLINE:?} while registered"
                     )));
@@ -555,6 +590,7 @@ impl RoutingTable {
             let last_progress = Arc::clone(&last_progress);
             let reconcile_interval = self.config.reconcile_interval;
             let reconcile_failure_budget = self.config.reconcile_failure_budget;
+            let max_txn_ops = self.config.max_txn_ops;
             let token = cancel.child_token();
             let progress = Arc::clone(progress);
             tasks.spawn(async move {
@@ -572,6 +608,7 @@ impl RoutingTable {
                     stamp_interval,
                     reconcile_interval,
                     reconcile_failure_budget,
+                    max_txn_ops,
                     progress,
                 )
                 .await
@@ -604,9 +641,12 @@ impl RoutingTable {
         // next TTL window stalls waiting for a freeze ack this router
         // will never write. Still best-effort — an unreachable etcd lets
         // the lease lapse by TTL — but loudly so: this line is the proof
-        // a graceful shutdown reached its deregistration.
-        match self.store.revoke_lease(lease_id).await {
-            Ok(()) => {
+        // a graceful shutdown reached its deregistration. Bounded,
+        // because an etcd that hangs rather than erring would otherwise
+        // spend this component's whole shutdown budget here and turn the
+        // proof into a lifecycle-abandonment log.
+        match tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await {
+            Ok(Ok(())) => {
                 metrics::counter!(
                     "personhog_coordination_router_deregistered_total",
                     "outcome" => "revoked"
@@ -617,7 +657,7 @@ impl RoutingTable {
                     "router deregistered, freeze quorums no longer count it"
                 );
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 metrics::counter!(
                     "personhog_coordination_router_deregistered_total",
                     "outcome" => "revoke_failed"
@@ -628,6 +668,19 @@ impl RoutingTable {
                     error = %e,
                     "router lease revoke failed; registration lapses by TTL and \
                      freezes created meanwhile stall on it"
+                );
+            }
+            Err(_) => {
+                metrics::counter!(
+                    "personhog_coordination_router_deregistered_total",
+                    "outcome" => "revoke_failed"
+                )
+                .increment(1);
+                tracing::warn!(
+                    router = %self.config.router_name,
+                    "router lease revoke unanswered after {REVOKE_TIMEOUT:?}; the request may \
+                     still land — if it does not, registration lapses by TTL and freezes \
+                     created meanwhile stall on it"
                 );
             }
         }
@@ -662,6 +715,7 @@ impl RoutingTable {
         // already at Complete arrive as a normal Put event through the
         // watch loop below.
         let (handoffs, snapshot_revision) = self.store.list_handoffs_with_revision().await?;
+        let mut acks = Vec::new();
         for handoff in handoffs {
             if matches!(
                 handoff.phase,
@@ -680,23 +734,27 @@ impl RoutingTable {
                     .begin_stash(handoff.partition, &handoff.new_owner)
                     .await?;
 
-                // Only write a FreezeAck while still in Freezing — once
-                // the coordinator advanced past Freezing, the freeze
-                // quorum has been collected and a late ack would be
-                // either redundant or, worse, mistakenly counted toward
-                // a future handoff for the same partition.
+                // Only ack while still in Freezing — once the
+                // coordinator advanced, the quorum has been collected
+                // and a late ack is redundant (quorum evaluation matches
+                // on handoff_id, so it can never count elsewhere).
                 if handoff.phase == HandoffPhase::Freezing {
-                    let ack = RouterFreezeAck {
+                    acks.push(RouterFreezeAck {
                         router_name: self.config.router_name.clone(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
                         acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
-                    };
-                    self.store.put_freeze_ack(&ack).await?;
+                    });
                 }
             }
         }
+        // One batched write after every stash above is open: a restart
+        // during a fleet-wide freeze otherwise pays one round trip per
+        // frozen partition, serially, with the freeze quorum waiting.
+        self.store
+            .put_freeze_acks(&acks, self.config.max_txn_ops)
+            .await?;
 
         let assignments = self.store.list_assignments().await?;
         // Live registrations overlay assignment-carried addresses: an
@@ -746,7 +804,7 @@ impl RoutingTable {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
+                    let resp = util::live_watch_response(msg?, "pod")?;
                     for event in resp.events() {
                         if event.event_type() != EventType::Put {
                             continue;
@@ -785,6 +843,7 @@ impl RoutingTable {
         stamp_interval: Duration,
         reconcile_interval: Duration,
         reconcile_failure_budget: u32,
+        max_txn_ops: usize,
         progress: Arc<AtomicBool>,
     ) -> Result<()> {
         let mut consecutive_reconcile_failures: u32 = 0;
@@ -835,6 +894,7 @@ impl RoutingTable {
                         &handler,
                         &lanes,
                         &router_name,
+                        max_txn_ops,
                     )
                     .await
                     {
@@ -863,18 +923,19 @@ impl RoutingTable {
                     }
                 }
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
+                    let resp = util::live_watch_response(msg?, "handoff")?;
+                    let mut acks = Vec::new();
                     for event in resp.events() {
                         match event.event_type() {
                             EventType::Put => {
                                 if Self::handle_handoff_put(
                                     event,
-                                    store.as_ref(),
                                     &table,
                                     &addresses,
                                     &handler,
                                     &lanes,
                                     &router_name,
+                                    &mut acks,
                                 ).await?
                                 {
                                     progress.store(true, Ordering::SeqCst);
@@ -905,6 +966,11 @@ impl RoutingTable {
                             }
                         }
                     }
+                    // One write per response, after every event's stash
+                    // is open: a response carrying a plan's worth of
+                    // freezes costs one round trip instead of one per
+                    // partition.
+                    store.put_freeze_acks(&acks, max_txn_ops).await?;
                 }
             }
         }
@@ -932,6 +998,7 @@ impl RoutingTable {
         handler: &Arc<dyn StashHandler>,
         lanes: &Arc<DrainLanes>,
         router_name: &str,
+        max_txn_ops: usize,
     ) -> Result<()> {
         // Registrations are the address authority; refresh them wholesale
         // so a pod that re-registered at a new address is dialable even
@@ -948,6 +1015,7 @@ impl RoutingTable {
 
         let handoffs = store.list_handoffs().await?;
         let mut constrained: HashSet<u32> = HashSet::new();
+        let mut acks = Vec::new();
         for handoff in &handoffs {
             constrained.insert(handoff.partition);
             match handoff.phase {
@@ -957,14 +1025,13 @@ impl RoutingTable {
                         .begin_stash(handoff.partition, &handoff.new_owner)
                         .await?;
                     if handoff.phase == HandoffPhase::Freezing {
-                        let ack = RouterFreezeAck {
+                        acks.push(RouterFreezeAck {
                             router_name: router_name.to_string(),
                             partition: handoff.partition,
                             acked_at: util::now_seconds(),
                             acked_at_ms: 0,
                             handoff_id: handoff.handoff_id.clone(),
-                        };
-                        store.put_freeze_ack(&ack).await?;
+                        });
                     }
                 }
                 HandoffPhase::Complete => {
@@ -996,6 +1063,10 @@ impl RoutingTable {
                 }
             }
         }
+
+        // One batched write after every stash above is open; deferring
+        // an ack only delays the quorum, never lies to it.
+        store.put_freeze_acks(&acks, max_txn_ops).await?;
 
         let assignments = store.list_assignments().await?;
         for assignment in assignments {
@@ -1030,12 +1101,12 @@ impl RoutingTable {
 
     async fn handle_handoff_put(
         event: &etcd_client::Event,
-        store: &PersonhogStore,
         table: &Arc<RwLock<HashMap<u32, String>>>,
         addresses: &Arc<StdRwLock<HashMap<String, String>>>,
         handler: &Arc<dyn StashHandler>,
         lanes: &Arc<DrainLanes>,
         router_name: &str,
+        acks: &mut Vec<RouterFreezeAck>,
     ) -> Result<bool> {
         let handoff: HandoffState = match parse_watch_value(event) {
             Ok(h) => h,
@@ -1069,18 +1140,19 @@ impl RoutingTable {
                     .begin_stash(handoff.partition, &handoff.new_owner)
                     .await?;
 
-                // Only write a FreezeAck in Freezing — routers can arrive
-                // late, observe a later phase, and must not re-ack a
-                // quorum that has already cleared.
+                // Only ack in Freezing — routers can arrive late,
+                // observe a later phase, and must not re-ack a quorum
+                // that has already cleared. Collected, not written: the
+                // watch loop flushes one batch per response, after every
+                // event's stash is open.
                 if handoff.phase == HandoffPhase::Freezing {
-                    let ack = RouterFreezeAck {
+                    acks.push(RouterFreezeAck {
                         router_name: router_name.to_string(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
                         acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
-                    };
-                    store.put_freeze_ack(&ack).await?;
+                    });
                 }
             }
             HandoffPhase::Complete => {

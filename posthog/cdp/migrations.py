@@ -1,21 +1,62 @@
 import json
+from collections.abc import Mapping
+from functools import partial
 from typing import Any
 
 from django.db import transaction
 from django.db.models import Q
 
 from posthog.models.team.team import Team
+from posthog.plugins.site import get_site_config_from_schema
+from posthog.tasks.remote_config import update_team_remote_config
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import PluginAttachment, PluginConfig
+from products.cdp.backend.models.plugin import PluginAttachment, PluginConfig, PluginSourceFile
 
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
+
+# Site apps declare no capability methods, so they are matched by repo slug
+LEGACY_SITE_APP_TEMPLATES: dict[str, str] = {
+    "early-access-features-app": "template-early-access-features",
+    "notification-bar-app": "template-notification-bar",
+    "bug-report-app": "template-hogdesk",
+    "pineapple-mode-app": "template-pineapple-mode",
+}
+
+_TRUTHY_STRINGS = {"yes", "true", "1"}
+_FALSY_STRINGS = {"no", "false", "0", ""}
+
+
+def coerce_input_value(value: object, schema: Mapping[str, Any]) -> object:
+    """Plugin configs store every value as a string, while hog function inputs are typed."""
+
+    item_type = schema.get("type")
+
+    if item_type == "boolean" and isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in _TRUTHY_STRINGS:
+            return True
+        if lowered in _FALSY_STRINGS:
+            return False
+
+    if item_type == "string" and value is not None and not isinstance(value, str):
+        return str(value)
+
+    return value
 
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
     hog_functions = []
+    # A config may be disabled once something replaces it, whether that is a hog function this run
+    # created or one that already existed. A config we skipped for having no template is still
+    # serving the customer, so disabling it would take it away with nothing in its place.
+    covered_plugin_config_ids: list[int] = []
+    affected_team_ids: set[int] = set()
+    # bulk_create only runs at the end of the batch, so a second config of the same app would not
+    # see the row the first one produced and would create the app twice.
+    covered_pairs: set[tuple[int, str]] = set()
     teams_cache: dict[int, Team] = {}
 
     with transaction.atomic():
@@ -46,12 +87,34 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             if test_mode:
                 plugin_name = f"[CDP-TEST-HIDDEN] {plugin_name}"
 
+            if kind == "site_app":
+                template_id = LEGACY_SITE_APP_TEMPLATES.get(plugin_id)
+                if not template_id:
+                    print(f"Skipping plugin {plugin_name} as it has no site app template")  # noqa: T201
+                    continue
+            else:
+                template_id = f"plugin-{plugin_id}"
+
+            template = HogFunctionTemplate.get_template(template_id)
+
+            if not template:
+                raise Exception(f"Template not found for plugin {plugin_id}")
+
+            schemas_by_key = {schema["key"]: schema for schema in template.inputs_schema or [] if "key" in schema}
+
+            if kind == "site_app":
+                # A site app reads what the plugin schema resolves, which fills every unset key
+                config = get_site_config_from_schema(plugin_config["plugin__config_schema"], plugin_config["config"])
+            else:
+                config = plugin_config["config"]
+
             inputs = {}
 
             # Iterate over the plugin config to build the inputs
 
-            for key, value in plugin_config["config"].items():
-                inputs[key] = {"value": value}
+            for key, value in config.items():
+                schema = schemas_by_key.get(key)
+                inputs[key] = {"value": coerce_input_value(value, schema) if schema else value}
 
             if plugin_id == "first-time-event-tracker" or plugin_id == "customerio-plugin":
                 # These are plugins that use the legacy storage
@@ -83,15 +146,16 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "is_create": True,
             }
 
-            template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
-
-            if not template:
-                raise Exception(f"Template not found for plugin {plugin_id}")
-
-            if HogFunction.objects.filter(
-                template_id=template.id, type=kind, team_id=team.id, enabled=True, deleted=False
-            ).exists():
+            pair = (team.id, template.template_id)
+            if (
+                pair in covered_pairs
+                or HogFunction.objects.filter(
+                    template_id=template.template_id, type=kind, team_id=team.id, enabled=True, deleted=False
+                ).exists()
+            ):
                 print(f"Skipping plugin {plugin_name} as it already exists as a hog function")  # noqa: T201
+                covered_plugin_config_ids.append(plugin_config["id"])
+                affected_team_ids.add(team.id)
                 continue
 
             data = {
@@ -102,7 +166,8 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "filters": template.filters,
                 "hog": template.code,
                 "inputs": inputs,
-                "enabled": True,
+                # A test-mode site app would render on the customer's site next to the plugin it copies
+                "enabled": not (test_mode and kind == "site_app"),
                 "icon_url": template.icon_url,
                 "inputs_schema": template.inputs_schema,
                 "execution_order": plugin_config["order"],
@@ -117,10 +182,13 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             )
             serializer.is_valid(raise_exception=True)
             hog_functions.append(HogFunction(**serializer.validated_data))
+            covered_plugin_config_ids.append(plugin_config["id"])
+            covered_pairs.add(pair)
+            affected_team_ids.add(team.id)
 
         print(hog_functions)  # noqa: T201
 
-        if not hog_functions:
+        if not hog_functions and not covered_plugin_config_ids:
             print("No hog functions to create")  # noqa: T201
             return []
 
@@ -135,9 +203,14 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             print("Disabling old plugins")  # noqa: T201
             # Disable the old plugins
             # nosemgrep: idor-lookup-without-team (internal migration; IDs from prior team-scoped query)
-            PluginConfig.objects.filter(id__in=[plugin_config["id"] for plugin_config in legacy_plugins]).update(
-                enabled=False
-            )
+            PluginConfig.objects.filter(id__in=covered_plugin_config_ids).update(enabled=False)
+
+        if kind == "site_app":
+            # bulk_create and queryset.update() skip the post_save receivers that rebuild the
+            # team's remote config, so the browser would keep serving the old site app. Disabling a
+            # config changes what is served even when this run created nothing for that team.
+            for team_id in affected_team_ids:
+                transaction.on_commit(partial(update_team_remote_config.delay, team_id))
 
         print("Done")  # noqa: T201
 
@@ -159,6 +232,11 @@ def migrate_legacy_plugins(
         )
     elif kind == "transformation":
         legacy_plugin_ids = legacy_plugin_ids.filter(plugin__capabilities__methods__contains=["processEvent"])
+    elif kind == "site_app":
+        legacy_plugin_ids = legacy_plugin_ids.filter(
+            plugin__pluginsourcefile__filename="site.ts",
+            plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
+        )
     else:
         raise ValueError(f"Invalid kind: {kind}")
 

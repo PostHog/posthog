@@ -6,7 +6,9 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
-use crate::core::types::notification::{IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking};
+use crate::core::types::notification::{
+    IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking, SeveritySource,
+};
 use crate::modes::notifications::config::NotificationsConfig;
 
 #[derive(Clone, Copy)]
@@ -48,6 +50,7 @@ impl IssueLifecycleWorkflowStarters {
             server_root_ca_cert: None,
             payload_encryption_key: config.temporal_secret_key.clone(),
             identity: "cymbal-notifications".to_string(),
+            insecure: config.temporal_insecure,
         })
         .await
         .map_err(|error| UnhandledError::Other(error.to_string()))?;
@@ -58,7 +61,12 @@ impl IssueLifecycleWorkflowStarters {
         })
     }
 
-    pub async fn start_created(&self, notification: &IssueCreated) -> Result<(), UnhandledError> {
+    /// Returns the outcome, because the caller charged a rate-limit token for
+    /// this start and gives it back when the workflow was already running.
+    pub async fn start_created(
+        &self,
+        notification: &IssueCreated,
+    ) -> Result<StartWorkflowOutcome, UnhandledError> {
         self.start(
             notification.meta.notification_id,
             &IssueCreatedWorkflowInput::from(notification),
@@ -74,6 +82,7 @@ impl IssueLifecycleWorkflowStarters {
             ISSUE_REOPENED_WORKFLOW,
         )
         .await
+        .map(|_outcome| ())
     }
 
     pub async fn start_spiking(&self, notification: &IssueSpiking) -> Result<(), UnhandledError> {
@@ -83,6 +92,7 @@ impl IssueLifecycleWorkflowStarters {
             ISSUE_SPIKING_WORKFLOW,
         )
         .await
+        .map(|_outcome| ())
     }
 
     async fn start<T: Serialize>(
@@ -90,17 +100,17 @@ impl IssueLifecycleWorkflowStarters {
         notification_id: Uuid,
         input: &T,
         workflow: WorkflowDefinition,
-    ) -> Result<(), UnhandledError> {
+    ) -> Result<StartWorkflowOutcome, UnhandledError> {
         let options = start_options(notification_id, &self.task_queue, workflow);
         match self.client.start_workflow(input, &options).await {
-            Ok(StartWorkflowOutcome::Started { .. }) => {
+            Ok(outcome @ StartWorkflowOutcome::Started { .. }) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "started").increment(1);
-                Ok(())
+                Ok(outcome)
             }
-            Ok(StartWorkflowOutcome::Existing { .. }) => {
+            Ok(outcome @ StartWorkflowOutcome::Existing { .. }) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "already_started")
                     .increment(1);
-                Ok(())
+                Ok(outcome)
             }
             Err(error) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "error").increment(1);
@@ -136,6 +146,7 @@ struct IssueCreatedWorkflowInput<'a> {
     event_uuid: Uuid,
     event_timestamp: &'a str,
     assignee: Option<&'a str>,
+    severity_source: Option<SeveritySource>,
 }
 
 impl<'a> From<&'a IssueCreated> for IssueCreatedWorkflowInput<'a> {
@@ -149,6 +160,7 @@ impl<'a> From<&'a IssueCreated> for IssueCreatedWorkflowInput<'a> {
             event_uuid: notification.event_uuid,
             event_timestamp: &notification.event_timestamp,
             assignee: notification.assignee.as_deref(),
+            severity_source: notification.severity_source,
         }
     }
 }
@@ -274,6 +286,7 @@ mod tests {
             event_uuid: Uuid::now_v7(),
             event_timestamp: "2026-07-21T12:00:00Z".to_string(),
             assignee: None,
+            severity_source: Some(SeveritySource::Heuristic),
         }
     }
 
@@ -312,6 +325,9 @@ mod tests {
             serde_json::to_value(IssueReopenedWorkflowInput::from(&issue_reopened())).unwrap(),
             serde_json::to_value(IssueSpikingWorkflowInput::from(&issue_spiking())).unwrap(),
         ];
+        // The Python issue-created workflow reads this field by name to decide whether a
+        // model may replace the severity.
+        assert_eq!(values[0]["severity_source"], "heuristic");
 
         for value in values {
             assert_eq!(value["team_id"], 42);

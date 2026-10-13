@@ -1,3 +1,5 @@
+import { POSTHOG_NOTIFICATIONS } from "@posthog/core/sessions/acpNotifications";
+import { formatProcessKilledNotice } from "@posthog/core/sessions/processKilledNotice";
 import { pickThinkingActivity } from "@posthog/core/sessions/thinkingActivities";
 import {
   ArrowDown,
@@ -5,6 +7,7 @@ import {
   CaretRight,
   CloudArrowDown,
   Robot,
+  Warning,
 } from "phosphor-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -30,7 +33,12 @@ import type {
   SessionNotificationAttachment,
   TerminalStatus,
 } from "../types";
+import { detectInlineArtifact } from "../utils/inlineArtifacts";
 import { CloudMessageAttachment } from "./CloudMessageAttachment";
+import {
+  InlineCreatedPrCard,
+  InlineUploadedArtifactCard,
+} from "./InlineArtifactCard";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 import { PlanStatusBar } from "./PlanStatusBar";
 import { QuestionCard } from "./QuestionCard";
@@ -56,6 +64,7 @@ interface OptimisticUserMessage {
 interface TaskSessionViewProps {
   events: SessionEvent[];
   taskId?: string;
+  runId?: string;
   pendingPermissions?: Record<string, CloudPendingPermissionRequest>;
   isConnecting?: boolean;
   isThinking?: boolean;
@@ -81,11 +90,19 @@ interface ToolData {
   result?: unknown;
   isAgent?: boolean;
   parentToolCallId?: string;
+  meta?: unknown;
 }
 
 interface ParsedMessage {
   id: string;
-  type: "user" | "agent" | "thought" | "tool" | "connecting" | "thinking";
+  type:
+    | "user"
+    | "agent"
+    | "thought"
+    | "tool"
+    | "connecting"
+    | "thinking"
+    | "process_killed";
   content: string;
   ts?: number;
   toolData?: ToolData;
@@ -184,6 +201,7 @@ function parseSessionNotification(
           args: update.rawInput,
           isAgent,
           parentToolCallId: meta?.parentToolCallId,
+          meta: update._meta,
         },
       };
     }
@@ -199,6 +217,7 @@ function parseSessionNotification(
           args: update.rawInput,
           result: update.rawOutput,
           parentToolCallId: meta?.parentToolCallId,
+          meta: update._meta,
         },
       };
     }
@@ -267,6 +286,7 @@ interface EventProcessorState {
   agentMessageCount: number;
   thoughtMessageCount: number;
   userMessageCount: number;
+  processKilledCount: number;
   toolMessages: Map<string, ParsedMessage>;
   // Maps agent toolCallId → agent ParsedMessage for nesting children
   agentTools: Map<string, ParsedMessage>;
@@ -288,6 +308,7 @@ function createProcessorState(): EventProcessorState {
     agentMessageCount: 0,
     thoughtMessageCount: 0,
     userMessageCount: 0,
+    processKilledCount: 0,
     toolMessages: new Map(),
     agentTools: new Map(),
     processedIdx: 0,
@@ -361,6 +382,25 @@ function processNewEvents(
 
   for (let i = state.processedIdx; i < events.length; i++) {
     const event = events[i];
+
+    if (event.type === "acp_message") {
+      const msg = event.message as { method?: string; params?: unknown };
+      if (msg.method === POSTHOG_NOTIFICATIONS.PROCESS_KILLED) {
+        const notice = formatProcessKilledNotice(msg.params);
+        if (notice) {
+          flushPending();
+          state.messages.push({
+            id: `process-killed-${state.processKilledCount++}`,
+            type: "process_killed",
+            content: notice,
+            ts: event.ts,
+          });
+          state.lastAgentMsgIdx = null;
+        }
+      }
+      continue;
+    }
+
     if (event.type !== "session_update") continue;
 
     const parsed = parseSessionNotification(event.notification);
@@ -529,6 +569,18 @@ function CollapsedThought({ content }: { content: string }) {
           )}
         </View>
       )}
+    </View>
+  );
+}
+
+function ProcessKilledNotice({ message }: { message: string }) {
+  const themeColors = useThemeColors();
+  return (
+    <View className="flex-row items-start gap-2 px-4 py-1">
+      <Warning size={14} color={themeColors.status.warning} />
+      <Text className="flex-1 text-[13px] text-gray-11 leading-4">
+        {message}
+      </Text>
     </View>
   );
 }
@@ -804,6 +856,7 @@ function ConnectingIndicator() {
 export function TaskSessionView({
   events,
   taskId,
+  runId,
   pendingPermissions,
   isConnecting,
   isThinking,
@@ -967,6 +1020,8 @@ export function TaskSessionView({
           );
         case "thought":
           return <CollapsedThought content={item.content} />;
+        case "process_killed":
+          return <ProcessKilledNotice message={item.content} />;
         case "tool":
           if (!item.toolData) return null;
           if (
@@ -994,19 +1049,37 @@ export function TaskSessionView({
           if (item.toolData.isAgent) {
             return <AgentToolCard item={item} onOpenTask={onOpenTask} />;
           }
-          return (
-            <ToolMessage
-              toolName={item.toolData.toolName}
-              rawToolName={item.toolData.rawToolName}
-              kind={deriveToolKind(
-                item.toolData.rawToolName ?? item.toolData.toolName,
-              )}
-              status={item.toolData.status}
-              args={item.toolData.args}
-              result={item.toolData.result}
-              onOpenTask={onOpenTask}
-            />
-          );
+          {
+            const inline = detectInlineArtifact(item.toolData);
+            if (inline?.kind === "upload") {
+              return (
+                <InlineUploadedArtifactCard
+                  toolData={item.toolData}
+                  taskId={taskId}
+                  runId={runId}
+                  enabled={!!terminalStatus}
+                />
+              );
+            }
+            return (
+              <>
+                <ToolMessage
+                  toolName={item.toolData.toolName}
+                  rawToolName={item.toolData.rawToolName}
+                  kind={deriveToolKind(
+                    item.toolData.rawToolName ?? item.toolData.toolName,
+                  )}
+                  status={item.toolData.status}
+                  args={item.toolData.args}
+                  result={item.toolData.result}
+                  onOpenTask={onOpenTask}
+                />
+                {inline?.kind === "pr" && (
+                  <InlineCreatedPrCard url={inline.url} />
+                )}
+              </>
+            );
+          }
         default:
           return null;
       }
@@ -1017,6 +1090,8 @@ export function TaskSessionView({
       pendingPermissions,
       renderAttachment,
       taskId,
+      runId,
+      terminalStatus,
     ],
   );
 

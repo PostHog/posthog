@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.utils import timezone
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
@@ -73,6 +74,8 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
         assert res.json()["id"] == resource_id
         rotated_api_key = res.json()["complete"]["access_configuration"]["api_key"]
         assert rotated_api_key != original_api_key
+        rotation = ActivityLog.objects.filter(scope="Team", activity="updated").latest("created_at")
+        assert (rotation.credential_type, rotation.credential_id) == ("oauth", str(self.partner.id))
 
         # 6. Deep link — create and use it to login
         res = self._post_with_bearer(

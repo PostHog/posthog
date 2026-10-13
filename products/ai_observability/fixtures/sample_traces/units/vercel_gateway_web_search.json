@@ -1,0 +1,115 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Level design research assistant with web search",
+  "scenario": "A game studio's internal level design tool calls an AI Gateway model with a built-in web search tool so a designer can pull real-world castle architecture references for a new siege-defense level, with the assistant citing two sources.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "gateway"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "google/gemini-3.5-flash-lite"
+    ],
+    "content_types": [
+      "source",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_lib": "posthog-ai",
+        "$ai_http_status": 200,
+        "$ai_input_tokens": 93,
+        "$ai_framework": "vercel",
+        "$process_person_profile": false,
+        "$ai_stop_reason": "stop",
+        "$ai_framework_version": "5",
+        "$ai_output_tokens": 235,
+        "$is_server": true,
+        "$ai_provider": "gateway",
+        "$ai_tokens_source": "sdk",
+        "$ai_model_parameters": {},
+        "$ai_lib_version": "7.21.0",
+        "$ai_model": "google/gemini-3.5-flash-lite",
+        "$ai_latency": 5.272,
+        "$lib_version": "5.52.3",
+        "$ai_base_url": "",
+        "$ai_trace_id": "df6d3613-73ee-73b9-4b4a-cf521994d2d6",
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$ai_text_input_tokens": 93,
+        "$ai_text_output_tokens": 235,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are a research assistant embedded in a game studio's level design toolchain. Search the web for real-world architectural and military-history reference material, and always cite the sources you used with a URL and title.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "What real fortresses had concentric double walls and moats?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "Concentric castle layouts are a strong reference for a siege-defense level.\n\nKey features to borrow: two full wall rings with the outer lower than the inner so archers on both can fire together, a killing ground between the rings where attackers get caught in crossfire, a moat in front of the outer wall to slow siege engines, and gatehouses offset from each other so a breach in the outer gate never opens a straight line to the keep.\n\nFor pacing, put a choke point at each gatehouse and let the killing ground double as the mid-level combat arena, with the inner keep reading as a final safe room once both rings are cleared.\n\nSources [1][2] include floor plans you can trace for wall spacing and gate placement.",
+                "type": "text"
+              },
+              {
+                "id": "src_8f2a3c91b7d4",
+                "sourceType": "url",
+                "title": "Concentric Fortress Plans",
+                "type": "source",
+                "url": "https://example.com/reference/architecture/medieval-fortifications/concentric-castle-defense-layouts?utm_source=level-design-tool&utm_medium=research-assistant&session=7f3ab9c1&lang=en-US"
+              },
+              {
+                "id": "src_4b7e91a2c8f5",
+                "sourceType": "url",
+                "title": "Siege Layout Reference Notes",
+                "type": "source",
+                "url": "https://example.org/library/military-history/siege-warfare/wall-ring-defense-and-gatehouse-placement-compendium?utm_source=level-design-tool&utm_medium=research-assistant&session=7f3ab9c1&ref=level-gen-pipeline&lang=en-US&page=2"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "args": {},
+            "id": "openai.web_search",
+            "name": "web_search",
+            "type": "retrieve"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

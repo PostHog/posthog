@@ -15,6 +15,8 @@ export const EVENT_SOURCE = {
     SLACK: 'slack',
     POSTHOG_AI: 'posthog_ai',
     POSTHOG_CODE: 'posthog_code',
+    SELF_DRIVING: 'self_driving',
+    WEBMCP: 'webmcp',
 } as const
 
 export type EventSource = (typeof EVENT_SOURCE)[keyof typeof EVENT_SOURCE]
@@ -27,15 +29,26 @@ const WIZARD_USER_AGENT_FRAGMENT = 'posthog/wizard'
 // itself one. See INTERNAL_SCOPES in `posthog/temporal/oauth.py`.
 const INTERNAL_RUN_SCOPE = 'internal_run:read'
 
-// The OAuth applications PostHog controls, mirroring POSTHOG_DESKTOP_OAUTH_CLIENT_IDS and
-// POSTHOG_AI_OAUTH_APP_CLIENT_IDS in `posthog/temporal/oauth.py`, which owns them. A client id
-// reaches this server through token introspection rather than a header, so unlike
-// `x-posthog-mcp-consumer` the caller cannot set it for itself.
+// The OAuth applications PostHog controls, mirroring POSTHOG_DESKTOP_OAUTH_CLIENT_IDS,
+// POSTHOG_AI_OAUTH_APP_CLIENT_IDS and SIGNALS_OAUTH_APP_CLIENT_IDS in
+// `posthog/temporal/oauth.py`, which owns them. A client id reaches this server through token
+// introspection rather than a header, so unlike `x-posthog-mcp-consumer` the caller cannot set
+// it for itself.
 const POSTHOG_AI_OAUTH_CLIENT_IDS = new Set([
     'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu',
     '0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi',
     'DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1',
 ])
+
+const SIGNALS_OAUTH_CLIENT_IDS = new Set([
+    'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE',
+    'nqZsiFEbu1fCWDK3r8QtSGwKmmANxVIgfZmTXywk',
+    'xMT3Nejjbi4lUdhJLkzmCVJKFsx0JsHXdU0pIjl8',
+])
+
+// Mirrors WEBMCP_APP_CLIENT_ID in `posthog/temporal/oauth.py`. The WebMCP proxy mints its tokens
+// server-side against this CIMD application, and the URL is the same in every region.
+const WEBMCP_OAUTH_CLIENT_ID = 'https://posthog.com/.well-known/oauth/webmcp/client-metadata.json'
 
 const FIRST_PARTY_OAUTH_CLIENT_IDS = new Set([
     'HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W',
@@ -94,6 +107,15 @@ export function resolveEventSource(input: EventSourceInput): EventSource {
     // early return `get_event_source` makes before it looks at any header.
     if (input.oauthClientId && POSTHOG_AI_OAUTH_CLIENT_IDS.has(input.oauthClientId)) {
         return EVENT_SOURCE.POSTHOG_AI
+    }
+    // Signals resolves the same way, and has to be settled before the consumer branches: a
+    // Signals run declares the `posthog-code` consumer, so the application it minted under is
+    // the only thing separating it from a coding agent.
+    if (input.oauthClientId && SIGNALS_OAUTH_CLIENT_IDS.has(input.oauthClientId)) {
+        return EVENT_SOURCE.SELF_DRIVING
+    }
+    if (input.oauthClientId === WEBMCP_OAUTH_CLIENT_ID) {
+        return EVENT_SOURCE.WEBMCP
     }
     // Matches Django: the outer caller's user-agent wins over anything the MCP layer says.
     if (input.clientUserAgent?.includes(WIZARD_USER_AGENT_FRAGMENT)) {

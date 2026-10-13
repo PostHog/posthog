@@ -92,13 +92,13 @@ describe('CommonIngestionPipelineBuilder', () => {
     // so no batch result may ever surface any to the driver.
     const runPipeline = async (
         pipeline: {
-            feed: (batch: any[]) => Promise<{ ok: boolean }>
+            feed: (batch: any[], batchContext: Record<never, never>) => Promise<{ ok: boolean }>
             next: () => Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] } | null>
         },
         messages: Message[]
     ): Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] }[]> => {
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        const feedResult = await pipeline.feed(batch)
+        const feedResult = await pipeline.feed(batch, {})
         expect(feedResult.ok).toBe(true)
 
         const batches = []

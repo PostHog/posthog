@@ -1,7 +1,11 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 
 from django.db import IntegrityError
+
+from parameterized import parameterized
 
 from products.data_modeling.backend.models import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -157,3 +161,73 @@ class TestNodeNameSync(BaseTest):
                 saved_query=saved_query,
                 type=NodeType.VIEW,
             )
+
+
+@pytest.mark.django_db
+class TestMetricNode(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name="test")
+
+    def test_metric_node_carries_its_metric_id(self):
+        metric_id = uuid.uuid4()
+
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=metric_id,
+        )
+
+        node.refresh_from_db()
+        self.assertEqual(node.metric_id, metric_id)
+
+    @parameterized.expand(
+        [
+            ("metric_without_metric_id", NodeType.METRIC, False, False),
+            ("metric_with_saved_query", NodeType.METRIC, True, False),
+            ("metric_with_saved_query_and_metric_id", NodeType.METRIC, True, True),
+            ("table_with_metric_id", NodeType.TABLE, False, True),
+            ("view_with_metric_id", NodeType.VIEW, True, True),
+            ("view_without_saved_query", NodeType.VIEW, False, False),
+        ]
+    )
+    def test_backing_reference_must_match_type(self, _name, node_type, with_saved_query, with_metric_id):
+        saved_query = (
+            DataWarehouseSavedQuery.objects.create(
+                name="a_view",
+                team=self.team,
+                query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            )
+            if with_saved_query
+            else None
+        )
+
+        with pytest.raises(IntegrityError):
+            Node.objects.create(
+                team=self.team,
+                dag=self.dag,
+                name="a_name",
+                type=node_type,
+                saved_query=saved_query,
+                metric_id=uuid.uuid4() if with_metric_id else None,
+            )
+
+    def test_one_node_per_metric_in_a_dag(self):
+        metric_id = uuid.uuid4()
+        Node.objects.create(team=self.team, dag=self.dag, name="revenue", type=NodeType.METRIC, metric_id=metric_id)
+
+        with pytest.raises(IntegrityError):
+            Node.objects.create(
+                team=self.team, dag=self.dag, name="revenue_renamed", type=NodeType.METRIC, metric_id=metric_id
+            )
+
+    def test_a_metric_may_share_a_name_with_a_table(self):
+        Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+
+        metric = Node.objects.create(
+            team=self.team, dag=self.dag, name="events", type=NodeType.METRIC, metric_id=uuid.uuid4()
+        )
+
+        self.assertEqual(metric.name, "events")

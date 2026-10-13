@@ -5,20 +5,36 @@ import {
   getExpansionCellIndex,
 } from "@posthog/core/command-center/grid";
 import { Button } from "@posthog/quill";
+import {
+  CANVAS_DRAG_TYPE,
+  readCanvasDragData,
+} from "@posthog/ui/features/canvas/canvasDrag";
+import {
+  consumeTaskDrop,
+  readTaskDragData,
+  TASK_DRAG_TYPE,
+  TASK_IDS_DRAG_TYPE,
+} from "@posthog/ui/features/sidebar/taskDrag";
+import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
+import { useTaskViewed } from "../../sidebar/useTaskViewed";
 import {
+  type CommandCenterPlacement,
   getGridDimensions,
   type LayoutPreset,
   useCommandCenterStore,
 } from "../commandCenterStore";
 import type { CommandCenterCellData } from "../hooks/useCommandCenterData";
-import { expandCommandCenterInto } from "../placeTaskInCommandCenter";
+import {
+  expandCanvasInCommandCenterInto,
+  expandTasksInCommandCenterInto,
+  placeCanvasInCommandCenterCell,
+  placeTasksInCommandCenterCell,
+} from "../placeTaskInCommandCenter";
 import { getTerminalCellStateKey } from "../terminalCells";
 import { CommandCenterPanel } from "./CommandCenterPanel";
-
-const TASK_DRAG_TYPE = "text/x-task-id";
 
 /**
  * Picking a tile by clicking and by dropping are the same interaction, so they
@@ -27,27 +43,43 @@ const TASK_DRAG_TYPE = "text/x-task-id";
  * carries whatever was dragged.
  */
 type PlacementState =
-  | { mode: "pick"; taskId: string; taskTitle: string }
-  | { mode: "drag" };
+  | ({ mode: "pick" } & CommandCenterPlacement)
+  | { mode: "drag"; kind: CommandCenterPlacement["kind"] };
+
+type DroppedItem =
+  | { kind: "task"; ids: string[] }
+  | { kind: "canvas"; id: string };
 
 interface CommandCenterGridProps {
   layout: LayoutPreset;
   cells: CommandCenterCellData[];
 }
 
-function useTaskDragActive() {
-  const [active, setActive] = useState(false);
+function draggedItemKind(
+  types: readonly string[],
+): CommandCenterPlacement["kind"] | null {
+  if (types.includes(CANVAS_DRAG_TYPE)) return "canvas";
+  if (types.includes(TASK_IDS_DRAG_TYPE) || types.includes(TASK_DRAG_TYPE)) {
+    return "task";
+  }
+  return null;
+}
+
+function useCellDragActive() {
+  const [active, setActive] = useState<CommandCenterPlacement["kind"] | null>(
+    null,
+  );
 
   useEffect(() => {
     const onDragStart = (e: DragEvent) => {
-      if (e.dataTransfer?.types.includes(TASK_DRAG_TYPE)) {
-        setActive(true);
+      if (e.dataTransfer) {
+        setActive(draggedItemKind(e.dataTransfer.types));
       }
     };
-    const onDragEnd = () => setActive(false);
-    const onDrop = () => setActive(false);
+    const onDragEnd = () => setActive(null);
+    const onDrop = () => setActive(null);
     const onDragLeave = (e: DragEvent) => {
-      if (!e.relatedTarget) setActive(false);
+      if (!e.relatedTarget) setActive(null);
     };
 
     document.addEventListener("dragstart", onDragStart);
@@ -65,13 +97,13 @@ function useTaskDragActive() {
   return active;
 }
 
-function useTaskDropTarget(onTask: (taskId: string) => void) {
+function useCellDropTarget(onItem: (item: DroppedItem) => void) {
   const [isOver, setIsOver] = useState(false);
 
   return {
     isOver,
     onDragOver: (e: React.DragEvent) => {
-      if (!e.dataTransfer.types.includes(TASK_DRAG_TYPE)) return;
+      if (!draggedItemKind(e.dataTransfer.types)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
       setIsOver(true);
@@ -80,8 +112,17 @@ function useTaskDropTarget(onTask: (taskId: string) => void) {
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       setIsOver(false);
-      const taskId = e.dataTransfer.getData(TASK_DRAG_TYPE);
-      if (taskId) onTask(taskId);
+      const canvasId = readCanvasDragData(e.dataTransfer);
+      if (canvasId) {
+        onItem({ kind: "canvas", id: canvasId });
+        return;
+      }
+      const taskIds = readTaskDragData(e.dataTransfer);
+      if (taskIds.length === 0) return;
+      // Filing is what this drop was for, so the pin drag behind the same
+      // gesture leaves the sessions pinned where they were.
+      consumeTaskDrop();
+      onItem({ kind: "task", ids: taskIds });
     },
   };
 }
@@ -134,6 +175,7 @@ function GridCell({
   const cellRef = useRef<HTMLDivElement>(null);
   const setActiveTask = useCommandCenterStore((s) => s.setActiveTask);
   const setActiveCell = useCommandCenterStore((s) => s.setActiveCell);
+  const { markAsViewed } = useTaskViewed();
 
   const markActive = useCallback(() => {
     setActiveCell(cell.cellIndex);
@@ -143,6 +185,9 @@ function GridCell({
   const handleCellClick = useCallback(
     (e: React.MouseEvent) => {
       markActive();
+      if (cell.taskId && cell.hasUnseenCompletion) {
+        markAsViewed(cell.taskId);
+      }
       const target = e.target as HTMLElement;
       // Don't redirect focus when the click already lands on a real control,
       // or when it bubbled in from a portaled popover whose DOM target is
@@ -160,30 +205,38 @@ function GridCell({
         ?.querySelector<HTMLElement>("[tabindex='0']")
         ?.focus({ preventScroll: true });
     },
-    [markActive],
+    [cell.hasUnseenCompletion, cell.taskId, markActive, markAsViewed],
   );
 
+  const liveTaskIds = useLiveTaskIds();
   const placeInCell = useCallback(
-    (taskId: string) => {
+    (item: DroppedItem) => {
       if (cell.terminalId) {
         destroyShellTerminal(getTerminalCellStateKey(cell.terminalId));
       }
-      useCommandCenterStore.getState().assignTask(cell.cellIndex, taskId);
+      if (item.kind === "canvas") {
+        placeCanvasInCommandCenterCell(item.id, cell.cellIndex);
+      } else {
+        placeTasksInCommandCenterCell(item.ids, cell.cellIndex, liveTaskIds);
+      }
     },
-    [cell.cellIndex, cell.terminalId],
+    [cell.cellIndex, cell.terminalId, liveTaskIds],
   );
 
-  const dropTarget = useTaskDropTarget(placeInCell);
+  const dropTarget = useCellDropTarget(placeInCell);
 
-  const isEmpty = !cell.task && !cell.terminalId && !cell.isBrainrot;
+  const isEmpty =
+    !cell.task && !cell.canvasId && !cell.terminalId && !cell.isBrainrot;
 
   const targetLabel = cell.terminalId
     ? "Replace terminal"
     : cell.isBrainrot
       ? "Replace Brainrot"
-      : cell.task?.title
-        ? `Replace ${cell.task.title}`
-        : "Use this tile";
+      : cell.canvasId
+        ? "Replace canvas"
+        : cell.task?.title
+          ? `Replace ${cell.task.title}`
+          : "Use this tile";
 
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: click delegates focus to ActionSelector within
@@ -214,7 +267,12 @@ function GridCell({
           className={`absolute inset-0 z-10 p-4 ${TARGET_CLASSES} ${targetOutline(dropTarget.isOver)}`}
           onClick={
             placement.mode === "pick"
-              ? () => placeInCell(placement.taskId)
+              ? () =>
+                  placeInCell(
+                    placement.kind === "canvas"
+                      ? { kind: "canvas", id: placement.id }
+                      : { kind: "task", ids: [placement.id] },
+                  )
               : undefined
           }
           onDragOver={dropTarget.onDragOver}
@@ -222,7 +280,7 @@ function GridCell({
           onDrop={dropTarget.onDrop}
           aria-label={
             placement.mode === "pick"
-              ? `${targetLabel} with ${placement.taskTitle}`
+              ? `${targetLabel} with ${placement.title}`
               : targetLabel
           }
         >
@@ -244,11 +302,18 @@ function ExpandSlot({
   slot: number;
   placement: PlacementState;
 }) {
+  const liveTaskIds = useLiveTaskIds();
   const expand = useCallback(
-    (taskId: string) => expandCommandCenterInto(direction, slot, taskId),
-    [direction, slot],
+    (item: DroppedItem) => {
+      if (item.kind === "canvas") {
+        expandCanvasInCommandCenterInto(direction, slot, item.id);
+      } else {
+        expandTasksInCommandCenterInto(direction, slot, item.ids, liveTaskIds);
+      }
+    },
+    [direction, liveTaskIds, slot],
   );
-  const dropTarget = useTaskDropTarget(expand);
+  const dropTarget = useCellDropTarget(expand);
   const { cols, rows } = getGridDimensions(expanded);
 
   return (
@@ -256,7 +321,14 @@ function ExpandSlot({
       type="button"
       className={`flex-1 p-1 text-accent-11 ${TARGET_CLASSES} ${targetOutline(dropTarget.isOver)}`}
       onClick={
-        placement.mode === "pick" ? () => expand(placement.taskId) : undefined
+        placement.mode === "pick"
+          ? () =>
+              expand(
+                placement.kind === "canvas"
+                  ? { kind: "canvas", id: placement.id }
+                  : { kind: "task", ids: [placement.id] },
+              )
+          : undefined
       }
       onDragOver={dropTarget.onDragOver}
       onDragLeave={dropTarget.onDragLeave}
@@ -325,15 +397,18 @@ export function CommandCenterGrid({ layout, cells }: CommandCenterGridProps) {
   const { cols, rows } = getGridDimensions(layout);
   const zoom = useCommandCenterStore((s) => s.zoom);
   const activeCellIndex = useCommandCenterStore((s) => s.activeCellIndex);
-  const isDragActive = useTaskDragActive();
+  const draggedKind = useCellDragActive();
   const pendingPlacement = useCommandCenterStore((s) => s.pendingPlacement);
+  const isComposing = useCommandCenterStore((s) => s.composer !== null);
   const cancelPlacement = useCommandCenterStore((s) => s.cancelPlacement);
 
-  const placement: PlacementState | null = pendingPlacement
-    ? { mode: "pick", ...pendingPlacement }
-    : isDragActive
-      ? { mode: "drag" }
-      : null;
+  const placement: PlacementState | null = isComposing
+    ? null
+    : pendingPlacement
+      ? { mode: "pick", ...pendingPlacement }
+      : draggedKind
+        ? { mode: "drag", kind: draggedKind }
+        : null;
 
   useEffect(() => {
     if (!pendingPlacement) return;
@@ -351,7 +426,7 @@ export function CommandCenterGrid({ layout, cells }: CommandCenterGridProps) {
         // floating over the grid.
         <div className="-translate-x-1/2 absolute top-3 left-1/2 z-20 flex items-center gap-3 rounded-full border border-accent-7 bg-accent-3 px-3 py-1.5 shadow-md">
           <span className="whitespace-nowrap text-[12px] text-accent-12">
-            Choose a tile for {pendingPlacement.taskTitle}
+            Choose a tile for {pendingPlacement.title}
           </span>
           <Button variant="link-muted" size="xs" onClick={cancelPlacement}>
             Cancel

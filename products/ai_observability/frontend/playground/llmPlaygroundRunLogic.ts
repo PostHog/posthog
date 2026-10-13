@@ -11,11 +11,14 @@ import { uuid } from 'lib/utils/dom'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ModelOption } from '../modelPickerLogic'
-import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import { isMessageSendable, toProviderMessages } from './playgroundMessageMapping'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
+import { extractVariablesFromTexts, getVariableValue, substituteVariables } from './playgroundTemplating'
 
 interface ToolCallChunk {
     id?: string
@@ -74,6 +77,17 @@ export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolC
     return updated
 }
 
+/** Neutralize markdown syntax in a value we did not author.
+ *
+ * A result card renders its text with `LemonMarkdown`, images included, so a model id taken from
+ * an ingested `$ai_model` property would otherwise turn `![x](https://…)` into a live request off
+ * an analyst's browser. CommonMark treats a backslash before any ASCII punctuation as a literal,
+ * so escaping the whole punctuation range covers link, image, and emphasis syntax at once.
+ */
+export function escapeMarkdownInline(value: string): string {
+    return value.replace(/[!-/:-@[-`{-~]/g, '\\$&')
+}
+
 export function describeError(err: unknown, fallbackMessage: string): { message: string; status?: number } {
     if (err instanceof ApiError) {
         const dataError = typeof err.data?.error === 'string' ? err.data.error : null
@@ -85,15 +99,6 @@ export function describeError(err: unknown, fallbackMessage: string): { message:
     return {
         message: (err instanceof Error && err.message) || fallbackMessage,
     }
-}
-
-function formatToolCalls(toolCalls: AggregatedToolCall[]): string {
-    if (toolCalls.length === 0) {
-        return ''
-    }
-    return toolCalls
-        .map((tc) => JSON.stringify({ id: tc.id, name: tc.name, arguments: tc.arguments }, null, 2))
-        .join('\n\n')
 }
 
 function normalizeUsageFromStreamChunk(data: Record<string, unknown>): UsageSummary {
@@ -161,6 +166,7 @@ export interface llmPlaygroundRunLogicValues {
     activeProviderKeyId: string | null // llmPlaygroundModelLogic
     effectiveModelOptions: ModelOption[] // llmPlaygroundModelLogic
     promptConfigs: PromptConfig[] // llmPlaygroundPromptsLogic
+    variableValues: Record<string, string> // llmPlaygroundVariablesLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     comparisonItems: ComparisonItem[]
     rateLimitedUntil: number | null
@@ -219,6 +225,8 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             ['effectiveModelOptions', 'activeProviderKeyId'],
             llmProviderKeysLogic,
             ['providerKeys'],
+            llmPlaygroundVariablesLogic,
+            ['variableValues'],
         ],
         actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
     })),
@@ -305,7 +313,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 .map((prompt: PromptConfig, index: number) => ({
                     prompt,
                     index,
-                    messagesToSend: prompt.messages.filter((m) => m.content.trim()),
+                    messagesToSend: prompt.messages.filter(isMessageSendable),
                 }))
                 .filter((item: { messagesToSend: Message[] }) => item.messagesToSend.length > 0)
 
@@ -315,6 +323,17 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 return
             }
 
+            // Count only the prompts actually submitted; a skipped panel's variables are not sent,
+            // so they belong in neither the warning nor the event.
+            const runVariables = extractVariablesFromTexts(
+                runnablePrompts.flatMap(({ prompt, messagesToSend }) => [
+                    prompt.systemPrompt,
+                    ...messagesToSend.map((m) => m.content),
+                    ...messagesToSend.flatMap((m) => m.toolCalls?.map((toolCall) => toolCall.arguments) ?? []),
+                ])
+            )
+            const runUnfilledVariables = runVariables.filter((name) => !getVariableValue(values.variableValues, name))
+
             posthog.capture('llma playground prompt submitted', {
                 prompt_count: runnablePrompts.length,
                 models: runnablePrompts.map(({ prompt }) => prompt.model),
@@ -323,12 +342,39 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     (sum, { messagesToSend }) => sum + messagesToSend.length,
                     0
                 ),
+                variable_count: runVariables.length,
+                unfilled_variable_count: runUnfilledVariables.length,
             })
+
+            if (runUnfilledVariables.length > 0) {
+                const names = runUnfilledVariables.map((name) => `{{${name}}}`).join(', ')
+                const suffix =
+                    runUnfilledVariables.length === 1
+                        ? 'The placeholder is sent as written.'
+                        : 'The placeholders are sent as written.'
+                lemonToast.warning(`No value for ${names}. ${suffix}`)
+            }
 
             const abortController = new AbortController()
             currentAbortController = abortController
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
+                    // Resolve {{variables}} only in what is sent; the editors keep the raw template.
+                    const resolvedSystemPrompt = substituteVariables(prompt.systemPrompt, values.variableValues)
+                    const resolvedMessages = messagesToSend.map(
+                        (m: Message): Message => ({
+                            ...m,
+                            content: substituteVariables(m.content, values.variableValues),
+                            ...(m.toolCalls?.length
+                                ? {
+                                      toolCalls: m.toolCalls.map((toolCall) => ({
+                                          ...toolCall,
+                                          arguments: substituteVariables(toolCall.arguments, values.variableValues),
+                                      })),
+                                  }
+                                : {}),
+                        })
+                    )
                     const liveItemId = uuid()
                     let responseUsage: UsageSummary = {}
                     let ttftMs: number | null = null
@@ -349,8 +395,8 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             promptId: prompt.id,
                             promptLabel: `Prompt ${index + 1}`,
                             model: prompt.model,
-                            systemPrompt: prompt.systemPrompt,
-                            requestMessages: messagesToSend,
+                            systemPrompt: resolvedSystemPrompt,
+                            requestMessages: resolvedMessages,
                             response: responseText,
                             reasoning: responseReasoning,
                             toolCalls,
@@ -378,8 +424,27 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             (m) => m.id === prompt.model
                         )
                         if (!selectedModel?.provider) {
-                            lemonToast.error('Selected model not found in available models')
-                            responseText = '**Error:** Selected model not available.'
+                            // Reachable without the model ever being picked here: opening a trace in
+                            // the playground, or loading a saved prompt, can carry a model the current
+                            // key set no longer offers. Name it so the user knows what to change.
+                            const describeMissingModel = (model: string): string =>
+                                `Model '${model}' is not one of your available models. Pick a different model and try again.`
+                            // The toast renders as text, the result card renders as markdown.
+                            lemonToast.error(describeMissingModel(prompt.model))
+                            responseText = `**Error:** ${describeMissingModel(escapeMarkdownInline(prompt.model))}`
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+
+                        // Model options carry the provider's display name ("Azure OpenAI"), but the
+                        // completion endpoint validates against enum values ("azure_openai").
+                        const normalizedProvider = normalizeLLMProvider(selectedModel.provider)
+                        if (!normalizedProvider) {
+                            const describeUnknownProvider = (model: string): string =>
+                                `Model '${model}' has a provider PostHog does not recognize. Pick a different model and try again.`
+                            lemonToast.error(describeUnknownProvider(prompt.model))
+                            responseText = `**Error:** ${describeUnknownProvider(escapeMarkdownInline(prompt.model))}`
                             responseHasError = true
                             upsertLiveItem()
                             return
@@ -388,13 +453,11 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         providerKeyId =
                             resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
                                 ?.id ?? values.activeProviderKeyId
-                        selectedModelProvider = selectedModel.provider.toLowerCase()
+                        selectedModelProvider = normalizedProvider
 
                         const requestData: Record<string, unknown> = {
-                            system: prompt.systemPrompt,
-                            messages: messagesToSend
-                                .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
-                                .map((m: Message) => ({ role: m.role, content: m.content })),
+                            system: resolvedSystemPrompt,
+                            messages: toProviderMessages(resolvedMessages),
                             model: selectedModel.id,
                             provider: selectedModelProvider,
                             thinking: prompt.thinking,
@@ -408,6 +471,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
                         }
 
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.stream('/api/llm_proxy/completion', {
                             method: 'POST',
                             data: requestData,
@@ -434,10 +498,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                             ttftMs = firstTokenTime - startTime
                                         }
                                         toolCalls = appendToolCallChunk(toolCalls, data)
-                                        const toolCallsText = formatToolCalls(toolCalls)
-                                        const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
                                         actions.updateComparisonItem(liveItemId, {
-                                            response: responseText + separator + toolCallsText,
                                             toolCalls,
                                             ttftMs,
                                         })
@@ -527,11 +588,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         }
                     }
 
-                    const toolCallsText = formatToolCalls(toolCalls)
-                    if (toolCallsText) {
-                        const separator = responseText.trim() ? '\n\n' : ''
-                        responseText += separator + toolCallsText
-                    }
                     upsertLiveItem()
 
                     posthog.capture('llma playground prompt completed', {

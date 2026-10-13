@@ -1,0 +1,346 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.EafPreview {
+    --eaf-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden opt-in state. A direct child of .EafPreview so `:checked ~` reaches all cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__app,
+    &__spark {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // On/off pairs are stacked on one grid cell and crossfaded, so opting in never
+    // changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-on {
+        @include preview-swap-hidden;
+    }
+
+    &__when-off {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 0.625rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__name {
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    // Mini stage tag, mimicking the roster's stage column.
+    &__stage {
+        padding: 0 0.375rem;
+        font-size: 0.625rem;
+        font-weight: 700;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    &__stage--beta {
+        background: color-mix(in oklab, var(--eaf-preview-accent) 12%, transparent);
+
+        @include preview-accent-text(var(--eaf-preview-accent));
+    }
+
+    &__optins {
+        min-width: 6.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__optins--live {
+        @include preview-accent-text(var(--eaf-preview-accent));
+    }
+
+    // Browser chrome for the mini app.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.875rem;
+    }
+
+    // A feature-preview row in the user's labs settings.
+    &__lab {
+        display: flex;
+        gap: 0.625rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.25rem 0.375rem;
+        border-radius: var(--radius);
+    }
+
+    &__lab--hero {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 150ms ease;
+    }
+
+    &__lab--hero:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__lab-copy {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    &__lab-name {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__lab-desc {
+        overflow: hidden;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    // Mini toggle, mimicking an opt-in switch. The off track gets a darker fill plus
+    // an inset ring so it stays legible on the card surface.
+    &__switch {
+        position: relative;
+        flex-shrink: 0;
+        width: 26px;
+        height: 15px;
+        background: color-mix(in oklab, var(--color-text-secondary) 25%, var(--color-fill-secondary));
+        border-radius: 999px;
+        box-shadow: inset 0 0 0 1px var(--color-border-primary);
+        transition: background-color 200ms ease;
+
+        &::after {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 11px;
+            height: 11px;
+            content: '';
+            background: var(--color-bg-surface-primary);
+            border-radius: 50%;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+            transition: transform 200ms ease;
+        }
+    }
+
+    &__switch--on {
+        background: var(--eaf-preview-accent);
+
+        &::after {
+            transform: translateX(11px);
+        }
+    }
+
+    // The report the beta changes. Both bodies stay stacked, so the block never resizes.
+    &__report {
+        padding: 0.5rem 0.625rem;
+        background: var(--color-bg-surface-secondary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__report-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+    }
+
+    &__skel {
+        display: block;
+        width: var(--w, 100%);
+        height: 8px;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    &__summary {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        @include preview-accent-text(var(--eaf-preview-accent));
+    }
+
+    &__hint {
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // Opt-in stat card, ticking up when this user joins the beta.
+    &__spark {
+        padding: 0.75rem 0.875rem 0.875rem;
+    }
+
+    &__spark-delta {
+        font-size: 0.6875rem;
+        font-weight: 600;
+
+        @include preview-accent-text(var(--eaf-preview-accent));
+    }
+
+    &__spark-chart {
+        margin-top: 0.5rem;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--eaf-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--eaf-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--eaf-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: EafPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// Opted-in state (user flipped the hero switch)
+
+.EafPreview__checkbox:checked ~ * .EafPreview__when-on {
+    @include preview-swap-visible;
+}
+
+.EafPreview__checkbox:checked ~ * .EafPreview__when-off {
+    @include preview-swap-hidden;
+}
+
+.EafPreview__checkbox:checked ~ .EafPreview__app .EafPreview__lab--hero .EafPreview__switch {
+    background: var(--eaf-preview-accent);
+
+    &::after {
+        transform: translateX(11px);
+    }
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.EafPreview__checkbox:focus-visible ~ .EafPreview__app .EafPreview__lab--hero {
+    outline: 2px solid var(--eaf-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the hero switch until it's flipped.
+.EafPreview:not(.EafPreview--static)
+    .EafPreview__checkbox:not(:checked)
+    ~ .EafPreview__app
+    .EafPreview__lab--hero
+    .EafPreview__switch {
+    animation: EafPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes EafPreview__nudge {
+    0%,
+    100% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 0 color-mix(in oklab, var(--eaf-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 4px color-mix(in oklab, var(--eaf-preview-accent) 20%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes EafPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; flipping the
+// switch still works (transitions only).
+@include preview-motion-guards('EafPreview');

@@ -1,11 +1,11 @@
 import {
   Bug,
-  ChartBar,
   ChartLine,
   ChatCircleText,
   Cube,
   CurrencyDollar,
   Flask,
+  SquaresFour,
   Wrench,
 } from "@phosphor-icons/react";
 import type { SuggestedPrompt } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
@@ -17,6 +17,9 @@ import type { SuggestedPrompt } from "@posthog/ui/features/task-detail/component
 // keeps its discovery suggestions. Card styling mirrors SuggestedTaskCard
 // (icon badge + title + description); the icon/color follow the same
 // `var(--<color>-N)` token scheme.
+//
+// The research prompts end by asking for a canvas, so the answer is a surface
+// the user can keep and share instead of chat history.
 export const CHANNEL_TASK_SUGGESTIONS: SuggestedPrompt[] = [
   {
     label: "Debug a user issue",
@@ -25,7 +28,7 @@ export const CHANNEL_TASK_SUGGESTIONS: SuggestedPrompt[] = [
     color: "red",
     mode: "auto",
     prompt:
-      "Help me debug an issue a specific user is hitting. Pull their recent events, session replays, and errors, then figure out what went wrong.\n\n\nUser input:\n- Describe the user issue:\n- User identifier (distinct ID, email address, etc):",
+      "Help me debug an issue a specific user is hitting. Pull their recent events, session replays, and errors, then figure out what went wrong. Build a canvas that explains what you found and the evidence behind it.\n\n\nUser input:\n- Describe the user issue:\n- User identifier (distinct ID, email address, etc):",
   },
   {
     label: "Run a feature analysis",
@@ -34,7 +37,7 @@ export const CHANNEL_TASK_SUGGESTIONS: SuggestedPrompt[] = [
     color: "blue",
     mode: "auto",
     prompt:
-      "Analyze how a feature is performing — adoption, engagement, and retention of users who use it vs. those who don't.\n\n\nUser input:\n- Feature to analyze:\n- Time period (optional):",
+      "Analyze how a feature is performing — adoption, engagement, and retention of users who use it vs. those who don't. Build a canvas that explains what you found, with the charts behind it.\n\n\nUser input:\n- Feature to analyze:\n- Time period (optional):",
   },
   {
     label: "Understand revenue patterns",
@@ -43,16 +46,16 @@ export const CHANNEL_TASK_SUGGESTIONS: SuggestedPrompt[] = [
     color: "green",
     mode: "auto",
     prompt:
-      "Analyze our revenue trends — break it down over time, by plan, and by cohort, and call out notable changes and likely drivers.\n\n\nUser input:\n- What revenue question are you trying to answer:\n- Time period (optional):",
+      "Analyze our revenue trends — break it down over time, by plan, and by cohort, and call out notable changes and likely drivers. Build a canvas that explains what you found, with the charts behind it.\n\n\nUser input:\n- What revenue question are you trying to answer:\n- Time period (optional):",
   },
   {
-    label: "Summarize product usage",
-    description: "Top events, active users, and key funnels",
-    icon: ChartBar,
+    label: "Build a canvas",
+    description: "Research a question and explain the answer",
+    icon: SquaresFour,
     color: "violet",
     mode: "auto",
     prompt:
-      "Summarize how our product is being used — top events, active users, key funnels, and notable trends.\n\n\nUser input:\n- Product area or feature to focus on (optional):\n- Time period (optional):",
+      "Research a question about our product, then build a canvas that explains the answer. Include the charts that show it and short written context for what they mean.\n\n\nUser input:\n- What should the canvas explain:\n- Time period (optional):",
   },
   {
     label: "Summarize user & agent feedback",
@@ -61,7 +64,7 @@ export const CHANNEL_TASK_SUGGESTIONS: SuggestedPrompt[] = [
     color: "amber",
     mode: "auto",
     prompt:
-      "Summarize recent user and support/agent feedback — surface the common themes, complaints, and requests.\n\n\nUser input:\n- Feedback source or topic to focus on:\n- Time period (optional):",
+      "Summarize recent user and support/agent feedback — surface the common themes, complaints, and requests. Build a canvas that explains the themes, with examples behind each one.\n\n\nUser input:\n- Feedback source or topic to focus on:\n- Time period (optional):",
   },
   {
     label: "Interpret experiment results",
@@ -70,7 +73,7 @@ export const CHANNEL_TASK_SUGGESTIONS: SuggestedPrompt[] = [
     color: "purple",
     mode: "auto",
     prompt:
-      "Interpret the results of an experiment — explain what the metrics show, whether it's significant, and what to do next.\n\n\nUser input:\n- Experiment name or key:\n- What decision are you trying to make (optional):",
+      "Interpret the results of an experiment — explain what the metrics show, whether it's significant, and what to do next. Build a canvas that explains the result and your recommendation.\n\n\nUser input:\n- Experiment name or key:\n- What decision are you trying to make (optional):",
   },
   {
     label: "Fix a bug",

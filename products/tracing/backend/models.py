@@ -1,10 +1,21 @@
 """Django models for tracing."""
 
-from django.db import models
+from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
+from django.db import models
+from django.db.models import Value
+
+from posthog.dataclasses import frozen
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 
 # Define your models here
 # Important:
@@ -12,6 +23,167 @@ from posthog.utils import generate_short_id
 # - Use types from facade/contracts.py or facade/enums.py where applicable
 # - Do not use ForeignKeys to models outside this app unless allowed, as you will make implicit dependencies.
 # - If you make a ForeignKey to a common model, disallow reverse relations with related_name='+'
+
+# Default span/resource attribute keys whose values match a PostHog person's distinct_id.
+# Mirrors the logs convention (https://posthog.com/docs/logs/link-session-replay): the
+# posthog-js / posthog-react-native SDKs attach `posthogDistinctId` to the OTel signals
+# they emit. Customers whose pipeline uses different keys can override via the
+# `tracing_config` endpoint.
+DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS = ["posthogDistinctId"]
+
+
+def default_tracing_distinct_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS)
+
+
+# Default span/resource attribute keys whose values hold the PostHog session ID.
+# `sessionId` is the key the posthog-js / posthog-react-native SDKs emit on OTel
+# signals. Ordered: detection checks keys in list order and the first match wins.
+DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS = ["sessionId"]
+
+
+def default_tracing_session_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS)
+
+
+# Same list as DISTINCT_ID_KEYS in products/logs/frontend/utils.tsx, which the span attribute
+# table resolves against. Copied rather than imported so tracing takes no dependency on Logs;
+# keep them in sync, or the counts stop covering the spans the UI links.
+DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "distinct.id",
+    "distinct_id",
+    "distinctId",
+    "distinctID",
+    "posthogDistinctId",
+    "posthogDistinctID",
+    "posthog_distinct_id",
+    "posthog.distinct.id",
+    "posthog.distinct_id",
+]
+
+# The session-ID counterpart. Some pipelines emit `posthogSessionId` though no SDK sends it.
+SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "session.id",
+    "session_id",
+    "sessionId",
+    "sessionID",
+    "$session_id",
+    "posthogSessionId",
+    "posthogSessionID",
+    "posthog_session_id",
+    "posthog.session.id",
+    "posthog.session_id",
+]
+
+
+@frozen
+class TracingIdentityAttributeKeys:
+    """The attribute keys that link a span to a session and to a person."""
+
+    session: list[str]
+    distinct_id: list[str]
+
+
+def resolved_tracing_identity_attribute_keys(team: "Team") -> TracingIdentityAttributeKeys:
+    """Each list is the team's configured keys, or the default when unconfigured, followed by the
+    built-in conventions the UI links regardless of config. Deduped, configured keys first. Both
+    come from one config read, because every caller needs both."""
+    config = TeamTracingConfig.objects.filter(team=team).first()
+    session_keys = (
+        config.tracing_session_id_attribute_keys if config else None
+    ) or DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS
+    distinct_id_keys = (
+        config.tracing_distinct_id_attribute_keys if config else None
+    ) or DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS
+    return TracingIdentityAttributeKeys(
+        session=list(dict.fromkeys([*session_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+        distinct_id=list(dict.fromkeys([*distinct_id_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+    )
+
+
+# Default number of days a span is kept before ClickHouse expires it. Deliberately duplicated
+# rather than imported from `posthog.models.team.logs_retention`: that module imports the logs
+# product's models, so importing it here would put a product app on this module's import path.
+# `test_models.py` asserts the two stay equal.
+DEFAULT_TRACES_RETENTION_DAYS = 14
+
+
+class TeamTracingConfig(models.Model):
+    # Plain `models.Model` (not `TeamScopedRootMixin`) — span emission and ingestion are
+    # per-environment, and so is this config. Inheriting the root-mixin would rewrite
+    # writes to the parent project on save, letting a member of one child environment
+    # mutate config that affects sibling environments they may not have access to.
+    # Mirrors the `TeamLogsConfig` precedent.
+    # db_constraint=False so creating this table takes no lock on the hot posthog_team
+    # parent; the real constraint is added lock-free via AddForeignKeyNotValid in the
+    # migration, same as TracingView.
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
+    )
+
+    # Span or resource attribute keys whose values match a PostHog person's distinct_id —
+    # a span links to a person when any of these attributes holds their distinct ID.
+    tracing_distinct_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_tracing_distinct_id_attribute_keys,
+        db_default=Value("{posthogDistinctId}"),
+    )
+
+    # Ordered list of span or resource attribute keys whose values hold the PostHog
+    # session ID. Detection checks keys in order; the first key with a value wins.
+    # Used to link spans to session replay.
+    tracing_session_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_tracing_session_id_attribute_keys,
+        db_default=Value("{sessionId}"),
+    )
+
+    # How long spans are kept before ClickHouse expires them. Applied at ingest, so a change
+    # only affects spans received after it. `TracesRetentionRule` rows override this per span;
+    # spans matching no rule keep this period.
+    retention_days = models.PositiveIntegerField(
+        default=DEFAULT_TRACES_RETENTION_DAYS, db_default=Value(DEFAULT_TRACES_RETENTION_DAYS)
+    )
+
+    # When `retention_days` was last changed, for the once-per-24-hours throttle.
+    retention_last_updated = models.DateTimeField(null=True, blank=True)
+
+
+class TracesRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules that override how long matching spans are retained (evaluated in ingestion
+    when enabled). First matching rule by (priority, created_at) wins; spans matching no rule keep
+    the environment's default retention (`TeamTracingConfig.retention_days`)."""
+
+    # Rules are per-environment, like `TeamTracingConfig`. `EnvironmentScopedManager` filters by the
+    # literal team id, so one environment can never read or rewrite a sibling's rules.
+    # db_constraint=False on the hot-table FKs (team, created_by) keeps the CreateModel migration
+    # lock-free. Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14 or a multiple of 30>}
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    all_teams = models.Manager()
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "tracing_tracesretentionrule"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="traces_ret_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"
 
 
 class TracingView(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -24,9 +196,9 @@ class TracingView(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on those parents; the real constraints are added lock-free via
     # AddForeignKeyNotValid in the migration. created_by overrides CreatedMetaFields for the same reason.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     # Human-friendly id used in the API/URL instead of exposing the UUID primary key.
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)

@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.schema import AssistantDateRange, AssistantTrendsQuery, Compare, IntervalType
 
@@ -253,6 +256,58 @@ class TestTrendsResultsFormatter(BaseTest):
             "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
         )
 
+    @parameterized.expand(
+        [
+            (
+                "aggregated_series_first",
+                [
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 993,
+                        "label": "$pageview",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "label": "$pageleave",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                ],
+                "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|N/A",
+            ),
+            (
+                "aggregated_series_second",
+                [
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "label": "$pageleave",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 993,
+                        "label": "$pageview",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                ],
+                "Date range|Aggregated value for $pageleave|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|N/A|993",
+            ),
+        ]
+    )
+    def test_trends_aggregated_values_with_mixed_series(self, _name, results, expected):
+        self.assertEqual(
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
+            expected,
+        )
+
     def test_trends_aggregated_value_with_null_action(self):
         results = [
             {
@@ -279,7 +334,7 @@ class TestTrendsResultsFormatter(BaseTest):
                 "aggregated_value": 993,
                 "label": "$pageview",
                 "action": {
-                    "days": ["2025-01-17", "2025-01-18", "2025-01-19"],
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
                 },
                 "compare": True,
                 "compare_label": Compare.PREVIOUS,
@@ -298,6 +353,17 @@ class TestTrendsResultsFormatter(BaseTest):
             },
         ]
         self.assertEqual(
-            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 to 2025-01-19|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|1000",
+            TrendsResultsFormatter(
+                AssistantTrendsQuery(series=[]),
+                results,
+                resolved_date_range={
+                    "date_from": "2025-01-20T00:00:00-08:00",
+                    "date_to": "2025-01-22T23:59:59.999999-08:00",
+                },
+                resolved_compare_date_range={
+                    "date_from": datetime(2025, 1, 17, tzinfo=ZoneInfo("America/Los_Angeles")),
+                    "date_to": datetime(2025, 1, 19, 23, 59, 59, 999999, tzinfo=ZoneInfo("America/Los_Angeles")),
+                },
+            ).format(),
+            "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 00:00:00-08:00 to 2025-01-19 23:59:59-08:00|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 00:00:00-08:00 to 2025-01-22 23:59:59-08:00|1000",
         )

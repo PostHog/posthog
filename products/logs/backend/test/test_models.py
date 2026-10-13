@@ -1,7 +1,7 @@
 import importlib
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from django.apps import apps
@@ -13,6 +13,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
     MAX_EVALUATION_PERIODS,
     LogsAlertConfiguration,
     LogsAlertEvent,
@@ -187,7 +188,7 @@ class TestLogsAlertEvent(BaseTest):
         defaults.update(kwargs)
         return LogsAlertEvent.objects.create(**defaults)
 
-    @freeze_time("2026-03-09T12:00:00Z")
+    @time_machine.travel("2026-03-09T12:00:00Z", tick=False)
     def test_clean_up_old_events_prunes_rows_older_than_event_retention(self):
         alert = self._create_alert()
         old_errored = self._create_check(alert, error_message="CH timeout")
@@ -204,7 +205,7 @@ class TestLogsAlertEvent(BaseTest):
         assert not LogsAlertEvent.objects.filter(pk=old_errored.pk).exists()
         assert LogsAlertEvent.objects.filter(pk=recent_transition.pk).exists()
 
-    @freeze_time("2026-03-09T12:00:00Z")
+    @time_machine.travel("2026-03-09T12:00:00Z", tick=False)
     def test_clean_up_old_events_does_not_prune_non_event_rows(self):
         # Non-event rows are the activity's problem (inline cap). If a stale OK row sits
         # in the table, clean_up_old_events should leave it alone — the activity will
@@ -236,6 +237,11 @@ class TestTeamLogsConfig(BaseTest):
         # their person without any team configuration.
         assert config.logs_distinct_id_attribute_key == "posthogDistinctId"
         assert config.logs_distinct_id_attribute_keys == ["posthogDistinctId"]
+        # The SDKs namespace the distinct ID but leave the session ID bare, so this one is
+        # `sessionId`, not `posthogSessionId`. Asserted literally: an assertion against the
+        # constant alone moves with it and would not catch the key drifting from the SDKs.
+        assert config.logs_session_id_attribute_keys == DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+        assert config.logs_session_id_attribute_keys == ["sessionId"]
 
     def test_custom_attribute_keys_persist(self):
         config = get_or_create_team_extension(self.team, TeamLogsConfig)
@@ -260,6 +266,44 @@ class TestTeamLogsConfig(BaseTest):
 
         customized.refresh_from_db()
         assert customized.logs_distinct_id_attribute_keys == ["user.id"]
+
+    def test_migration_backfill_appends_the_key_the_sdks_emit(self):
+        # Order matters — see the migration for why the old key stays first.
+        untouched = get_or_create_team_extension(self.team, TeamLogsConfig)
+        untouched.logs_session_id_attribute_keys = ["posthogSessionId"]
+        untouched.save()
+
+        self._run_session_id_backfill()
+
+        untouched.refresh_from_db()
+        assert untouched.logs_session_id_attribute_keys == ["posthogSessionId", "sessionId"]
+
+    def test_migration_backfill_leaves_a_customized_value_alone(self):
+        customized = get_or_create_team_extension(self.team, TeamLogsConfig)
+        customized.logs_session_id_attribute_keys = ["my.session.key"]
+        customized.save()
+
+        self._run_session_id_backfill()
+
+        customized.refresh_from_db()
+        assert customized.logs_session_id_attribute_keys == ["my.session.key"]
+
+    def test_migration_backfill_is_idempotent(self):
+        already_backfilled = get_or_create_team_extension(self.team, TeamLogsConfig)
+        already_backfilled.logs_session_id_attribute_keys = ["posthogSessionId", "sessionId"]
+        already_backfilled.save()
+
+        self._run_session_id_backfill()
+
+        already_backfilled.refresh_from_db()
+        assert already_backfilled.logs_session_id_attribute_keys == ["posthogSessionId", "sessionId"]
+
+    @staticmethod
+    def _run_session_id_backfill():
+        backfill_module = importlib.import_module(
+            "products.logs.backend.migrations.0022_backfill_logs_session_id_attribute_keys"
+        )
+        backfill_module.backfill_session_id_attribute_keys(apps, None)
 
     def test_cascade_delete_with_team(self):
         get_or_create_team_extension(self.team, TeamLogsConfig)

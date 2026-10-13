@@ -82,6 +82,31 @@ function turnComplete(ts: number): AcpMessage {
   };
 }
 
+function consoleLog(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/console",
+      params: { level: "debug", message: "diagnostic" },
+    },
+  };
+}
+
+function refreshSessionCall(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "_posthog/refresh_session",
+      params: { mcpServers: [] },
+    },
+  };
+}
+
 function storedEntry(event: AcpMessage): StoredLogEntry {
   return {
     type: "notification",
@@ -111,6 +136,36 @@ describe("resume hydration reconciliation", () => {
       ),
     ).toEqual([]);
   });
+
+  it.each([
+    { label: "a server-internal notification", interloper: consoleLog(20) },
+    { label: "a host control call", interloper: refreshSessionCall(20) },
+  ])(
+    "discards both halves of a chunk run split by $label",
+    ({ interloper }) => {
+      // The writer keeps one chunk buffer across these, so the durable log holds
+      // one message where the live tail holds two chunk runs.
+      const completion = turnComplete(40);
+      const hydratedEvents = [
+        prompt(1, "ask", 10),
+        interloper,
+        agentMessage("dashboards still use that filter", 30),
+        completion,
+      ];
+
+      expect(
+        reconcileLiveEventsWithHydratedEvents(
+          [
+            agentMessageChunk("dashboards still", 21),
+            { ...interloper, ts: 22 },
+            agentMessageChunk(" use that filter", 23),
+            { ...completion, ts: 41 },
+          ],
+          hydratedEvents,
+        ),
+      ).toEqual([]);
+    },
+  );
 
   it("preserves a new assistant response after an overlapping tool boundary", () => {
     const boundary = toolCall("tool-1", 30);

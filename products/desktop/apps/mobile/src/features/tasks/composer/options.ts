@@ -1,16 +1,19 @@
-import type { ModeInfo } from "@posthog/core/sessions/executionModes";
 import {
-  type CloudComposerSelection,
-  resolveCloudComposerAdapterChange,
-} from "@posthog/core/task-detail/composerModelPolicy";
+  getDefaultExecutionModeForAdapter,
+  type ModeInfo,
+} from "@posthog/core/sessions/executionModes";
+import type { CloudComposerSelection } from "@posthog/core/task-detail/composerModelPolicy";
 import {
   type Adapter,
+  adapterForModelId,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
+  DEFAULT_REASONING_EFFORT,
   getCapabilityLadder,
   getReasoningEffortOptions,
-  isModalModelId,
   isRestrictedModelOption,
   type SupportedReasoningEffort,
+  selectOptionHarness,
 } from "@posthog/shared";
 
 export type ContextWindow = "200k" | "1m";
@@ -30,6 +33,12 @@ export interface MobileModelOption {
   disabled: boolean;
 }
 
+export interface MobileModelGroup {
+  key: string;
+  name: string;
+  options: MobileModelOption[];
+}
+
 export function getMobileExecutionModes(
   modes: readonly ModeInfo[],
 ): ModeInfo[] {
@@ -46,61 +55,66 @@ export function getModelConfigOption(
   return option;
 }
 
-/**
- * Drops the Kimi K3 model from the live model config when the feature flag is
- * off, and rewrites a persisted or server-default Kimi selection to the first
- * remaining option so it never leaks into the picker. Mirrors the desktop
- * `stripKimiModelOption` filter, but over the mobile `CloudTaskConfigOption`.
- */
-export function filterKimiModelOption(
-  modelOption: CloudTaskConfigOption,
-  kimiEnabled: boolean,
-): CloudTaskConfigOption {
-  if (kimiEnabled) return modelOption;
-  const options = modelOption.options.filter(
-    (option) => !isModalModelId(option.value),
-  );
+function toMobileModelOption(option: {
+  value: string;
+  name: string;
+  description?: string;
+  _meta?: Record<string, unknown>;
+}): MobileModelOption {
   return {
-    ...modelOption,
-    options,
-    currentValue: isModalModelId(modelOption.currentValue)
-      ? (options[0]?.value ?? modelOption.currentValue)
-      : modelOption.currentValue,
-  };
-}
-
-/**
- * Applies {@link filterKimiModelOption} to the model option within a live
- * config set, leaving the other categories untouched. Callers filter once at
- * the source so the model auto-resolve effect and the picker share Kimi-free
- * options.
- */
-export function filterKimiModelConfigOptions(
-  configOptions: readonly CloudTaskConfigOption[],
-  kimiEnabled: boolean,
-): readonly CloudTaskConfigOption[] {
-  if (kimiEnabled) return configOptions;
-  return configOptions.map((option) =>
-    option.category === "model" ? filterKimiModelOption(option, false) : option,
-  );
-}
-
-export function getComposerModelOptions(
-  modelOption: CloudTaskConfigOption,
-): MobileModelOption[] {
-  return modelOption.options.map((option) => ({
     value: option.value,
     label: option.name,
     description: option.description,
     disabled: isRestrictedModelOption(option._meta),
+  };
+}
+
+export function toMobileModelGroups(
+  groups: readonly CloudTaskConfigSelectGroup[],
+): MobileModelGroup[] {
+  return groups.map((group) => ({
+    key: group.group,
+    name: group.name,
+    options: group.options.map(toMobileModelOption),
   }));
 }
 
-export function getConfigOptionLabel(
-  options: ReadonlyArray<{ value: string; name: string }>,
-  value: string | undefined,
-): string | undefined {
-  return options.find((option) => option.value === value)?.name ?? value;
+export function findModelOptionInGroups(
+  groups: readonly CloudTaskConfigSelectGroup[],
+  value: string,
+):
+  | { value: string; name: string; _meta?: Record<string, unknown> }
+  | undefined {
+  for (const group of groups) {
+    const entry = group.options.find((option) => option.value === value);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
+export function harnessForModel(
+  groups: readonly CloudTaskConfigSelectGroup[],
+  value: string,
+): Adapter {
+  const entry = findModelOptionInGroups(groups, value);
+  return selectOptionHarness(entry?._meta) ?? adapterForModelId(value);
+}
+
+/**
+ * The composer selection for a cross-harness model pick: switches to the
+ * picked model's harness, lands on that harness's default mode and reasoning
+ * effort, and carries the picked model along.
+ */
+export function resolveCrossHarnessModelSelection(
+  adapter: Adapter,
+  model: string,
+): CloudComposerSelection {
+  return {
+    adapter,
+    mode: getDefaultExecutionModeForAdapter(adapter),
+    model,
+    reasoning: DEFAULT_REASONING_EFFORT,
+  };
 }
 
 /**
@@ -131,32 +145,15 @@ export function getAgentPresets(
   });
 }
 
-/** Index of the balanced middle notch on a Faster→Smarter ordered scale. */
 function middleIndex(length: number): number {
   return Math.floor((length - 1) / 2);
 }
 
-/** The balanced middle notch used as the reset target and harness default. */
 export function getMiddlePreset(
   presets: readonly AgentPreset[],
 ): AgentPreset | undefined {
   if (presets.length === 0) return undefined;
   return presets[middleIndex(presets.length)];
-}
-
-/**
- * Switches to the other harness, landing on that harness's middle-notch model
- * and effort rather than a bare default. The composer re-resolves the model
- * against the live config once it loads if this pairing isn't offered yet.
- */
-export function resolveHarnessSwitchSelection(
-  currentAdapter: Adapter,
-): CloudComposerSelection {
-  const base = resolveCloudComposerAdapterChange(currentAdapter);
-  const ladder = getCapabilityLadder(base.adapter);
-  const middle = ladder[middleIndex(ladder.length)];
-  if (!middle) return base;
-  return { ...base, model: middle.model, reasoning: middle.effort };
 }
 
 export type ComposerPrimaryAction =

@@ -2,6 +2,7 @@ import {
   CLOUD_USAGE_LIMIT_ERROR_MESSAGE,
   type TaskSessionStorageAccess,
 } from "@posthog/api-client/posthog-client";
+import { cloudAccessFor } from "@posthog/core/sessions/cloudModelAccess";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -14,6 +15,7 @@ import type {
 } from "@posthog/shared";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
 import { inject, injectable } from "inversify";
+import { FILE_READ_CLIENT, type FileReadClient } from "../files/identifiers";
 import { extractFilePaths, xmlToContent } from "../message-editor/content";
 import { PI_RUNNER } from "../pi-runtime/identifiers";
 import type { PiRunner } from "../pi-runtime/piRunner";
@@ -50,6 +52,8 @@ export class TaskService {
     private readonly effects: TaskCreationEffects,
     @inject(PI_RUNNER)
     private readonly piRunner: PiRunner,
+    @inject(FILE_READ_CLIENT)
+    private readonly fileReadClient: FileReadClient,
     @inject(ROOT_LOGGER)
     rootLogger: RootLogger,
   ) {
@@ -150,12 +154,39 @@ export class TaskService {
       }
     }
 
+    if (input.workspaceMode === "cloud" && input.runtime !== "pi") {
+      const adapter = input.adapter ?? "claude";
+      try {
+        const access = await this.sessionService.resolveCloudModelAccess(
+          adapter,
+          adapter === "claude"
+            ? input.claudeCloudModelAccess
+            : input.codexCloudModelAccess,
+        );
+        input = {
+          ...input,
+          claudeCloudModelAccess: cloudAccessFor(access, "claude"),
+          codexCloudModelAccess: cloudAccessFor(access, "codex"),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          failedStep: "validation",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not check subscription billing.",
+        };
+      }
+    }
+
     const creator = new TaskCreationSaga(
       {
         posthogClient,
         host: this.host,
         sessionService: this.sessionService,
         piRunner: this.piRunner,
+        fileReadClient: this.fileReadClient,
         track: (event, props) => this.host.track(event, props),
         onTaskReady,
       },
@@ -255,9 +286,11 @@ export class TaskService {
       try {
         if (runtime === "pi") {
           await this.piRunner.resume({
-            taskId,
-            cwd: existingWorkspace.worktreePath ?? existingWorkspace.folderPath,
-            projectTrustPath: existingWorkspace.folderPath,
+            taskContext: {
+              taskId,
+              cwd:
+                existingWorkspace.worktreePath ?? existingWorkspace.folderPath,
+            },
           });
         }
 
@@ -278,7 +311,7 @@ export class TaskService {
     if (runtime === "pi") {
       try {
         const cwd = await this.host.ensureScratchDir(taskId);
-        await this.piRunner.resume({ taskId, cwd, projectTrustPath: cwd });
+        await this.piRunner.resume({ taskContext: { taskId, cwd } });
         return {
           success: true,
           data: { task, workspace: null },
@@ -301,6 +334,7 @@ export class TaskService {
         host: this.host,
         sessionService: this.sessionService,
         piRunner: this.piRunner,
+        fileReadClient: this.fileReadClient,
         track: (event, props) => this.host.track(event, props),
       },
       this.log,

@@ -3,7 +3,12 @@
 Tests for find_python_dependencies.py
 """
 
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import unittest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -13,7 +18,9 @@ from bin.find_python_dependencies import (
     build_import_graph,
     check_if_changes_affect_entrypoint,
     find_all_dependency_files,
+    main,
     module_to_file,
+    read_changed_files,
 )
 
 
@@ -115,6 +122,43 @@ class TestFindPythonDependencies(unittest.TestCase):
         )
         self.assertFalse(affected)
         self.assertEqual(matching, [])
+
+    @parameterized.expand(
+        [
+            ("empty", [], b""),
+            (
+                "unusual_names",
+                ["path with spaces.py", "path\nwith-newline.py"],
+                b"path with spaces.py\0path\nwith-newline.py\0",
+            ),
+            ("large_input", [f"products/example/file_{index}.py" for index in range(10_000)], None),
+        ]
+    )
+    def test_read_changed_files(self, _name, expected, encoded):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "changed-files"
+            path.write_bytes(
+                encoded if encoded is not None else b"\0".join(os.fsencode(item) for item in expected) + b"\0"
+            )
+
+            self.assertEqual(read_changed_files(path), expected)
+
+    def test_missing_changed_files_input_fails_safe(self):
+        missing_path = REPO_ROOT / "missing-changed-files"
+        with (
+            self.assertRaises(SystemExit) as exit_error,
+            patch(
+                "sys.argv",
+                ["find_python_dependencies.py", "posthog.temporal.alerts", "--check-changes-file", str(missing_path)],
+            ),
+            patch("bin.find_python_dependencies.build_import_graph", return_value=self.graph),
+            patch("sys.stdout.write") as stdout_write,
+            patch("sys.stderr.write"),
+        ):
+            main()
+
+        self.assertEqual(exit_error.exception.code, 0)
+        self.assertEqual(stdout_write.call_args.args[0], '{"affected": true, "matching_files": []}\n')
 
     def test_returns_sorted_matching_files(self):
         _affected, matching = check_if_changes_affect_entrypoint(

@@ -1,8 +1,21 @@
-import random
+import re
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import timedelta
+from enum import StrEnum
+from typing import TYPE_CHECKING, Final
 
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from posthog.dataclasses import frozen
+
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, ReportedPriority
+from products.review_hog.backend.reviewer.review_design import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_DEFAULT,
+    REVIEW_DESIGN_REASON_FULL_MODE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
+    REVIEW_DESIGN_SINGLE_AGENT,
+)
+from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
     RuntimeAdapter,
@@ -10,11 +23,14 @@ from products.tasks.backend.facade.run_config import (
     get_reasoning_effort_error,
 )
 
+if TYPE_CHECKING:
+    from openai.types.shared import ReasoningEffort as OpenAIReasoningEffort
+
 logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
-REVIEW_MODEL = "gpt-5.6-sol"
+REVIEW_MODEL = "gpt-6.1-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
 # stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
@@ -25,13 +41,18 @@ REVIEW_INITIAL_PERMISSION_MODE = "full-access"
 # untrusted PR-comment text, and their only legitimate MCP use is reading their criteria skill
 # (skill-get / skill-file-get) — without this the context defaults to "full", handing an injectable
 # agent execute-sql and every write tool. Internal sandbox-plumbing scopes are re-added by the
-# resolver, so this cannot break session mechanics.
-REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read"]
+# resolver, so this cannot break session mechanics. `user:read` is the MCP handshake: the MCP
+# server resolves the calling user (`/api/users/@me/`) when a session opens and refuses the whole
+# connection without it, so the agent never gets `skill-get` and silently reviews without its skill.
+# `project:read` is deliberately NOT granted: the handshake's project fetch is best-effort, so the
+# scope buys only analytics attribution, but `GET /api/projects/<id>/` returns the team's unmasked
+# `secret_api_token`, which an injected agent reading untrusted PR text must never be able to read.
+REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]
 
 
 @dataclass(frozen=True)
 class ReviewArm:
-    """One reviewer configuration the model experiment can assign to a report.
+    """One reviewer configuration a report's review units run on.
 
     The four fields travel as one bundle: provider routing is derived from the adapter, so a model
     handed over without its adapter silently falls back to the agent server's default, and Codex
@@ -51,22 +72,255 @@ DEFAULT_REVIEW_ARM = ReviewArm(
     initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
 )
 
-# The reviewer-model arm draw: each new report draws its arm once at creation and keeps it for
-# life, because a per-turn redraw would feed one arm's findings into the other arm's
-# "already covered" injection. Weights are relative shares (`random.choices` normalizes them).
-# Run a model experiment by adding weighted arms here; end it by dropping arms HERE, never by
-# deregistering the model in products/tasks: persisted assignments resolve against the live
-# registry per unit, so a mid-experiment deregistration silently falls in-flight turns back to
-# the default pins, unit by unit. Reports that drew a now-dropped arm keep running it while its
-# combo stays registered, by design.
-REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = ((1.0, DEFAULT_REVIEW_ARM),)
+
+# REVIEW MODE
+# What a single turn runs on, chosen per trigger and carried in the workflow input, never persisted on
+# the report: a flash turn must not change what the PR's next normal review runs on. Plain strings so
+# Temporal payloads stay forward/backward-compatible across deploys, like the trigger sources.
+REVIEW_MODE_FULL = "full"
+REVIEW_MODE_FLASH = "flash"
+
+# REVIEW DESIGN
+# The design a Flash turn runs on by default. Full turns always run on the pipeline. The
+# `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
+# (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
+FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
 
 
-def draw_review_arm() -> ReviewArm:
-    """The weighted arm draw for a newly created report; persisted once, never redrawn."""
-    arms = [arm for _, arm in REVIEW_EXPERIMENT_ARMS]
-    weights = [weight for weight, _ in REVIEW_EXPERIMENT_ARMS]
-    return random.choices(arms, weights=weights, k=1)[0]
+@frozen
+class ReviewDesignChoice:
+    design: str
+    reason: str
+
+
+def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDesignChoice:
+    """The design one turn runs on: the single agent for a Flash turn of any size, the pipeline otherwise.
+
+    The single agent reviews a large PR in larger lens parts with a trimmed main diff, so PR size never
+    sends a Flash turn to the pipeline.
+    """
+    if review_mode != REVIEW_MODE_FLASH:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
+    if kill_switch_on:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
+    if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
+    return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
+
+
+# RELEASE VERSION, one per review mode and design, because each evolves on its own.
+# Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
+# change the turn fingerprint (`reviewer/fingerprint.py`) instead.
+REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
+}
+
+
+def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
+    major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
+    return f"reviewhog-{review_mode}-{major}-{minor}"
+
+
+# Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
+FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-6-luna",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
+
+# Flash comments posted before reviewhog-flash-1-1 open with this banner. Comments on old pull
+# requests keep it, so the matchers that read them back still remove it.
+LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
+
+
+# Every single-agent session runs on this arm, whatever the user's Flash effort setting.
+SINGLE_AGENT_FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-6.1-sol",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
+
+# Reserved so the single agent's persisted result never collides with a pipeline pass.
+SINGLE_AGENT_PASS_NUMBER = 2000
+SINGLE_AGENT_CHUNK_ID = 1
+SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
+# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
+# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
+# HTML-comment style as the review-body and status markers, invisible in rendered markdown.
+REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
+
+# A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
+# reviewers already raised, and counts the rest.
+ALREADY_RAISED_SHOWN = 10
+
+# The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
+# PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
+FLASH_MAX_FINDINGS_BASE = 4
+FLASH_MAX_FINDINGS_PER_EXTRA_PART = 2
+FLASH_MAX_FINDINGS_CEILING = 10
+# Must-fix findings post outside the cap. This multiple of the cap still bounds them, so a session that
+# marks everything P0 or P1 cannot flood the PR.
+FLASH_MUST_FIX_CAP_MULTIPLIER = 2
+# A finding on a line next to a change is often about that change.
+FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES = 3
+
+
+def flash_max_findings(lens_part_count: int) -> int:
+    extra_parts = max(lens_part_count - 1, 0)
+    return min(FLASH_MAX_FINDINGS_BASE + FLASH_MAX_FINDINGS_PER_EXTRA_PART * extra_parts, FLASH_MAX_FINDINGS_CEILING)
+
+
+# Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
+FLASH_LENS_CHUNK_MAX_LINES = 600
+FLASH_LENS_MAX_CHUNKS = 4
+# Shorter than the sandbox timeout, so a slow lens session cannot hold the main findings back for long.
+FLASH_LENS_SESSION_TIMEOUT = timedelta(minutes=10)
+
+# About 200K tokens at 4 characters per token.
+FLASH_PROMPT_DIFF_MAX_CHARS = 800_000
+
+
+@frozen
+class FlashLens:
+    """One focused review that runs next to the main single-agent session, once per lens part."""
+
+    # Reserved like SINGLE_AGENT_PASS_NUMBER, so a lens result never collides with another session's.
+    pass_number: int
+    prompt_file: str
+    source: str
+
+
+FLASH_LENSES: dict[str, FlashLens] = {
+    "performance-reliability": FlashLens(
+        pass_number=2001,
+        prompt_file="lens_performance_reliability.md",
+        source="flash-lens-performance-reliability",
+    ),
+    "contracts-security": FlashLens(
+        pass_number=2002,
+        prompt_file="lens_contracts_security.md",
+        source="flash-lens-contracts-security",
+    ),
+}
+
+# One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
+# at once by default, so a larger PR would lose the lenses past that.
+COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
+
+
+def is_single_agent_pass(pass_number: int) -> bool:
+    """Whether a persisted review result came from a single-agent session, the main one or a lens.
+
+    A Full turn can run on the same arm as the single-agent sessions, so the arm stamp alone cannot keep
+    the two designs' results apart at one head. The reserved passes can.
+    """
+    return pass_number >= SINGLE_AGENT_PASS_NUMBER
+
+
+def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
+    if reasoning_effort == ReasoningEffort.XHIGH.value:
+        return replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+    if reasoning_effort != ReasoningEffort.MEDIUM.value:
+        logger.warning("Unknown Flash reasoning effort %s; using medium", reasoning_effort)
+    return FLASH_ARM
+
+
+def review_arm_for_mode(
+    review_mode: str,
+    persisted: ReviewArm,
+    *,
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+) -> ReviewArm:
+    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return SINGLE_AGENT_FLASH_ARM
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
+
+
+class ReviewTier(StrEnum):
+    """The routing bucket a report's reviewer arm is chosen from; persisted as `ReviewReport.review_tier`.
+
+    Named after the bucket, not the arm it maps to, so a dashboard split by tier keeps reading the
+    same way when the table below moves a bucket to another effort.
+    """
+
+    # A person's PR, or any PR a person explicitly asked to review.
+    HUMAN = "human"
+    # Agent PRs (a self-driving implementation of a Signals report), by the report's priority.
+    AGENT_P0_P1 = "agent_p0_p1"
+    AGENT_P2 = "agent_p2"
+    AGENT_P3_P4 = "agent_p3_p4"
+    # An agent PR whose report carries no readable priority judgment.
+    AGENT_UNPRIORITIZED = "agent_unprioritized"
+
+
+# The tier table. A report is placed in a tier once, when it is created (`upsert_review_report`),
+# and keeps that arm for life: a per-turn re-decision would feed a cheap turn's findings into a
+# stronger turn's "already covered" injection. Lower-priority agent PRs trade findings for cost:
+# in the 2026-08 reviewer experiment (eval/experiments/2026-08-validator-model-sol/FINAL_REPORT.md)
+# medium kept about half of xhigh's real findings, low about a third, and only xhigh surfaced
+# issues nobody reported before. A missing priority fails expensive on purpose, because an
+# over-review costs dollars and an under-review costs a missed bug. The validator runs its own pins
+# for every tier. Change a bucket's arm HERE, never by deregistering the model in products/tasks:
+# persisted arms resolve against the live registry per unit, so a deregistration silently falls
+# in-flight turns back to the default pins, unit by unit.
+REVIEW_ARMS_BY_TIER: dict[ReviewTier, ReviewArm] = {
+    ReviewTier.HUMAN: DEFAULT_REVIEW_ARM,
+    ReviewTier.AGENT_P0_P1: DEFAULT_REVIEW_ARM,
+    ReviewTier.AGENT_P2: replace(DEFAULT_REVIEW_ARM, reasoning_effort=ReasoningEffort.MEDIUM),
+    ReviewTier.AGENT_P3_P4: replace(DEFAULT_REVIEW_ARM, reasoning_effort=ReasoningEffort.LOW),
+    ReviewTier.AGENT_UNPRIORITIZED: DEFAULT_REVIEW_ARM,
+}
+
+_TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
+    ReportPriority.P0: ReviewTier.AGENT_P0_P1,
+    ReportPriority.P1: ReviewTier.AGENT_P0_P1,
+    ReportPriority.P2: ReviewTier.AGENT_P2,
+    ReportPriority.P3: ReviewTier.AGENT_P3_P4,
+    ReportPriority.P4: ReviewTier.AGENT_P3_P4,
+}
+
+
+# The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
+# CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
+# tool on someone's behalf counts as that person asking), or an `@posthog review` comment. Inbox
+# and automatic authored-PR triggers fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
+# (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
+# package (its `__init__` imports the activities, which import persistence); `test_constants.py`
+# locks the set to the trigger constants.
+HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui", "comment"})
+
+
+def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:
+    """The tier a new report reviews on, from who opened the PR and how important its report is.
+
+    `agent_pr` is decided by the caller (a Signals report link present at creation). The priority
+    only matters for agent PRs: a person's PR reviews at full strength whatever the report says.
+    """
+    if not agent_pr:
+        return ReviewTier.HUMAN
+    if signal_priority is None:
+        return ReviewTier.AGENT_UNPRIORITIZED
+    return _TIER_BY_PRIORITY[signal_priority]
+
+
+def is_below_human_tier(tier: ReviewTier) -> bool:
+    """Whether a person's re-trigger of a report in `tier` lifts it to the human tier.
+
+    Compared on the arm's effort, so a tier that already runs the human arm (P0/P1, unprioritized)
+    keeps its label: the lift exists to buy a person the stronger review, not to relabel the PR.
+    """
+    efforts = list(ReasoningEffort)  # declared weakest first in the tasks registry
+    human_effort = REVIEW_ARMS_BY_TIER[ReviewTier.HUMAN].reasoning_effort
+    return efforts.index(REVIEW_ARMS_BY_TIER[tier].reasoning_effort) < efforts.index(human_effort)
 
 
 def resolve_review_arm(
@@ -77,10 +331,11 @@ def resolve_review_arm(
 ) -> ReviewArm:
     """The arm a report's review units actually run on: its persisted assignment, else the pins.
 
-    Missing fields (pre-experiment rows) fall back silently. An assignment that is no longer a
-    registry-supported combo also falls back, with a warning, so a persisted model that outlives
-    its registration degrades to the default reviewer instead of burning sandbox turns on a
-    rejected model.
+    Missing fields (rows created before arms were persisted) fall back silently. An assignment that
+    is no longer a registry-supported combo also falls back, with a warning, so a persisted model
+    that outlives its registration degrades to the default reviewer instead of burning sandbox
+    turns on a rejected model. The fallback is the full-strength arm, so a broken cheap tier costs
+    money rather than findings; the analytics events flag it as `review_arm_fallback`.
     """
     if not (runtime_adapter and model and reasoning_effort):
         return DEFAULT_REVIEW_ARM
@@ -115,19 +370,35 @@ def resolve_review_arm(
 
 
 # VALIDATION MODEL
-# Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
-# default effort (the behavior before this knob existed); set all three to pin, like the review pins.
-VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-5"
-VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+# Pins for the per-chunk warm validation sessions, bundled like the review arm so a mode can swap
+# the whole seat at once.
+VALIDATION_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
+VALIDATION_MODEL = "claude-opus-5-5"
+VALIDATION_REASONING_EFFORT = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
+
+DEFAULT_VALIDATION_ARM = ReviewArm(
+    runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
+    model=VALIDATION_MODEL,
+    reasoning_effort=VALIDATION_REASONING_EFFORT,
+    initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
+)
+
+
+def validation_arm_for_mode(
+    review_mode: str, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
+    """The arm a turn's validation sessions run on: the flash arm for a flash turn, else the pins."""
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
+
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
-# Starts on the validator's setup — resolution is judgment + careful editing, the validator's tier.
+# The validator's model at high effort: xhigh gave the same outcomes on clear fixes at a higher cost
+# per turn (see the 2026-10-09 entry in DECISIONS.md).
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-RESOLUTION_MODEL: str | None = "claude-opus-4-8"
-RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_MODEL: str | None = "claude-opus-5-5"
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.HIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
 # A resolution run handles at most this many threads, priority-ordered; the binding constraint is
@@ -156,6 +427,10 @@ CHUNKING_REASONING_EFFORT = ReasoningEffort.XHIGH
 DEDUP_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
 DEDUP_MODEL = "claude-sonnet-5"
 DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
+# Both dedup calls of a single-agent Flash turn run as one-shot OpenAI calls on these pins, whatever
+# the candidate count, instead of the pipeline's one-shot and sandbox dedup pins.
+FLASH_DEDUP_MODEL = "gpt-6-luna"
+FLASH_DEDUP_REASONING_EFFORT: Final["OpenAIReasoningEffort"] = "medium"
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent
@@ -167,6 +442,10 @@ MAX_CONCURRENT_SANDBOXES = 10
 # its units fail; above it the run fails loudly instead of finalizing a near-empty review as success
 # (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
 FAN_OUT_FAILURE_FLOOR = 0.70
+
+NON_RETRYABLE_UNIT_FAILURE_CATEGORIES = frozenset(
+    {"upstream_request_rejected", "task_spend_limit", "subscription_usage_limit", "content_block_rejection"}
+)
 
 # Attempts for a chunk's warm validation session. Retries are cheap — skip-resume re-validates only
 # issues without a persisted verdict. On the final attempt a failed turn is skipped, not raised.
@@ -188,6 +467,61 @@ PRIORITY_LABELS = {
     IssuePriority.SHOULD_FIX: "should fix",
     IssuePriority.CONSIDER: "consider",
 }
+
+
+STORED_PRIORITY_BY_REPORTED: dict[ReportedPriority, IssuePriority] = {
+    "P0": IssuePriority.MUST_FIX,
+    "P1": IssuePriority.MUST_FIX,
+    "P2": IssuePriority.SHOULD_FIX,
+    "P3": IssuePriority.CONSIDER,
+}
+
+_DISPLAY_LEVEL_BY_PRIORITY: dict[IssuePriority, ReportedPriority] = {
+    IssuePriority.MUST_FIX: "P1",
+    IssuePriority.SHOULD_FIX: "P2",
+    IssuePriority.CONSIDER: "P3",
+}
+
+# Most severe first. Storage folds P0 and P1 into `must_fix`, so only the reported level ranks them apart.
+REPORTED_LEVELS: tuple[ReportedPriority, ...] = ("P0", "P1", "P2", "P3")
+
+
+def display_level(priority: IssuePriority, reported: ReportedPriority | None) -> ReportedPriority:
+    """The P0-P3 level a published finding leads with, for its effective `priority`.
+
+    The reviewer's own level applies only while it still folds into `priority`. A validator override
+    or a dedup survivor that absorbed a more severe duplicate changes the priority, and then the
+    reported level would show a severity that the finding no longer has.
+    """
+    if reported is not None and STORED_PRIORITY_BY_REPORTED[reported] == priority:
+        return reported
+    return _DISPLAY_LEVEL_BY_PRIORITY[priority]
+
+
+def finding_heading(title: str, level: ReportedPriority) -> str:
+    """The first line of a published finding.
+
+    The outcome sweep (`find_finding_comment`) matches a finding to its inline comment by this line.
+    """
+    return f"**{level} · {title}**"
+
+
+_MARKDOWN_BLOCK_START = re.compile(r"^\s*(```|~~~|[-*+] |\d+[.)] |>|#|\|)")
+
+
+def finding_text(body: str, suggestion: str) -> str:
+    """The issue and its fix as one paragraph. A single-agent finding has no suggestion text, because its
+    body already ends with the fix.
+
+    A pipeline issue or fix can be Markdown with code blocks or lists, which a space would run into the
+    other text, so those keep a paragraph break.
+    """
+    body, suggestion = body.strip(), suggestion.strip()
+    if not suggestion:
+        return body
+    if "\n" in body or "\n" in suggestion or _MARKDOWN_BLOCK_START.match(suggestion):
+        return f"{body}\n\n{suggestion}"
+    return f"{body} {suggestion}"
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
@@ -247,7 +581,7 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 # a judge sharing the reviewer's model family would inherit the same blind spots the telemetry
 # exists to measure. Effort is "high" — a focused yes/no on a small diff, not the reviewer's
 # exhaustive xhigh pass.
-OUTCOME_JUDGE_MODEL = "claude-opus-5"
+OUTCOME_JUDGE_MODEL = "claude-opus-5-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.
 # It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.
@@ -267,6 +601,11 @@ OUTCOME_MAX_REPORTS_PER_SWEEP = 50
 # whole report is decided, the retry and every later sweep would replay the same calls and never
 # finish it. Candidates past this ceiling settle without a judge call so the report always completes.
 OUTCOME_MAX_JUDGE_CALLS_PER_REPORT = 30
+# Ceiling on reaction reads for one report: each finding comment with a reaction costs one GitHub read
+# to see who left it. Outcomes persist only once the whole report is decided, so a report that spends
+# the installation's budget stops the team's sweep and replays the same reads on every retry. Comments
+# past the ceiling go to the line check and judge, which under-counts `reacted` rather than inventing it.
+OUTCOME_MAX_REACTION_READS_PER_REPORT = 30
 # A judge call that fails settles its finding as `judge_failed` rather than throwing away the whole
 # report's completed judgments and replaying them next sweep. These two bound that tolerance, because
 # an outcome is written once and never re-decided: recording a report's worth of `judge_failed` during

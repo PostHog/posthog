@@ -4,7 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { SupportActivationButton } from 'products/conversations/frontend/components/ConversationsDisabledBanner'
+import { SupportActivationButton } from 'products/conversations/frontend/components/ConversationsDisabledBanner/ConversationsDisabledBanner'
 
 import type { WidgetAvailabilityConfig } from '../../widget_types/widgetAvailability'
 import { WIDGET_AVAILABILITY_PRESENTATION } from '../../widget_types/widgetAvailability'
@@ -39,8 +39,6 @@ export function WidgetAvailabilitySetupPrompt({
                 introductionClassName={availability.compactSetupPrompt ? 'border-none mb-0 mt-0 p-2' : undefined}
                 contentClassName={availability.compactSetupPrompt ? 'max-w-2xl' : undefined}
                 className="border-none mb-0 mt-0 p-4"
-                productName={presentation.productName}
-                productKey={presentation.productKey}
                 thingName={presentation.thingName}
                 titleOverride={availability.unavailableTitle}
                 description={availability.unavailableReason}

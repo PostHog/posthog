@@ -12,7 +12,7 @@ import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 
-import { llmPromptsList, llmPromptsNameArchiveCreate } from '../generated/api'
+import { llmPromptsList, llmPromptsNameArchiveCreate, llmPromptsNameUnarchiveCreate } from '../generated/api'
 import { cleanPagedSearchOrderParams } from '../utils'
 import { LLMPrompt } from './types'
 import { getApiErrorDetail, requestPromptDuplicate } from './utils'
@@ -25,6 +25,7 @@ export interface PromptFilters {
     search: string
     order_by: string
     created_by_id?: number
+    archived?: boolean
 }
 
 function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
@@ -33,6 +34,8 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
         created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
+        // URL params arrive as strings, so compare the stringified value.
+        archived: String(values.archived) === 'true' ? true : undefined,
     }
 }
 
@@ -45,10 +48,9 @@ export interface llmPromptsLogicValues {
     pagination: PaginationManual
     promptCountLabel: string
     prompts: CountedPaginatedResponse<LLMPrompt>
-    promptsLoaded: boolean
     promptsLoading: boolean
     rawFilters: Partial<PromptFilters> | null
-    shouldShowEmptyState: boolean
+    restoringPromptName: string | null
     sorting: Sorting | null
 }
 
@@ -85,6 +87,12 @@ export interface llmPromptsLogicActions {
             debounce: boolean
         }
     }
+    restorePrompt: (promptName: string) => {
+        promptName: string
+    }
+    restorePromptFinished: () => {
+        value: true
+    }
     setFilters: (
         filters: Partial<PromptFilters>,
         merge?: boolean,
@@ -104,12 +112,6 @@ export interface llmPromptsLogicMeta {
         sorting: (filters: PromptFilters) => Sorting | null
         pagination: (filters: PromptFilters, count: number) => PaginationManual
         promptCountLabel: (filters: PromptFilters, count: number) => string
-        shouldShowEmptyState: (
-            count: number,
-            promptsLoaded: boolean,
-            promptsLoading: boolean,
-            filters: PromptFilters
-        ) => boolean
     }
 }
 
@@ -132,10 +134,19 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         }),
         loadPrompts: (debounce: boolean = true) => ({ debounce }),
         deletePrompt: (promptName: string) => ({ promptName }),
+        restorePrompt: (promptName: string) => ({ promptName }),
+        restorePromptFinished: true,
         duplicatePrompt: (promptName: string, newName: string) => ({ promptName, newName }),
     }),
 
     reducers({
+        restoringPromptName: [
+            null as string | null,
+            {
+                restorePrompt: (_, { promptName }) => promptName,
+                restorePromptFinished: () => null,
+            },
+        ],
         rawFilters: [
             null as Partial<PromptFilters> | null,
             {
@@ -145,12 +156,6 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
-            },
-        ],
-        promptsLoaded: [
-            false as boolean,
-            {
-                loadPromptsSuccess: () => true,
             },
         ],
     }),
@@ -171,6 +176,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         offset: Math.max(0, (filters.page - 1) * PROMPTS_PER_PAGE),
                         limit: PROMPTS_PER_PAGE,
                         created_by_id: filters.created_by_id,
+                        archived: filters.archived,
                     }
 
                     if (
@@ -230,15 +236,9 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                 return count === 0 ? '0 prompts' : `${start}-${end} of ${count} prompt${count === 1 ? '' : 's'}`
             },
         ],
-
-        shouldShowEmptyState: [
-            (s) => [s.count, s.promptsLoaded, s.promptsLoading, s.filters],
-            (count: number, promptsLoaded: boolean, promptsLoading: boolean, filters: PromptFilters): boolean =>
-                promptsLoaded && !promptsLoading && count === 0 && !filters.search && !filters.created_by_id,
-        ],
     }),
 
-    listeners(({ asyncActions, values, selectors }) => ({
+    listeners(({ actions, asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const { filters } = values
@@ -258,6 +258,18 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             }
         },
 
+        restorePrompt: async ({ promptName }) => {
+            try {
+                await llmPromptsNameUnarchiveCreate(String(ApiConfig.getCurrentTeamId()), promptName)
+                lemonToast.success(`${promptName || 'Prompt'} has been restored.`)
+                await asyncActions.loadPrompts(false)
+            } catch (error) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to restore prompt')
+            } finally {
+                actions.restorePromptFinished()
+            }
+        },
+
         duplicatePrompt: async ({ promptName, newName }) => {
             await requestPromptDuplicate(promptName, newName)
         },
@@ -265,7 +277,11 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
 
     trackedActionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
-            const nextValues = cleanPagedSearchOrderParams(values.filters)
+            const nextValues = {
+                ...cleanPagedSearchOrderParams(values.filters),
+                created_by_id: values.filters.created_by_id,
+                archived: values.filters.archived,
+            }
             const urlValues = cleanFilters(router.values.searchParams)
 
             if (!objectsEqual(values.filters, urlValues)) {

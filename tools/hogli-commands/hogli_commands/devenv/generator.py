@@ -102,7 +102,7 @@ def _build_docker_compose_shell(profiles: list[str]) -> str:
 # recording-rasterizer wait on `temporal`; personhog-etcd-init docker-execs
 # into `etcd`; session replay needs `replay`) — this reproduces master's
 # unprofiled `docker-compose.dev.yml` service set exactly.
-_STATIC_MPROCS_PROFILES = ["dev_tools", "etcd", "localstack", "observability", "replay", "temporal"]
+_STATIC_MPROCS_PROFILES = ["dev_tools", "dynamodb", "etcd", "observability", "replay", "temporal"]
 
 
 def build_static_docker_compose_shell() -> str:
@@ -304,6 +304,11 @@ class MprocsGenerator(ConfigGenerator):
             # Special handling for temporal-worker - install uv groups when capabilities require them
             if name == "temporal-worker":
                 proc_config = self._add_uv_groups(proc_config, resolved)
+
+            if name in {"desktop", "temporal-worker"} and "desktop_app" in resolved.capabilities:
+                proc_config["shell"] = (
+                    'export POSTHOG_DESKTOP_SKILLS="${POSTHOG_DESKTOP_SKILLS:-local}"; ' + proc_config["shell"]
+                )
 
             # Wrap Python/Node service commands in the dev sandbox when opted in
             proc_config = self._add_sandbox_wrapper(proc_config, name)

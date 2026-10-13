@@ -4,14 +4,15 @@ from rest_framework.request import Request
 
 from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
 from products.endpoints.backend.models import Endpoint, EndpointVersion, _breakdown_property_names
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_by_ids
+from products.product_analytics.backend.facade.enums import InsightVariableType
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
-    InsightVariable.Type.STRING: {"type": "string"},
-    InsightVariable.Type.NUMBER: {"type": "number"},
-    InsightVariable.Type.BOOLEAN: {"type": "boolean"},
-    InsightVariable.Type.LIST: {"type": "array", "items": {"type": "string"}},
-    InsightVariable.Type.DATE: {"type": "string", "format": "date"},
+    InsightVariableType.STRING: {"type": "string"},
+    InsightVariableType.NUMBER: {"type": "number"},
+    InsightVariableType.BOOLEAN: {"type": "boolean"},
+    InsightVariableType.LIST: {"type": "array", "items": {"type": "string"}},
+    InsightVariableType.DATE: {"type": "string", "format": "date"},
 }
 
 
@@ -296,10 +297,7 @@ def _build_variables_schema(
         if variables:
             variable_ids = list(variables.keys())
             variable_types = {
-                str(uid): vtype
-                for uid, vtype in InsightVariable.objects.filter(team_id=team_id, id__in=variable_ids).values_list(
-                    "id", "type"
-                )
+                str(variable.id): variable.type for variable in insight_variables_by_ids(team_id, variable_ids)
             }
 
             for var_id, var_data in variables.items():

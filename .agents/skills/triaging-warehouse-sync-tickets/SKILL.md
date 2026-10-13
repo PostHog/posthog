@@ -73,7 +73,7 @@ Related skills, and what is still usable from them:
   Its tool calls therefore do not apply to you. Its **knowledge** does: the error-string to root-cause
   table and the cause to recovery-action mapping are portable, so read those and skip the tool calls.
 - `auditing-warehouse-source-health` — same limitation, and it is a project-wide sweep, not one ticket.
-- `query-clickhouse-via-metabase` — `system.query_log` performance work, not sync state.
+- `querying-production-databases-via-metabase` — `system.query_log` performance work, not sync state.
 
 ## Ground rules
 

@@ -133,7 +133,7 @@ class TestS3ParquetTimezoneConversion(ClickhouseTestMixin, BaseTest):
 
     def test_not_affected_on_mergetree(self):
         """The bug does not affect regular MergeTree tables."""
-        table_name = "posthog_test.test_tz_bug_mergetree"
+        table_name = "test_tz_bug_mergetree"
         sync_execute(f"DROP TABLE IF EXISTS {table_name}")
         sync_execute(f"""
             CREATE TABLE {table_name} (

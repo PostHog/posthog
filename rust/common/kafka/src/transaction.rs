@@ -160,12 +160,32 @@ impl ConnectedTransactionalProducer<DefaultClientContext> {
         timeout: Duration,
         broker_txn_timeout: Duration,
     ) -> Result<Self, KafkaError> {
+        Self::connect_bounded_with_context(
+            config,
+            transactional_id,
+            timeout,
+            broker_txn_timeout,
+            DefaultClientContext,
+        )
+    }
+}
+
+impl<C: ClientContext + 'static> ConnectedTransactionalProducer<C> {
+    /// [`Self::connect_bounded`] with a caller-supplied client context, for
+    /// a caller that consumes librdkafka's statistics or logs.
+    pub fn connect_bounded_with_context(
+        config: &KafkaConfig,
+        transactional_id: &str,
+        timeout: Duration,
+        broker_txn_timeout: Duration,
+        context: C,
+    ) -> Result<Self, KafkaError> {
         let inner = connect(
             config,
             transactional_id,
             timeout,
             Some(broker_txn_timeout),
-            DefaultClientContext,
+            context,
         )?;
         Ok(ConnectedTransactionalProducer { inner })
     }

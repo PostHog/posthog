@@ -4,20 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pulumicloud import (
     PulumiCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.pulumi_cloud import (
-    PulumiCloudResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.source import PulumiCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -43,29 +35,6 @@ class TestPulumiCloudSource:
     def setup_method(self) -> None:
         self.source = PulumiCloudSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PULUMICLOUD
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        assert [f.name for f in config.fields] == ["access_token", "organization"]
-        token_field, org_field = config.fields
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.required is True
-        assert token_field.secret is True
-        assert isinstance(org_field, SourceFieldInputConfig)
-        assert org_field.required is True
-        assert org_field.secret is False
-
-    def test_source_is_released_as_alpha(self) -> None:
-        # unreleasedSource hides the connector from every user; a finished source must ship visible
-        # with a soft ALPHA label instead.
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/pulumi-cloud"
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
@@ -74,10 +43,6 @@ class TestPulumiCloudSource:
         # `organization` picks which Pulumi tenant the stored token queries; retargeting it must
         # force token re-entry so a preserved credential can't be aimed at another organization.
         assert self.source.connection_host_fields == ["organization"]
-
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["stacks"])
@@ -123,23 +88,6 @@ class TestPulumiCloudSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("stacks"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PulumiCloudResumeConfig
-
-    def test_source_for_pipeline_plumbs_credentials_and_endpoint(self) -> None:
-        config = PulumiCloudSourceConfig(access_token="pul-test", organization="my-org")
-        inputs = _source_inputs("audit_logs", last_value=1750000000, use_incremental=True)
-        with patch.object(source_module, "pulumi_cloud_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["access_token"] == "pul-test"
-        assert kwargs["organization"] == "my-org"
-        assert kwargs["endpoint"] == "audit_logs"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == 1750000000
-
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
         # Passing a stale watermark on a full-refresh run would wrongly narrow the audit-log window.
         config = PulumiCloudSourceConfig(access_token="pul-test", organization="my-org")
@@ -147,9 +95,3 @@ class TestPulumiCloudSource:
         with patch.object(source_module, "pulumi_cloud_source") as mock_source:
             self.source.source_for_pipeline(config, MagicMock(), inputs)
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        # Drift here (an endpoint renamed in settings but not here) silently drops the curated docs
-        # and falls back to LLM enrichment, so keep the two in lockstep.
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

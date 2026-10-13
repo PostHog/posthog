@@ -144,8 +144,8 @@ pub struct ConsistencyArgs {
 #[derive(Args, Clone)]
 pub struct GateArgs {
     /// Extra KEY=VALUE environment for spawned leaders — the lever for
-    /// benchmarking leader features (e.g. KAFKA_TRANSACTIONAL_FENCING)
-    /// without a harness change per flag. Repeatable.
+    /// benchmarking leader knobs (e.g. FENCING_LANES) without a harness
+    /// change per knob. Repeatable.
     #[arg(long = "leader-env", value_parser = parse_env_pair)]
     pub leader_env: Vec<(String, String)>,
 
@@ -332,6 +332,52 @@ pub struct GateArgs {
     /// http://127.0.0.1:50055). Ignored for spawned stacks.
     #[arg(long)]
     pub external_identity_url: Option<String>,
+
+    /// Merge workers that run next to the blast traffic and probers.
+    /// Each worker picks live persons and merges them through
+    /// MergePersons on the identity service while writes to them
+    /// continue. Merged sources leave the traffic pool. Implies
+    /// --create-via-identity, because merges need distinct ids. 0
+    /// disables.
+    #[arg(long, default_value_t = 0)]
+    pub merge_concurrency: usize,
+
+    /// Total merge calls per second across the merge workers. Unset
+    /// runs them flat out. Each merged source retires one person, so
+    /// size --persons for sources x rate x duration.
+    #[arg(long)]
+    pub merge_rate: Option<f64>,
+
+    /// Sources per merge call. Ingestion sends one. With more, the
+    /// leader folds the sources in request order, and the gate asserts
+    /// that order.
+    #[arg(long, default_value_t = 1)]
+    pub merge_sources: usize,
+
+    /// Extra persons, each created with --merge-wide-distinct-ids
+    /// distinct ids. The merge lane uses them per --merge-wide-role and
+    /// reports their calls on the `merges_wide` row. Requires
+    /// --merge-concurrency.
+    #[arg(long, default_value_t = 0)]
+    pub merge_wide_persons: u32,
+
+    /// Extra distinct ids per wide person. The identity service caps a
+    /// create entry at 5000.
+    #[arg(long, default_value_t = 1000)]
+    pub merge_wide_distinct_ids: u32,
+
+    /// Which side of a merge the wide persons take. `source` makes the
+    /// flip repoint every mapping. `target` makes the survivor grow.
+    /// `both` merges wide into wide.
+    #[arg(long, default_value = "source", value_parser = ["source", "target", "both"])]
+    pub merge_wide_role: String,
+
+    /// Merge identified sources, as $merge_dangerously does. A survivor
+    /// becomes identified. With this off, a survivor can never be a
+    /// source again, and the lane ends in skipped_already_identified
+    /// once every live person survived a merge.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub merge_identified_sources: bool,
 
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
@@ -523,6 +569,8 @@ const RESERVED_LEADER_ENV: &[&str] = &[
     "ETCD_PREFIX",
     "KAFKA_PERSON_STATE_TOPIC",
     "FALLBACK_TABLE",
+    "LIFECYCLE_OP_TABLE",
+    "LIFECYCLE_OP_PERSON_TABLE",
     "FALLBACK_DATABASE_URL",
     "WRITER_CONSUMER_GROUP",
     // Derived fencing timeouts scale off the lease TTL, so overriding it

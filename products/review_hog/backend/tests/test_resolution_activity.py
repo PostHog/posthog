@@ -5,33 +5,44 @@ import pytest
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
+from posthog.github.merge_queue import MergeQueueState
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
-from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig, ReviewUserSettings
+from products.review_hog.backend.review_request_rules import ResolutionGate
+from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.constants import RESOLUTION_MAX_ATTEMPTS
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolution
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.models.thread_resolution import ThreadResolution
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold, ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
-from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_RESOLUTION_SKILL_NAME
+from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, run_outcome_markers
 from products.review_hog.backend.reviewer.tools.github_threads import FixCommitInspection, ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
+    FailResolutionInput,
     ResolutionRunResult,
     ResolveThreadsInput,
     _append_run_note,
     _append_task_run,
+    _commit_hold,
     _deliver_side_effects,
+    _fail_resolution,
+    _fold_overlong_reply,
+    _normalize_reply_divider,
     _prepare_run,
     _PreparedRun,
+    _verification_section,
     resolve_threads_activity,
 )
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 
@@ -66,6 +77,7 @@ def _verdict(
     reply_posted: bool = False,
     resolved: bool = False,
     commit_sha: str | None = "abc123",
+    verification: str | None = None,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -76,6 +88,7 @@ def _verdict(
         reasoning="checked the code",
         reply="what happened and why",
         commit_sha=commit_sha,
+        verification=verification,
         latest_comment_id=100,
         reply_posted=reply_posted,
         resolved=resolved,
@@ -86,15 +99,123 @@ def _inspection(restricted: list[str] | None = None, *, provenance_ok: bool = Tr
     return FixCommitInspection(restricted_paths=restricted or [], provenance_ok=provenance_ok)
 
 
+def _patch_open_branch_and_opted_in_owner(test: SimpleTestCase) -> Mock:
+    """The owner gate and the branch read, which the delivery tests take as passed."""
+    test.enterContext(
+        patch(
+            f"{_RESOLUTION}.ResolutionGate.load",
+            return_value=ResolutionGate(owner_user_id=1, owner_opted_in=True),
+        )
+    )
+    return test.enterContext(
+        patch(f"{_RESOLUTION}.github_api_request", return_value=Mock(json=Mock(return_value={"protected": False})))
+    )
+
+
 def _mock_installation() -> Mock:
     github = Mock()
     github.get_access_token.return_value = "token"
     github.github_installation_id = "inst-1"
     github.integration.id = 42
+    github.get_pull_request_merge_queue_state.return_value = None
+    github.has_open_pull_request_with_base.return_value = False
     return github
 
 
+class TestBranchProtectionHold(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unprotected", {"protected": False}, None, None),
+            (
+                "classic_protection",
+                {"protected": True, "protection": {"enabled": True}},
+                None,
+                CommitHold.BRANCH_PROTECTED,
+            ),
+            ("protection_details_missing", {"protected": True}, None, CommitHold.BRANCH_PROTECTED),
+            (
+                "ruleset_signed_commits_only",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "required_signatures"}, {"type": "non_fast_forward"}],
+                None,
+            ),
+            (
+                "ruleset_requires_pull_request",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "required_signatures"}, {"type": "pull_request"}],
+                CommitHold.BRANCH_PROTECTED,
+            ),
+            (
+                "ruleset_unknown_rule_type",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "file_path_restriction"}],
+                CommitHold.BRANCH_PROTECTED,
+            ),
+        ]
+    )
+    def test_holds_only_when_protection_can_refuse_the_push(
+        self, _name: str, branch: dict, rules: list | None, expected: CommitHold | None
+    ) -> None:
+        def github_read(method: str, path: str, *, endpoint: str, **kwargs: object) -> Mock:
+            body = rules if endpoint == "/repos/{owner}/{repo}/rules/branches/{branch}" else branch
+            return Mock(json=Mock(return_value=body))
+
+        input = ResolveThreadsInput(
+            team_id=1, user_id=1, acting_user_id=None, owner="posthog", repo="posthog", pr_number=123
+        )
+        with patch(f"{_RESOLUTION}.github_api_request", side_effect=github_read):
+            hold = _commit_hold(input, _mock_installation(), "feature/x", queue_state=None, queue_state_at_start=None)
+
+        assert hold == expected
+
+
+class TestReplyBodyRendering(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank_line_inserted", "Fixed. Done.\n---\n- a", "Fixed. Done.\n\n---\n- a"),
+            ("already_separated", "Fixed. Done.\n\n---\n\n- a", "Fixed. Done.\n\n---\n\n- a"),
+            ("no_divider", "Fixed. Done.", "Fixed. Done."),
+            ("dashes_inside_a_line_are_left_alone", "Fixed.\n\n---\n\n- x ---y", "Fixed.\n\n---\n\n- x ---y"),
+        ]
+    )
+    def test_divider_gets_the_blank_line_github_needs(self, _name: str, reply: str, expected: str) -> None:
+        assert _normalize_reply_divider(reply) == expected
+
+    @parameterized.expand([("none", None), ("blank", "   \n")])
+    def test_empty_verification_adds_no_block(self, _name: str, verification: str | None) -> None:
+        assert _verification_section(verification) == ""
+
+    @parameterized.expand(
+        [
+            ("three_lines", "Fixed. Done.\n\n---\n\n- a\n- b\n- c"),
+            ("five_lines_at_the_cap", "Escalating. Yours.\n\n---\n\n- a\n- b\n- c\n- d\n- e"),
+        ]
+    )
+    def test_reply_in_shape_is_left_alone(self, _name: str, reply: str) -> None:
+        assert _fold_overlong_reply(reply, thread_id="PRRT_1") == reply
+
+    def test_reply_past_the_shape_folds_the_rest(self) -> None:
+        lines = [f"- line {i} with a few words" for i in range(1, 9)]
+        out = _fold_overlong_reply("Fixed. Done.\n\n---\n\n" + "\n".join(lines), thread_id="PRRT_1")
+        visible, _, folded = out.partition("<details>")
+        assert visible.strip().splitlines()[-1] == "- line 5 with a few words"
+        assert "- line 6 with a few words" in folded and "- line 8 with a few words" in folded
+        assert "<summary><strong>More detail</strong></summary>" in folded
+
+    def test_wall_without_divider_keeps_the_first_paragraph_visible(self) -> None:
+        paragraphs = [" ".join(["word"] * 60) for _ in range(4)]
+        out = _fold_overlong_reply("\n\n".join(paragraphs), thread_id="PRRT_1")
+        visible, _, folded = out.partition("<details>")
+        assert visible.startswith(paragraphs[0] + "\n\n---\n\n")
+        assert visible.count("word") == 120
+        assert folded.count("word") == 120
+
+
 class TestResolutionPersistenceAndDelivery(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.branch_read = _patch_open_branch_and_opted_in_owner(self)
+
     def _report(self) -> ReviewReport:
         # ReviewReport is fail-closed (TeamScopedRootMixin), so creation outside request context
         # goes through for_team — the same path the funnel uses.
@@ -170,7 +291,11 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
 
     def test_fixed_reply_links_the_commit_and_records_it_once(self) -> None:
         report = self._report()
-        verdict = _verdict(outcome="fixed", commit_sha="abc123")
+        verdict = _verdict(
+            outcome="fixed",
+            commit_sha="abc123",
+            verification="pytest: 6 passed, ruff clean (GH_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz0123)",
+        )
         with (
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
@@ -183,7 +308,11 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             )
             # A redelivery of the already-verified verdict must not duplicate the commit artefact.
             _deliver_side_effects(self._input(), str(report.id), delivered, branch="feature", integration_row_id=1)
-        assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args_list[0].kwargs["body"]
+        body = reply.call_args_list[0].kwargs["body"]
+        assert "https://github.com/posthog/posthog/commit/abc123" in body
+        assert body.index("Fix commit:") < body.index("<summary><strong>How this was verified</strong></summary>")
+        assert "pytest: 6 passed, ruff clean" in body
+        assert "ghs_abcdefghijklmnopqrstuvwxyz0123" not in body and "GH_TOKEN=[redacted]" in body
         commits = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit")
         assert commits.count() == 1
         assert json.loads(commits.get().content)["commit_sha"] == "abc123"
@@ -248,6 +377,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.add_eyes_reaction"),
         ):
             return _prepare_run(
                 ResolveThreadsInput(
@@ -259,28 +389,6 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
                     pr_number=123,
                 )
             )
-
-    def test_unpinned_acting_user_with_unmapped_author_pins_canonical_criteria(self) -> None:
-        # The /resolve landmine: with no acting user pinned and an unmapped author, the RUN user's
-        # personal selection must not govern someone else's PR — the canonical bar applies.
-        sync_canonical_resolution(self.team)
-        LLMSkill.objects.create(
-            team=self.team,
-            name="review-hog-resolution-run-users-own",
-            description="d",
-            body="x" * 250,
-            version=1,
-            is_latest=True,
-            created_by=self.user,
-        )
-        ReviewSkillConfig.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, skill_name="review-hog-resolution-run-users-own", enabled=True
-        )
-
-        prepared = self._prepare_unpinned()
-
-        assert isinstance(prepared, _PreparedRun)
-        assert prepared.skill_name == REVIEW_HOG_RESOLUTION_SKILL_NAME
 
     def test_unpinned_acting_user_maps_the_pr_author(self) -> None:
         sync_canonical_resolution(self.team)
@@ -330,6 +438,44 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert stored.resolved is False
         # Restricted commits are real pushed commits: the restriction gates delivery, not the audit log.
         assert ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
+
+    def test_fail_resolution_idles_the_report_and_marks_where_it_stopped(self) -> None:
+        # The workflow-level crash cleanup: it must count only delivered threads against the queued
+        # work-list, and a crash before anything was queued must not edit (or create) a comment —
+        # the create-on-demand path would post a spurious "stopped at 0/0" otherwise.
+        report = self._report()
+        ReviewReportArtefact.append_resolution_run(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ResolutionRunArtefact(total=3, thread_ids=["PRRT_1", "PRRT_2", "PRRT_3"]),
+            attribution=ArtefactAttribution.system(),
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict(outcome="fixed", reply_posted=True),
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict(thread_id="PRRT_2", outcome="fixed", reply_posted=False),
+        )
+
+        with patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment:
+            _fail_resolution(FailResolutionInput(team_id=self.team.id, owner="posthog", repo="posthog", pr_number=123))
+
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report.id).status == ReviewReport.Status.IDLE
+        assert "Stopped at 1/3" in status_comment.call_args.args[2]
+
+        # Crash before prepare queued anything: no run anchor, so no section to replace.
+        report.pr_number = 124
+        report.status = ReviewReport.Status.ACTIVE
+        report.save(update_fields=["pr_number", "status"])
+        ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id).delete()
+        with patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment:
+            _fail_resolution(FailResolutionInput(team_id=self.team.id, owner="posthog", repo="posthog", pr_number=124))
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report.id).status == ReviewReport.Status.IDLE
+        assert status_comment.call_count == 0
 
     def test_run_note_names_delivery_failures(self) -> None:
         # A token-expiry tail must be visible in the durable run note, not just worker logs.
@@ -393,8 +539,127 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert result.skipped_reason == "no_unresolved_threads"
         report = ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123)
         assert report.status == ReviewReport.Status.IDLE
-        note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
+        note = ReviewReportArtefact.objects.for_team(self.team.id).get(
+            report_id=report.id, type="note", content__contains=RESOLUTION_RUN_NOTE_AUTHOR
+        )
         assert "0 thread(s) triaged" in note.content
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        assert [(m.stage, m.outcome, m.reason) for m in markers] == [("resolution", "skipped", "no_unresolved_threads")]
+        # No queued threads means no progress anchor — a total=0 run artefact would render this
+        # clean no-op as a crashed run once it aged past the staleness window.
+        assert (
+            not ReviewReportArtefact.objects.for_team(self.team.id)
+            .filter(report_id=report.id, type="resolution_run")
+            .exists()
+        )
+
+    def _prepare_with(self, threads: list[ReviewThread], eyes: Mock | None = None) -> object:
+        eyes = eyes if eyes is not None else Mock()
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
+            patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
+            patch(
+                f"{_RESOLUTION}.load_resolution_skill_for_run",
+                return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
+            ),
+        ):
+            return _prepare_run(self._input())
+
+    def test_prepare_anchors_the_run_and_marks_only_queued_threads(self) -> None:
+        # The run's progress anchor must list exactly the queued threads (progress counts verdicts
+        # against it, so a settled thread in the list would read as forever-unfinished work), and
+        # the 👀 queue marker must skip settled threads for the same reason.
+        report = self._report()
+        queued = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="b")],
+        )
+        settled = ReviewThread(
+            thread_id="PRRT_2",
+            path="f.py",
+            comments=[ThreadComment(id=100, node_id="PRRC_2", author_login="greptile", author_is_bot=True, body="b")],
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict("PRRT_2", outcome="wont_fix", reply_posted=True, resolved=True, commit_sha=None),
+        )
+        eyes = Mock()
+
+        prepared = self._prepare_with([queued, settled], eyes)
+
+        assert isinstance(prepared, _PreparedRun)
+        run_artefact = ReviewReportArtefact.objects.for_team(self.team.id).get(
+            report_id=report.id, type="resolution_run"
+        )
+        content = json.loads(run_artefact.content)
+        assert content["total"] == 1
+        assert content["thread_ids"] == ["PRRT_1"]
+        assert content["skipped"] == 1
+        assert eyes.call_args_list == [((), {"token": "token", "subject_id": "PRRC_1", "installation_id": "inst-1"})]
+
+    @parameterized.expand(
+        [
+            (
+                "submitted_to_merge_queue",
+                MergeQueueState.NOT_READY,
+                False,
+                "pr_in_merge_queue",
+                "submitted to the merge queue",
+            ),
+            ("stacked_pull_requests", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
+            ("protected_branch", None, False, "pr_branch_protected", "this branch is protected"),
+        ]
+    )
+    def test_held_pr_gets_no_turns_and_says_why(
+        self, _name: str, queue_state: MergeQueueState | None, stacked: bool, reason: str, section_text: str
+    ) -> None:
+        self._report()
+        self.branch_read.return_value.json.return_value = {"protected": reason == "pr_branch_protected"}
+        installation = _mock_installation()
+        installation.get_pull_request_merge_queue_state.return_value = queue_state
+        installation.has_open_pull_request_with_base.return_value = stacked
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="b")],
+        )
+        eyes = Mock()
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=installation),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
+            patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment,
+        ):
+            result = _prepare_run(self._input())
+
+        assert isinstance(result, ResolutionRunResult)
+        assert result.skipped_reason == reason
+        eyes.assert_not_called()
+        assert section_text in status_comment.call_args.args[2]
+
+    def test_reaction_failure_never_fails_prepare(self) -> None:
+        # A GitHub flake on the cosmetic queue marker must not cost the run (or the progress anchor,
+        # which is written first).
+        report = self._report()
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="b")],
+        )
+
+        prepared = self._prepare_with([thread], Mock(side_effect=RuntimeError("github flake")))
+
+        assert isinstance(prepared, _PreparedRun)
+        assert (
+            ReviewReportArtefact.objects.for_team(self.team.id)
+            .filter(report_id=report.id, type="resolution_run")
+            .exists()
+        )
 
 
 class TestFailedRunActivity(NonAtomicBaseTest):
@@ -406,6 +671,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="rh-activity@example.com", first_name="RH", password="password")
+        _patch_open_branch_and_opted_in_owner(self)
 
     def _input(self) -> ResolveThreadsInput:
         return ResolveThreadsInput(
@@ -430,6 +696,8 @@ class TestFailedRunActivity(NonAtomicBaseTest):
             patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", "inst-1")),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
+            patch(f"{_RESOLUTION}.add_eyes_reaction"),
+            patch(f"{_RESOLUTION}._run_github", return_value=_mock_installation()),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
@@ -489,3 +757,162 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         assert result.outcomes == {"wont_fix": 1}
         assert result.failed_turns == 2
         assert self._report_status() == ReviewReport.Status.IDLE
+
+    def test_undelivered_thread_never_counts_as_settled_in_the_status_comment(self) -> None:
+        # A judged thread whose GitHub writes failed has no reply on the PR — the progress line and
+        # the closing tally must not claim it as done/declined; it lands in "couldn't handle" instead.
+        mock_activity = Mock()
+        mock_activity.info.return_value.attempt = 1
+        session = Mock()
+        session.task_run.task_id = "11111111-1111-1111-1111-111111111111"
+        session.task_run.id = "run-1"
+        res = ThreadResolution(thread_id="PRRT_A", outcome="wont_fix", reasoning="checked", reply="declined")
+        with ExitStack() as stack:
+            for p in self._base_patches(mock_activity, [self._thread("PRRT_A")]):
+                stack.enter_context(p)
+            stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", AsyncMock(return_value=(session, res))))
+            stack.enter_context(patch(f"{_RESOLUTION}.end_sandbox_session", AsyncMock()))
+            stack.enter_context(patch(f"{_RESOLUTION}.reply_to_thread", side_effect=RuntimeError("token expired")))
+            status_comment = stack.enter_context(patch(f"{_RESOLUTION}.update_resolution_status_comment"))
+
+            result = async_to_sync(resolve_threads_activity)(self._input())
+
+        assert result.outcomes == {"wont_fix": 1}
+        assert result.delivered_outcomes == {}
+        assert result.undelivered == 1
+        final_section = status_comment.call_args.args[2]
+        assert "couldn't handle 1" in final_section
+        assert "declined" not in final_section
+
+    @parameterized.expand(
+        [
+            ("enqueued", MergeQueueState.TESTING, False, "pr_in_merge_queue", "submitted to the merge queue"),
+            (
+                "ejected_by_the_turn_push",
+                MergeQueueState.EJECTED,
+                False,
+                "pr_in_merge_queue",
+                "submitted to the merge queue",
+            ),
+            ("stacked", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
+        ]
+    )
+    def test_hold_appearing_mid_run_stops_the_session_before_the_next_turn(
+        self, _name: str, queue_state: MergeQueueState | None, stacked: bool, reason: str, section_text: str
+    ) -> None:
+        run_github = _mock_installation()
+        run_github.get_pull_request_merge_queue_state.side_effect = [None, queue_state]
+        run_github.has_open_pull_request_with_base.side_effect = [False, stacked]
+        mock_activity = Mock()
+        mock_activity.info.return_value.attempt = 1
+        session = Mock()
+        session.task_run.task_id = "11111111-1111-1111-1111-111111111111"
+        session.task_run.id = "run-1"
+        res = ThreadResolution(thread_id="PRRT_A", outcome="wont_fix", reasoning="checked", reply="declined")
+        continue_turn = AsyncMock()
+        with ExitStack() as stack:
+            for p in self._base_patches(mock_activity, [self._thread("PRRT_A"), self._thread("PRRT_B")]):
+                stack.enter_context(p)
+            stack.enter_context(patch(f"{_RESOLUTION}._run_github", return_value=run_github))
+            stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", AsyncMock(return_value=(session, res))))
+            stack.enter_context(patch(f"{_RESOLUTION}.continue_sandbox_session", continue_turn))
+            stack.enter_context(patch(f"{_RESOLUTION}.end_sandbox_session", AsyncMock()))
+            stack.enter_context(patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)))
+            stack.enter_context(patch(f"{_RESOLUTION}.resolve_thread", return_value=True))
+            status_comment = stack.enter_context(patch(f"{_RESOLUTION}.update_resolution_status_comment"))
+
+            result = async_to_sync(resolve_threads_activity)(self._input())
+
+        continue_turn.assert_not_called()
+        assert result.triaged == 1
+        assert result.stopped_reason == reason
+        assert "| stopped | Stopped at 1/2 because" in status_comment.call_args.args[2]
+        assert section_text in status_comment.call_args.args[2]
+        assert self._report_status() == ReviewReport.Status.IDLE
+
+
+class TestResolutionOwnerGate(BaseTest):
+    @parameterized.expand(
+        [
+            ("owner_opted_in", "octocat", True, True),
+            ("owner_did_not_opt_in", "octocat", False, False),
+            # The run user's opt-in never writes to a pull request nobody owns.
+            ("no_owner", "ghost", True, False),
+        ]
+    )
+    def test_resolution_writes_only_where_the_pr_owner_opted_in(
+        self, _name: str, author_login: str, opted_in: bool, prepared: bool
+    ) -> None:
+        sync_canonical_resolution(self.team)
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"resolve_comments": opted_in}
+        )
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, author_login="greptile", author_is_bot=True, body="b")],
+        )
+        metadata = _pr_metadata().model_copy(update={"author": author_login})
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=metadata),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.add_eyes_reaction"),
+            patch(f"{_RESOLUTION}.github_api_request", return_value=Mock(json=Mock(return_value={"protected": False}))),
+        ):
+            result = _prepare_run(
+                ResolveThreadsInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    acting_user_id=None,
+                    owner="posthog",
+                    repo="posthog",
+                    pr_number=123,
+                )
+            )
+
+        if prepared:
+            assert isinstance(result, _PreparedRun)
+        else:
+            assert isinstance(result, ResolutionRunResult)
+            assert result.skipped_reason == "resolution_not_opted_in"
+
+    @parameterized.expand(
+        [
+            ("closed_pr", "closed", True, "pr_not_open"),
+            ("owner_did_not_opt_in", "open", True, "resolution_not_opted_in"),
+            ("no_report_yet", "open", False, None),
+        ]
+    )
+    def test_gate_skip_records_its_reason_on_the_report(
+        self, _name: str, state: str, has_report: bool, expected_reason: str | None
+    ) -> None:
+        report = None
+        if has_report:
+            report = ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team, repository="PostHog/posthog", pr_number=123, pr_url="u"
+            )
+        metadata = _pr_metadata().model_copy(update={"author": "ghost", "state": state})
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=metadata),
+        ):
+            result = _prepare_run(
+                ResolveThreadsInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    acting_user_id=None,
+                    owner="posthog",
+                    repo="posthog",
+                    pr_number=123,
+                )
+            )
+
+        assert isinstance(result, ResolutionRunResult)
+        stored = ReviewReportArtefact.objects.for_team(self.team.id).filter(type="note")
+        if report is None:
+            assert not stored.exists()
+            return
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        assert [(m.stage, m.outcome, m.reason) for m in markers] == [("resolution", "skipped", expected_reason)]

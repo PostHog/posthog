@@ -1,8 +1,11 @@
+from datetime import date
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+from django.utils import timezone
 
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -68,6 +71,10 @@ def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int
     return team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
 
 
+def events_retention_floor_date(team: Team, retention_months: int) -> date:
+    return (timezone.now() - relativedelta(months=retention_months)).astimezone(team.timezone_info).date()
+
+
 def parse_events_feature_to_months(retention_feature: ProductFeature | None) -> int:
     """Map the billing events-retention entitlement to a number of months for the sync job.
 
@@ -108,5 +115,5 @@ def reconcile_organization_events_retention(organization: "Organization") -> int
     return (
         Team.objects.filter(organization=organization)
         .exclude(event_retention_months=target_months)
-        .update(event_retention_months=target_months)
+        .update(event_retention_months=target_months, updated_at=timezone.now())
     )

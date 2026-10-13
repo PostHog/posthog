@@ -46,6 +46,12 @@ declare module '*.yaml?raw' {
     export default content
 }
 
+// This fixes TS errors when importing a .md file with ?raw suffix
+declare module '*.md?raw' {
+    const content: string
+    export default content
+}
+
 // This fixes TS2882 errors when side-effect importing .scss files
 declare module '*.scss'
 

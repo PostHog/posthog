@@ -11,11 +11,11 @@ from collections.abc import Mapping
 from functools import cache
 from typing import Any
 
-from django.db.models import Q
-
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import Team
 from posthog.settings import EE_AVAILABLE
+
+from products.event_definitions.backend.models import effective_project_id_expr
 
 # CoreMemory.text is model-capped at 10k chars; cap lower since the preamble is resent on every scan step.
 _MAX_PRODUCT_CONTEXT_LEN = 4000
@@ -37,7 +37,7 @@ def _core_event_names() -> frozenset[str]:
     return frozenset(CORE_FILTER_DEFINITIONS_BY_GROUP["events"])
 
 
-def _sanitize(text: str, max_len: int, *, keep_newlines: bool = False) -> str:
+def sanitize_prompt_text(text: str, max_len: int, *, keep_newlines: bool = False) -> str:
     # Backticks become apostrophes because the preamble fences these values as inline code.
     stripped = _CONTROL_CHARS_RE.sub(" ", text).replace("`", "'")
     if keep_newlines:
@@ -52,7 +52,7 @@ def _sanitize(text: str, max_len: int, *, keep_newlines: bool = False) -> str:
 
 def sanitize_product_context(text: str) -> str:
     # Core memory is one fact per line; keep the newlines so the model sees a list, not a wall of text.
-    return _sanitize(text, _MAX_PRODUCT_CONTEXT_LEN, keep_newlines=True)
+    return sanitize_prompt_text(text, _MAX_PRODUCT_CONTEXT_LEN, keep_newlines=True)
 
 
 def fetch_product_context(team: Team) -> str:
@@ -84,7 +84,7 @@ def select_event_descriptions(custom_names: list[str], found: Mapping[str, str |
     """Sanitize and cap the looked-up descriptions, preserving the frequency order of `custom_names`."""
     described: dict[str, str] = {}
     for name in custom_names:
-        if sanitized := _sanitize(found.get(name) or "", _MAX_EVENT_DESCRIPTION_LEN):
+        if sanitized := sanitize_prompt_text(found.get(name) or "", _MAX_EVENT_DESCRIPTION_LEN):
             described[name] = sanitized
             if len(described) >= _MAX_EVENT_DESCRIPTIONS:
                 break
@@ -102,9 +102,10 @@ def fetch_event_descriptions(team: Team, columns: list[str], rows: list[list[Any
 
     custom_names = session_custom_event_names(columns, rows)
     found = dict(
-        EnterpriseEventDefinition.objects.filter(
+        EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(
             # Definitions are project-scoped with a team-scoped legacy fallback; mirrors posthog/api/event_definition.py.
-            Q(project_id=team.project_id) | Q(project_id__isnull=True, team_id=team.project_id),
+            effective_project_id=team.project_id,
             name__in=custom_names,
         )
         .exclude(description__isnull=True)

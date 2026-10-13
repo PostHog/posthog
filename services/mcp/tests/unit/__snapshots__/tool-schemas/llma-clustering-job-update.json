@@ -9,7 +9,17 @@
         "enabled": {
             "type": "boolean"
         },
-        "event_filters": {},
+        "event_filters": {
+            "description": "PostHog property filters that scope this clustering job. Empty array means no filters.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
         "id": {
             "description": "A UUID string identifying this clustering job.",
             "type": "string"

@@ -1,5 +1,8 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import {
+  SettingsCard,
+  SettingsCardRow,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import {
   type TerminalFont,
   useSettingsStore,
@@ -70,8 +73,8 @@ export function TerminalSettings() {
   const showCustomInput = terminalFont === "custom";
 
   return (
-    <Flex direction="column" gap="1" py="4">
-      <SettingRow
+    <SettingsCard>
+      <SettingsCardRow
         label="Font"
         description="Font used to render the terminal output"
       >
@@ -88,12 +91,12 @@ export function TerminalSettings() {
             <Select.Item value="custom">Custom</Select.Item>
           </Select.Content>
         </Select.Root>
-      </SettingRow>
+      </SettingsCardRow>
 
       {showCustomInput && (
-        <SettingRow
+        <SettingsCardRow
           label="Custom font family"
-          description="Any CSS font-family value. Example: Fira Code, Cascadia Code"
+          description="Any CSS font-family value; example: Fira Code, Cascadia Code"
         >
           <Flex direction="column" align="end" gap="1">
             <TextField.Root
@@ -107,20 +110,19 @@ export function TerminalSettings() {
               Falls back to Berkeley Mono if unavailable
             </Text>
           </Flex>
-        </SettingRow>
+        </SettingsCardRow>
       )}
 
-      <SettingRow
+      <SettingsCardRow
         label="GPU rendering"
-        description="Render the terminal with WebGL for smoother output under heavy load. Disable if you hit graphical glitches."
-        noBorder
+        description="Render the terminal with WebGL for smoother output under heavy load; disable if you hit graphical glitches"
       >
         <Switch
           checked={terminalGpuRendering}
           onCheckedChange={handleGpuRenderingChange}
           size="1"
         />
-      </SettingRow>
-    </Flex>
+      </SettingsCardRow>
+    </SettingsCard>
   );
 }

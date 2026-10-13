@@ -27,17 +27,18 @@ from posthog.models.activity_logging.activity_log import (
     ActivityScope,
     apply_activity_visibility_restrictions,
 )
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import get_export_source_authentication
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .ocsf import ActivityLogOCSFSerializer
-from .utils import get_activity_log_lookback_restriction
 
 ACTIVITY_LOG_ORDERING_DESCENDING = "-created_at"
 ACTIVITY_LOG_ORDERING_ASCENDING = "created_at"
@@ -61,8 +62,7 @@ def activity_log_ordering(request: Request) -> tuple[str, str]:
 def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
     """Keep personal loops' config out of the team-wide activity feed.
 
-    Loop activity is team-scoped in the log, but a personal loop is owner-only (see
-    products/tasks/docs/LOOPS.md "Access control"). The static visibility manager can't express
+    Loop activity is team-scoped in the log, but a personal loop is owner-only. The static visibility manager can't express
     per-user ownership, so restrict `Loop`-scoped rows to the loops this user may actually see.
     Lazy import keeps the tasks product off this module's import path.
     """
@@ -101,26 +101,25 @@ def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization
 
 
 def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
-    """Keep personal-channel canvases' metadata out of the team-wide activity feed.
+    """Keep Canvas metadata hidden by channel visibility or source policy out of the feed.
 
-    Canvas activity is team-scoped in the log, but a canvas in a personal channel is
-    owner-only (see `CanvasViewSet`). Restrict `Canvas`-scoped rows to canvases this
-    user may actually see. Lazy import keeps the canvas product off this module's path.
+    Restrict `Canvas`-scoped rows to canvases this user may access through `CanvasViewSet`.
+    Lazy import keeps the canvas product off this module's path.
     """
-    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+    from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
+    visible_ids = canvas_activity.visible_canvas_ids(team_id, getattr(user, "id", None))
     return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
 
 
 def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
     """Org-wide equivalent of `restrict_canvas_activity`. The org route has no single
-    `team_id`, so deny other users' personal-channel canvas rows across the org. Canvases
-    are soft-deleted, so their visibility stays computable without a persisted snapshot.
+    `team_id`, so deny canvases hidden by channel visibility or source policy across the
+    org. Canvases are soft-deleted, so their visibility stays computable without a snapshot.
     """
-    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+    from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    hidden_ids = canvas_activity.hidden_personal_canvas_ids_for_org(organization_id, user)
+    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, getattr(user, "id", None))
     if not hidden_ids:
         return queryset
     return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
@@ -150,7 +149,30 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ActivityLog
-        fields = "__all__"
+        # An explicit list, so that a new internal column such as `credential_id` stays out. This
+        # serializer also builds the `$activity_log_entry_created` event, so a field listed here
+        # reaches the advanced API, the export and customer destinations at the same time.
+        fields = [
+            "id",
+            "user",
+            "unread",
+            "team_id",
+            "organization_id",
+            "was_impersonated",
+            "is_system",
+            "client",
+            "ip_address",
+            "activity",
+            "item_id",
+            "scope",
+            "detail",
+            "created_at",
+        ]
+
+    def to_representation(self, instance: ActivityLog) -> dict:
+        data = super().to_representation(instance)
+        data["detail"] = instance.safe_detail
+        return data
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -327,7 +349,13 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             scopes = str(params.get("scopes", "")).split(",")
             queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
-            queryset = queryset.filter(item_id=params.get("item_id"))
+            if set(str(params.get("scopes", "")).split(",")) == {"DataWarehouseSavedQuery", "DataQualityCheck"}:
+                # Load the product relationship only for a model's combined history feed.
+                from products.data_quality.backend.facade.activity import model_activity  # noqa: PLC0415
+
+                queryset = model_activity(queryset, self.team_id, params["item_id"])
+            else:
+                queryset = queryset.filter(item_id=params.get("item_id"))
 
         if params.get("page"):
             queryset = queryset.order_by(*activity_log_ordering(self.request))
@@ -398,7 +426,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         default=[],
-        help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+        help_text="Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
     ip_addresses = JSONTolerantListField(
         child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
@@ -528,7 +556,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         ]
 
     def get_detail(self, obj):
-        return json.dumps(obj.detail) if obj.detail else ""
+        return json.dumps(obj.safe_detail) if obj.detail else ""
 
 
 class StaticFiltersSerializer(serializers.Serializer):
@@ -537,7 +565,7 @@ class StaticFiltersSerializer(serializers.Serializer):
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
     clients = serializers.ListField(
         child=serializers.DictField(),
-        help_text="API clients that have generated activity (from x-posthog-client header).",
+        help_text="API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
 
 
@@ -675,7 +703,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         available_filters = self.field_discovery.get_available_filters(queryset)
         return Response(available_filters)
 
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], required_scopes=["activity_log:read"])
     def export(self, request, **kwargs):
         export_format = request.data.get("format", "csv")
 
@@ -692,32 +720,43 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if not filters_serializer.is_valid():
             return Response({"error": "Filters are invalid"}, status=400)
 
-        query_params = {}
+        query_params: dict[str, str | list[str]] = {}
 
-        # Transform body params to query params to include the filters in the export path
+        # Transform body params to query params to include the filters in the export path.
+        # Lists become repeated keys (?users=a&users=b): the filters serializer reads them via
+        # getlist, so a comma-joined value would be validated as one item. Only unset or empty
+        # values are skipped: an explicit False is a filter too (is_system=false).
         for key, value in filters_serializer.validated_data.items():
-            if value:
-                if isinstance(value, list):
-                    query_params[key] = ",".join(str(v) for v in value)
-                elif isinstance(value, dict):
-                    query_params[key] = json.dumps(value)
-                else:
-                    query_params[key] = str(value)
+            if value is None or value in ("", [], {}):
+                continue
+            if isinstance(value, list):
+                query_params[key] = [str(v) for v in value]
+            elif isinstance(value, dict):
+                query_params[key] = json.dumps(value)
+            else:
+                query_params[key] = str(value)
 
         try:
             serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
             filename = self._generate_export_filename(serializable_filters, export_format)
+            source_authentication = get_export_source_authentication(request.successful_authenticator)
+            if source_authentication is None:
+                return Response(
+                    {"error": "Exports from API endpoints do not support this authentication method."},
+                    status=400,
+                )
 
             exported_asset = ExportedAsset.objects.create(
                 team=self.team,
                 export_format=format_mapping[export_format],
                 export_context={
-                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params)}",
+                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params, doseq=True)}",
                     "method": "GET",
                     "filters": serializable_filters,
                     "filename": filename,
                 },
                 created_by=request.user,
+                **source_authentication,
             )
 
             exporter.export_asset.delay(exported_asset.id)

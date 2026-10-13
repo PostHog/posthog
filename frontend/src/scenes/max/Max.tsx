@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import { router } from 'kea-router'
+import React, { Suspense } from 'react'
 
 import {
     IconArrowLeft,
@@ -10,12 +11,14 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { isUUIDLike } from 'lib/utils/guards'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -23,11 +26,14 @@ import { urls } from 'scenes/urls'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
+import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
@@ -40,21 +46,65 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
+import { mainFocusUrl } from './mainFocusUrl'
 import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
 
-export const scene: SceneExport = {
-    component: Max,
-    logic: maxLogic,
+const ReportAiPanel = lazyWithRetry(() =>
+    import('products/signals/frontend/inbox/components/detail/ReportAiPanel').then((module) => ({
+        default: module.ReportAiPanel,
+    }))
+)
+
+interface MaxProps {
+    tabId?: string
+    /**
+     * The scene logic's prop only. The rendered component never receives it, because the app spreads
+     * just the route's path params into the element, so `Max` reads the task from the router instead.
+     */
+    taskId?: string
 }
 
-export function Max({ tabId }: { tabId?: string }): JSX.Element {
+/**
+ * The task `/ai?task=` selects, or `undefined` when the URL names none.
+ *
+ * `isUUIDLike` rejects a path-shaped value, because this id is interpolated into API paths.
+ */
+function selectedTaskId(searchParams: Record<string, any>): string | undefined {
+    const taskId = searchParams.task
+
+    return typeof taskId === 'string' && isUUIDLike(taskId) ? taskId : undefined
+}
+
+/**
+ * The legacy conversation `/ai?chat=` selects, or `undefined` when the URL names none. Legacy Max
+ * reads the same param to open the conversation (see `maxLogic`); this copy only picks the surface.
+ */
+function selectedChatId(searchParams: Record<string, any>): string | undefined {
+    const chatId = searchParams.chat
+
+    return typeof chatId === 'string' && chatId ? chatId : undefined
+}
+
+export const scene: SceneExport<MaxProps> = {
+    component: Max,
+    logic: maxLogic,
+    paramsToProps: ({ searchParams }) => ({ taskId: selectedTaskId(searchParams) }),
+}
+
+export function Max({ tabId }: MaxProps): JSX.Element {
+    // `paramsToProps` builds the scene logic's props, and the app spreads only the route's path
+    // params into the component. `/ai` declares none and carries the task in its query string, so
+    // the selected task has to come from the router here or every task link opens the composer.
+    const { searchParams } = useValues(router)
+    const taskId = selectedTaskId(searchParams)
+    const chatId = selectedChatId(searchParams)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
-    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
+    if (!taskId && sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
@@ -75,7 +125,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    return <AiFirstMaxInstance tabId={tabId ?? ''} />
+    return <AiFirstMaxInstance tabId={tabId ?? ''} taskId={taskId} chatId={chatId} />
 }
 
 export interface MaxInstanceProps {
@@ -104,7 +154,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
     // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
     // harmless (unconditional hooks).
-    const { canGoBack: panelCanGoBack } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const { canGoBack: panelCanGoBack, activeCreation: panelActiveCreation } = useValues(
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+    )
     const { goBack: panelGoBack } = useActions(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     const threadProps: MaxThreadLogicProps = {
@@ -115,15 +167,29 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
+    const { selectedTabOptions } = useValues(sidePanelStateLogic)
     const isNewView = effectivePhaiView === 'new'
-    const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
+    const isReportChat = !!sidePanel && selectedTabOptions === REPORT_AI_PANEL
+    const isTaskView = isNewView || isReportChat
+    const headerBackDisabled = isTaskView ? !panelCanGoBack : backButtonDisabled
+    const headerTitle = isReportChat ? 'PostHog AI' : chatTitle || 'PostHog AI'
+
+    const openAsMainFocusUrl = mainFocusUrl({
+        isNewView: isTaskView,
+        activeCreation: panelActiveCreation,
+        conversationId,
+    })
 
     const content = !isMaxAvailable ? (
         <MaxNotConfigured />
     ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                {effectivePhaiView === 'new' ? (
+                {isReportChat ? (
+                    <Suspense fallback={<Spinner />}>
+                        <ReportAiPanel panelId={MAX_SIDE_PANEL_ID} />
+                    </Suspense>
+                ) : isNewView ? (
                     // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
                     <PhaiSidePanelChat />
                 ) : conversationHistoryVisible ? (
@@ -175,10 +241,10 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">
-                    <AnimatedBackButton in={isNewView ? panelCanGoBack : !backButtonDisabled}>
+                    <AnimatedBackButton in={isTaskView ? panelCanGoBack : !backButtonDisabled}>
                         <ButtonPrimitive
                             iconOnly
-                            onClick={() => (isNewView ? panelGoBack() : goBack())}
+                            onClick={() => (isTaskView ? panelGoBack() : goBack())}
                             tooltip="Go back"
                             tooltipPlacement="bottom-end"
                             disabledReasons={headerBackDisabled ? { 'You are already at home': true } : undefined}
@@ -187,11 +253,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         </ButtonPrimitive>
                     </AnimatedBackButton>
 
-                    <Tooltip title={chatTitle || undefined} placement="bottom">
-                        <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{chatTitle || 'PostHog AI'}</h3>
+                    <Tooltip title={headerTitle} placement="bottom">
+                        <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{headerTitle}</h3>
                     </Tooltip>
                 </div>
-                {conversationId && !conversationHistoryVisible && !threadVisible && (
+                {!isReportChat && conversationId && !conversationHistoryVisible && !threadVisible && (
                     <LemonButton
                         size="small"
                         icon={<IconPlus />}
@@ -201,7 +267,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         tooltipPlacement="bottom"
                     />
                 )}
-                {conversationId && (
+                {!isReportChat && conversationId && (
                     <ButtonPrimitive
                         onClick={() => {
                             copyToClipboard(
@@ -216,12 +282,18 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
                     </ButtonPrimitive>
                 )}
-                <PhaiViewToggle variant="primitive" />
+                {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
+                    sandbox conversation, so the menu stays hidden on LangGraph threads. */}
+                {(isTaskView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
+                {/* Report mode renders the runner whichever view is selected, so in it the toggle would
+                    only flip the persisted default for the user's next PostHog AI session. */}
+                {!isReportChat && <PhaiViewToggle variant="primitive" />}
                 <Link
                     buttonProps={{
                         iconOnly: true,
                     }}
-                    to={urls.ai(conversationId ?? undefined)}
+                    to={openAsMainFocusUrl ?? undefined}
+                    disabledReason={openAsMainFocusUrl ? undefined : 'This chat is still starting'}
                     onClick={() => {
                         closeSidePanel()
                     }}
@@ -241,7 +313,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
             content must stay clamped to the panel height — without `min-h-0` its `min-height: auto`
             grows it to fit the whole thread and no scroller ever engages. The legacy view is the
             opposite: it relies on this container growing so the outer viewport scrolls it. */}
-            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isNewView && 'min-h-0')}>
+            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isTaskView && 'min-h-0')}>
                 {header}
                 {content}
             </SidePanelContentContainer>

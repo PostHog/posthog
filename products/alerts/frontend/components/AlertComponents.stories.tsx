@@ -6,19 +6,21 @@ import { useEffect, useState } from 'react'
 import type { LemonSegmentedButtonOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
+import type { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { alertCadenceMinutes } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
 
 import { AlertAdvancedOptions } from './AlertAdvancedOptions'
-import { AlertDefinitionRow, AlertNextEvaluationStatus, AlertTimezoneNotice } from './AlertDefinition'
+import { AlertDefinitionRow } from './AlertDefinition'
 import { AlertEditor, AlertEditorFormDetails, AlertEditorLoading, AlertEditorSection } from './AlertEditor'
 import {
     AlertEvaluationHistoryChart,
@@ -28,8 +30,11 @@ import {
 import {
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
     PendingAlertNotificationDestinationView,
 } from './AlertNotificationDestinationEditor'
+import { AlertPreviewCard } from './AlertPreviewCard'
 import { QuietHoursFields } from './QuietHoursFields'
 
 const alertEditorStoryLogic = kea([
@@ -117,8 +122,8 @@ function DefinitionStory(): JSX.Element {
                 <AlertDefinitionRow label="Evaluate every">
                     <span className="font-semibold">15 minutes</span>
                 </AlertDefinitionRow>
-                <AlertNextEvaluationStatus>July 17, 2026 at 12:15 PM</AlertNextEvaluationStatus>
-                <AlertTimezoneNotice timezone="America/Toronto" settingsUrl="#project-settings" />
+                <NextScheduledRun label="Next planned evaluation:">July 17, 2026 at 12:15 PM</NextScheduledRun>
+                <ProjectTimezoneNotice timezone="America/Toronto" settingsUrl="#project-settings" />
             </div>
         </div>
     )
@@ -143,17 +148,21 @@ function AdvancedOptionsStory(): JSX.Element {
     )
 }
 
-type StoryNotificationType = 'slack' | 'webhook'
+type StoryNotificationType = 'slack' | 'webhook' | 'pagerduty'
 
 const NOTIFICATION_TYPE_OPTIONS: LemonSelectOptions<StoryNotificationType> = [
     { label: 'Slack', value: 'slack' },
+    { label: 'PagerDuty', value: 'pagerduty' },
     { label: 'Webhook', value: 'webhook' },
 ]
 
-function NotificationsStory(): JSX.Element {
-    const [selectedType, setSelectedType] = useState<StoryNotificationType>('webhook')
+function NotificationsStory({ initialType = 'webhook' }: { initialType?: StoryNotificationType }): JSX.Element {
+    const [selectedType, setSelectedType] = useState<StoryNotificationType>(initialType)
     const [urlValue, setUrlValue] = useState('https://example.com/alerts')
     const [slackChannelValue, setSlackChannelValue] = useState<string | null>(null)
+    const [routingKey, setRoutingKey] = useState('')
+    const [severity, setSeverity] = useState<AlertPagerDutySeverity>('critical')
+    const [region, setRegion] = useState<AlertPagerDutyRegion>('us')
     const [existingDestinations, setExistingDestinations] = useState<AlertNotificationDestinationView[]>([
         {
             key: 'existing-slack',
@@ -194,6 +203,8 @@ function NotificationsStory(): JSX.Element {
     let addDisabledReason: string | undefined
     if (selectedType === 'slack') {
         addDisabledReason = 'Connect Slack first'
+    } else if (selectedType === 'pagerduty') {
+        addDisabledReason = routingKey ? undefined : 'Enter the PagerDuty integration key'
     } else if (!urlValue) {
         addDisabledReason = 'Enter a webhook URL'
     }
@@ -228,6 +239,18 @@ function NotificationsStory(): JSX.Element {
                               input: { placeholder: 'https://example.com/webhook' },
                               value: urlValue,
                               onChange: setUrlValue,
+                          }
+                        : undefined
+                }
+                pagerduty={
+                    selectedType === 'pagerduty'
+                        ? {
+                              routingKey,
+                              onRoutingKeyChange: setRoutingKey,
+                              severity,
+                              onSeverityChange: setSeverity,
+                              region,
+                              onRegionChange: setRegion,
                           }
                         : undefined
                 }
@@ -305,7 +328,7 @@ const STORY_EXISTING_HOG_FUNCTIONS = [
 function MultipleSlackWorkspacesStory(): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/integrations': { results: STORY_SLACK_WORKSPACES, count: 2 },
+            '/api/projects/:team_id/integrations': { results: STORY_SLACK_WORKSPACES, count: 2 },
             '/api/environments/:team_id/integrations/:id/channels': ({ params, request }) => {
                 const channelId = new URL(request.url).searchParams.get('channel_id')
                 const allChannels = (STORY_SLACK_CHANNELS[String(params.id)] ?? []).map((channel) => ({
@@ -386,6 +409,100 @@ function EvaluationHistoryStory(): JSX.Element {
     )
 }
 
+const PREVIEW_LABELS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
+
+function buildTrendsAlertForm(overrides: Partial<AlertFormType> = {}): AlertFormType {
+    return {
+        name: 'Preview alert',
+        enabled: true,
+        config: { type: 'TrendsAlertConfig', series_index: 0 },
+        condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+        threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 60, lower: 20 } } },
+        ...overrides,
+    } as AlertFormType
+}
+
+function PreviewStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm()}
+                trendsValues={[42, 48, 71, 64, 53, 68, 76]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+function PreviewDelayHistoryTooShortStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({ evaluation_delay_intervals: 10 })}
+                trendsValues={[]}
+                funnelPreview={null}
+                hogqlPreview={null}
+                previewHistoryTooShort
+            />
+        </div>
+    )
+}
+
+function PreviewRelativeStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({
+                    condition: { type: AlertConditionType.RELATIVE_INCREASE },
+                    threshold: { configuration: { type: InsightThresholdType.PERCENTAGE, bounds: { upper: 0.25 } } },
+                })}
+                trendsValues={[100, 90, 130, 120, 160, 140, 175]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+// Values span three orders of magnitude over a small threshold, so the card switches to a log scale.
+function PreviewLogScaleStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({
+                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 5 } } },
+                })}
+                trendsValues={[3, 5200, 8, 6100, 12, 4800, 6]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+function PreviewBreakdownStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm()}
+                trendsValues={[20, 30, 40]}
+                trendsLabels={PREVIEW_LABELS}
+                isBreakdown
+                trendsBreakdownSeries={[
+                    { key: 'chrome', label: 'Chrome', data: [20, 30, 40] },
+                    { key: 'safari', label: 'Safari', data: [10, 25, 60] },
+                ]}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
 const meta: Meta = {
     title: 'Products/Alerts/Shared components',
     parameters: {
@@ -412,6 +529,12 @@ export const EditorLoading: Story = {
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }
+export const NotificationsPagerDuty: Story = { render: () => <NotificationsStory initialType="pagerduty" /> }
 export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
+export const Preview: Story = { render: () => <PreviewStory /> }
+export const PreviewDelayHistoryTooShort: Story = { render: () => <PreviewDelayHistoryTooShortStory /> }
+export const PreviewRelative: Story = { render: () => <PreviewRelativeStory /> }
+export const PreviewLogScale: Story = { render: () => <PreviewLogScaleStory /> }
+export const PreviewBreakdown: Story = { render: () => <PreviewBreakdownStory /> }

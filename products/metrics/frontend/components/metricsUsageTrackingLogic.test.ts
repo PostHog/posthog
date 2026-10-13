@@ -1,30 +1,29 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import {
-    metricsQueryCreate,
-    metricsSamplesCreate,
-    metricsValuesRetrieve,
-} from 'products/metrics/frontend/generated/api'
+import { metricsQueryCreate, metricsSamplesCreate, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { metricsDashboardImportLogic } from '../dashboardImport/metricsDashboardImportLogic'
 import { metricsSceneLogic } from '../metricsSceneLogic'
-import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
+import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
-import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
+import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('posthog-js')
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
@@ -72,7 +71,7 @@ describe('metricsUsageTrackingLogic', () => {
         } as AppContext
         initKeaTests()
         jest.mocked(posthog.capture).mockClear()
-        jest.mocked(metricsValuesRetrieve).mockReset().mockResolvedValue({ results: [] })
+        jest.mocked(metricsNamesRetrieve).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsSamplesCreate).mockReset().mockResolvedValue({ results: [] })
         logic = metricsUsageTrackingLogic()
@@ -93,16 +92,21 @@ describe('metricsUsageTrackingLogic', () => {
             { aggregation: 'p95' },
         ],
         [
-            'metrics viewer view mode changed',
-            () => metricsViewerLogic.actions.setViewMode('stat'),
-            { view_mode: 'stat' },
-        ],
-        [
-            'metrics viewer stat summary changed',
-            () => metricsViewerLogic.actions.setStatSummary('total'),
-            { stat_summary: 'total' },
+            'metrics viewer range function changed',
+            () => metricsViewerLogic.actions.setRangeFunction('rate'),
+            { range_function: 'rate' },
         ],
         ['metrics viewer live toggled', () => metricsViewerLogic.actions.setLiveRefresh(true), { enabled: true }],
+        [
+            'metrics viewer display type changed',
+            () => metricsViewerLogic.actions.setDisplayType('stat'),
+            { display_type: 'stat' },
+        ],
+        [
+            'metrics viewer value reducer changed',
+            () => metricsViewerLogic.actions.setReduce('mean'),
+            { reduce: 'mean', display_type: 'line' },
+        ],
         [
             'metrics viewer date range changed',
             () => metricsViewerLogic.actions.setDateFrom('-24h'),
@@ -118,11 +122,15 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsSamplesLogic.actions.setActiveTab('samples'),
             { tab: 'samples' },
         ],
-        ['metrics add to dashboard clicked', () => metricsViewerLogic.actions.addToDashboard(), { aggregation: 'sum' }],
+        [
+            'metrics add to dashboard clicked',
+            () => metricsViewerLogic.actions.addToDashboard(),
+            { aggregation: null, range_function: null, clause_count: 1, has_formula: false },
+        ],
         [
             // Reports the aggregation persisted on the insight, not the viewer's
             // current one — those diverge when the user changes the aggregation
-            // while the save request is in flight (viewer state here is 'sum').
+            // while the save request is in flight (viewer state here has none).
             'metrics insight saved',
             () =>
                 metricsViewerLogic.actions.saveAsInsightSuccess(
@@ -132,7 +140,26 @@ describe('metricsUsageTrackingLogic', () => {
                     } as any,
                     {} as any
                 ),
-            { aggregation: 'p95' },
+            { aggregation: 'p95', range_function: null, clause_count: 1, has_formula: false },
+        ],
+        [
+            'metrics dashboard import opened',
+            () => metricsDashboardImportLogic.actions.openImportModal('screenshot'),
+            { source: 'screenshot', step: 'input' },
+        ],
+        [
+            'metrics dashboard import start failed',
+            () => metricsDashboardImportLogic.actions.startImportFailure('Paste the Grafana dashboard JSON.', 400),
+            { source: 'grafana', status_code: 400 },
+        ],
+        [
+            'metrics starter dashboard created',
+            () =>
+                metricsStarterDashboardLogic.actions.createDashboardSuccess(
+                    { id: 42, name: 'Billing' } as any,
+                    'Dashboard "Billing" created, but only 1 of 2 insights could be added'
+                ),
+            { partial: true },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
@@ -166,13 +193,27 @@ describe('metricsUsageTrackingLogic', () => {
         expect(captures('metrics viewer metric selected')).toHaveLength(1)
     })
 
-    // Selecting a metric auto-applies its recommended aggregation; counting that dispatch as a
-    // user action would inflate the feature-adoption tile on every metric switch.
-    it('the auto-applied recommended aggregation is not an aggregation change', () => {
-        metricNamePickerLogic.actions.loadItemsSuccess([{ name: SECRET_METRIC, metric_type: 'sum' }] as any)
-        metricsViewerLogic.actions.setMetricName(SECRET_METRIC)
-        expect(metricsViewerLogic.values.aggregation).toBe('increase')
+    // Restoring a shared /metrics link replays the viewer setters; counting those dispatches
+    // as interactions would inflate the usage tiles on every link open or refresh.
+    it('a URL restore captures no viewer interactions', async () => {
+        metricsViewerLogic.actions.setDisplayType('heatmap')
+        jest.mocked(posthog.capture).mockClear()
+        await expectLogic(logic, () => {
+            router.actions.push('/metrics', {
+                metricName: SECRET_METRIC,
+                aggregation: 'p95',
+                rangeFunction: 'rate',
+                dateFrom: '-24h',
+                groupBy: '["env"]',
+            })
+        }).toFinishAllListeners()
+
+        expect(captures('metrics viewer metric selected')).toHaveLength(0)
         expect(captures('metrics viewer aggregation changed')).toHaveLength(0)
+        expect(captures('metrics viewer range function changed')).toHaveLength(0)
+        expect(captures('metrics viewer date range changed')).toHaveLength(0)
+        expect(captures('metrics viewer group by changed')).toHaveLength(0)
+        expect(captures('metrics viewer display type changed')).toHaveLength(0)
     })
 
     it('query completed reports shape counts and timing, never series labels', async () => {
@@ -199,7 +240,8 @@ describe('metricsUsageTrackingLogic', () => {
                     series_count: 2,
                     point_count: 3,
                     load_ms: expect.any(Number),
-                    aggregation: 'sum',
+                    aggregation: null,
+                    range_function: null,
                     has_group_by: false,
                     has_filters: false,
                 },

@@ -1,8 +1,8 @@
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import * as nav from "@posthog/ui/router/navigationBridge";
+import { useReportSourceHref } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 interface SettingsContext {
   repoPath?: string;
@@ -19,7 +19,9 @@ export function openSettings(
   contextOrAction?: SettingsContext | string,
 ): void {
   prepareSettingsPage(contextOrAction);
-  nav.navigateToSettings(category);
+  // A caller already inside settings is switching category, so replace rather
+  // than stack: the categories visited are not steps to walk back through.
+  nav.navigateToSettings(category, { replace: nav.isOnSettingsRoute() });
 }
 
 /**
@@ -42,28 +44,29 @@ export function prepareSettingsPage(
 }
 
 /**
- * Close the settings page — returns the user to their prior route via
- * router history. If they came in via a deep link, falls back to /code.
+ * Leave the settings page for a route the caller navigates to itself. Resets
+ * the store without the history pop `closeSettings` does, which would land the
+ * user back on the prior route after their own navigation.
  */
+export function leaveSettings(): void {
+  useSettingsPageStore.getState().reset();
+}
+
+/** A deep link carries no `from`, so it falls back to /code. */
 export function closeSettings(): void {
   useSettingsPageStore.getState().reset();
   if (!nav.isOnSettingsRoute()) return;
-  if (nav.canGoBackInHistory()) {
-    nav.goBackInHistory();
-  } else {
-    nav.navigateToCode();
-  }
-}
-
-export function useCloseSettings(): typeof closeSettings {
-  return useCallback(closeSettings, []);
+  nav.leaveSettingsRoute();
 }
 
 /**
- * True when the current route is anywhere under `/settings/*`.
+ * True when settings covers the screen: a settings route, or a report opened
+ * from one (it hosts the same portal).
  */
 export function useIsSettingsOpen(): boolean {
-  return useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+  const route = useRouterState({
+    select: (s) => s.matches.some((m) => nav.isSettingsRouteId(m.routeId)),
   });
+  const reportFromSettings = useReportSourceHref()?.startsWith("/settings/");
+  return route || reportFromSettings === true;
 }

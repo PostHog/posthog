@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import * as superheroPng from '@posthog/brand/hoggies/png/superhero'
 import { IconArrowLeft, IconChevronRight, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
-import { SupermanHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -20,6 +21,8 @@ import type { TeamType } from '~/types'
 
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { FakeBillingAlert, FakeStatusOverride, superpowersLogic } from './superpowersLogic'
+
+const HedgehogSuperhero = pngHoggie(superheroPng)
 
 export function SuperpowersModal(): JSX.Element | null {
     const { isSuperpowersOpen } = useValues(superpowersLogic)
@@ -203,7 +206,7 @@ function ProductsSection(): JSX.Element {
                     </span>
                 </>
             }
-            description="Sidebar enablement per product (UserProductList), plus the team capture settings behind each tool. A red dot means the tool renders but captures nothing."
+            description="Sidebar enablement per product (UserProductList), plus the team capture settings behind each product. A red dot means the product renders but captures nothing."
         >
             <div className="space-y-2">
                 <div className="space-y-1.5">
@@ -216,9 +219,6 @@ function ProductsSection(): JSX.Element {
                                         {iconForType(item.iconType)}
                                     </span>
                                     <span className="flex-1 text-sm font-medium truncate">{item.path}</span>
-                                    {listItem?.reason && (
-                                        <span className="text-xs text-muted shrink-0">{listItem.reason}</span>
-                                    )}
                                     <EnablementTag enabled={!!listItem} />
                                 </div>
                                 {team && (
@@ -274,9 +274,9 @@ function SuperpowersContent(): JSX.Element {
         openCHQueriesDebugModal()
     }
 
-    const [view, setView] = useState<'home' | 'tools'>('home')
+    const [view, setView] = useState<'home' | 'products'>('home')
 
-    if (view === 'tools') {
+    if (view === 'products') {
         return (
             <div className="space-y-4">
                 <div className="flex items-center gap-2 -mt-2">
@@ -286,7 +286,7 @@ function SuperpowersContent(): JSX.Element {
                         onClick={() => setView('home')}
                         aria-label="Back"
                     />
-                    <h2 className="text-xl font-bold m-0">Tool status</h2>
+                    <h2 className="text-xl font-bold m-0">Product status</h2>
                 </div>
                 <ProductsSection />
             </div>
@@ -297,7 +297,7 @@ function SuperpowersContent(): JSX.Element {
         <div className="space-y-5">
             {/* Hero section */}
             <div className="flex items-center gap-4 -mt-2">
-                <SupermanHog className="w-20 h-20 shrink-0" />
+                <HedgehogSuperhero className="w-20 h-20 shrink-0" />
                 <div>
                     <h2 className="text-xl font-bold mb-1">Super Hog Powers</h2>
                     <p className="text-secondary text-sm m-0">
@@ -310,14 +310,14 @@ function SuperpowersContent(): JSX.Element {
 
             <Section title="Actions">
                 <SettingRow
-                    title="Tool status"
+                    title="Product status"
                     description="Every product's sidebar enablement and the team capture settings behind it"
                     control={
                         <LemonButton
                             type="secondary"
                             size="small"
                             sideIcon={<IconChevronRight />}
-                            onClick={() => setView('tools')}
+                            onClick={() => setView('products')}
                         >
                             Open
                         </LemonButton>

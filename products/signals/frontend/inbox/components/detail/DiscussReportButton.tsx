@@ -1,92 +1,66 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { IconGitBranch, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonMenuOverlay } from '@posthog/lemon-ui'
 
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { Popover } from 'lib/lemon-ui/Popover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { captureInboxReportAction } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { captureInboxReportAction, discussQuestionProperties } from '../../inboxAnalytics'
+import { inboxTaskKickoffLogic, MERGE_PR_REQUEST } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
+import { hasApprovedOpenReportPullRequest } from '../../utils/reportPullRequests'
 
 export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
-    const { isDiscussing, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { discussReport } = useActions(inboxTaskKickoffLogic)
-    const buttonRef = useRef<HTMLButtonElement>(null)
-    const [isOpen, setIsOpen] = useState(false)
-    const [question, setQuestion] = useState('')
+    const { isDiscussing, isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
+    const canMerge = useFeatureFlag('INBOX_GET_IT_MERGED') && hasApprovedOpenReportPullRequest(report)
 
-    const submit = (): void => {
-        const trimmed = question.trim()
-        // Cmd/Ctrl + Enter submits straight from the textarea, so it never sees the button's
-        // `loading`/`disabledReason` – each guard has to hold here too, or an impatient second
-        // press fires another paid task run for the same report.
-        if (!trimmed || isDiscussing) {
-            return
-        }
-        if (aiConsentDisabledReason) {
-            lemonToast.error(aiConsentDisabledReason)
-            return
-        }
-        captureInboxReportAction({ report, actionType: 'discuss', surface: 'detail_pane' })
-        // The popover stays open on its spinner until the run is created and we navigate to it, so
-        // the request is visibly in flight and a failure leaves the draft question to retry with.
-        discussReport(report, reportUrl, trimmed)
+    const getItMerged = (): void => {
+        captureInboxReportAction({
+            report,
+            actionType: 'discuss',
+            surface: 'detail_pane',
+            extra: discussQuestionProperties({ source: 'suggested', suggestionCount: 1, intent: 'merge_pr' }),
+        })
+        discussReport(report, reportUrl, MERGE_PR_REQUEST, undefined, 'merge_pr')
     }
 
     return (
-        <Popover
-            visible={isOpen}
-            onClickOutside={(event) => {
-                if (event.target instanceof Node && buttonRef.current?.contains(event.target)) {
-                    return
-                }
-                setIsOpen(false)
-            }}
-            placement="bottom-end"
-            overlay={
-                <div className="flex flex-col gap-2 p-2 w-[22rem]">
-                    <LemonTextArea
-                        value={question}
-                        onChange={setQuestion}
-                        onPressCmdEnter={submit}
-                        placeholder="What would you like to ask about this report?"
-                        maxLength={4000}
-                        rows={4}
-                        autoFocus
-                        rightFooter={<span className="text-xs text-tertiary">Cmd/Ctrl + Enter to ask AI</span>}
-                    />
-                    <div className="flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={submit}
-                            loading={isDiscussing}
-                            disabledReason={
-                                aiConsentDisabledReason ?? (question.trim() ? undefined : 'Enter a question first')
-                            }
-                        >
-                            Ask AI
-                        </LemonButton>
-                    </div>
-                </div>
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconSparkles />}
+            loading={isDiscussing}
+            disabledReason={aiConsentDisabledReason ?? (isCreatingPr ? 'An implementation is starting.' : undefined)}
+            onClick={() => openReportDiscussion(report, reportUrl)}
+            tooltip="Ask PostHog AI about this report in the sidebar"
+            sideAction={
+                canMerge
+                    ? {
+                          tooltip: 'More AI actions',
+                          'aria-label': 'More AI actions',
+                          'data-attr': 'inbox-report-ask-ai-actions',
+                          dropdown: {
+                              placement: 'bottom-end',
+                              overlay: (
+                                  <LemonMenuOverlay
+                                      items={[
+                                          {
+                                              label: 'Get it merged',
+                                              icon: <IconGitBranch />,
+                                              tooltip: 'Fix CI on the approved PR and merge it',
+                                              onClick: getItMerged,
+                                              'data-attr': 'inbox-report-ask-ai-merge-pr',
+                                          },
+                                      ]}
+                                  />
+                              ),
+                          },
+                      }
+                    : undefined
             }
         >
-            <LemonButton
-                ref={buttonRef}
-                type="secondary"
-                size="small"
-                icon={<IconSparkles />}
-                sideIcon={null}
-                active={isOpen}
-                loading={isDiscussing}
-                onClick={() => setIsOpen((open) => !open)}
-                tooltip="Ask AI about this report"
-            >
-                Ask AI
-            </LemonButton>
-        </Popover>
+            Ask AI
+        </LemonButton>
     )
 }

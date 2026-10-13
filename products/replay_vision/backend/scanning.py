@@ -38,6 +38,34 @@ from products.replay_vision.backend.temporal.constants import (
 # One page of recordings. Above this the in-flight caps bind long before the batch does.
 MAX_SESSIONS_PER_SCAN = 200
 
+# Every outcome `start_observations` can report, mirroring the API's `scan_outcome` choices. Listed so a
+# batch reports all of them and a zero is a measured zero rather than a key nobody wrote.
+SCAN_OUTCOMES: tuple[str, ...] = (
+    "started",
+    "already_running",
+    "already_scanned",
+    "skipped_limit",
+    "skipped_quota",
+    "skipped_scanner_limit",
+    "failed",
+)
+
+
+def scan_outcome_counts(results: list[dict[str, str]]) -> dict[str, int]:
+    """Per-outcome counts for one batch, shaped as analytics properties.
+
+    A batch reports how many sessions it asked for and how many started, which says how many produced
+    nothing but never why. A reused answer costs nothing and is a cache hit; a quota skip is a customer
+    hitting a wall. Those need opposite responses and are indistinguishable today. The counts sum to the
+    number of sessions requested.
+    """
+    counts: dict[str, int] = dict.fromkeys(SCAN_OUTCOMES, 0)
+    for result in results:
+        outcome = str(result["scan_outcome"])
+        # An outcome outside the known set still counts, so the sum keeps holding if one is added.
+        counts[outcome] = counts.get(outcome, 0) + 1
+    return {f"outcome_{outcome}": count for outcome, count in counts.items()}
+
 
 @dataclass(frozen=True, kw_only=True)
 class ScanHeadroom:
@@ -133,7 +161,7 @@ def start_observations(
     *,
     scanner: ReplayScanner,
     session_ids: list[str],
-    user: User,
+    user: User | None,
     headroom: ScanHeadroom,
     finished: frozenset[str],
 ) -> tuple[int, list[dict[str, str]]]:
@@ -145,8 +173,7 @@ def start_observations(
     Decrementing a local counter as we start models each new in-flight row without re-querying (a
     started scan consumes exactly one slot).
     """
-    # Imported here to break the cycle: trigger imports quota, which imports prompt_evaluation, which
-    # reaches temporal, whose activities import this module.
+    # Imported here to break the cycle: trigger reaches the temporal package, whose activities import this module.
     from products.replay_vision.backend.api.trigger import (  # noqa: PLC0415
         WorkflowStartOutcome,
         start_apply_scanner_workflow,
@@ -169,7 +196,7 @@ def start_observations(
         _, outcome = start_apply_scanner_workflow(
             scanner,
             session_id,
-            triggered_by_user_id=user.id,
+            triggered_by_user_id=user.id if user is not None else None,
             trigger=ObservationTrigger.ON_DEMAND,
             # Row counts are this request's snapshot; the atomic claim inside makes racing requests
             # visible to each other, which the snapshot alone cannot.
@@ -197,7 +224,7 @@ def start_observations(
 
 
 def scan_existing_scanner(
-    *, scanner: ReplayScanner, session_ids: list[str], user: User
+    *, scanner: ReplayScanner, session_ids: list[str], user: User | None
 ) -> tuple[int, list[dict[str, str]]]:
     """Point a saved scanner at named sessions."""
     return start_observations(
@@ -212,7 +239,7 @@ def scan_existing_scanner(
 def run_inline_scan(
     *,
     team: Team,
-    user: User,
+    user: User | None,
     session_ids: list[str],
     scanner_type: ScannerType,
     scanner_config: dict[str, Any],

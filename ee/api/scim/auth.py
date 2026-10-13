@@ -9,6 +9,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
 
 
@@ -29,11 +30,13 @@ class SCIMAuthToken:
         return f"SCIMAuth({self.config.scim_slug})"
 
 
-class SCIMBearerTokenAuthentication(BaseAuthentication):
+class SCIMBearerTokenAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """
     SCIM authentication using bearer tokens.
     Each IdentityProviderConfig has its own SCIM bearer token and `scim_slug` for tenant isolation.
     """
+
+    activity_credential_type = "scim"
 
     def authenticate(self, request: Request) -> Optional[tuple[SCIMAuthToken, IdentityProviderConfig]]:
         if not request.path.startswith("/scim/"):
@@ -60,7 +63,11 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         # SCIM stays gated behind domain verification, which the config API doesn't check. Any of the
         # config's verified domains admits the request — it names a config, not one of the domains
         # behind it — so the config, and its organization, is what scopes the request from here.
-        if not config.has_scim or not hashed_token or not config.domains.filter(verified_at__isnull=False).exists():
+        if (
+            not config.has_scim
+            or not hashed_token
+            or not config.organization_domains.filter(verified_at__isnull=False).exists()
+        ):
             raise exceptions.AuthenticationFailed("SCIM is not enabled on a verified domain for this configuration")
 
         if not config.organization.is_feature_available(AvailableFeature.SCIM):
@@ -69,6 +76,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not check_password(token, hashed_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
+        self.record_activity_actor(None, str(config.id))
         return (SCIMAuthToken(config), config)
 
     def _extract_scim_slug_from_path(self, path: str) -> Optional[str]:

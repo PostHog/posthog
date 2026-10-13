@@ -7,11 +7,14 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
 
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.skills.backend.api.archive_guards import SkillArchiveRefused
+from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
+    LLMSkillDescriptionTooLongError,
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
@@ -20,6 +23,7 @@ from products.skills.backend.api.skill_services import (
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    bundled_skill_name_error,
     create_skill,
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
@@ -143,9 +147,13 @@ class GetSkillFileArgs(BaseModel):
 
 
 class CreateSkillArgs(BaseModel):
-    name: str = Field(description="Kebab-case skill name. <=64 chars. Must be unique within the team.")
+    name: str = Field(
+        description="Kebab-case skill name. <=64 chars. Must be unique within the team, and cannot be the name "
+        "of a skill PostHog ships."
+    )
     description: str = Field(
-        description="Short summary explaining what the skill does and when agents should pick it. <=4096 chars.",
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
+        description="Short summary explaining what the skill does and when agents should pick it. <=1024 chars.",
     )
     body: str = Field(description="SKILL.md instructions as markdown. Treated as system instructions when invoked.")
     license: str | None = Field(default=None, description="Optional license string (e.g. 'MIT').")
@@ -155,7 +163,8 @@ class CreateSkillArgs(BaseModel):
     )
     allowed_tools: list[str] | None = Field(
         default=None,
-        description="Optional list of tool names the skill is permitted to invoke.",
+        description="Optional list of tool names the skill asks to use. A harness that loads the skill over MCP "
+        "ignores the list until the user approves that grant.",
     )
     metadata: dict[str, Any] | None = Field(
         default=None,
@@ -183,10 +192,18 @@ class UpdateSkillArgs(BaseModel):
             "Each entry: {old, new}. 'old' must match exactly once. Mutually exclusive with 'body'."
         ),
     )
-    description: str | None = Field(default=None, description="Optional new description.")
+    description: str | None = Field(
+        default=None,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
+        description="Optional new description. <=1024 chars.",
+    )
     license: str | None = Field(default=None, description="Optional new license.")
     compatibility: str | None = Field(default=None, description="Optional new compatibility string.")
-    allowed_tools: list[str] | None = Field(default=None, description="Optional replacement for allowed_tools.")
+    allowed_tools: list[str] | None = Field(
+        default=None,
+        description="Optional replacement for allowed_tools. The list is a request, not a grant, for a harness that "
+        "loads the skill over MCP.",
+    )
     metadata: dict[str, Any] | None = Field(default=None, description="Optional replacement for metadata.")
     file_edits: list[dict[str, Any]] | None = Field(
         default=None,
@@ -253,6 +270,8 @@ def _publish_error_message(err: Exception, skill_name: str) -> str:
         )
     if isinstance(err, LLMSkillFileLimitError):
         return f"Skill '{skill_name}' has reached the maximum of {err.max_count} bundled files."
+    if isinstance(err, LLMSkillDescriptionTooLongError):
+        return f"Shorten the description for skill '{skill_name}' to {err.max_length} characters before creating a new version."
     if isinstance(err, LLMSkillEditError):
         detail = err.message
         if err.edit_index is not None:
@@ -388,6 +407,14 @@ class CreateLLMSkillTool(MaxTool):
         metadata: dict[str, Any] | None = None,
         files: list[dict[str, str]] | None = None,
     ) -> tuple[str, None]:
+        # The tool calls create_skill directly, which skips the serializer's name validation, so a
+        # reserved name would persist a skill whose /skills/<name> page is taken by a tab route,
+        # and a bundled name would persist one an agent host cannot tell from the skill we ship.
+        if name.lower() in RESERVED_SKILL_NAMES:
+            raise MaxToolFatalError(f"'{name}' is a reserved name and cannot be used for a skill.")
+        if error := bundled_skill_name_error(name):
+            raise MaxToolFatalError(error)
+
         try:
             skill = await database_sync_to_async(create_skill)(
                 self._team,
@@ -407,6 +434,8 @@ class CreateLLMSkillTool(MaxTool):
             raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")
         except LLMSkillFileLimitError as err:
             raise MaxToolFatalError(f"Cannot attach more than {err.max_count} bundled files to a skill.")
+        except LLMSkillDescriptionTooLongError as err:
+            raise MaxToolFatalError(f"Shorten the skill description to {err.max_length} characters before creating it.")
 
         return (
             f"Created skill '{skill.name}' at v{skill.version}. It is now discoverable via `list_llm_skills`.",
@@ -461,6 +490,7 @@ class UpdateLLMSkillTool(MaxTool):
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
             LLMSkillEditError,
         ) as err:
             raise MaxToolFatalError(_publish_error_message(err, skill_name))
@@ -478,7 +508,9 @@ class ArchiveLLMSkillTool(MaxTool):
 
     async def _arun_impl(self, skill_name: str) -> tuple[str, None]:
         try:
-            versions = await database_sync_to_async(archive_skill)(self._team, skill_name)
+            versions = await database_sync_to_async(archive_skill)(self._team, skill_name, acting_user=self._user)
+        except SkillArchiveRefused as err:
+            raise MaxToolFatalError(str(err))
         except LLMSkillNotFoundError:
             raise MaxToolFatalError(
                 f"Skill '{skill_name}' was not found. Use `list_llm_skills` to discover available skills."

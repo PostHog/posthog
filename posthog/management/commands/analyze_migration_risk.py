@@ -7,7 +7,6 @@ from django.core.management.base import BaseCommand
 from django.db import migrations
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
-from posthog.management.migration_analysis.deprecated_field_filter import DeprecatedFieldFilter
 from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter, JsonFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, RiskLevel
 
@@ -172,14 +171,8 @@ class Command(BaseCommand):
                 # Exit code 1 means migrations needed
                 output = stdout_capture.getvalue()
                 if output.strip():
-                    # Filter out deprecated field removals
-                    filtered_output = DeprecatedFieldFilter.filter_output(output)
-
-                    if not filtered_output.strip():
-                        return ""
-
                     # Prepend Summary for CI workflow, wrap Django's output in code block
-                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{filtered_output}\n```\n\nRun `python manage.py makemigrations` to create them.\n"
+                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{output}\n```\n\nRun `python manage.py makemigrations` to create them.\n"
                 return ""
         except Exception:
             # Ignore other errors (e.g., can't connect to DB)

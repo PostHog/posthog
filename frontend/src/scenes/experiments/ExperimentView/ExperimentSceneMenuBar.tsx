@@ -46,9 +46,11 @@ import {
     confirmFreezeExposure,
     confirmResetExperiment,
     confirmUnfreezeExposure,
-} from '../experimentActions'
+} from 'products/experiments/frontend/experimentActions'
+import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
+
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 
@@ -69,6 +71,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         isExperimentLaunched,
         isExperimentStopped,
         isCreatingExperimentDashboard,
+        exposures,
         freezeExposureLoading,
         unfreezeExposureLoading,
         showDebugPanel,
@@ -261,7 +264,9 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                             {showFreezeExposure && (
                                 <SceneMenuBarItem
                                     opensFloatingUi
-                                    onClick={() => confirmFreezeExposure(() => freezeExposure())}
+                                    onClick={() =>
+                                        confirmFreezeExposure(() => freezeExposure(), getTotalExposures(exposures))
+                                    }
                                     disabled={freezeExposureLoading}
                                     tooltip={freezeExposureLoading ? 'Freezing exposure…' : undefined}
                                     data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}

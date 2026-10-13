@@ -1,4 +1,4 @@
-import { Spinner } from "@posthog/quill";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 
 interface SuggestionStatusProps {
   loading: boolean;
@@ -16,7 +16,7 @@ export function SuggestionStatus({
   if (loading) {
     return (
       <span className={className}>
-        <Spinner className="h-3.5 w-3.5" />
+        <Spinner size="md" />
         <span>{loadingMessage}</span>
       </span>
     );

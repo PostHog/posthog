@@ -1,18 +1,25 @@
+from datetime import datetime
 from functools import cache
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.conf import settings
 
 from psycopg.conninfo import conninfo_to_dict
+from pydantic import model_validator
 
+from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.database.models import DatabaseField, ExpressionField, FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.persons_db import persons_db_url
 from posthog.scopes import APIScopeObject
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 
 @cache
@@ -83,6 +90,15 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
     return f"postgresql({address}, {db}, {table}, {user}, {password})"
 
 
+class _FieldNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.names.add(str(node.chain[0]))
+
+
 class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
@@ -107,10 +123,39 @@ class PostgresTable(FunctionCallTable):
     # different space than this table's ids, so its rows can't be narrowed to a grant and
     # resource-level access is required to query it at all.
     resource_level_access_only: bool = False
+    # Column the entitlement-derived retention floor filters on, for tables whose rows are only
+    # readable back as far as the organization's plan allows. The floor is pushed into the federated
+    # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
+    # rather than after the rows have been copied out. None means the table has no retention window.
+    retention_field: Optional[str] = None
+    postgres_pushdown_values: dict[str, str | int | bool] = {}
     predicates: list[Expr] = []
 
-    def get_predicates(self) -> list[Expr]:
+    @model_validator(mode="after")
+    def _isolate_hidden_backed_expression_fields(self) -> "PostgresTable":
+        # A query can't qualify a hidden column, so an expression over one must resolve against
+        # this table. Otherwise a join with another table that has the same hidden column is ambiguous.
+        hidden_names = {
+            name for name, field in self.fields.items() if isinstance(field, DatabaseField) and field.hidden
+        }
+        for field in self.fields.values():
+            if isinstance(field, ExpressionField) and field.isolate_scope is None:
+                collector = _FieldNameCollector()
+                collector.visit(field.expr)
+                if collector.names & hidden_names:
+                    field.isolate_scope = True
+        return self
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        """Oldest `retention_field` value this team may read, or None when unrestricted.
+
+        Each table owns its own window, so two tables that declare `retention_field` can never end
+        up sharing one. Tables with no window inherit this default and are never floored.
+        """
+        return None
 
     @property
     def primary_key(self) -> Optional[str]:

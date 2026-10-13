@@ -3,7 +3,8 @@ import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
 import type { CommitContent } from "@posthog/shared/types";
 import { DiffBlock } from "@posthog/ui/features/inbox/components/detail/DiffBlock";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
-import { Box, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Box, Flex, Text } from "@radix-ui/themes";
 import { useState } from "react";
 
 /**
@@ -71,7 +72,7 @@ export function ArtefactCommit({
               gap="2"
               className="text-(--gray-10) text-[12px]"
             >
-              <Spinner size="1" />
+              <Spinner size="sm" />
               Fetching diff…
             </Flex>
           ) : diffQuery.isError ? (

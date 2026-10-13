@@ -10,14 +10,14 @@ import { cn } from 'lib/utils/css-classes'
 import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { Nav as AiFirstNavBar } from './ai-first/Nav'
-import { PanelLayoutPanels } from './ai-first/PanelLayoutPanels'
+import { NavBar } from './navbar/NavBar'
+import { PanelLayoutPanels } from './navbar/PanelLayoutPanels'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
-    base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
+    base: 'gap-0 w-fit relative h-[calc(100dvh-var(--terminal-dock-height,0px))] z-[var(--z-layout-panel)]',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
@@ -129,7 +129,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         : {}
                 }
             >
-                <AiFirstNavBar />
+                <NavBar />
             </div>
 
             {/* Mobile-only positioning anchor for panel content. Decoupled from #project-panel-layout
@@ -140,7 +140,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                 or right overlays — panel content re-enables pointer-events via its own cva. */}
             {isMobileLayout && (
                 <div
-                    className="fixed top-0 left-0 h-screen z-[var(--z-layout-panel)] pointer-events-none"
+                    className="fixed top-0 left-0 h-[calc(100dvh-var(--terminal-dock-height,0px))] z-[var(--z-layout-panel)] pointer-events-none"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: 0 }}
                 >

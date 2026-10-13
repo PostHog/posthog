@@ -1,27 +1,62 @@
 import { AttributeColumnConfig } from 'products/logs/frontend/types'
 
-import { columnsToCustomColumns, LogsColumnConfig, migrateAttributeColumns, normalizeColumns } from './columns'
+import {
+    columnLabel,
+    columnsToCustomColumns,
+    LogsColumnConfig,
+    migrateAttributeColumns,
+    normalizeColumns,
+} from './columns'
 
 describe('logs column config', () => {
     describe('columnsToCustomColumns', () => {
-        it('lowers only custom columns, in order, and never sends built-ins', () => {
+        it('lowers server-computed columns, in order, and never sends client-side built-ins', () => {
             const columns: LogsColumnConfig[] = [
                 { id: 'timestamp', type: 'timestamp' },
                 { id: 'a', type: 'custom', expression: 'attributes.http.url' },
                 { id: 'level', type: 'level' },
+                // Pattern lives only on the table, so it rides the wire like a custom column
+                { id: 'pattern', type: 'pattern' },
                 { id: 'b', type: 'custom', expression: ' upper(level) ' },
                 { id: 'message', type: 'message' },
             ]
-            expect(columnsToCustomColumns(columns)).toEqual(['attributes.http.url', 'upper(level)'])
+            expect(columnsToCustomColumns(columns)).toEqual(['attributes.http.url', 'pattern', 'upper(level)'])
+        })
+
+        it('deduplicates repeated expressions, which the server would reject as a redefined alias', () => {
+            const columns: LogsColumnConfig[] = [
+                { id: 'p1', type: 'pattern' },
+                { id: 'p2', type: 'pattern' },
+                { id: 'c', type: 'custom', expression: 'pattern' },
+            ]
+            expect(columnsToCustomColumns(columns)).toEqual(['pattern'])
         })
 
         it.each<[string, LogsColumnConfig[]]>([
             ['no columns', []],
-            ['built-ins only', [{ id: 'timestamp', type: 'timestamp' }]],
+            ['client-side built-ins only', [{ id: 'timestamp', type: 'timestamp' }]],
             ['custom with blank expression', [{ id: 'x', type: 'custom', expression: '   ' }]],
             ['custom with no expression', [{ id: 'x', type: 'custom' }]],
+            // Person and Session resolve from the row's attribute maps in the cell, so they cost nothing on the wire
+            [
+                'person and session',
+                [
+                    { id: 'person', type: 'person' },
+                    { id: 'session', type: 'session' },
+                ],
+            ],
         ])('returns undefined (not []) for %s, keeping query payloads cache-identical', (_, columns) => {
             expect(columnsToCustomColumns(columns)).toBeUndefined()
+        })
+    })
+
+    describe('columnLabel', () => {
+        it.each<[LogsColumnConfig, string]>([
+            [{ id: 'person', type: 'person' }, 'Person'],
+            [{ id: 'session', type: 'session' }, 'Session'],
+            [{ id: 'person', type: 'person', name: 'User' }, 'User'],
+        ])('labels %j as %s', (column, expected) => {
+            expect(columnLabel(column)).toBe(expected)
         })
     })
 

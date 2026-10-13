@@ -1,0 +1,16 @@
+name: replication
+description: Streaming replication lag per standby, plus slot retention. Empty on replicas.
+interval: 60s
+scope: cluster
+kind: gauge
+query: |
+  SELECT r.application_name, r.client_addr::text AS client_addr, r.state, r.sync_state,
+         pg_wal_lsn_diff(pg_current_wal_lsn(), r.sent_lsn)::bigint   AS sent_lag_bytes,
+         pg_wal_lsn_diff(pg_current_wal_lsn(), r.write_lsn)::bigint  AS write_lag_bytes,
+         pg_wal_lsn_diff(pg_current_wal_lsn(), r.flush_lsn)::bigint  AS flush_lag_bytes,
+         pg_wal_lsn_diff(pg_current_wal_lsn(), r.replay_lsn)::bigint AS replay_lag_bytes,
+         extract(epoch FROM r.write_lag)::float8  AS write_lag_seconds,
+         extract(epoch FROM r.flush_lag)::float8  AS flush_lag_seconds,
+         extract(epoch FROM r.replay_lag)::float8 AS replay_lag_seconds
+  FROM pg_stat_replication r
+  WHERE NOT pg_is_in_recovery()

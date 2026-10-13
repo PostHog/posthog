@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { fn } from 'storybook/test'
 
 import { MarkdownNotebook, MarkdownNotebookProps } from './MarkdownNotebook'
 import { NotebookCollaborationConflict } from './types'
@@ -40,9 +44,9 @@ const componentCatalogNotebook = `# Component catalog
 
 <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Python title="Python" code="print('hello')" />
+<PythonV2 title="Python" code="print('hello')" />
 
-<DuckSQL title="SQL (DuckDB)" code="select * from events" returnVariable="duck_df" />
+<SQLV2 title="SQL" code="select * from events" returnVariable="sql_df" />
 
 <RecordingPlaylist title="Session recordings" />
 
@@ -112,6 +116,7 @@ const meta: Meta<StoryArgs> = {
     args: {
         showDebug: true,
         onInteractionStateChange: () => {},
+        onCaretChange: fn(),
     },
     render: (props) => <ControlledNotebook {...props} />,
 }
@@ -184,6 +189,17 @@ export const EmptyNotebook: Story = {
 export const TextOnlyNotebook: Story = {
     args: {
         value: textNotebook,
+    },
+}
+
+export const CanvasHeader: Story = {
+    args: {
+        value: textNotebook,
+        canvasHeader: (
+            <div className="mb-2 w-full rounded border border-primary bg-surface-secondary p-2">
+                A panel in the canvas header takes the same left and right edges as the blocks below it.
+            </div>
+        ),
     },
 }
 
@@ -279,6 +295,23 @@ export const MermaidDiagram: Story = {
     },
 }
 
+export const MermaidDiagramEditor: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'edit',
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="notebook-mermaid-editor"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const editButton = await canvas.findByLabelText('Edit diagram')
+        editButton.focus()
+        await userEvent.keyboard('{Enter}')
+        await screen.findByLabelText('Mermaid definition')
+    },
+}
+
 export const MermaidDiagramWide: Story = {
     args: {
         value: wideMermaidNotebook,
@@ -336,6 +369,19 @@ Select part of this paragraph to format it from the inline toolbar.`,
     },
 }
 
+export const BtwSelection: Story = {
+    ...SelectionToolbarState,
+    args: { ...SelectionToolbarState.args, onBtw: fn() },
+}
+
+export const BtwSlashMenu: Story = {
+    args: {
+        value: '# BTW\n\n ',
+        initialInsertMenu: { nodeIndex: 1, query: '' },
+        onBtw: fn(),
+    },
+}
+
 export const SlashMenuAndInsertion: Story = {
     args: {
         value: '',
@@ -351,6 +397,15 @@ export const SlashMenuAndInsertion: Story = {
                 run: () => {},
             },
         ],
+    },
+}
+
+export const AskAIWithoutConsent: Story = {
+    args: {
+        value: '',
+        initialInsertMenu: { nodeIndex: 0, query: '' },
+        onAskAI: fn(),
+        askAIDisabledReason: 'Approve AI data processing in organization settings to use Ask AI.',
     },
 }
 

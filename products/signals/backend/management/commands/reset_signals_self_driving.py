@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models import Team
@@ -19,7 +20,8 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceCreatedVia
 
 # Seed tag stamped on canonical scouts + the `authoring-scouts` companion; this DEBUG
 # reset preserves tagged rows. Not a perfect canonical marker (`_scout_origin` also checks the
@@ -134,18 +136,25 @@ class Command(BaseCommand):
 
         # 2. Postgres self-driving state, atomically.
         with transaction.atomic():
-            # Custom scouts: every version of each `signals-scout-*` skill NOT stamped by the
-            # seeding harness. We partition by SET DIFFERENCE (all scout names minus seeded
-            # names), NOT `.exclude(metadata__seeded_by=...)`. An ABSENT JSONB key makes
-            # `metadata->>'seeded_by'` SQL NULL, and `NOT (NULL = '...')` is NULL (not TRUE),
-            # so `.exclude()` silently skips rows whose metadata has no `seeded_by` key at all
-            # — which is the common case for a wizard-/hand-authored scout. The set diff is
-            # NULL-safe: a name is custom iff it is a scout name not among the seeded ones.
-            # No seeded name can land in `custom_scout_names`, so deleting by `name__in`
-            # (every version) never touches a canonical/companion row, and cascades LLMSkillFile.
+            # Custom scouts: every version of each scout skill NOT stamped by the seeding
+            # harness. The roster is the config rows plus the live `signals-scout-*` skills: a
+            # config row makes a scout under any name, and a prefixed skill authored through the
+            # skills API holds none until a coordinator tick registers one. We then partition by
+            # SET DIFFERENCE (all scout names minus seeded names), NOT
+            # `.exclude(metadata__seeded_by=...)`. An ABSENT
+            # JSONB key makes `metadata->>'seeded_by'` SQL NULL, and `NOT (NULL = '...')` is
+            # NULL (not TRUE), so `.exclude()` silently skips rows whose metadata has no
+            # `seeded_by` key at all — which is the common case for a wizard-/hand-authored
+            # scout. The set diff is NULL-safe: a name is custom iff it is a scout name not
+            # among the seeded ones. No seeded name can land in `custom_scout_names`, so
+            # deleting by `name__in` (every version) never touches a canonical/companion row,
+            # and cascades LLMSkillFile.
+            configured_scout_names = set(
+                SignalScoutConfig.all_teams.filter(team=team).values_list("skill_name", flat=True)
+            )
             scout_skills = LLMSkill.objects.filter(
+                Q(name__in=configured_scout_names) | Q(name__startswith=SIGNALS_SCOUT_SKILL_PREFIX),
                 team_id=team.id,
-                name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
                 is_latest=True,
                 deleted=False,
             )
@@ -157,6 +166,11 @@ class Command(BaseCommand):
             skills_deleted = 0
             if custom_scout_names:
                 skills_deleted, _ = LLMSkill.objects.filter(team_id=team.id, name__in=custom_scout_names).delete()
+                # Owner rows key on the logical name, not the version row, so they do not cascade. A
+                # scout recreated under the same name would otherwise inherit the old owners.
+                LLMSkillOwner.objects.for_team(team.id, canonical=True).filter(
+                    skill_name__in=custom_scout_names
+                ).delete()
 
             # Scout fleet config (canonical + custom). Deleting — not disabling — restores the
             # fresh-team shape: the next wizard `sync` re-creates canonical configs enabled.
@@ -250,15 +264,14 @@ class Command(BaseCommand):
             delete_discover_schemas_schedule,
             delete_external_data_schedule,
         )
-        from products.signals.backend.serializers import _DATA_IMPORT_SOURCE_MAP
+        from products.signals.backend.serializers import _DATA_IMPORT_EXTERNAL_SOURCE_TYPES
         from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
-        dwh_source_types = {ext_source_type for (ext_source_type, _schema_name) in _DATA_IMPORT_SOURCE_MAP.values()}
         sources = list(
             ExternalDataSource.objects.filter(
                 team=team,
-                source_type__in=dwh_source_types,
-                created_via=ExternalDataSource.CreatedVia.MCP,
+                source_type__in=_DATA_IMPORT_EXTERNAL_SOURCE_TYPES,
+                created_via=ExternalDataSourceCreatedVia.MCP,
                 deleted=False,
             )
         )

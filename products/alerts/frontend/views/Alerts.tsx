@@ -5,16 +5,14 @@ import { Suspense, useEffect } from 'react'
 import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlResourceType } from '~/types'
 
 import { AlertType } from '../types'
-import { AlertsTab, getActiveAlertsTab, getAlertsTabs } from '../utils'
+import { AlertsTab, getActiveAlertsTab, getAlertsTabs, hasEffectiveResourceAccess } from '../utils'
 
 const loadInsightAlerts = (): Promise<{ default: typeof import('./InsightAlerts').InsightAlerts }> =>
     import('./InsightAlerts').then((module) => ({ default: module.InsightAlerts }))
@@ -37,10 +35,6 @@ const ALERTS_DESCRIPTION: Record<AlertsTab, string> = {
     [AlertsTab.LOGS]: 'Monitor matching logs and get notified when they cross a threshold.',
 }
 
-function hasEffectiveResourceAccess(resourceType: AccessControlResourceType): boolean {
-    return getAppContext()?.effective_resource_access_control?.[resourceType] !== AccessControlLevel.None
-}
-
 function AlertsPanelSkeleton(): JSX.Element {
     return (
         <div className="space-y-4 p-4">
@@ -54,9 +48,8 @@ function AlertsPanelSkeleton(): JSX.Element {
 export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
-    const showLogAlerts = useFeatureFlag('LOGS_ALERTING')
     const canViewInsightAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Insight)
-    const canViewLogAlerts = showLogAlerts && hasEffectiveResourceAccess(AccessControlResourceType.Logs)
+    const canViewLogAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Logs)
 
     useEffect(() => {
         void loadInsightAlerts()

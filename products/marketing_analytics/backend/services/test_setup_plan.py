@@ -1,9 +1,12 @@
 import pytest
-from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from pydantic import ValidationError
+
+from posthog.models.team.team import Team
 
 from products.marketing_analytics.backend.services.attribution_health import AttributionHealthResponse
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
@@ -44,6 +47,8 @@ def _integration(
     schema_missing=None,
     unmatched=0,
     matched=0,
+    paid=0,
+    tagged_medium=0,
 ) -> IntegrationDiagnostic:
     data_source = None
     if status != "events_only":
@@ -82,6 +87,8 @@ def _integration(
             last_event_with_matching_utm_at=None,
             matched_pct=0.0,
             sample_unmatched_utm_sources=[],
+            events_matched_paid_last_7d=paid,
+            events_matched_tagged_medium_last_7d=tagged_medium,
         )
 
     return IntegrationDiagnostic(
@@ -124,12 +131,13 @@ def _attribution(total=1000, matched=900) -> AttributionHealthResponse:
     )
 
 
-class SetupPlanTestCase(APIBaseTest):
+class SetupPlanTestCase(SimpleTestCase):
     """Every leaf the plan gathers is mocked; these tests are about how the plan
     composes, ranks and explains, not about the leaves' own logic."""
 
     def setUp(self):
         super().setUp()
+        self.team = Team(id=1)
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[_integration()],
             overall_status="healthy",
@@ -280,7 +288,7 @@ class TestInvariants(SetupPlanTestCase):
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[
                 _integration("google_ads", "GoogleAds", status="sync_broken"),
-                _integration("meta_ads", "MetaAds", status="events_only", unmatched=900),
+                _integration("meta_ads", "MetaAds", status="events_only", matched=900, paid=900),
             ],
             overall_status="broken",
             conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
@@ -294,7 +302,7 @@ class TestInvariants(SetupPlanTestCase):
     @pytest.mark.asyncio
     async def test_suggestion_ids_are_deterministic_not_positional(self):
         self.diagnostic = MarketingDiagnosticResponse(
-            integrations=[_integration("meta_ads", "MetaAds", status="events_only", unmatched=900)],
+            integrations=[_integration("meta_ads", "MetaAds", status="events_only", matched=900, paid=900)],
             overall_status="degraded",
             conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
         )
@@ -307,11 +315,27 @@ class TestInvariants(SetupPlanTestCase):
 
 class TestRanking(SetupPlanTestCase):
     @pytest.mark.asyncio
+    async def test_connect_suggestions_rank_by_paid_event_volume(self) -> None:
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[
+                _integration("google_ads", "GoogleAds", status="events_only", matched=700, unmatched=500, paid=1),
+                _integration("meta_ads", "MetaAds", status="events_only", matched=100, paid=17),
+            ],
+            overall_status="degraded",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+
+        plan = await get_setup_plan(self.team)
+
+        connects = [s for s in plan.suggestions if s.kind == SuggestionKind.CONNECT_SOURCE]
+        assert [s.id for s in connects] == ["connect_source:meta_ads", "connect_source:google_ads"]
+
+    @pytest.mark.asyncio
     async def test_unblocking_action_outranks_a_higher_volume_one(self):
         # Connecting the platform unblocks the goal-flag work, so it must come first
         # even though the goal suggestion carries far more event volume.
         self.diagnostic = MarketingDiagnosticResponse(
-            integrations=[_integration("meta_ads", "MetaAds", status="events_only", unmatched=10)],
+            integrations=[_integration("meta_ads", "MetaAds", status="events_only", matched=10, paid=10)],
             overall_status="degraded",
             conversion_goals=ConversionGoalsListResponse(goals=[_goal(count=5_000_000)]),
         )
@@ -562,6 +586,45 @@ class TestConversionGoals(SetupPlanTestCase):
         assert all(s.safe_to_batch is False for s in flags)
 
 
+class TestConnectSourceNeedsPaidEvidence(SetupPlanTestCase):
+    @parameterized.expand(
+        [
+            ("organic_medium", 900, 0, 900, 0, False),
+            ("source_without_medium", 900, 0, 0, 0, False),
+            ("organic_minority_without_paid_evidence", 900, 0, 100, 0, False),
+            ("fuzzy_source_without_paid_evidence", 0, 900, 0, 0, False),
+            ("missing_attribution", 0, 0, 0, 0, False),
+            ("paid_medium", 900, 0, 900, 900, True),
+            ("mixed_paid_and_organic", 900, 0, 900, 1, True),
+            ("google_click_id_without_medium", 900, 0, 0, 1, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_connect_suggestion_requires_paid_evidence(
+        self, _name: str, matched: int, unmatched: int, tagged_medium: int, paid: int, expected: bool
+    ) -> None:
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[
+                _integration(
+                    "google_ads",
+                    "GoogleAds",
+                    status="events_only",
+                    matched=matched,
+                    unmatched=unmatched,
+                    tagged_medium=tagged_medium,
+                    paid=paid,
+                )
+            ],
+            overall_status="degraded",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+
+        plan = await get_setup_plan(self.team)
+
+        connects = [s for s in plan.suggestions if s.kind == SuggestionKind.CONNECT_SOURCE]
+        assert bool(connects) is expected
+
+
 class TestIntegrationSuggestions(SetupPlanTestCase):
     @pytest.mark.asyncio
     async def test_auth_error_becomes_a_reconnect_with_a_valid_oauth_kind(self):
@@ -598,20 +661,24 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
     @parameterized.expand(
         [
             ("exact_utm_source_match_only", 0, 700, 700),
-            ("fuzzy_match_only", 500, 0, 500),
-            ("both_kinds_of_match", 500, 700, 1200),
+            ("mixed_paid_and_organic", 500, 700, 17),
+            ("single_paid_event", 500, 700, 1),
+            ("formatted_paid_count", 800, 1600, 1250),
         ]
     )
     @pytest.mark.asyncio
-    async def test_connect_suggestion_counts_every_event_carrying_the_utm_source(
-        self, _name, unmatched, matched, expected
-    ):
-        # `events_only` is set when either counter is non-zero, so a platform whose utm_source
-        # matched exactly used to advertise "0 events" as the reason to connect it.
+    async def test_connect_suggestion_counts_only_events_with_paid_evidence(
+        self, _name: str, unmatched: int, matched: int, paid: int
+    ) -> None:
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[
                 _integration(
-                    "pinterest_ads", "PinterestAds", status="events_only", unmatched=unmatched, matched=matched
+                    "pinterest_ads",
+                    "PinterestAds",
+                    status="events_only",
+                    unmatched=unmatched,
+                    matched=matched,
+                    paid=paid,
                 )
             ],
             overall_status="degraded",
@@ -621,8 +688,12 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
         plan = await get_setup_plan(self.team)
 
         connect = next(s for s in plan.suggestions if s.kind == SuggestionKind.CONNECT_SOURCE)
-        assert connect.event_volume == expected
-        assert f"{expected:,} events" in connect.evidence
+        assert connect.event_volume == paid
+        event_label = "event" if paid == 1 else "events"
+        assert connect.evidence == (
+            f"Detected {paid:,} {event_label} with paid attribution signals for Pinterest Ads in the last 7 days. "
+            "Connect the platform to add spend data."
+        )
 
     @pytest.mark.asyncio
     async def test_healthy_integration_produces_nothing(self):

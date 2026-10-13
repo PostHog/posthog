@@ -1,44 +1,52 @@
 import { strToU8, zipSync } from 'fflate'
-import Papa from 'papaparse'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import {
+    ExportAdapter,
+    TrendsAdapter,
+    csvFromTableData,
+    getInsightExportAdapter,
+} from '~/queries/nodes/InsightViz/exportAdapters'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { GRADE_PER_BAND } from '~/queries/nodes/WebVitals/definitions'
 import {
     DataTableNode,
-    EventsHeatMapColumnAggregationResult,
-    EventsHeatMapDataResult,
-    EventsHeatMapRowAggregationResult,
-    InsightVizNode,
     NodeKind,
     QuerySchema,
-    TrendsQuery,
-    TrendsQueryResponse,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
+    WebVitalsMetric,
+    WebVitalsMetricBand,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPathBreakdownQueryResponse,
+    WebVitalsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { isTrendsQuery, isWebExternalClicksQuery, isWebGoalsQuery, isWebStatsTableQuery } from '~/queries/utils'
-import { TabsTileTab, TILE_LABELS, WebAnalyticsTile, getDisplayColumnName } from '~/scenes/web-analytics/common'
-import { ChartDisplayType, ExporterFormat, InsightLogicProps } from '~/types'
-
-export interface ExportAdapter {
-    toTableData(): string[][]
-    canHandle(): boolean
-}
+import {
+    isWebExternalClicksQuery,
+    isWebGoalsQuery,
+    isWebStatsTableQuery,
+    isWebVitalsPathBreakdownQuery,
+    isWebVitalsQuery,
+} from '~/queries/utils'
+import {
+    QueryTile,
+    TabsTileTab,
+    TILE_LABELS,
+    WebAnalyticsTile,
+    getDisplayColumnName,
+} from '~/scenes/web-analytics/common'
+import { InsightLogicProps } from '~/types'
 
 export interface TileExportSection {
     title: string
     tableData: string[][]
-}
-
-export function csvFromTableData(tableData: string[][]): string {
-    return Papa.unparse(tableData, { escapeFormulae: true })
 }
 
 export function downloadTableDataAsCsv(tableData: string[][], filename: string): boolean {
@@ -91,24 +99,31 @@ export function getExportAdapter(insightDataRaw: unknown, query: QuerySchema | u
     if (!insightDataRaw || !query) {
         return null
     }
-    const adapters: ExportAdapter[] = [
-        new CalendarHeatmapAdapter(insightDataRaw as TrendsQueryResponse, query),
-        new WorldMapAdapter(insightDataRaw as TrendsQueryResponse, query),
-        new WebAnalyticsTableAdapter(insightDataRaw as WebStatsTableQueryResponse, query),
-        new TrendsAdapter(insightDataRaw as TrendsQueryResponse, query),
-    ]
-    return adapters.find((a) => a.canHandle()) ?? null
+    if (isWebVitalsQuery(query)) {
+        return webVitalsTrendsAdapter(insightDataRaw as WebVitalsQueryResponse)
+    }
+    if (isWebVitalsPathBreakdownQuery(query)) {
+        return new WebVitalsPathBreakdownAdapter(insightDataRaw as WebVitalsPathBreakdownQueryResponse, query)
+    }
+    const webAdapter = new WebAnalyticsTableAdapter(insightDataRaw as WebStatsTableQueryResponse, query)
+    if (webAdapter.canHandle()) {
+        return webAdapter
+    }
+    return getInsightExportAdapter(insightDataRaw, query)
+}
+
+function findMountedTileDataNode(insightProps: InsightLogicProps): ReturnType<typeof dataNodeLogic.findMounted> {
+    return dataNodeLogic.findMounted({ key: insightVizDataNodeKey(insightProps) } as DataNodeLogicProps)
 }
 
 function tileToTableData(query: QuerySchema, insightProps: InsightLogicProps): string[][] | null {
-    const insightDataRaw = insightDataLogic.findMounted(insightProps)?.values.insightDataRaw
-    const adapter = getExportAdapter(insightDataRaw, query)
+    const adapter = getExportAdapter(findMountedTileDataNode(insightProps)?.values.response, query)
     const tableData = adapter?.toTableData() ?? []
     return tableData.length > 0 ? tableData : null
 }
 
 function isTileStillLoading(insightProps: InsightLogicProps): boolean {
-    return insightDataLogic.findMounted(insightProps)?.values.insightDataLoading === true
+    return findMountedTileDataNode(insightProps)?.values.dataLoading === true
 }
 
 export function anyTileStillLoading(tiles: WebAnalyticsTile[]): boolean {
@@ -153,13 +168,18 @@ export function exportAllTilesAsCsvZip(tiles: WebAnalyticsTile[], filename = 'we
     return true
 }
 
+function queryTileTitle(tile: QueryTile): string {
+    const base = tile.title ?? TILE_LABELS[tile.tileId] ?? tile.tileId
+    return isWebVitalsPathBreakdownQuery(tile.query) ? `${base}: ${tile.query.metric}` : base
+}
+
 export function collectAllTilesTableData(tiles: WebAnalyticsTile[]): TileExportSection[] {
     const sections: TileExportSection[] = []
     for (const tile of tiles) {
         if (tile.kind === 'query') {
             const tableData = tileToTableData(tile.query, tile.insightProps)
             if (tableData) {
-                sections.push({ title: tile.title ?? TILE_LABELS[tile.tileId] ?? tile.tileId, tableData })
+                sections.push({ title: queryTileTitle(tile), tableData })
             }
         } else if (tile.kind === 'tabs') {
             const activeTab = tile.tabs.find((tab) => tab.id === tile.activeTabId)
@@ -176,128 +196,7 @@ export function collectAllTilesTableData(tiles: WebAnalyticsTile[]): TileExportS
     return sections
 }
 
-export function exportTableData(tableData: string[][], format: ExporterFormat): void {
-    try {
-        switch (format) {
-            case ExporterFormat.CSV: {
-                const csv = csvFromTableData(tableData)
-                void copyToClipboard(csv, 'table')
-                break
-            }
-            case ExporterFormat.JSON: {
-                const [headers, ...rows] = tableData
-                const jsonData = rows.map((row) =>
-                    headers.reduce(
-                        (acc, header, index) => {
-                            acc[header] = row[index]
-                            return acc
-                        },
-                        {} as Record<string, any>
-                    )
-                )
-                void copyToClipboard(JSON.stringify(jsonData, null, 4), 'table')
-                break
-            }
-            case ExporterFormat.XLSX: {
-                const tsv = Papa.unparse(tableData, { delimiter: '\t', escapeFormulae: true })
-                void copyToClipboard(tsv, 'table')
-                break
-            }
-        }
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
-function convertClickHouseDayToStandard(clickHouseDay: number): number {
-    // ClickHouse toDayOfWeek: 1=Mon, 2=Tue, ..., 7=Sun
-    // Standard array indices: 0=Sun, 1=Mon, ..., 6=Sat
-    return clickHouseDay % 7
-}
-
-class CalendarHeatmapAdapter implements ExportAdapter {
-    constructor(
-        private response: TrendsQueryResponse,
-        private query?: QuerySchema
-    ) {}
-
-    private getCalendarHeatmapTableData(rowLabels: string[], columnLabels: string[]): string[][] {
-        const firstResult = (this.response as any)?.results?.[0]
-        const heatmapData = firstResult?.calendar_heatmap_data
-
-        if (!heatmapData || !heatmapData.data) {
-            return []
-        }
-
-        const data = heatmapData.data
-        const rowAggregations = heatmapData.rowAggregations || []
-        const columnAggregations = heatmapData.columnAggregations || []
-        const allAggregations = heatmapData.allAggregations || 0
-
-        const numRows = rowLabels.length
-        const numCols = columnLabels.length
-
-        const matrix: number[][] = Array(numRows)
-            .fill(0)
-            .map(() => Array(numCols).fill(0))
-        data.forEach((item: EventsHeatMapDataResult) => {
-            const standardDay = convertClickHouseDayToStandard(item.row)
-            if (standardDay < numRows && item.column < numCols) {
-                matrix[standardDay][item.column] = item.value
-            }
-        })
-
-        const rowAggMap: Record<number, number> = {}
-        rowAggregations.forEach((item: EventsHeatMapRowAggregationResult) => {
-            const standardDay = convertClickHouseDayToStandard(item.row)
-            rowAggMap[standardDay] = item.value
-        })
-
-        const colAggArray: number[] = Array(numCols).fill(0)
-        columnAggregations.forEach((item: EventsHeatMapColumnAggregationResult) => {
-            if (item.column < numCols) {
-                colAggArray[item.column] = item.value
-            }
-        })
-
-        const headers = ['', ...columnLabels, 'All']
-        const dataRows = rowLabels.map((rowLabel, rowIndex) => {
-            const rowValues = matrix[rowIndex].map(String)
-            const rowTotal = rowAggMap[rowIndex] != null ? String(rowAggMap[rowIndex]) : ''
-            return [rowLabel, ...rowValues, rowTotal]
-        })
-
-        const aggregationRow = ['All', ...colAggArray.map(String), String(allAggregations)]
-
-        return [headers, ...dataRows, aggregationRow]
-    }
-
-    toTableData(): string[][] {
-        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-        const hourLabels = Array.from({ length: 24 }, (_, i) => String(i))
-        return this.getCalendarHeatmapTableData(dayLabels, hourLabels)
-    }
-
-    canHandle(): boolean {
-        if (!this.query || this.query.kind !== NodeKind.InsightVizNode) {
-            return false
-        }
-        const source = (this.query as InsightVizNode).source
-        if (!isTrendsQuery(source)) {
-            return false
-        }
-        const isHeatmap = (source as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
-        if (!isHeatmap) {
-            return false
-        }
-
-        const firstResult = (this.response as any)?.results?.[0]
-        const heatmapData = firstResult?.calendar_heatmap_data
-        return heatmapData && heatmapData.data && heatmapData.data.length > 0
-    }
-}
-
-class WebAnalyticsTableAdapter implements ExportAdapter {
+export class WebAnalyticsTableAdapter implements ExportAdapter {
     constructor(
         private response: WebStatsTableQueryResponse,
         private query?: QuerySchema
@@ -381,110 +280,40 @@ class WebAnalyticsTableAdapter implements ExportAdapter {
     }
 }
 
-class WorldMapAdapter implements ExportAdapter {
+function webVitalsColumnName(metric: WebVitalsMetric, percentile: string): string {
+    return metric === 'CLS' ? `${metric} ${percentile}` : `${metric} ${percentile} (ms)`
+}
+
+function webVitalsTrendsAdapter(response: WebVitalsQueryResponse): TrendsAdapter {
+    return new TrendsAdapter({
+        ...response,
+        results: (response.results ?? []).map((item) => ({
+            ...item,
+            action: { ...item.action, custom_name: webVitalsColumnName(item.action.custom_name, item.action.math) },
+        })),
+    })
+}
+
+const WEB_VITALS_BANDS: WebVitalsMetricBand[] = ['good', 'needs_improvements', 'poor']
+
+class WebVitalsPathBreakdownAdapter implements ExportAdapter {
     constructor(
-        private response: TrendsQueryResponse,
-        private query?: QuerySchema
+        private response: WebVitalsPathBreakdownQueryResponse,
+        private query: WebVitalsPathBreakdownQuery
     ) {}
 
-    private getWorldMapTableData(): string[][] {
-        if (!this.response.results || this.response.results.length === 0) {
+    toTableData(): string[][] {
+        const breakdown = this.response.results?.[0]
+        const rows = WEB_VITALS_BANDS.flatMap((band) =>
+            (breakdown?.[band] ?? []).map(({ path, value }) => [GRADE_PER_BAND[band], path, String(value)])
+        )
+        if (rows.length === 0) {
             return []
         }
-
-        const headers = ['Country', 'Visitors']
-        const dataRows = this.response.results.map((series) => {
-            const countryCode = series.label ?? ''
-            const visitors = (series as any).aggregated_value ?? series.count ?? 0
-            return [countryCode, String(visitors)]
-        })
-
-        return [headers, ...dataRows]
-    }
-
-    toTableData(): string[][] {
-        return this.getWorldMapTableData()
+        return [['Band', 'Path', webVitalsColumnName(this.query.metric, this.query.percentile)], ...rows]
     }
 
     canHandle(): boolean {
-        if (!this.query || this.query.kind !== NodeKind.InsightVizNode) {
-            return false
-        }
-        const source = (this.query as InsightVizNode).source
-        if (!isTrendsQuery(source)) {
-            return false
-        }
-
-        const isWorldMap = (source as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.WorldMap
-        if (!isWorldMap) {
-            return false
-        }
-
-        return this.response.results && this.response.results.length > 0
+        return true
     }
 }
-
-class TrendsAdapter implements ExportAdapter {
-    constructor(
-        private response: TrendsQueryResponse,
-        private query?: QuerySchema
-    ) {}
-
-    private getTrendsTableData(): string[][] {
-        if (!this.response.results || this.response.results.length === 0) {
-            return []
-        }
-
-        // Get date labels from the first series (all series should have the same labels)
-        const firstSeries = this.response.results[0]
-        const dateLabels = (firstSeries.labels || firstSeries.days || []) as string[]
-
-        if (dateLabels.length === 0) {
-            return []
-        }
-
-        const seriesLabels = this.response.results.map((series) => {
-            // Use breakdown value if available, otherwise use action name or label
-            const breakdownValue = (series as any).breakdown_value
-            const baseName = breakdownValue ?? series.action?.custom_name ?? series.label ?? 'Series'
-            const compareLabel = series.compare_label
-            return compareLabel ? `${baseName} (${compareLabel})` : baseName
-        })
-        const headers = ['Date', ...seriesLabels]
-
-        const dataRows = dateLabels.map((date, dateIndex) => {
-            const values = this.response.results.map((series) => {
-                const data = series.data as number[]
-                const value = data[dateIndex]
-                return value != null ? String(value) : ''
-            })
-            return [date, ...values]
-        })
-
-        return [headers, ...dataRows]
-    }
-
-    toTableData(): string[][] {
-        return this.getTrendsTableData()
-    }
-
-    canHandle(): boolean {
-        if (!this.query || this.query.kind !== NodeKind.InsightVizNode) {
-            return false
-        }
-        const source = (this.query as InsightVizNode).source
-        if (!isTrendsQuery(source)) {
-            return false
-        }
-
-        // Exclude calendar heatmaps and world maps (handled by their own adapters)
-        const display = (source as TrendsQuery)?.trendsFilter?.display
-        if (display === ChartDisplayType.CalendarHeatmap || display === ChartDisplayType.WorldMap) {
-            return false
-        }
-
-        return this.response.results && this.response.results.length > 0
-    }
-}
-
-export { CalendarHeatmapAdapter, WorldMapAdapter, WebAnalyticsTableAdapter, TrendsAdapter }

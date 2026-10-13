@@ -1,44 +1,39 @@
-import { PI_SESSION_CONTROLLER } from "@posthog/core/pi-runtime/identifiers";
-import type { PiSessionController } from "@posthog/core/pi-runtime/piSessionController";
-import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
-import { useService } from "@posthog/di/react";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys, useHotkeysContext } from "react-hotkeys-hook";
-import { useStore } from "zustand";
 import { useBlurOnEscape } from "../../../hooks/useBlurOnEscape";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
-import { toast } from "../../../primitives/toast";
 import { logger } from "../../../shell/logger";
-import { useArchiveTask } from "../../archive/useArchiveTask";
+import { useArchiveShortcut } from "../../archive/useArchiveShortcut";
+import { useTaskArchive } from "../../archive/useTaskArchive";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
+import { useChannels } from "../../canvas/hooks/useChannels";
 import { useMarkTaskActivityRead } from "../../canvas/hooks/useMarkTaskActivityRead";
+import { useFilingTasksStore } from "../../canvas/stores/filingTasksStore";
 import {
   LazyCloudReviewPage as CloudReviewPage,
   LazyReviewPage as ReviewPage,
 } from "../../code-review/components/LazyReviewPages";
 import { useReviewNavigationStore } from "../../code-review/reviewNavigationStore";
 import { useFileSearchStore } from "../../command/fileSearchStore";
-import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
 import { useRightPanelStore } from "../../navigation/rightPanelStore";
 import { useReviewInRightPanel } from "../../navigation/useReviewInRightPanel";
 import { PanelLayout } from "../../panels/components/PanelLayout";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
-import { useArchivingTasksStore } from "../../sidebar/archivingTasksStore";
-import { ArchiveRunningTaskDialog } from "../../sidebar/components/ArchiveRunningTaskDialog";
 import { useCwd } from "../../sidebar/useCwd";
-import { useSidebarSessionMap } from "../../sidebar/useSidebarSessionMap";
+import { useInUnfocusedTile } from "../../tab-tiling/tileContext";
 import { useRenameTask } from "../../tasks/useTaskMutations";
 import { useWorkspace } from "../../workspace/useWorkspace";
 import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
 import { HeaderTitleEditor } from "../HeaderTitleEditor";
+import { useMarkTaskViewed } from "../hooks/useMarkTaskViewed";
 import { useTaskData } from "../hooks/useTaskData";
 import { CustomImageBadge } from "./CustomImageBadge";
-import { WorkspaceModeBadge } from "./WorkspaceModeBadge";
+import { TaskHeaderMark, TaskHeaderMarks } from "./TaskHeaderStatus";
 
 const MIN_REVIEW_WIDTH = 300;
 const log = logger.scope("task-detail");
@@ -62,77 +57,38 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const taskId = initialTask.id;
   const { task } = useTaskData({ taskId, initialTask });
-  const taskSession = useSidebarSessionMap().get(taskId);
-  const piSessionController = useService<PiSessionController>(
-    PI_SESSION_CONTROLLER,
-  );
-  const isPiGenerating = useStore(
-    piSessionController.store,
-    (state) => state.sessions[taskId]?.status?.isStreaming ?? false,
-  );
-  const runtime = task.runtime === "pi" ? "pi" : "acp";
+  const { channels } = useChannels();
+  const filing = useFilingTasksStore((state) => state.filingTasks[taskId]);
+  const taskChannel = channels.find((channel) => channel.id === task.channel);
+  const resolvedChannelId = task.channel ?? channelId;
+  const resolvedChannelName = taskChannel?.name ?? channelName;
+  useMarkTaskViewed(taskId);
 
   const effectiveRepoPath = useCwd(taskId);
 
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
 
+  const inBackgroundTile = useInUnfocusedTile();
+
   const { enableScope, disableScope } = useHotkeysContext();
-  const { archiveTask } = useArchiveTask({
-    navigateSpace: channelId ? "website" : "code",
+  const { requestArchive, dialog: archiveDialog } = useTaskArchive(task, {
+    navigateUnscoped: !channelId,
   });
-  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
-  const runArchive = useCallback(async () => {
-    const store = useArchivingTasksStore.getState();
-    if (store.isArchiving(taskId)) return;
-
-    store.startArchiving(taskId);
-    try {
-      await archiveTask({ taskId });
-    } catch (error) {
-      log.error("Failed to archive task", error);
-      toast.error("Failed to archive task");
-      throw error;
-    } finally {
-      useArchivingTasksStore.getState().stopArchiving(taskId);
-    }
-  }, [archiveTask, taskId]);
-
-  useHotkeys(
-    SHORTCUTS.ARCHIVE_TASK,
-    (event) => {
-      event.preventDefault();
-      if (useArchivingTasksStore.getState().isArchiving(taskId)) return;
-      if (
-        isTaskActivelyRunning({
-          isGenerating:
-            runtime === "pi"
-              ? isPiGenerating
-              : (taskSession?.isPromptPending ?? false),
-          taskRunEnvironment: task.latest_run?.environment,
-          taskRunStatus:
-            taskSession?.cloudStatus ?? task.latest_run?.status ?? undefined,
-        })
-      ) {
-        setShowArchiveConfirm(true);
-        return;
-      }
-      void runArchive().catch(() => undefined);
-    },
-    {
-      scopes: ["taskDetail"],
-      enableOnContentEditable: true,
-      enableOnFormTags: true,
-    },
-    [task, taskId, taskSession, runtime, isPiGenerating, runArchive],
-  );
+  useArchiveShortcut({
+    onArchive: requestArchive,
+    enabled: !inBackgroundTile,
+    priority: "visible-task",
+    scopes: ["taskDetail"],
+  });
 
   useEffect(() => {
+    if (inBackgroundTile) return;
     enableScope("taskDetail");
     return () => {
       disableScope("taskDetail");
     };
-  }, [enableScope, disableScope]);
+  }, [enableScope, disableScope, inBackgroundTile]);
 
   // Mounting TaskDetail means the task was actually rendered in front of the
   // user — that, not any API fetch of the task, is what clears the unread
@@ -148,6 +104,7 @@ export function TaskDetail({
   }, [markTasksRead, taskId]);
 
   useHotkeys("mod+p", () => openFilePicker(), {
+    enabled: !inBackgroundTile,
     enableOnContentEditable: true,
     enableOnFormTags: true,
     preventDefault: true,
@@ -186,10 +143,10 @@ export function TaskDetail({
   // Memoized so the headerContent memo below isn't busted by unrelated renders.
   const trailing = useMemo(
     () =>
-      channelId ? (
-        <CopyThreadLinkButton channelId={channelId} taskId={taskId} />
+      resolvedChannelId ? (
+        <CopyThreadLinkButton channelId={resolvedChannelId} taskId={taskId} />
       ) : null,
-    [channelId, taskId],
+    [resolvedChannelId, taskId],
   );
   const workspace = useWorkspace(taskId);
   const workspaceMode = workspace?.mode;
@@ -198,13 +155,15 @@ export function TaskDetail({
       // Inside a channel, prefix the editable title with the channel
       // breadcrumb ("# channel / title"); the plain Code view keeps the bare
       // title. Both share the same inline-rename editor.
-      channelName ? (
+      resolvedChannelName ? (
         <ChannelBreadcrumb
-          channelName={channelName}
-          channelId={channelId}
+          channelName={resolvedChannelName}
+          channelId={resolvedChannelId}
+          isLoading={filing?.status === "pending"}
           leafIcon={
             <span className="flex items-center gap-1.5">
-              <WorkspaceModeBadge
+              <TaskHeaderMark
+                task={task}
                 mode={workspaceMode}
                 checkoutPath={effectiveRepoPath}
               />
@@ -214,7 +173,12 @@ export function TaskDetail({
           leafLabel={task.title}
           editScopeKey={taskId}
           onRename={handleTitleEditSubmit}
-          leafTrailing={trailing}
+          leafTrailing={
+            <span className="flex shrink-0 items-center gap-0">
+              <TaskHeaderMarks task={task} />
+              {trailing}
+            </span>
+          }
         />
       ) : (
         <Flex align="center" justify="between" gap="2" width="100%">
@@ -226,7 +190,8 @@ export function TaskDetail({
             />
           ) : (
             <Flex align="center" gap="2" minWidth="0">
-              <WorkspaceModeBadge
+              <TaskHeaderMark
+                task={task}
                 mode={workspaceMode}
                 checkoutPath={effectiveRepoPath}
               />
@@ -240,14 +205,16 @@ export function TaskDetail({
                   {task.title}
                 </Text>
               </Tooltip>
+              <TaskHeaderMarks task={task} />
             </Flex>
           )}
           {trailing}
         </Flex>
       ),
     [
-      channelName,
-      channelId,
+      resolvedChannelName,
+      resolvedChannelId,
+      filing?.status,
       task,
       trailing,
       isEditingTitle,
@@ -365,19 +332,7 @@ export function TaskDetail({
           </Box>
         )}
       </Flex>
-      <ArchiveRunningTaskDialog
-        open={showArchiveConfirm}
-        taskTitle={task.title}
-        stopsCloudSandbox={task.latest_run?.environment === "cloud"}
-        onConfirm={async () => {
-          try {
-            await runArchive();
-          } finally {
-            setShowArchiveConfirm(false);
-          }
-        }}
-        onCancel={() => setShowArchiveConfirm(false)}
-      />
+      {archiveDialog}
     </Box>
   );
 }

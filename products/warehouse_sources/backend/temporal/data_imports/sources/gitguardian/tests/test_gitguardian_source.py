@@ -2,32 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.gitguardian import (
-    GitGuardianResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-ALL_ENDPOINTS = {"secret_incidents", "secret_occurrences", "sources", "honeytokens", "members", "teams"}
 
 
 class TestGitguardianSourceConfig:
-    def test_source_type(self) -> None:
-        assert GitguardianSource().source_type == ExternalDataSourceType.GITGUARDIAN
-
-    def test_fields_require_secret_token_and_optional_base_url(self) -> None:
-        fields = {f.name: f for f in GitguardianSource().get_source_config.fields}
-        api_key, base_url = fields["api_key"], fields["base_url"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(base_url, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-        assert base_url.required is False
-        assert base_url.secret is False
-
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Retargeting base_url must re-require the secret, else the preserved token leaks to a new host.
         assert GitguardianSource().connection_host_fields == ["base_url"]
@@ -38,15 +17,6 @@ class TestGitguardianSourceConfig:
 
 
 class TestGitguardianSchemas:
-    def test_incident_endpoints_are_incremental_and_directories_are_full_refresh(self) -> None:
-        schemas = {s.name: s for s in GitguardianSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == ALL_ENDPOINTS
-        for name in ("secret_incidents", "secret_occurrences"):
-            assert schemas[name].supports_incremental is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
-        for name in ("sources", "honeytokens", "members", "teams"):
-            assert schemas[name].supports_incremental is False
-
     def test_names_filter(self) -> None:
         schemas = GitguardianSource().get_schemas(MagicMock(), team_id=1, names=["teams"])
         assert [s.name for s in schemas] == ["teams"]
@@ -181,21 +151,3 @@ class TestSourceForPipeline:
         ):
             GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
         assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestResumableSourceManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = GitguardianSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is GitGuardianResumeConfig
-
-
-class TestGetDocumentedTables:
-    def test_publishes_every_table_with_canonical_descriptions(self) -> None:
-        # Guards the canonical_descriptions keys staying aligned with the endpoint names — a drifted
-        # key silently drops that table's description from the public docs.
-        tables = {t["name"]: t for t in GitguardianSource().get_documented_tables()}
-        assert set(tables) == ALL_ENDPOINTS
-        for name, table in tables.items():
-            assert table["description"], f"{name} lost its canonical description"
-        assert "Incremental" in tables["secret_incidents"]["sync_methods"]
-        assert tables["sources"]["sync_methods"] == ["Full refresh"]

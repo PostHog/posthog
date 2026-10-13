@@ -59,7 +59,7 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
             if parts.len() == 2 {
                 Some((parts[0].to_string(), parts[1].to_string()))
             } else {
-                eprintln!(
+                crate::safe_eprintln!(
                     "{} Invalid variable format: {v} (expected name=value)",
                     "⚠".yellow(),
                 );
@@ -78,8 +78,8 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
     if args.file.is_some() {
         // For file-based runs, we execute the query directly via the query endpoint
         if !args.quiet {
-            println!("{} Running query from file...", "→".cyan());
-            println!();
+            crate::safe_println!("{} Running query from file...", "→".cyan());
+            crate::safe_println!();
         }
 
         let mut query_request = serde_json::json!({
@@ -94,7 +94,7 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
         debug_request(args.debug, "POST", "query/");
         if args.debug {
             if let Ok(json) = serde_json::to_string_pretty(&query_request) {
-                eprintln!("  Request body:\n{}", json.dimmed());
+                crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
             }
         }
 
@@ -115,15 +115,15 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
     } else {
         // For named endpoints, use the run endpoint
         if !args.quiet {
-            println!("{} Running endpoint '{name}'...", "→".cyan());
-            println!();
+            crate::safe_println!("{} Running endpoint '{name}'...", "→".cyan());
+            crate::safe_println!();
         }
 
         let path = format!("endpoints/{name}/run/");
         debug_request(args.debug, "POST", &path);
         if args.debug && !variables.is_empty() {
             if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-                eprintln!("  Request body:\n{}", json.dimmed());
+                crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
             }
         }
 
@@ -149,7 +149,7 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
 fn print_results(result: &Value, args: &RunArgs) -> Result<()> {
     if args.json {
         // Raw JSON output
-        println!("{}", serde_json::to_string_pretty(result)?);
+        crate::safe_println!("{}", serde_json::to_string_pretty(result)?);
         return Ok(());
     }
 
@@ -171,11 +171,11 @@ fn print_results(result: &Value, args: &RunArgs) -> Result<()> {
         }
         (Some(rows), None, _) => {
             // No columns, just print results
-            println!("{}", serde_json::to_string_pretty(&rows)?);
+            crate::safe_println!("{}", serde_json::to_string_pretty(&rows)?);
         }
         _ => {
             // Fallback to full JSON
-            println!("{}", serde_json::to_string_pretty(result)?);
+            crate::safe_println!("{}", serde_json::to_string_pretty(result)?);
         }
     }
 
@@ -184,7 +184,7 @@ fn print_results(result: &Value, args: &RunArgs) -> Result<()> {
 
 fn print_table(columns: &[Value], rows: &[Value]) -> Result<()> {
     if rows.is_empty() {
-        println!("{}", "(no results)".dimmed());
+        crate::safe_println!("{}", "(no results)".dimmed());
         return Ok(());
     }
 
@@ -215,7 +215,7 @@ fn print_table(columns: &[Value], rows: &[Value]) -> Result<()> {
         .map(|(i, name)| format!("{name:width$}", width = widths[i]))
         .collect::<Vec<_>>()
         .join("  ");
-    println!("{}", header.bold());
+    crate::safe_println!("{}", header.bold());
 
     // Print separator
     let separator: String = widths
@@ -223,7 +223,7 @@ fn print_table(columns: &[Value], rows: &[Value]) -> Result<()> {
         .map(|w| "─".repeat(*w))
         .collect::<Vec<_>>()
         .join("──");
-    println!("{}", separator.dimmed());
+    crate::safe_println!("{}", separator.dimmed());
 
     // Print rows
     for row in rows {
@@ -243,33 +243,33 @@ fn print_table(columns: &[Value], rows: &[Value]) -> Result<()> {
                 })
                 .collect::<Vec<_>>()
                 .join("  ");
-            println!("{row_str}");
+            crate::safe_println!("{row_str}");
         }
     }
 
-    println!();
-    println!("{} rows", rows.len().to_string().bold());
+    crate::safe_println!();
+    crate::safe_println!("{} rows", rows.len().to_string().bold());
 
     Ok(())
 }
 
 fn print_summary(rows: &[Value], columns: &[Value]) -> Result<()> {
-    println!(
+    crate::safe_println!(
         "{} rows × {} columns",
         rows.len().to_string().bold(),
         columns.len().to_string().bold()
     );
-    println!();
+    crate::safe_println!();
 
     // Show column names
-    println!("{}", "Columns:".dimmed());
+    crate::safe_println!("{}", "Columns:".dimmed());
     for col in columns {
-        println!("  {}", col.as_str().unwrap_or("?"));
+        crate::safe_println!("  {}", col.as_str().unwrap_or("?"));
     }
 
     // Show first few rows as preview
-    println!();
-    println!("{}", "Preview (first 5 rows):".dimmed());
+    crate::safe_println!();
+    crate::safe_println!("{}", "Preview (first 5 rows):".dimmed());
     for row in rows.iter().take(5) {
         if let Some(row_arr) = row.as_array() {
             let preview: String = row_arr
@@ -278,17 +278,17 @@ fn print_summary(rows: &[Value], columns: &[Value]) -> Result<()> {
                 .map(format_cell)
                 .collect::<Vec<_>>()
                 .join(", ");
-            println!("  {preview}");
+            crate::safe_println!("  {preview}");
         }
     }
 
     if rows.len() > 5 {
         let remaining = rows.len() - 5;
-        println!("  {}", format!("... and {remaining} more rows").dimmed());
+        crate::safe_println!("  {}", format!("... and {remaining} more rows").dimmed());
     }
 
-    println!();
-    println!(
+    crate::safe_println!();
+    crate::safe_println!(
         "{}",
         "Use --json for full output or --format table for tabular view".dimmed()
     );

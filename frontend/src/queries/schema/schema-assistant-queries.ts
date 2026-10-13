@@ -1,4 +1,5 @@
 import {
+    BehavioralPropertyFilter,
     BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
@@ -20,10 +21,12 @@ import {
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    InsightNodeKind,
     LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
     NodeKind,
+    PieChartSettings,
     type RecordingOrder,
     type RecordingOrderDirection,
     RetentionFilterLegacy,
@@ -33,10 +36,10 @@ import {
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
-import { integer } from './type-utils'
+import { integer, positive_integer } from './type-utils'
 
 /**
- * This filter only works with absolute dates.
+ * This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.
  */
 export interface AssistantDateRange {
     /**
@@ -44,7 +47,7 @@ export interface AssistantDateRange {
      */
     date_from: string
     /**
-     * ISO8601 date string.
+     * ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.
      */
     date_to?: string | null
 }
@@ -271,6 +274,19 @@ export type AssistantPropertyFilter =
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
 
+export type AssistantBehavioralPropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThan
+    | PropertyOperator.LessThanOrEqual
+
+export interface AssistantBehavioralPropertyFilter extends Omit<BehavioralPropertyFilter, 'operator'> {
+    operator?: AssistantBehavioralPropertyFilterOperator
+}
+
+export type AssistantInsightPropertyFilter = AssistantPropertyFilter | AssistantBehavioralPropertyFilter
+
 /**
  * Extended property filter union for recordings queries that also supports
  * recording-specific metric filters (e.g. duration, click_count, activity_score).
@@ -295,7 +311,7 @@ export interface AssistantInsightsQueryBase {
      *
      * @default []
      */
-    properties?: AssistantPropertyFilter[]
+    properties?: AssistantInsightPropertyFilter[]
 
     /**
      * Sampling rate from 0 to 1 where 1 is 100% of the data.
@@ -447,8 +463,25 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
     breakdown_path_cleaning?: boolean
 }
 
-// Remove deprecated display types.
-export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 'ActionsStackedBar'>
+// An allow list, so a new ChartDisplayType (often SQL-only) does not reach agents unless someone adds it here.
+export type AssistantTrendsDisplayType =
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsUnstackedBar
+    | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.ActionsLineGraphCumulative
+    | ChartDisplayType.SlopeGraph
+    | ChartDisplayType.BoxPlot
+    | ChartDisplayType.Metric
+    | ChartDisplayType.BoldNumber
+    | ChartDisplayType.ActionsBarValue
+    | ChartDisplayType.ActionsPie
+    | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsProportionBar
+    | ChartDisplayType.ActionsTable
+    | ChartDisplayType.WorldMap
+    // Not in the `display` description: the MCP chart app cannot show calendar_heatmap_data yet.
+    | ChartDisplayType.CalendarHeatmap
 
 export interface AssistantTrendsFilter {
     /**
@@ -473,15 +506,20 @@ export interface AssistantTrendsFilter {
     /**
      * Visualization type. Available values:
      * `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time.
-     * `ActionsBar` - time-series bar chart.
+     * `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that.
+     * `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
-     * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
-     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
-     * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
+     * `SlopeGraph` - net change from the first to the last interval, one line per series.
+     * `BoxPlot` - quartiles of a numeric `math_property` for each interval.
+     * `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what's our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown.
+     * `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series.
+     * `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason".
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
+     * `ActionsDonut` - total value donut chart; same use as `ActionsPie`.
+     * `ActionsProportionBar` - total value chart that shows the parts of one whole as a single flat bar, with one segment per breakdown value or series. Use it to show the share of each part in a total. It cannot compare to a previous period, so do not set `compareFilter.compare` with it.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
-     * `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.
+     * `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.
      * @default ActionsLineGraph
      */
     display?: AssistantTrendsDisplayType
@@ -745,10 +783,10 @@ export interface AssistantFunnelsFilter {
      */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     /**
-     * Defines the type of visualization to use. The `steps` option is recommended.
-     * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
-     * `time_to_convert` - shows a histogram of the time it took to complete the funnel.
-     * `trends` - shows trends of the conversion rate of the whole sequence over time.
+     * Defines the type of visualization to use.
+     * `steps` - one bar per step with the conversion between them (default). Use for "what's the conversion rate" and "where do users drop off".
+     * `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time ("is conversion improving", "conversion per week", "since we shipped X"); a `steps` chart cannot show that.
+     * `time_to_convert` - a histogram of how long users took to complete the funnel.
      * @default steps
      */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
@@ -949,7 +987,11 @@ export interface AssistantRetentionFilter {
      * @default event
      */
     aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+    /** `ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars. */
+    display?: AssistantRetentionDisplayType
 }
+
+export type AssistantRetentionDisplayType = ChartDisplayType.ActionsLineGraph | ChartDisplayType.ActionsBar
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
@@ -1075,7 +1117,7 @@ export interface AssistantStickinessFilter {
     computedAs?: StickinessComputationMode
 }
 
-export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
+export interface AssistantStickinessQuery extends Omit<AssistantInsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
 
     /**
@@ -1092,7 +1134,7 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
      * How many base intervals comprise one stickiness period. Defaults to 1.
      * For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.
      */
-    intervalCount?: integer
+    intervalCount?: positive_integer
 
     /**
      * Events or actions to include. Each series measures how many intervals (e.g. days) within
@@ -1342,6 +1384,20 @@ export interface AssistantTrendsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
@@ -1373,6 +1429,20 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1399,6 +1469,20 @@ export interface AssistantPathsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1428,6 +1512,20 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call
+     * again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1460,6 +1558,20 @@ export interface AssistantStickinessActorsQuery {
 
     /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1523,6 +1635,20 @@ export interface AssistantFunnelsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1705,24 +1831,32 @@ export interface AssistantInsightVizNode {
  *
  * - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+ * - `Metric` — big number with a change pill and a sparkline (a KPI or scorecard). Uses the first numeric Y column, one value per row.
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsBarValue` — horizontal bar chart (bar ranking) with one bar per category. Requires a category column and a numeric column.
  * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
+ * - `ActionsDonut` — donut (ring) chart with the total in the center. Same columns as `ActionsPie`.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
  * - `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.
+ * - `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.
  */
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
     | ChartDisplayType.BoldNumber
+    | ChartDisplayType.Metric
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
+    | ChartDisplayType.ActionsDonut
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
     | ChartDisplayType.ScatterPlot
+    | ChartDisplayType.BoxPlot
 
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
@@ -1744,14 +1878,14 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
 export interface AssistantDataVisualizationAxisFormatting {
     /** Text prepended to each value (e.g. `$`). */
     prefix?: string
-    /** Text appended to each value (e.g. `%` or ` ms`). */
+    /** Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign. */
     suffix?: string
     /**
      * Number formatting style.
      * - `none` — no formatting.
      * - `number` — thousands separators (e.g. `1,234`).
      * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
-     * - `percent` — render the value as a percentage.
+     * - `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
@@ -1792,6 +1926,32 @@ export interface AssistantDataVisualizationYAxisSettings {
     showGridLines?: boolean
 }
 
+export interface AssistantDataVisualizationBoxPlotSettings {
+    /** X-axis category column. Set to `null` for one overall distribution or one box per series. */
+    xAxisColumn?: string | null
+    /** Optional column that groups each X-axis value into separate colored series. Set to `null` for one series. */
+    seriesColumn?: string | null
+    /** Numeric column containing the minimum for each box. */
+    minColumn: string
+    /** Numeric column containing the 25th percentile for each box. */
+    p25Column: string
+    /** Numeric column containing the median for each box. */
+    medianColumn: string
+    /** Numeric column containing the mean for each box. */
+    meanColumn: string
+    /** Numeric column containing the 75th percentile for each box. */
+    p75Column: string
+    /** Numeric column containing the maximum for each box. */
+    maxColumn: string
+    /** Clip whiskers to 1.5 times the interquartile range. Defaults to true. */
+    excludeOutliers?: boolean
+}
+
+export interface AssistantDataVisualizationMetricSettings {
+    summary?: 'total' | 'average' | 'latest'
+    showChange?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
     /**
      * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
@@ -1806,6 +1966,8 @@ export interface AssistantDataVisualizationChartSettings {
     leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
     rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair. */
+    boxPlot?: AssistantDataVisualizationBoxPlotSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
      * a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by
@@ -1818,6 +1980,12 @@ export interface AssistantDataVisualizationChartSettings {
     stackBars100?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
+    /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /** Settings for `ActionsPie` and `ActionsDonut`. */
+    pie?: PieChartSettings
+    /** Settings for `Metric`. `summary` defaults to `latest`. */
+    metric?: AssistantDataVisualizationMetricSettings
     /** Render each data point's value as a label directly on the series. */
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
@@ -1852,11 +2020,14 @@ export interface AssistantDataVisualizationNode {
      *
      * Guidance:
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
+     * - Headline number with its change over time (KPI, scorecard) → `Metric`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
-     * - Categorical proportions → `ActionsPie`.
+     * - Categorical proportions → `ActionsPie` or `ActionsDonut`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
+     * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
      * - Otherwise → `ActionsTable`.
      */
     display?: AssistantDataVisualizationDisplayType
@@ -1866,4 +2037,24 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode
+// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// an index signature because zod strips every key the schema does not declare, which would send
+// `{ kind }` alone to the endpoint and save an empty insight.
+export interface AssistantBareInsightQuery {
+    kind: InsightNodeKind
+    [key: string]: unknown
+}
+
+export interface AssistantBareHogQLQuery {
+    kind: NodeKind.HogQLQuery
+    /** The HogQL query to run. */
+    query: string
+    [key: string]: unknown
+}
+
+export type InsightQuery =
+    | AssistantInsightVizNode
+    | AssistantDataVisualizationNode
+    | AssistantBareInsightQuery
+    | AssistantBareHogQLQuery

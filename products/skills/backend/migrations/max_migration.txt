@@ -1,1 +1,1 @@
-0006_llmskill_version_description
+0010_communityskill_kind_communityskill_scout_config

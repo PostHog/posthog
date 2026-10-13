@@ -7,6 +7,7 @@ import (
 
 	"sync/atomic"
 
+	"github.com/posthog/posthog/livestream/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,7 +77,7 @@ func TestConvertToResponsePostHogEvent(t *testing.T) {
 		Properties: map[string]interface{}{"url": "https://example.com"},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil)
 
 	assert.Equal(t, "123", result.Uuid)
 	assert.Equal(t, "2023-01-01T00:00:00Z", result.Timestamp)
@@ -693,7 +694,7 @@ func TestIncludeProperties_NilIncludesAllProperties(t *testing.T) {
 		Properties: properties,
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil)
 
 	assert.Equal(t, properties, result.Properties)
 }
@@ -710,7 +711,7 @@ func TestIncludeProperties_EmptySliceIncludesNoProperties(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{})
+	result := convertToResponsePostHogEvent(event, 1, []string{}, nil)
 
 	assert.Equal(t, map[string]interface{}{}, result.Properties)
 }
@@ -728,7 +729,7 @@ func TestIncludeProperties_SpecificPropertiesFiltersCorrectly(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"})
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"}, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url":          "https://example.com",
@@ -747,9 +748,88 @@ func TestIncludeProperties_NonExistentPropertiesAreIgnored(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"})
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"}, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url": "https://example.com",
 	}, result.Properties)
+}
+
+func TestStripRestrictedHidesRestrictedProperties(t *testing.T) {
+	restrictions := &auth.PropertyRestrictions{
+		EventProperties:  map[string]struct{}{"$ip": {}, "$pathname": {}},
+		PersonProperties: map[string]struct{}{"email": {}},
+		GroupProperties: map[string]map[string]struct{}{
+			"organization": {"email": {}},
+			"project":      {"owner": {}},
+		},
+	}
+	groupSet := map[string]interface{}{"email": "hidden@example.com", "owner": "someone", "name": "Acme"}
+	properties := map[string]interface{}{
+		"$ip":          "203.0.113.7",
+		"$pathname":    "/classes/928q3hr9paw8hfe",
+		"$browser":     "Chrome",
+		"$set":         map[string]interface{}{"email": "hidden@example.com", "name": "Test User"},
+		"$set_once":    map[string]interface{}{"email": "hidden@example.com"},
+		"$group_type":  "organization",
+		"$group_set":   groupSet,
+		"$virt_is_bot": false,
+	}
+	event := PostHogEvent{Uuid: "123", DistinctId: "user1", Event: "$groupidentify", Properties: properties}
+	cleaner := NewPathCleanerFromJSON(`[{"alias": "/classes/:id", "regex": "/classes/[^/]+"}]`)
+	require.NotNil(t, cleaner)
+
+	for name, test := range map[string]struct {
+		columns []string
+		want    map[string]interface{}
+	}{
+		"all properties": {
+			columns: nil,
+			want: map[string]interface{}{
+				"$browser":     "Chrome",
+				"$set":         map[string]interface{}{"name": "Test User"},
+				"$set_once":    map[string]interface{}{},
+				"$group_type":  "organization",
+				"$group_set":   map[string]interface{}{"owner": "someone", "name": "Acme"},
+				"$virt_is_bot": false,
+			},
+		},
+		// Without $group_type in the response the group type is unknown, so every type's keys go.
+		"requested columns": {
+			columns: []string{"$ip", "$browser", "$set", "$group_set"},
+			want: map[string]interface{}{
+				"$browser":     "Chrome",
+				"$set":         map[string]interface{}{"name": "Test User"},
+				"$group_set":   map[string]interface{}{"name": "Acme"},
+				"$virt_is_bot": false,
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := convertToResponsePostHogEvent(event, 1, test.columns, cleaner)
+			result.StripRestricted(restrictions)
+			assert.Equal(t, test.want, result.Properties)
+		})
+	}
+
+	// The shared event map must keep every property for subscribers without rules.
+	assert.Equal(t, "203.0.113.7", properties["$ip"])
+	assert.Equal(t, "hidden@example.com", properties["$set"].(map[string]interface{})["email"])
+	assert.Equal(t, "hidden@example.com", groupSet["email"])
+	unrestricted := convertToResponsePostHogEvent(event, 1, nil, cleaner)
+	unrestricted.StripRestricted(nil)
+	assert.Equal(t, "/classes/:id", unrestricted.Properties["$virt_cleaned_pathname"])
+}
+
+func TestRestrictedFilterKeyHidesPropertyContainers(t *testing.T) {
+	filters := []CompiledPropertyFilter{
+		NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"}),
+		NewCompiledPropertyFilter("$set", OpIContains, []string{"hidden@example.com"}),
+		NewCompiledPropertyFilter("$group_set", OpIContains, []string{"acme"}),
+	}
+	personOnly := &auth.PropertyRestrictions{PersonProperties: map[string]struct{}{"email": {}}}
+	groupOnly := &auth.PropertyRestrictions{GroupProperties: map[string]map[string]struct{}{"organization": {"email": {}}}}
+	assert.Equal(t, "$set", RestrictedFilterKey(filters, personOnly))
+	assert.Equal(t, "$group_set", RestrictedFilterKey(filters, groupOnly))
+	assert.Equal(t, "", RestrictedFilterKey(filters, nil))
 }

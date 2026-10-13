@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import JUSTCALL_ENDPOINTS
 
 JUSTCALL_BASE_URL = "https://api.justcall.io/v2.1"
-# JustCall caps list pages at 100 items across the v2.1 list endpoints.
+# JustCall caps most v2.1 list pages at 100 items; endpoints with a lower cap override it in settings.
 PAGE_SIZE = 100
 # v2.1 list endpoints are 0-indexed ("page 0 indicates first page").
 FIRST_PAGE = 0
@@ -99,7 +99,8 @@ def justcall_source(
     # `order` is set per endpoint; page/per_page/from_datetime are added by the paginator and the
     # incremental config below. Ascending order keeps already-paged results stable under concurrent
     # inserts and lets the incremental watermark advance monotonically.
-    params: dict[str, Any] = {"per_page": PAGE_SIZE, "order": config.order}
+    page_size = config.page_size or PAGE_SIZE
+    params: dict[str, Any] = {**config.extra_params, "per_page": page_size, "order": config.order}
 
     incremental: Optional[IncrementalConfig] = None
     if config.incremental_cursor:
@@ -140,7 +141,7 @@ def justcall_source(
                 "name": "Authorization",
                 "location": "header",
             },
-            "paginator": JustCallPageNumberPaginator(page_size=PAGE_SIZE),
+            "paginator": JustCallPageNumberPaginator(page_size=page_size),
         },
         "resources": [endpoint_config],
     }

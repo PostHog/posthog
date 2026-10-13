@@ -40,7 +40,6 @@ const EVENTS_CONFIG_MAP = {
 
 interface Customer {
     status: Set<'seen' | 'identified' | 'with_email'>
-    existsAlready: boolean
     email: string | null
 }
 
@@ -126,7 +125,8 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
         return
     }
 
-    const customer: Customer = await syncCustomerMetadata(meta, event)
+    const customer = resolveCustomer(meta, event)
+    logger.debug('Detected email', customer.email)
     logger.debug(customer)
     logger.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
@@ -143,35 +143,25 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
     )
 }
 
-async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent): Promise<Customer> {
-    const { storage, logger } = meta
+function resolveCustomer(meta: CustomerIoMeta, event: ProcessedPluginEvent): Customer {
+    const personProperties = meta.person?.properties ?? {}
+    const personEmail = isEmail(personProperties.email) ? (personProperties.email as string) : null
+    const email = getEmailFromEvent(event) ?? personEmail
 
-    const customerStatusKey = `customer-status/${event.distinct_id}`
-    const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
-    const customerStatus = new Set(customerStatusArray) as Customer['status']
-    const customerExistsAlready = customerStatus.has('seen')
-    const email = getEmailFromEvent(event)
-
-    logger.debug('Detected email', email)
-
-    // Update customer status
-    customerStatus.add('seen')
-    if (event.event === '$identify') {
-        customerStatus.add('identified')
-    }
+    const status = new Set(['seen']) as Customer['status']
     if (email) {
-        customerStatus.add('with_email')
+        status.add('with_email')
+    }
+    if (isIdentified(event)) {
+        status.add('identified')
     }
 
-    if (customerStatus.size > customerStatusArray.length) {
-        await storage.set(customerStatusKey, Array.from(customerStatus))
-    }
+    return { status, email }
+}
 
-    return {
-        status: customerStatus,
-        existsAlready: customerExistsAlready,
-        email,
-    }
+// The native Customer.io template gates on $is_identified, so match it rather than inventing a second rule
+function isIdentified(event: ProcessedPluginEvent): boolean {
+    return event.event === '$identify' || String(event.properties?.$is_identified) === 'true'
 }
 
 function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig): boolean {
@@ -203,7 +193,8 @@ async function exportSingleEvent(
 
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
-        _update: customer.existsAlready,
+        // The endpoint upserts, so this flag only labels the write
+        _update: true,
         identifier: event.distinct_id,
     }
 

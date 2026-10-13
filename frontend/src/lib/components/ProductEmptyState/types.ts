@@ -1,9 +1,12 @@
 import type { LogicWrapper } from 'kea'
-import type { ComponentType, CSSProperties, ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
-import type { FeatureFlagKey } from 'lib/constants'
+import type { HoggiePngProps } from 'lib/brand/hoggies'
+import type { RestrictionScope } from 'lib/components/RestrictedArea'
+import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 
 import type { ProductKey } from '~/queries/schema/schema-general'
+import type { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 /**
  * Normalized setup status for a product, pushed into `productSetupStatusLogic`
@@ -22,7 +25,10 @@ export interface ProductEmptyStateText {
     /** Sentence case, benefit-first, e.g. "Know how agents actually use your tools" */
     headline: string
     lead: ReactNode
-    /** Small line above the install command, e.g. "Fastest way in — our wizard wires up the SDK for you:" */
+    /**
+     * Small line introducing the install command or primary action, e.g. "Fastest way in - our
+     * wizard wires up the SDK for you:". It only renders when the mode has one of those under it.
+     */
     hint?: ReactNode
 }
 
@@ -44,11 +50,58 @@ export interface ProductEmptyStateWizard {
     pinProjectId?: boolean
 }
 
+/**
+ * A wizard keyed by mode, mirroring `primaryAction`: a mode left out shows no terminal
+ * card, no manual setup link, and no hint. Key it when the install command stops making
+ * sense once events flow - a product that then only waits on a scheduled job has nothing
+ * left to install.
+ */
+export type ProductEmptyStateWizardByMode = Partial<Record<ProductEmptyStateMode, ProductEmptyStateWizard>>
+
+export interface ProductEmptyStateAccessControl {
+    resourceType: AccessControlResourceType
+    minAccessLevel: AccessControlLevel
+}
+
+export interface ProductEmptyStateRestriction {
+    scope: RestrictionScope
+    minimumAccessLevel: TeamMembershipLevel
+}
+
 export interface ProductEmptyStatePrimaryAction {
     label: string
     to?: string
     onClick?: () => void
+    /**
+     * Permission the action requires, mirroring the gated scene's own create button.
+     * Without it a viewer gets an enabled button and only finds out they can't create
+     * when the form fails to save.
+     */
+    accessControl?: ProductEmptyStateAccessControl
+    /**
+     * Membership level the action requires, for actions that write a team setting rather
+     * than create a resource. Resource access control cannot express this: recording
+     * Editor does not carry permission to flip the project's opt-in, so gating such an
+     * action on a resource level enables a button whose update the backend rejects.
+     */
+    restriction?: ProductEmptyStateRestriction
+    /**
+     * `data-attr` on the button, defaulting to `product-empty-state-primary-action`.
+     * Set it to the attr the gated scene's create button carries, so end-to-end specs
+     * keep one selector across both surfaces.
+     */
+    dataAttr?: string
 }
+
+/**
+ * A primary action keyed by mode, mirroring `text`: a mode left out has no primary
+ * action at all, and its hint goes with it. Key the action when it stops making sense
+ * once the product is on - a one-click "Enable X" would re-send the same opt-in while
+ * the screen waits for the first event.
+ */
+export type ProductEmptyStatePrimaryActionByMode = Partial<
+    Record<ProductEmptyStateMode, ProductEmptyStatePrimaryAction>
+>
 
 export interface ProductEmptyStateConfig {
     productKey: ProductKey
@@ -61,12 +114,36 @@ export interface ProductEmptyStateConfig {
     /** Dark-mode accent override; falls back to `accentColor` */
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
-    hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
+    hedgehog?: ComponentType<Pick<HoggiePngProps, 'className' | 'style' | 'loading'>>
+    /**
+     * Where the hedgehog sits: `above` (default) is a small illustration above the
+     * product name; `beside` renders it large next to the text and install command,
+     * for wide scene-setting illustrations. `beside` needs a wide scene to work in,
+     * so on a narrower one it falls back to `above` rather than squeezing the copy.
+     */
+    hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode
-    /** Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows */
-    wizard?: ProductEmptyStateWizard
-    /** Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag" */
-    primaryAction?: ProductEmptyStatePrimaryAction
+    /**
+     * Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows.
+     * One wizard covers every mode; pass a `ProductEmptyStateWizardByMode` map to show it in some only.
+     */
+    wizard?: ProductEmptyStateWizard | ProductEmptyStateWizardByMode
+    /**
+     * Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag".
+     * With `wizard` also set, the terminal card stays the hero and this renders as a secondary button
+     * (in place of the "Configure manually" link), for products with both a terminal and an in-app path.
+     * One action covers every mode; pass a `ProductEmptyStatePrimaryActionByMode` map to vary it.
+     */
+    primaryAction?: ProductEmptyStatePrimaryAction | ProductEmptyStatePrimaryActionByMode
+    /**
+     * Rendered in the primary-action slot instead of the `primaryAction` button, for
+     * actions that need hooks - e.g. a create flow that opens PostHog AI via `useMaxTool`.
+     * Takes precedence over `primaryAction`. With `wizard` also set, the terminal card
+     * stays the hero and this renders under the "or" divider.
+     */
+    PrimaryAction?: ComponentType
+    /** Product-specific installation options below the primary setup action. */
+    SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
@@ -76,11 +153,34 @@ export interface ProductEmptyStateConfig {
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
     statusIndicator?: ReactNode
+    /**
+     * Whether the "Skip for now" escape hatch shows. Defaults to true. Set false for
+     * creation-first products where the gated scene is just an empty list, so skipping
+     * has nothing to reveal and the primary action is the only next step.
+     */
+    skippable?: boolean
+    /**
+     * Overrides applied while a feature flag is on, to roll out a change to this screen (a new
+     * wizard subcommand, a different call to action) without a second config. Each field
+     * replaces the base value, so `primaryAction: undefined` removes the action. `text` merges
+     * per mode, so a field left out keeps its base value. When several flags are on, later
+     * entries win.
+     */
+    featureFlagOverrides?: Partial<Record<FeatureFlagKey, ProductEmptyStateOverride>>
+}
+
+/** Per-mode text fields to replace; fields left out keep the base value. */
+export type ProductEmptyStateTextOverride = Partial<Record<ProductEmptyStateMode, Partial<ProductEmptyStateText>>>
+
+export type ProductEmptyStateOverride = Partial<
+    Omit<ProductEmptyStateConfig, 'productKey' | 'text' | 'featureFlagOverrides'>
+> & {
+    text?: ProductEmptyStateTextOverride
 }
 
 /**
  * Declared on a scene's `SceneExport` to opt into the app-shell empty-state gate.
- * Both fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
+ * These fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
  * preview widgets) never enter the eager graph.
  */
 export interface SceneProductEmptyState {
@@ -97,4 +197,29 @@ export interface SceneProductEmptyState {
      * roll the empty state out gradually.
      */
     featureFlag?: FeatureFlagKey
+    bypassFeatureFlag?: FeatureFlagKey
+    /**
+     * Only gate these surfaces, for a scene module that serves more than one. Omit to gate
+     * every scene the module serves.
+     *
+     * A plain scene id covers that whole scene, which is all the web analytics module needs:
+     * its web vitals tab is a scene of its own. A scene that serves several tabs under ONE
+     * scene id needs the object form, because gating the scene would take the sibling tabs
+     * down with it - workflows serves channels, opt-outs, suppression, and reputation, which
+     * a person may well configure before a first workflow exists.
+     */
+    scenes?: GatedScene[]
+    /**
+     * Rendered under the product header whenever the gate is up (setup screen or its spinner).
+     * The gate replaces the scene, so tab bars declared inside the scene never appear. Put
+     * sibling-tab nav here so those surfaces stay reachable before the product has data.
+     */
+    SceneNav?: ComponentType
 }
+
+/**
+ * A scene id, or a scene id narrowed to some of its tabs. `tabs` lists every value of the
+ * `tab` route param the gate covers, including `undefined` for the URL that carries no tab
+ * segment - `/workflows` and `/workflows/workflows` are the same tab.
+ */
+export type GatedScene = string | { scene: string; tabs: (string | undefined)[] }

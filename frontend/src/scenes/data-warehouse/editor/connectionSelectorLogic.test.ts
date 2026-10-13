@@ -4,16 +4,15 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
-import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-
 import {
     addHiddenSelectedConnectionOption,
     connectionSelectorLogic,
     getConnectionSelectorValue,
     LOADING_CONNECTIONS,
     POSTHOG_WAREHOUSE,
-} from './connectionSelectorLogic'
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
+import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
+import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataSourcesConnectionsList: jest.fn(),
@@ -43,6 +42,16 @@ describe('connectionSelectorLogic', () => {
                 source_type: 'MySQL',
                 access_method: 'warehouse',
                 supports_hogql: true,
+                is_builtin_managed_warehouse: false,
+            },
+            {
+                id: 'conn-trino',
+                description: 'Managed Warehouse Trino',
+                prefix: 'trino',
+                engine: 'trino',
+                source_type: 'Trino',
+                access_method: 'direct',
+                supports_hogql: false,
                 is_builtin_managed_warehouse: false,
             },
         ])
@@ -82,6 +91,11 @@ describe('connectionSelectorLogic', () => {
                     value: 'conn-456',
                     label: 'prod (MySQL · synced)',
                     managementUrl: urls.dataWarehouseSource('managed-conn-456'),
+                }),
+                expect.objectContaining({
+                    value: 'conn-trino',
+                    label: 'Managed Warehouse Trino (Trino)',
+                    managementUrl: urls.dataWarehouseSource('managed-conn-trino'),
                 }),
             ])
         )

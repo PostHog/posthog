@@ -1,19 +1,21 @@
 import re
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    required_parents_from_endpoint_configs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
@@ -27,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
     ZENDESK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
+    ZendeskResumeConfig,
     normalize_subdomain,
     validate_credentials,
     zendesk_source,
@@ -35,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
+class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.zendesk.com/api-reference"
@@ -60,6 +63,18 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             "403 Client Error: Forbidden for url": "Zendesk authentication failed. Please check your API token and subdomain.",
             "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
         }
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        endpoint = ZENDESK_ENDPOINTS.get(schema_name or "")
+        return endpoint is None or endpoint.fanout is None
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        return required_parents_from_endpoint_configs(ZENDESK_ENDPOINTS, schema_name)
 
     def get_schemas(
         self,
@@ -118,7 +133,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ZENDESK,
+            name=ExternalDataSourceType.ZENDESK,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             iconPath="/static/services/zendesk.png",
@@ -155,7 +170,17 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             ),
         )
 
-    def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZendeskResumeConfig]:
+        return ResumableSourceManager[ZendeskResumeConfig](inputs, ZendeskResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ZendeskSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ZendeskResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        endpoint_config = ZENDESK_ENDPOINTS.get(inputs.schema_name)
+        is_fanout = endpoint_config is not None and endpoint_config.fanout is not None
         resource = zendesk_source(
             subdomain=config.subdomain,
             api_key=config.api_key,
@@ -168,16 +193,21 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             if inputs.should_use_incremental_field
             else None,
             incremental_field_name=inputs.incremental_field,
+            source_id=inputs.source_id,
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
+            resumable_source_manager=resumable_source_manager,
         )
         # The original nine endpoints aren't in the declarative catalog; they keep the `id`
         # primary key and ascending sort they have always used.
-        endpoint_config = ZENDESK_ENDPOINTS.get(inputs.schema_name)
         response = SourceResponse(
             name=resource.name,
             items=lambda: resource,
             primary_keys=endpoint_config.primary_key if endpoint_config else ["id"],
             column_hints=resource.column_hints,
             sort_mode=endpoint_config.sort_mode if endpoint_config else "asc",
+            # The fan-out saves no checkpoint (see `zendesk_source`), so a shutdown must not hand it
+            # to another worker expecting one.
+            supports_resume=not is_fanout,
         )
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)

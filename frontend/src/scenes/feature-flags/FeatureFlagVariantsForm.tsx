@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagGroupType, MultivariateFlagVariant, Survey } from '~/types'
 
-import { VariantError, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { VariantError, getRecordingFilterForFlagVariant, validateVariantRolloutSum } from './featureFlagLogic'
 
 export interface FeatureFlagVariantsFormProps {
     variants: MultivariateFlagVariant[]
@@ -70,8 +70,8 @@ export function FeatureFlagVariantsForm({
     variantErrors,
     surveys,
 }: FeatureFlagVariantsFormProps): JSX.Element {
-    const variantRolloutSum = variants.reduce((sum, variant) => sum + (variant.rollout_percentage || 0), 0)
-    const areVariantRolloutsValid = variantRolloutSum === 100
+    const rolloutSumError = validateVariantRolloutSum(variants)
+    const areVariantRolloutsValid = !rolloutSumError
 
     const experimentLink = experimentId ? (
         <Link target="_blank" to={urls.experiment(experimentId)}>
@@ -255,12 +255,14 @@ export function FeatureFlagVariantsForm({
                     </div>
                     <div className="col-span-3">
                         <div>
-                            <PercentageInput
-                                value={variant.rollout_percentage}
-                                onChange={(value) => onVariantChange?.(index, 'rollout_percentage', value)}
-                                step={0.01}
-                                data-attr="feature-flag-variant-rollout-percentage-input"
-                            />
+                            <LemonField.Pure error={!areVariantRolloutsValid}>
+                                <PercentageInput
+                                    value={variant.rollout_percentage}
+                                    onChange={(value) => onVariantChange?.(index, 'rollout_percentage', value)}
+                                    step={0.01}
+                                    data-attr="feature-flag-variant-rollout-percentage-input"
+                                />
+                            </LemonField.Pure>
                             {filterGroups.filter((group) => group.variant === variant.key).length > 0 && (
                                 <span className="text-secondary text-xs">
                                     Overridden by{' '}
@@ -299,11 +301,7 @@ export function FeatureFlagVariantsForm({
                     </div>
                 </div>
             ))}
-            {variants.length > 0 && !areVariantRolloutsValid && (
-                <p className="text-danger">
-                    Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
-                </p>
-            )}
+            {rolloutSumError && <p className="text-danger">{rolloutSumError}</p>}
             {onAddVariant && (
                 <LemonButton
                     type="secondary"

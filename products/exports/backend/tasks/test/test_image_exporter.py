@@ -35,9 +35,8 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
-from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import map_stale_to_latest
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
 def make_insight_result(cache_key: str) -> InsightResult:
@@ -502,6 +501,28 @@ class TestImageExporter(APIBaseTest):
         else:
             assert call_kwargs["variables_override"] is None
 
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_insight_export_without_a_query_skips_cache_warming(self, mock_calculate: Any, *args: Any) -> None:
+        # An insight that stores only legacy filters has no query to warm, and warming it would
+        # raise. The render converts the filters in the browser, so the export still produces one.
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Legacy insight",
+            filters={"events": [{"id": "$pageview"}]},
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        assert mock_calculate.call_count == 0
+        exported_asset.refresh_from_db()
+        assert exported_asset.content == b"image_data"
+
     @parameterized.expand(
         [
             (
@@ -909,6 +930,35 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
+
+    def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
+        # The player can mount rrweb inside its own frame document. A selector wait or a document query
+        # never looks inside a frame, so the export would time out, or measure the page without the player.
+        page = MagicMock()
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.sync_playwright",
+                return_value=sync_playwright_cm,
+            ),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+        ):
+            image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper")
+
+        assert all(call.args[0] != ".replayer-wrapper" for call in page.wait_for_selector.call_args_list)
+        page.wait_for_function.assert_called_once()
+        assert "iframe.PlayerFrame__document" in page.wait_for_function.call_args.args[0]
+        measure_scripts = [call.args[0] for call in page.evaluate.call_args_list]
+        assert measure_scripts
+        assert all("iframe.PlayerFrame__document" in script for script in measure_scripts)
 
 
 class TestDimensionHelpers(SimpleTestCase):

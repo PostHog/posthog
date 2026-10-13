@@ -1,10 +1,12 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import type { LogsSceneActiveTab } from './frontend/logsSceneLogic'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
@@ -17,6 +19,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
+            docsHref: 'https://posthog.com/docs/logs',
         },
         LogsAlertDetail: {
             import: () => import('./frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
@@ -77,7 +80,7 @@ export const manifest: ProductManifest = {
             combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     },
     urls: {
-        logs: (): string => '/logs',
+        logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
         logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
@@ -93,10 +96,24 @@ export const manifest: ProductManifest = {
         {
             path: 'Logs',
             intents: [ProductKey.LOGS],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             iconType: 'logs' as FileSystemIconType,
-            iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
             href: urls.logs(),
+            searchTabs: [
+                { name: 'Alerts', href: urls.logs('alerts') },
+                { name: 'SQL', href: urls.logs('sql') },
+                {
+                    name: 'Services',
+                    href: urls.logs('services'),
+                    flag: FEATURE_FLAGS.LOGS_SERVICES_VIEW,
+                },
+                {
+                    name: 'Anomalies',
+                    href: urls.logs('anomalies'),
+                    flag: FEATURE_FLAGS.LOGS_ANOMALIES,
+                },
+            ],
             sceneKey: 'Logs',
         },
     ],

@@ -1,46 +1,68 @@
+from collections.abc import Collection
 from datetime import datetime
+from uuid import UUID
 
 from django.db.models import Count, Q, QuerySet
 
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.models import Organization
-from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.growth.backend.models import ProductPushCampaign
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
-def query_teams_for_digest() -> QuerySet:
-    return (
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only(
-            "id",
-            "name",
-            "organization__id",
-            "organization__name",
-            "organization__created_at",
-            "organization__available_product_features",
-        )
+def query_teams_for_digest(*, with_organization: bool = False) -> QuerySet:
+    """Teams eligible for a digest, ordered by id.
+
+    Pass `with_organization` only when the caller reads `Team.organization`.
+    """
+    # Excluding through the organization join makes Postgres read every organization row on
+    # every call, to build a hash it then discards. A subquery hits the partial index on
+    # for_internal_metrics, so the cost follows the team batch instead of the organization count.
+    queryset = (
+        Team.objects.exclude(is_demo=True)
+        .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
         .order_by("id")
     )
+
+    if with_organization:
+        # all_users_with_access reads organization.available_product_features, a large JSON
+        # column, so only the callers that ask for the organization pay to load it.
+        return queryset.select_related("organization").only(
+            "id",
+            "project_id",
+            "organization_id",
+            "organization__id",
+            "organization__available_product_features",
+        )
+
+    return queryset.only("id", "project_id", "organization_id")
+
+
+def query_team_ids_for_digest() -> QuerySet:
+    return query_teams_for_digest().values_list("id", flat=True)
 
 
 def query_orgs_for_digest() -> QuerySet:
     return Organization.objects.exclude(Q(for_internal_metrics=True)).only("id", "name", "created_at").order_by("id")
 
 
-def query_org_teams(organization: Organization) -> QuerySet:
-    return Team.objects.only("id", "name").filter(organization=organization).exclude(is_demo=True).order_by("id")
+def query_teams_for_organizations(organization_ids: Collection[UUID]) -> QuerySet:
+    return (
+        Team.objects.only("id", "name", "organization_id")
+        .filter(organization_id__in=organization_ids)
+        .exclude(is_demo=True)
+        .order_by("id")
+    )
 
 
 def query_org_members(organization: Organization) -> QuerySet:
@@ -133,24 +155,25 @@ def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySe
                 ),
             ),
         )
-        .values("name", "short_id", "view_count")
+        .values("team_id", "name", "short_id", "view_count")
         .order_by("-view_count")
     )
 
 
-def query_user_product_suggestions(
-    user_id: int, team_id: int, period_start: datetime, period_end: datetime
+def query_product_push_campaigns_for_organizations(
+    organization_ids: Collection[UUID], period_end: datetime
 ) -> QuerySet:
-    return UserProductList.objects.filter(
-        user_id=user_id,
-        team_id=team_id,
-        enabled=True,
-        reason__in=[UserProductList.Reason.SALES_LED, UserProductList.Reason.NEW_PRODUCT],
-        created_at__gt=period_start,
-        created_at__lte=period_end,
-    ).values("product_path", "reason", "reason_text")
+    """Product push campaigns still running at the end of the digest period, newest first.
 
-
-@database_sync_to_async
-def queryset_to_list(qs: QuerySet):
-    return list(qs)
+    Only ACTIVE campaigns qualify. A campaign that closed mid-period did so because the org
+    either adopted the product or moved on from it, and neither is worth an email nudge.
+    """
+    return (
+        ProductPushCampaign.objects.filter(
+            organization_id__in=organization_ids,
+            status=ProductPushCampaign.Status.ACTIVE,
+            started_at__lte=period_end,
+        )
+        .order_by("-started_at")
+        .values("organization_id", "product_key", "reason_text")
+    )

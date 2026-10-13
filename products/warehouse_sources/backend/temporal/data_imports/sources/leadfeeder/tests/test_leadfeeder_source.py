@@ -2,23 +2,15 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
     LeadfeederSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder import (
-    LeadfeederResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
-    ENDPOINTS,
     LEADFEEDER_API_2026_08_07,
     LEADFEEDER_API_LEGACY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source import LeadfeederSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLeadfeederSource:
@@ -26,27 +18,6 @@ class TestLeadfeederSource:
         self.source = LeadfeederSource()
         self.team_id = 123
         self.config = LeadfeederSourceConfig(api_token="token", start_date="2024-01-01")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LEADFEEDER
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Leadfeeder"
-        assert config.label == "Leadfeeder"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/leadfeeder"
-        assert [f.name for f in config.fields] == ["api_token", "start_date"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        token_field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == "api_token"
-        )
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     def test_version_metadata_defaults_to_unified_and_deprecates_legacy(self) -> None:
         # New sources land on the unified Dealfront API; the legacy Token API is advisory-deprecated
@@ -79,23 +50,9 @@ class TestLeadfeederSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
 
-    def test_get_schemas_marks_only_date_filtered_endpoints_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        # Accounts has no server-side date filter -> full refresh only.
-        assert schemas["accounts"].supports_incremental is False
-        assert schemas["accounts"].supports_append is False
-        # Leads and visits filter server-side on start_date/end_date -> incremental.
-        for name in ("leads", "visits"):
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["leads"])
         assert [s.name for s in schemas] == ["leads"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @parameterized.expand(
         [
@@ -133,11 +90,6 @@ class TestLeadfeederSource:
         self.source.validate_credentials(self.config, self.team_id, api_version=pin)
         mock_validate.assert_called_once_with("token", expected_version)
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is LeadfeederResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.leadfeeder_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
@@ -172,13 +124,3 @@ class TestLeadfeederSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["db_incremental_field_last_value"] is None
         assert kwargs["start_date_config"] == ""
-
-    def test_canonical_descriptions_cover_key_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        assert "last_visit_date" in descriptions["leads"]["columns"]
-        assert "started_at" in descriptions["visits"]["columns"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)

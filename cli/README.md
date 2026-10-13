@@ -16,6 +16,38 @@ If you'd rather not use our wizard, you can install the CLI by running:
 npm install -g @posthog/cli@latest
 ```
 
+Or with the install script on macOS and Linux:
+
+```bash
+curl -LsSf https://releases.posthog.com/posthog-cli/install.sh | sh
+```
+
+Or with the install script on Windows (PowerShell):
+
+```powershell
+irm https://releases.posthog.com/posthog-cli/install.ps1 | iex
+```
+
+Or with Homebrew:
+
+```bash
+brew install posthog/tap/posthog-cli
+```
+
+Or with Cargo:
+
+```bash
+cargo install posthog-cli
+```
+
+To update, run:
+
+```bash
+posthog-cli update
+```
+
+If you installed with the macOS or Linux script, it updates in place. If you installed with the Windows script, it prints a command to rerun the installer. If you used npm, Homebrew or cargo, it prints the command your package manager expects instead.
+
 Note: if you are installing the CLI for use with a coding agent, you should follow our [setup for agents](https://posthog.com/docs/cli#setup-for-agents) instructions.
 
 ## Usage
@@ -108,6 +140,11 @@ When neither the flags nor that metadata identify a release, the command prints 
 A failed lookup exits non-zero instead.
 
 Add `--build` to give a build number its own release: it is packed into the version, so `--release-version 1.4.0 --build 42` resolves to a different release than `--release-version 1.4.0` alone.
+
+Pass `--info-plist <path>` to read the release name, version, and build from `CFBundleIdentifier`, `CFBundleShortVersionString`, and `CFBundleVersion`.
+The CLI resolves exact Xcode build-setting references such as `$(APP_VERSION)` and `${BUILD_NUMBER}` from the environment.
+Missing, unresolved, or compound values fall back to `PRODUCT_BUNDLE_IDENTIFIER`, `MARKETING_VERSION`, and `CURRENT_PROJECT_VERSION`.
+Explicit `--release-name`, `--release-version`, and `--build` values take precedence.
 
 ## Skipping uploads (dry run)
 

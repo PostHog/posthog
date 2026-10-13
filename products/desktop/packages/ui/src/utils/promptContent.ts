@@ -1,7 +1,7 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { getFileName } from "@posthog/shared";
 
-export const ATTACHMENT_URI_PREFIX = "attachment://";
+const ATTACHMENT_URI_PREFIX = "attachment://";
 
 function hashAttachmentPath(filePath: string): string {
   let hash = 2166136261;

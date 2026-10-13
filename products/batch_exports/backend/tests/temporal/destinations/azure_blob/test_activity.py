@@ -8,7 +8,6 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 
 from products.batch_exports.backend.service import BatchExportModel
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
-    SUPPORTED_COMPRESSIONS,
     AzureBlobInsertInputs,
     azure_blob_default_fields,
     insert_into_azure_blob_activity_from_stage,
@@ -18,6 +17,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_AZURE_BLOB_MODELS,
     assert_clickhouse_records_in_azure_blob,
     list_blobs,
@@ -59,6 +59,7 @@ async def run_activity(
     )
 
 
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
 @pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
 async def test_activity_exports_model_to_azure_blob(
     activity_environment: ActivityEnvironment,
@@ -75,9 +76,6 @@ async def test_activity_exports_model_to_azure_blob(
     model,
 ):
     """Test that events, persons, and sessions are exported to Azure Blob Storage."""
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
     batch_export_schema = None
     batch_export_model = None
     if isinstance(model, BatchExportModel):

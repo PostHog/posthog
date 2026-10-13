@@ -7,7 +7,7 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
     setupPlugin: setupPlugin as any,
     template: {
         free: true,
-        status: 'stable',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-user-agent-plugin',
         name: 'User Agent Populator',

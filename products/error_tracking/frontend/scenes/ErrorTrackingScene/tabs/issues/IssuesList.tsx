@@ -1,12 +1,13 @@
 import { BindLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
+import { IconArrowRight } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { cn } from 'lib/utils/css-classes'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
-import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { SceneStickyBar, useSceneStickyBarBottom } from '~/layout/scenes/components/SceneStickyBar'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -19,6 +20,7 @@ import {
 import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
+import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -40,6 +42,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const sparklineKey = record.id ?? 'issue-unknown'
     const baseData = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     const { spikeEventsByIssueId } = useValues(batchSpikeEventsLogic)
+    const { orderBy } = useValues(issueQueryOptionsLogic)
     const spikeEvents = record.id ? (spikeEventsByIssueId[record.id] ?? []) : []
     const data = useMemo(() => applyVolumeSpikeHighlights(baseData, spikeEvents), [baseData, spikeEvents])
 
@@ -48,7 +51,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     return (
         <div className="flex w-full min-w-0 justify-center">
             <div className="flex w-56 max-w-full min-w-0 flex-col">
-                <div className="h-12 min-h-12 w-full">
+                <div className="h-20 min-h-20 w-full">
                     <VolumeSparkline
                         className="h-full"
                         data={data}
@@ -57,18 +60,29 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
                         sparklineKey={sparklineKey}
                     />
                 </div>
-                <div
-                    className={cn(
-                        'flex h-3 w-full items-center justify-between gap-1 px-px text-[9px] leading-none text-muted',
-                        isBarHighlighted ? 'opacity-100' : 'opacity-0'
+                <div className="flex h-4 w-full items-center justify-between gap-1 px-1 text-[10px] leading-none text-muted">
+                    {isBarHighlighted && hoveredDatum ? (
+                        <>
+                            <span className="min-w-0 truncate">{formatCompactVolumeHoverDate(hoveredDatum)}</span>
+                            <span className="min-w-0 shrink-0 text-right tabular-nums">
+                                {formatCompactVolumeHoverOccurrences(hoveredDatum)}
+                            </span>
+                        </>
+                    ) : (
+                        <div className="flex w-full items-center justify-end gap-1">
+                            {orderBy === 'first_seen' ? (
+                                <>
+                                    <span className="whitespace-nowrap">{dayjs(record.first_seen).fromNow()}</span>
+                                    <IconArrowRight className="size-2.5 shrink-0" />
+                                </>
+                            ) : null}
+                            {record.last_seen ? (
+                                <span className="whitespace-nowrap text-right">
+                                    {dayjs(record.last_seen).fromNow()}
+                                </span>
+                            ) : null}
+                        </div>
                     )}
-                >
-                    <span className="min-w-0 truncate">
-                        {hoveredDatum ? formatCompactVolumeHoverDate(hoveredDatum) : '\u00a0'}
-                    </span>
-                    <span className="min-w-0 shrink-0 text-right tabular-nums">
-                        {hoveredDatum ? formatCompactVolumeHoverOccurrences(hoveredDatum) : '\u00a0'}
-                    </span>
                 </div>
             </div>
         </div>
@@ -147,7 +161,10 @@ const insightProps: InsightLogicProps = {
 
 export function IssuesList(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
-    const context = useIssueQueryContext()
+    // Keep the column headers visible below the filter bar while the list scrolls
+    const context: QueryContext = { ...useIssueQueryContext(), dataTableStickyHeader: true }
+    const stickyBarRef = useRef<HTMLDivElement>(null)
+    const stickyBarBottom = useSceneStickyBarBottom(stickyBarRef)
 
     return (
         <BindLogic
@@ -156,12 +173,16 @@ export function IssuesList(): JSX.Element {
         >
             {/* first:-mt-4 tucks the bar flush under the tab bar, but only when no banner
                 renders above — an unconditional -mt-4 would cover the banner's bottom edge */}
-            <SceneStickyBar className="first:-mt-4" showBorderBottom={false}>
+            <SceneStickyBar ref={stickyBarRef} className="first:-mt-4" showBorderBottom={false}>
                 <IssuesFilters />
                 <ListOptions />
             </SceneStickyBar>
 
-            <div data-attr="error-tracking-issue-row">
+            <div
+                data-attr="error-tracking-issue-row"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--lemon-table-sticky-header-top': `${stickyBarBottom}px` } as React.CSSProperties}
+            >
                 <Query query={query} context={context} />
             </div>
         </BindLogic>

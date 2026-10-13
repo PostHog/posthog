@@ -6,27 +6,45 @@ type BlastRadius = { affected: number; total: number; limit: number; confirm_tok
 
 type WorkflowTrigger = { type?: string; filters?: unknown }
 
+type WorkflowAction = { type?: string; config?: { template_id?: string } }
+
 async function fetchWorkflow(
     context: Context,
     projectId: string,
     workflowId: string
-): Promise<{ status: string | undefined; trigger: WorkflowTrigger }> {
-    const workflow = await context.api.request<{ status?: string; trigger?: unknown }>({
+): Promise<{ status: string | undefined; trigger: WorkflowTrigger; sendsEmail: boolean }> {
+    const workflow = await context.api.request<{ status?: string; trigger?: unknown; actions?: WorkflowAction[] }>({
         method: 'GET',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(workflowId))}/`,
     })
-    return { status: workflow.status, trigger: (workflow.trigger ?? {}) as WorkflowTrigger }
+    return {
+        status: workflow.status,
+        trigger: (workflow.trigger ?? {}) as WorkflowTrigger,
+        sendsEmail: workflowSendsEmail(workflow.actions),
+    }
+}
+
+// Kept in sync with hog_flow_sends_email on the backend, which applies the email tier cap only to workflows with an email step.
+function workflowSendsEmail(actions: WorkflowAction[] | undefined): boolean {
+    return (actions ?? []).some(
+        (action) => action?.type === 'function_email' || action?.config?.template_id === 'template-email'
+    )
 }
 
 function triggerFilters(trigger: WorkflowTrigger): unknown {
     return trigger.filters ?? { properties: [] }
 }
 
-async function sizeAudience(context: Context, projectId: string, filters: unknown): Promise<BlastRadius> {
+async function sizeAudience(
+    context: Context,
+    projectId: string,
+    filters: unknown,
+    sendsEmail: boolean
+): Promise<BlastRadius> {
     return await context.api.request<BlastRadius>({
         method: 'POST',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/user_blast_radius/`,
-        body: { filters },
+        body: { filters, sends_email: sendsEmail },
     })
 }
 
@@ -60,8 +78,8 @@ export const workflowsBlastRadius = (): ToolBase<typeof BlastRadiusSchema, Blast
     schema: BlastRadiusSchema,
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
-        const { trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
-        return await sizeAudience(context, projectId, triggerFilters(trigger))
+        const { trigger, sendsEmail } = await fetchWorkflow(context, projectId, params.workflow_id)
+        return await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail)
     },
 })
 
@@ -93,7 +111,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
     schema: RunBatchSchema,
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
-        const { status, trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
+        const { status, trigger, sendsEmail } = await fetchWorkflow(context, projectId, params.workflow_id)
 
         if (trigger.type !== 'batch') {
             throw new Error(
@@ -110,7 +128,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
         }
 
         const filters = triggerFilters(trigger)
-        const { affected, limit } = await sizeAudience(context, projectId, filters)
+        const { affected, limit } = await sizeAudience(context, projectId, filters, sendsEmail)
         assertAcknowledged(affected, params.acknowledged_affected_count, limit)
 
         return await context.api.request({
@@ -126,7 +144,9 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
 })
 
 const ScheduleCreateSchema = z.object({
-    workflow_id: z.string().describe('ID of the batch workflow to attach the recurring schedule to.'),
+    workflow_id: z
+        .string()
+        .describe('ID of the workflow to attach the recurring schedule to. Its trigger must be batch or schedule.'),
     rrule: z
         .string()
         .describe("iCalendar RRULE (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."),
@@ -135,17 +155,19 @@ const ScheduleCreateSchema = z.object({
     acknowledged_affected_count: z
         .number()
         .int()
+        .optional()
         .describe(
-            'The affected-user count from workflows-blast-radius that you showed the user AND they explicitly ' +
-                'confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it ' +
-                'no longer matches.'
+            'Batch triggers only: the affected-user count from workflows-blast-radius that you showed the user ' +
+                'AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the audience at that ' +
+                'time; rejected if it no longer matches. Omit for a schedule trigger, which has no audience.'
         ),
     confirm_token: z
         .string()
+        .optional()
         .describe(
-            'The confirm_token from the same workflows-blast-radius preview whose count the user confirmed. ' +
-                'The API rejects schedule creation without it, and it goes stale when the audience filters change ' +
-                'or after 15 minutes - re-preview to refresh.'
+            'Batch triggers only: the confirm_token from the same workflows-blast-radius preview whose count the ' +
+                'user confirmed. The API rejects a batch schedule without it, and it goes stale when the audience ' +
+                'filters change or after 15 minutes - re-preview to refresh. Omit for a schedule trigger.'
         ),
     variables: z
         .record(z.string(), z.unknown())
@@ -158,28 +180,39 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
     schema: ScheduleCreateSchema,
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
-        const { status, trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
+        const { status, trigger, sendsEmail } = await fetchWorkflow(context, projectId, params.workflow_id)
 
-        if (trigger.type !== 'batch') {
+        if (trigger.type !== 'batch' && trigger.type !== 'schedule') {
             throw new Error(
-                `workflows-schedule-create only applies to workflows with a 'batch' trigger (this one is ` +
-                    `'${trigger.type ?? 'unknown'}').`
+                `workflows-schedule-create only applies to workflows with a 'batch' or 'schedule' trigger (this ` +
+                    `one is '${trigger.type ?? 'unknown'}').`
             )
         }
 
-        // Require the workflow to be active before scheduling. A draft's trigger can still be edited in
-        // place, so scheduling a draft would let the audience be broadened after you acknowledged it (the
-        // scheduler uses the trigger's filters at fire time). On an active workflow an MCP trigger edit only
-        // stages a draft, so the acknowledged audience can't change without an explicit publish.
-        if (status !== 'active') {
-            throw new Error(
-                `Workflow is not active (status '${status ?? 'unknown'}') — enable it with workflows-enable before ` +
-                    `scheduling. Scheduling a draft would let the audience change after you sized it.`
-            )
+        // A schedule trigger fires one person-less run per occurrence, so there is no audience to
+        // size or confirm. Only a batch trigger fans out to persons and needs the blast-radius step.
+        let confirmToken: string | undefined
+        if (trigger.type === 'batch') {
+            // Require the workflow to be active before scheduling. A draft's trigger can still be edited in
+            // place, so scheduling a draft would let the audience be broadened after you acknowledged it (the
+            // scheduler uses the trigger's filters at fire time). On an active workflow an MCP trigger edit only
+            // stages a draft, so the acknowledged audience can't change without an explicit publish.
+            if (status !== 'active') {
+                throw new Error(
+                    `Workflow is not active (status '${status ?? 'unknown'}') — enable it with workflows-enable before ` +
+                        `scheduling. Scheduling a draft would let the audience change after you sized it.`
+                )
+            }
+            if (params.acknowledged_affected_count === undefined || params.confirm_token === undefined) {
+                throw new Error(
+                    'A batch trigger schedules a recurring broadcast: preview the audience with workflows-blast-radius, ' +
+                        'confirm the count with the user, then pass acknowledged_affected_count and confirm_token.'
+                )
+            }
+            const { affected, limit } = await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail)
+            assertAcknowledged(affected, params.acknowledged_affected_count, limit)
+            confirmToken = params.confirm_token
         }
-
-        const { affected, limit } = await sizeAudience(context, projectId, triggerFilters(trigger))
-        assertAcknowledged(affected, params.acknowledged_affected_count, limit)
 
         return await context.api.request({
             method: 'POST',
@@ -187,7 +220,7 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
             body: {
                 rrule: params.rrule,
                 starts_at: params.starts_at,
-                confirm_token: params.confirm_token,
+                ...(confirmToken !== undefined ? { confirm_token: confirmToken } : {}),
                 ...(params.timezone !== undefined ? { timezone: params.timezone } : {}),
                 ...(params.variables !== undefined ? { variables: params.variables } : {}),
             },

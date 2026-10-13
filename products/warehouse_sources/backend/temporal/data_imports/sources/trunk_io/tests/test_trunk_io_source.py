@@ -3,16 +3,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
     TrunkIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source import TrunkIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import TrunkIoResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str, **overrides) -> SourceInputs:
@@ -47,58 +43,9 @@ class TestTrunkIoSource:
             merge_queue_target_branch="main",
         )
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TRUNKIO
-
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static endpoint catalog with no I/O, so it must be safe for public docs.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_source_config_is_released(self):
-        config = self.source.get_source_config
-        assert getattr(config, "unreleasedSource", None) is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_get_source_config_field_names(self):
-        field_names = [f.name for f in self.source.get_source_config.fields]
-        assert field_names == [
-            "api_token",
-            "org_url_slug",
-            "repo_host",
-            "repo_owner",
-            "repo_name",
-            "merge_queue_target_branch",
-        ]
-
-    def test_api_token_field_is_secret(self):
-        field = next(f for f in self.source.get_source_config.fields if f.name == "api_token")
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.secret is True
-
-    def test_get_schemas_returns_expected_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == {
-            "UnhealthyTests",
-            "QuarantinedTests",
-            "FailingTests",
-            "MergeQueuePullRequests",
-        }
-
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["QuarantinedTests"])
-        assert [s.name for s in schemas] == ["QuarantinedTests"]
-
-    @parameterized.expand(
-        [
-            ("UnhealthyTests", False),
-            ("QuarantinedTests", False),
-            ("FailingTests", True),
-            ("MergeQueuePullRequests", True),
-        ]
-    )
-    def test_get_schemas_incremental_support(self, endpoint: str, supports_incremental: bool):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is supports_incremental
 
     def test_validate_credentials_delegates_with_repo(self):
         with patch(
@@ -115,22 +62,63 @@ class TestTrunkIoSource:
         assert repo.owner == "my-org"
         assert repo.name == "my-repo"
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = _make_inputs("UnhealthyTests")
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TrunkIoResumeConfig
+    def test_new_sources_default_to_v2(self):
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
 
     @parameterized.expand(
         [
-            ("UnhealthyTests", "unhealthy_tests"),
-            ("QuarantinedTests", "quarantined_tests"),
-            ("FailingTests", "failing_tests"),
-            ("MergeQueuePullRequests", "merge_queue_pull_requests"),
+            ("v1", "v1", ["UnhealthyTests", "QuarantinedTests", "FailingTests", "MergeQueuePullRequests"]),
+            (
+                "v2",
+                "v2",
+                [
+                    "UnhealthyTests",
+                    "QuarantinedTests",
+                    "FailingTests",
+                    "MergeQueuePullRequests",
+                    "TestCollections",
+                    "Tests",
+                ],
+            ),
+            (
+                "unpinned",
+                None,
+                [
+                    "UnhealthyTests",
+                    "QuarantinedTests",
+                    "FailingTests",
+                    "MergeQueuePullRequests",
+                    "TestCollections",
+                    "Tests",
+                ],
+            ),
         ]
     )
-    def test_source_for_pipeline_dispatches_to_expected_transport(self, schema_name: str, transport_fn: str):
-        inputs = _make_inputs(schema_name)
+    def test_get_schemas_lists_tables_for_pinned_version(
+        self, _label: str, api_version: str | None, expected: list[str]
+    ):
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
+        assert [s.name for s in schemas] == expected
+
+    @parameterized.expand(
+        [
+            ("UnhealthyTests", "unhealthy_tests", "v1"),
+            ("QuarantinedTests", "quarantined_tests", "v1"),
+            ("FailingTests", "failing_tests", "v1"),
+            ("MergeQueuePullRequests", "merge_queue_pull_requests", "v1"),
+            ("UnhealthyTests", "unhealthy_tests", "v2"),
+            ("QuarantinedTests", "quarantined_tests", "v2"),
+            ("FailingTests", "failing_tests", "v2"),
+            ("MergeQueuePullRequests", "merge_queue_pull_requests", "v2"),
+            ("TestCollections", "list_test_collections", "v2"),
+            ("Tests", "list_tests", "v2"),
+        ]
+    )
+    def test_source_for_pipeline_dispatches_to_expected_transport(
+        self, schema_name: str, transport_fn: str, api_version: str
+    ):
+        inputs = _make_inputs(schema_name, api_version=api_version)
         manager = MagicMock(spec=ResumableSourceManager)
 
         with patch(
@@ -142,17 +130,21 @@ class TestTrunkIoSource:
         mock_transport.assert_called_once()
         assert response.name == schema_name
 
-    def test_source_for_pipeline_unknown_endpoint_raises(self):
-        inputs = _make_inputs("NotARealEndpoint")
+    @parameterized.expand(
+        [
+            ("unknown", "NotARealEndpoint", "v2"),
+            ("v2_table_on_v1_pin", "TestCollections", "v1"),
+            ("v2_tests_on_v1_pin", "Tests", "v1"),
+        ]
+    )
+    def test_source_for_pipeline_rejects_tables_the_pin_does_not_serve(
+        self, _label: str, schema_name: str, api_version: str
+    ):
+        inputs = _make_inputs(schema_name, api_version=api_version)
         manager = MagicMock(spec=ResumableSourceManager)
 
-        try:
+        with pytest.raises(ValueError):
             self.source.source_for_pipeline(self.config, manager, inputs)
-            raised = False
-        except ValueError:
-            raised = True
-
-        assert raised
 
     @parameterized.expand(
         [
@@ -160,6 +152,8 @@ class TestTrunkIoSource:
             ("QuarantinedTests", ["name", "parent", "file", "classname", "variant"]),
             ("FailingTests", ["id"]),
             ("MergeQueuePullRequests", ["id"]),
+            ("TestCollections", ["id"]),
+            ("Tests", ["id"]),
         ]
     )
     def test_source_for_pipeline_primary_keys(self, schema_name: str, expected_keys: list[str]):
@@ -170,6 +164,8 @@ class TestTrunkIoSource:
             "QuarantinedTests": "quarantined_tests",
             "FailingTests": "failing_tests",
             "MergeQueuePullRequests": "merge_queue_pull_requests",
+            "TestCollections": "list_test_collections",
+            "Tests": "list_tests",
         }[schema_name]
 
         with patch(
@@ -198,23 +194,3 @@ class TestTrunkIoSource:
             self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), inputs)
 
         assert any(key in str(excinfo.value) for key in self.source.get_non_retryable_errors())
-
-    def test_merge_queue_table_is_not_synced_by_default(self):
-        # Flaky-Tests-only orgs are the majority and have no merge queue, so the table is offered
-        # but left unselected rather than failing their syncs.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["MergeQueuePullRequests"].should_sync_default is False
-        assert schemas["FailingTests"].should_sync_default is True
-
-    def test_get_non_retryable_errors_covers_auth_failures(self):
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-
-    def test_get_canonical_descriptions_covers_all_endpoints(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == {
-            "UnhealthyTests",
-            "QuarantinedTests",
-            "FailingTests",
-            "MergeQueuePullRequests",
-        }

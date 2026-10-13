@@ -683,11 +683,19 @@ pub async fn warm_from_kafka(
                         version: cached.version,
                         offset,
                         partition,
+                        is_deleted: cached.is_deleted,
                     },
                 );
                 seeded += 1;
+                cache.warm_put(partition, key, cached);
+            } else if cached.is_deleted {
+                // An applied death record leaves no residue: unmarked it
+                // would answer forever, and its predecessor in the build
+                // would resurrect the destroyed person's data.
+                cache.warm_remove(partition, &key);
+            } else {
+                cache.warm_put(partition, key, cached);
             }
-            cache.warm_put(partition, key, cached);
         } else {
             // The writer never produces null-payload (tombstone) records
             // to `personhog_updates` today. If one ever appears it would
@@ -779,7 +787,6 @@ mod tests {
             is_identified: false,
             is_deleted: false,
             last_seen_at: None,
-            approx_bytes: crate::cache::approx_person_bytes(2),
         }
     }
 
@@ -813,6 +820,7 @@ mod tests {
                     version: 1,
                     offset: 7,
                     partition: 0,
+                    is_deleted: false,
                 },
             );
             cache.warm_put(0, key.clone(), warm_test_person());
@@ -856,6 +864,7 @@ mod tests {
                     version: 1,
                     offset: 7,
                     partition: 0,
+                    is_deleted: false,
                 },
             );
             cache.warm_put(0, key.clone(), warm_test_person());

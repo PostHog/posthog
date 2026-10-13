@@ -1,7 +1,5 @@
 import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
-import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
-import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
-import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
+import { stripInjectedBlocks } from "@posthog/core/editor/injectedBlocks";
 
 export interface RecallableMessage {
   id: string;
@@ -50,16 +48,8 @@ export function promptRecallStep(
   return id ? { kind: "recall", id, fresh: false } : null;
 }
 
-// A stored prompt can carry blocks folded in at send time that the user never
-// typed (channel CONTEXT.md, canvas instructions, personalization, a trailing
-// attachment summary); recall returns only what the user wrote.
 function stripInjectedPromptBlocks(content: string): string {
-  const withoutChannel = extractChannelContext(content)?.stripped ?? content;
-  const withoutCanvas =
-    extractCanvasInstructions(withoutChannel)?.stripped ?? withoutChannel;
-  const withoutInstructions =
-    extractCustomInstructions(withoutCanvas)?.stripped ?? withoutCanvas;
-  return stripTrailingAttachmentSummary(withoutInstructions);
+  return stripTrailingAttachmentSummary(stripInjectedBlocks(content));
 }
 
 export function resolvePromptRecall(

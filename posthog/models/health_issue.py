@@ -72,6 +72,9 @@ class HealthIssue(UUIDModel):
 
     dismissed = models.BooleanField(default=False)
 
+    # Unlike `dismissed`, a snooze expires and never hides the issue from a list.
+    snoozed_until = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     resolved_at = models.DateTimeField(null=True, blank=True)

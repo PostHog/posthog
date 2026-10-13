@@ -20,6 +20,7 @@ from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.reviewer.constants import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.github_client import (
     GITHUB_API_BASE,
     GitHubAPIError,
@@ -48,17 +49,13 @@ _RANK_HUMAN = 0
 _RANK_REVIEW_HOG = 1
 _RANK_OTHER_BOT = 2
 
-# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
-# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
-# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
-# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
-REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
-
 
 class ThreadComment(BaseModel):
     """One comment inside a review thread, as the resolution stage consumes it."""
 
     id: int | None = Field(default=None, description="GitHub databaseId; None for minimized/ghost comments.")
+    # GraphQL node id (PRRC_…) — the addReaction mutation's subject; empty for ghost comments.
+    node_id: str = ""
     author_login: str = ""
     # From GraphQL `author { __typename }` — authoritative, unlike login-suffix heuristics.
     author_is_bot: bool = False
@@ -166,6 +163,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $pageSize
           comments(first: $commentsPerThread) {
             pageInfo { hasNextPage endCursor }
             nodes {
+              id
               databaseId
               url
               body
@@ -213,6 +211,7 @@ def _parse_comments(nodes: list[Any]) -> list[ThreadComment]:
         comments.append(
             ThreadComment(
                 id=comment.get("databaseId"),
+                node_id=comment.get("id") or "",
                 author_login=author.get("login") or "",
                 author_is_bot=author.get("__typename") == "Bot",
                 author_association=comment.get("authorAssociation") or "NONE",
@@ -343,6 +342,28 @@ def reply_to_thread(
     return comment.get("databaseId"), comment.get("url")
 
 
+def add_eyes_reaction(*, token: str, subject_id: str, installation_id: str | None = None) -> None:
+    """Add a 👀 reaction to a comment (by GraphQL node id) — the "queued for this run" marker.
+
+    Reactions send no notifications, and GitHub treats a repeat addReaction as a no-op, so a
+    retried prepare step never stacks duplicates. The reaction is deliberately never removed:
+    removal would double the API calls for no real gain (see DECISIONS.md — resolution-stage
+    visibility).
+    """
+    github_graphql_request(
+        """
+        mutation($subjectId: ID!) {
+          addReaction(input: {subjectId: $subjectId, content: EYES}) {
+            reaction { content }
+          }
+        }
+        """,
+        {"subjectId": subject_id},
+        token=token,
+        installation_id=installation_id,
+    )
+
+
 def resolve_thread(*, token: str, thread_id: str, installation_id: str | None = None) -> bool:
     """Resolve a review thread; returns GitHub's resulting `isResolved`."""
     data = github_graphql_request(
@@ -412,8 +433,8 @@ def inspect_fix_commit(
 
     Fails closed on GitHub's 300-file cap: a files list that may be truncated reports the commit as
     unverifiable rather than clean — a comment-driven fix that big deserves human eyes anyway.
-    Provenance: signed-commit fixes are authored as the app's bot (`is_app_bot_author`, fail-open on
-    login when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset) and carry a verified web-flow signature; a
+    Provenance: signed-commit fixes are authored as the app's bot (`is_app_bot_author`, which fails
+    closed in production when `GITHUB_APP_SLUG` is unset) and carry a verified web-flow signature; a
     reachable SHA failing either is not provably this run's fix. The residual — echoing one of the
     bot's own earlier commits — stays with the recorded session-provenance follow-up.
     """

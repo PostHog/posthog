@@ -65,8 +65,8 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
 # TODO: Enable `@deprecated` once we move to Python 3.13
 # @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, related_name="+")
 
     name = models.CharField(max_length=100)
     target_value = models.TextField()
@@ -82,8 +82,8 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     object for other purposes.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, related_name="+")
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
@@ -124,6 +124,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # insight specific config for the alert
     config = models.JSONField(default=dict, null=True, blank=True)
+    evaluation_delay_intervals = models.PositiveSmallIntegerField(default=0, db_default=0)
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
@@ -137,7 +138,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     calculation_interval = models.CharField(
         max_length=20,
         choices=CALCULATION_INTERVAL_CHOICES,
-        default=AlertCalculationInterval.DAILY,
+        default=AlertCalculationInterval.DAILY.value,
         null=True,
         blank=True,
     )
@@ -149,12 +150,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     # Detector-based anomaly detection configuration (alternative to threshold)
     detector_config = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
     enabled = models.BooleanField(default=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
-    # UTC time for when next alert check is due
+    # UTC time for when next alert check is due. Null only before the first
+    # check, when created_at is the scheduler's due-age lower bound.
     next_check_at = models.DateTimeField(null=True, blank=True)
     # UTC time until when we shouldn't check alert/notify user
     snoozed_until = models.DateTimeField(null=True, blank=True)
@@ -162,17 +164,20 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
+    schedule_start_time = models.CharField(max_length=5, null=True, blank=True, default=None)
 
-    # When enabled and the alert transitions to FIRING, an investigation agent runs
-    # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
+    # When enabled, an investigation agent runs on each firing check, up to three per
+    # firing episode, and writes its findings to a linked Notebook. Only effective for
+    # detector-based (anomaly) alerts. See posthog/temporal/alerts/investigation.py for
+    # the trigger logic.
     investigation_agent_enabled = models.BooleanField(default=False)
 
-    # When enabled (and investigation_agent_enabled is on), notification dispatch is
-    # held until the investigation agent produces a verdict — and suppressed if the
-    # verdict is false_positive. A safety-net Temporal workflow force-notifies after a
-    # grace period if the investigation stalls, so users can never silently miss a
-    # real fire. See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
+    # When enabled (and investigation_agent_enabled is on), the episode's first fire is
+    # held until the investigation agent produces a verdict, and suppressed if the
+    # verdict is false_positive. Later fires of the episode notify without waiting. A
+    # safety-net Temporal workflow force-notifies after a grace period if the
+    # investigation stalls, so users can never silently miss a real fire.
+    # See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
     investigation_gates_notifications = models.BooleanField(default=False)
 
     # What to do with an "inconclusive" verdict when notifications are gated.
@@ -256,6 +261,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "calculation_interval": self.calculation_interval,
             "is_high_frequency_interval": self.is_high_frequency_interval,
             "enabled": self.enabled,
+            "investigation_agent_enabled": self.investigation_agent_enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,
             "has_threshold": has_threshold,
@@ -265,6 +271,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "config_type": alert_config.get("type"),
             "trends_series_index": alert_config.get("series_index"),
             "trends_check_ongoing_interval": alert_config.get("check_ongoing_interval"),
+            "evaluation_delay_intervals": self.evaluation_delay_intervals,
             "hogql_evaluation": (alert_config.get("evaluation") or "last_row") if is_hogql_config else None,
             "hogql_has_explicit_column": bool(alert_config.get("column")) if is_hogql_config else None,
             "hogql_has_label_column": bool(alert_config.get("label_column")) if is_hogql_config else None,
@@ -438,7 +445,7 @@ class AlertCheck(UUIDTModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
 
     # Detector-based anomaly detection results
     anomaly_scores = models.JSONField(null=True, blank=True)  # Scores for each data point

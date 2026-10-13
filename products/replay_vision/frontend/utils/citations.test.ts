@@ -1,4 +1,4 @@
-import { type Segment, citedTextToPlainText, parseCitedSegments } from './citations'
+import { type Segment, citedMarkdown, citedTextToPlainText, parseCitedSegments } from './citations'
 
 describe('parseCitedSegments', () => {
     const text = (value: string): Segment => ({ kind: 'text', value })
@@ -10,6 +10,18 @@ describe('parseCitedSegments', () => {
             text: 'ignored when segments exist',
             segments: [text('changed the filter (t 1437, 1441), scrolling'), chip(1479)],
             expected: [text('changed the filter'), chip(1437), chip(1441), text(', scrolling'), chip(1479)],
+        },
+        {
+            name: 'seeks a range to its start only, and keeps a moment listed after it',
+            text: '',
+            segments: [text('Hovered the plan table (t 34-42, 50) without clicking')],
+            expected: [text('Hovered the plan table'), chip(34), chip(50), text(' without clicking')],
+        },
+        {
+            name: 'reads worded ranges and lists, seeking each range to its start',
+            text: 'Stalled on checkout (t 448 to t 2865 and t 3112 to t 3708) then left',
+            segments: undefined,
+            expected: [text('Stalled on checkout'), chip(448), chip(3112), text(' then left')],
         },
         {
             name: 'handles the comma-joined variant that repeats the t prefix',
@@ -72,5 +84,65 @@ describe('citedTextToPlainText', () => {
         },
     ])('$name', ({ text, segments, expected }) => {
         expect(citedTextToPlainText(text, segments)).toBe(expected)
+    })
+})
+
+describe('citedMarkdown', () => {
+    it.each<{ name: string; text: string; segments: unknown; expected: string }>([
+        {
+            name: 'writes a chip back as a t: link target',
+            text: 'ignored when segments exist',
+            segments: [
+                { kind: 'text', value: 'Abandoned the cart' },
+                { kind: 'chip', timestamp_ms: 161_000 },
+                { kind: 'text', value: ' and left.' },
+            ],
+            expected: 'Abandoned the cart[02:41](t:161000) and left.',
+        },
+        {
+            name: 'keeps a block that spans a citation in one document',
+            text: '',
+            segments: [
+                { kind: 'text', value: '- **Reached payment**' },
+                { kind: 'chip', timestamp_ms: 92_000 },
+                { kind: 'text', value: '\n- Card rejected' },
+            ],
+            expected: '- **Reached payment**[01:32](t:92000)\n- Card rejected',
+        },
+        {
+            name: 'does not let a trailing exclamation mark turn the citation into an image',
+            text: '',
+            segments: [
+                { kind: 'text', value: 'Something broke!' },
+                { kind: 'chip', timestamp_ms: 5_000 },
+            ],
+            expected: 'Something broke! [00:05](t:5000)',
+        },
+        {
+            name: 'passes the prose through untouched, including anything link-shaped',
+            text: '',
+            segments: [
+                { kind: 'text', value: 'Saw [an offer](https://evil.example)' },
+                { kind: 'chip', timestamp_ms: 5_000 },
+            ],
+            expected: 'Saw [an offer](https://evil.example)[00:05](t:5000)',
+        },
+        {
+            name: 'rounds a fractional offset and clamps a negative one so the target stays parseable',
+            text: '',
+            segments: [
+                { kind: 'chip', timestamp_ms: 92_000.6 },
+                { kind: 'chip', timestamp_ms: -5 },
+            ],
+            expected: '[01:32](t:92001)[00:00](t:0)',
+        },
+        {
+            name: 'keeps text without citations untouched',
+            text: 'No citations here.',
+            segments: [],
+            expected: 'No citations here.',
+        },
+    ])('$name', ({ text, segments, expected }) => {
+        expect(citedMarkdown(text, segments)).toBe(expected)
     })
 })

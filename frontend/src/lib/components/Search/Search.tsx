@@ -1,7 +1,6 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
-import { router } from 'kea-router'
 import {
     Fragment,
     type MutableRefObject,
@@ -17,7 +16,7 @@ import {
 } from 'react'
 
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { filterSearchItems } from 'lib/components/Search/utils'
@@ -30,18 +29,19 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
-import { fileSystemTypes } from '~/products'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
 import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { getIconForItem, getItemTypeDisplayName } from './searchItemDisplay'
+import { SearchItem } from './searchItems'
+import { STARRED_LIMIT } from './searchListsLogic'
+import { RECENTS_LIMIT, SearchLogicProps, searchLogic } from './searchLogic'
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -112,89 +112,6 @@ const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: b
 // ============================================================================
 // Helpers
 // ============================================================================
-
-const getItemTypeDisplayName = (type: string | null | undefined): string | null => {
-    if (!type) {
-        return null
-    }
-
-    // Check fileSystemTypes manifest first
-    if (type in fileSystemTypes) {
-        return (fileSystemTypes as Record<string, { name?: string }>)[type]?.name ?? null
-    }
-
-    // Handle insight subtypes (e.g., 'insight/funnels' -> 'Funnel')
-    if (type.startsWith('insight/')) {
-        const subtype = type.slice(8) // Remove 'insight/' prefix
-        const insightDisplayNames: Record<string, string> = {
-            funnels: 'Funnel',
-            trends: 'Trend',
-            retention: 'Retention',
-            paths: 'Paths',
-            lifecycle: 'Lifecycle',
-            stickiness: 'Stickiness',
-            hog: 'SQL insight',
-        }
-        return insightDisplayNames[subtype] ?? null
-    }
-
-    // Fallback for types not in the manifest
-    const fallbackDisplayNames: Record<string, string> = {
-        query: 'SQL query',
-        product_analytics: 'Product analytics',
-        web_analytics: 'Web analytics',
-        llm_analytics: 'AI observability',
-        revenue_analytics: 'Revenue analytics',
-        marketing_analytics: 'Marketing analytics',
-        session_replay: 'Session replay',
-        error_tracking: 'Error tracking',
-        data_warehouse: 'Data ops',
-        data_pipeline: 'Data pipeline',
-        annotation: 'Annotation',
-        event_definition: 'Event',
-        property_definition: 'Property',
-        person: 'Person',
-        persons: 'Person',
-        user: 'User',
-        group: 'Group',
-        account: 'Account',
-        heatmap: 'Heatmap',
-        sql_editor: 'SQL query',
-        logs: 'Logs',
-        alert: 'Alert',
-        folder: 'Folder',
-        hog_flow: 'Workflow',
-    }
-    return fallbackDisplayNames[type] ?? null
-}
-
-const getIconForItem = (item: SearchItem): ReactNode => {
-    if (item.icon) {
-        return item.icon
-    }
-    let itemType = item.itemType || item.record?.type
-    // Normalize types for icon lookup
-    if (itemType === 'person') {
-        itemType = 'persons'
-    } else if (itemType === 'hog_flow') {
-        itemType = 'workflows'
-    }
-    if (itemType) {
-        // Handle iconColor which may be a single-element array or tuple
-        const rawColor = item.record?.iconColor as string[] | undefined
-        const colorOverride: [string, string] | undefined = rawColor
-            ? rawColor.length === 1
-                ? [rawColor[0], rawColor[0]]
-                : [rawColor[0], rawColor[1]]
-            : undefined
-        return (
-            <ProductIconWrapper type={itemType as string} colorOverride={colorOverride}>
-                {iconForType(itemType as FileSystemIconType, colorOverride)}
-            </ProductIconWrapper>
-        )
-    }
-    return null
-}
 
 const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
     return {
@@ -528,7 +445,7 @@ function SearchRoot({
                     return
                 }
                 if (item.href) {
-                    router.actions.push(item.href)
+                    navigateToHref(item.href)
                     return
                 }
             }
@@ -538,7 +455,7 @@ function SearchRoot({
                 if (openInNewTab) {
                     newInternalTab(item.href)
                 } else {
-                    router.actions.push(item.href)
+                    navigateToHref(item.href)
                 }
             }
         },
@@ -573,14 +490,13 @@ function SearchRoot({
             const isLoading = loadingByCategory.get(category) ?? false
 
             // When searching: hide empty groups (unless still loading)
-            // When not searching: always show recents/tools (with skeleton if loading); starred only when items or loading
+            // When not searching: always show tools; recents and starred only when they have items or are loading
             // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
                 : (category === 'suggested' && items.length > 0) ||
-                  category === 'recents' ||
                   category === 'tools' ||
-                  (category === 'starred' && (items.length > 0 || isLoading))
+                  ((category === 'recents' || category === 'starred') && (items.length > 0 || isLoading))
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -697,7 +613,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {
                 e.preventDefault()
                 onAskAiClick?.()
-                router.actions.push(urls.ai(undefined, searchValue.trim()))
+                navigateToHref(urls.ai(undefined, searchValue.trim()))
                 return
             }
             // Cmd/Ctrl+Enter opens the highlighted result in a new tab. Base UI's combobox input
@@ -765,7 +681,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                         variant="panel"
                         onClick={() => {
                             onAskAiClick?.()
-                            router.actions.push(urls.ai(undefined, searchValue.trim()))
+                            navigateToHref(urls.ai(undefined, searchValue.trim()))
                         }}
                         tooltip="Click or press Tab to ask AI"
                     >
@@ -813,16 +729,17 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recents and tools'
+                return null
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
         return 'Type to search...'
     }, [isSearching, searchValue, filteredItems.length])
 
+    // The live region stays mounted so screen readers announce the first search status.
     return (
-        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
-            <span>{statusMessage}</span>
+        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center empty:p-0">
+            {statusMessage && <span>{statusMessage}</span>}
         </Autocomplete.Status>
     )
 }
@@ -862,7 +779,7 @@ function SearchResults({
             direction="vertical"
             styledScrollbars
             className={cn('flex-1 overflow-y-auto', className)}
-            innerClassName="scroll-pt-12 scroll-pb-8"
+            innerClassName="scroll-pt-12 scroll-pb-8 overscroll-contain"
         >
             {!isAnyLoading && (
                 <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">
@@ -974,6 +891,20 @@ function SearchResults({
                                                                             <span className="truncate">
                                                                                 {String(item.displayName || item.name)}
                                                                             </span>
+                                                                            {item.badges?.map((badge) => (
+                                                                                <Tooltip
+                                                                                    key={badge.label}
+                                                                                    title={badge.tooltip}
+                                                                                >
+                                                                                    <LemonTag
+                                                                                        type={badge.type}
+                                                                                        size="small"
+                                                                                        className="shrink-0"
+                                                                                    >
+                                                                                        {badge.label}
+                                                                                    </LemonTag>
+                                                                                </Tooltip>
+                                                                            ))}
                                                                             {(group.category === 'recents' ||
                                                                                 group.category === 'starred' ||
                                                                                 group.category === 'groups') &&
@@ -986,29 +917,30 @@ function SearchResults({
                                                                                         )}
                                                                                     </span>
                                                                                 )}
+                                                                            {item.parentName && (
+                                                                                <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                    {`in ${item.parentName}`}
+                                                                                </span>
+                                                                            )}
                                                                             {item.productCategory && (
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                     {item.productCategory}
                                                                                 </span>
                                                                             )}
-                                                                            {item.tags?.map((tag) => (
-                                                                                <LemonTag
-                                                                                    key={tag}
-                                                                                    type={
-                                                                                        tag === 'alpha'
-                                                                                            ? 'completion'
-                                                                                            : tag === 'beta'
-                                                                                              ? 'warning'
-                                                                                              : 'success'
-                                                                                    }
-                                                                                    size="small"
-                                                                                    className="shrink-0"
-                                                                                >
-                                                                                    {tag.toUpperCase()}
-                                                                                </LemonTag>
-                                                                            ))}
+                                                                            {item.matchedSearchKeyword && (
+                                                                                <span className="ml-auto text-xxs text-tertiary truncate mt-[2px]">
+                                                                                    {`Matches "${item.matchedSearchKeyword}"`}
+                                                                                </span>
+                                                                            )}
                                                                             {item.lastViewedAt && (
-                                                                                <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                                <span
+                                                                                    className={cn(
+                                                                                        'text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]',
+                                                                                        item.matchedSearchKeyword
+                                                                                            ? 'ml-2'
+                                                                                            : 'ml-auto'
+                                                                                    )}
+                                                                                >
                                                                                     {formatRelativeTimeShort(
                                                                                         item.lastViewedAt
                                                                                     )}

@@ -4,6 +4,9 @@ export const REVIEW_MAX_FILE_LINES = 5_000;
 export const REVIEW_LIST_BUFFER_PX = 1_600;
 export const REVIEW_LIST_ESTIMATED_ITEM_SIZE = 320;
 
+/** Below this the browser would take the room the diff needs to stay readable. */
+export const REVIEW_FILE_BROWSER_MIN_WIDTH = 880;
+
 export const DIFF_METRICS = {
   hunkLineCount: 50,
   lineHeight: 20,
@@ -11,3 +14,9 @@ export const DIFF_METRICS = {
   hunkSeparatorHeight: 32,
   spacing: 8,
 } as const;
+
+/**
+ * A diff draws nothing until the highlighter is ready. virtua drops a 0px row
+ * from its range and never mounts it again, so a row keeps at least its header.
+ */
+export const REVIEW_LIST_MIN_ITEM_SIZE = DIFF_METRICS.diffHeaderHeight;

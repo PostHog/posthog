@@ -7,6 +7,7 @@ import { PersonHogService } from '~/common/generated/personhog/personhog/service
 import { ConsistencyLevel, ReadOptionsSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { ConnectionWindowSessionManager } from './connection-window-session-manager'
 import { PersonHogGroupOperations } from './groups'
 import { PersonHogPersonOperations } from './persons'
 import { SessionStateMonitor } from './session-state-monitor'
@@ -116,6 +117,31 @@ export function resolveConsistencyHeader(message: unknown): 'strong' | 'eventual
     return readOptions?.consistency === ConsistencyLevel.STRONG ? 'strong' : 'eventual'
 }
 
+/** Methods the router always forwards to the owning partition's leader. */
+const LEADER_ROUTED_METHODS = new Set(['UpdatePersonProperties', 'FencePerson', 'ReleaseFence', 'FoldPersonDocument'])
+
+/**
+ * The person routing key for a leader-bound call, or null when the call is
+ * replica-bound. The router hashes this key out of the request headers and
+ * never decodes the body, so a leader-bound call that omits it is rejected
+ * with InvalidArgument rather than routed. Replica-bound reads must travel
+ * without the key, which is why `GetPerson` carries it only under strong
+ * consistency, the one case the router sends to a leader.
+ */
+export function resolvePersonRoutingKey(
+    methodName: string,
+    message: unknown
+): { teamId: bigint; personId: bigint } | null {
+    const leaderBound =
+        LEADER_ROUTED_METHODS.has(methodName) ||
+        (methodName === 'GetPerson' && resolveConsistencyHeader(message) === 'strong')
+    if (!leaderBound) {
+        return null
+    }
+    const { teamId, personId } = message as { teamId: bigint; personId: bigint }
+    return { teamId, personId }
+}
+
 export interface PersonHogClientConfig {
     /** Host and port of the personhog gRPC server, e.g. "localhost:50051". */
     addr: string
@@ -160,6 +186,9 @@ export interface PersonHogClientConfig {
      */
     idleConnectionTimeoutMs?: number
 
+    initialStreamWindowBytes?: number
+    initialConnectionWindowBytes?: number
+
     // -- Attribution --
 
     /** Identifies the code path / feature area within this service (e.g., "ingestion/event-processing"). */
@@ -194,6 +223,39 @@ export class PersonHogClient {
     }
 
     static fromConfig(config: PersonHogClientConfig): PersonHogClient {
+        const { transport, stateMonitor } = createPersonhogTransport(config)
+        return new PersonHogClient(transport, stateMonitor)
+    }
+
+    close(): void {
+        this.stateMonitor?.close()
+    }
+}
+
+export const MAX_HTTP2_WINDOW_BYTES = 2 ** 31 - 1
+
+function windowBytes(value: number | undefined, name: string): number | undefined {
+    if (value === undefined || value === 0) {
+        return undefined
+    }
+    if (!Number.isInteger(value) || value < 0 || value > MAX_HTTP2_WINDOW_BYTES) {
+        throw new Error(`${name} must be an integer between 0 and ${MAX_HTTP2_WINDOW_BYTES}, got ${value}`)
+    }
+    return value
+}
+
+/**
+ * The transport every personhog gRPC client shares: caller headers,
+ * consistency and routing-key stamping, and an HTTP/2 session kept alive
+ * and monitored.
+ * The identity server's clients build on it too, so the wire behavior
+ * cannot drift between endpoints.
+ */
+export function createPersonhogTransport(config: PersonHogClientConfig): {
+    transport: Transport
+    stateMonitor: SessionStateMonitor
+} {
+    {
         const scheme = config.useTls ? 'https' : 'http'
         const interceptors: Interceptor[] = []
         if (config.clientName) {
@@ -216,13 +278,27 @@ export class PersonHogClient {
             req.header.set('x-read-consistency', resolveConsistencyHeader(req.message))
             return await next(req)
         })
-
-        const sessionManager = new Http2SessionManager(`${scheme}://${config.addr}`, {
-            pingIntervalMs: config.pingIntervalMs ?? 30_000,
-            pingTimeoutMs: config.pingTimeoutMs ?? 5_000,
-            pingIdleConnection: config.pingIdleConnection ?? true,
-            idleConnectionTimeoutMs: config.idleConnectionTimeoutMs,
+        interceptors.push((next) => async (req) => {
+            const routingKey = resolvePersonRoutingKey(req.method.name, req.message)
+            if (routingKey) {
+                req.header.set('x-team-id', routingKey.teamId.toString())
+                req.header.set('x-person-id', routingKey.personId.toString())
+            }
+            return await next(req)
         })
+
+        const streamWindowBytes = windowBytes(config.initialStreamWindowBytes, 'initialStreamWindowBytes')
+        const connectionWindowBytes = windowBytes(config.initialConnectionWindowBytes, 'initialConnectionWindowBytes')
+        const sessionManager = new Http2SessionManager(
+            `${scheme}://${config.addr}`,
+            {
+                pingIntervalMs: config.pingIntervalMs ?? 30_000,
+                pingTimeoutMs: config.pingTimeoutMs ?? 5_000,
+                pingIdleConnection: config.pingIdleConnection ?? true,
+                idleConnectionTimeoutMs: config.idleConnectionTimeoutMs,
+            },
+            streamWindowBytes === undefined ? undefined : { settings: { initialWindowSize: streamWindowBytes } }
+        )
 
         const stateMonitor = new SessionStateMonitor(
             sessionManager,
@@ -235,13 +311,12 @@ export class PersonHogClient {
             defaultTimeoutMs: config.timeoutMs ?? 1_000,
             readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
             writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
-            sessionManager: stateMonitor,
+            sessionManager:
+                connectionWindowBytes === undefined
+                    ? stateMonitor
+                    : new ConnectionWindowSessionManager(stateMonitor, connectionWindowBytes),
             interceptors,
         })
-        return new PersonHogClient(transport, stateMonitor)
-    }
-
-    close(): void {
-        this.stateMonitor?.close()
+        return { transport, stateMonitor }
     }
 }

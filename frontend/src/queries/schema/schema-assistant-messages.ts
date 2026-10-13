@@ -454,8 +454,6 @@ export type AssistantTool =
     | 'search_session_recordings'
     | 'create_ai_trace_parser'
     | 'fix_hogql_query'
-    | 'analyze_user_interviews'
-    | 'create_user_interview_topic'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -464,7 +462,6 @@ export type AssistantTool =
     | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
-    | 'experiment_session_replays_summary'
     | 'create_survey'
     | 'edit_survey'
     | 'analyze_survey_responses'
@@ -517,7 +514,6 @@ export type AssistantTool =
     | 'marketing_audit_utm'
     | 'marketing_suggest_conversion_goals'
     | 'marketing_suggest_utm_mappings'
-    | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
     | 'search_replay_vision_observations'
     | 'scan_replay_vision_sessions'
@@ -531,11 +527,6 @@ export type AssistantTool =
     | 'label_replay_vision_observation'
     | 'analyze_replay_vision_impact'
     | 'suggest_replay_vision_tags'
-    | 'read_replay_vision_actions'
-    | 'update_replay_vision_action'
-    | 'delete_replay_vision_action'
-    | 'run_replay_vision_action'
-    | 'create_replay_vision_action'
     | 'upsert_account'
     | 'upsert_account_notebook'
     | 'open_account'
@@ -552,6 +543,7 @@ export enum AgentMode {
     Flags = 'flags',
     AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
+    /** Retired. Kept so stored conversations in this mode still load. */
     UserInterview = 'user_interview',
     CustomerAnalytics = 'customer_analytics',
 }

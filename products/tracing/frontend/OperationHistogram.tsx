@@ -1,8 +1,18 @@
 import { useCallback, useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    BarChart,
+    type BarChartConfig,
+    type DateRangeZoomData,
+    DefaultTooltip,
+    HighlightedRange,
+    type Series,
+} from '@posthog/quill-charts'
 
-import { Sparkline } from 'lib/components/Sparkline'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
     formatBucketLabel,
@@ -11,7 +21,6 @@ import {
     type TracingDurationHistogramData,
 } from './durationBuckets'
 import type { DurationRange } from './operationFilters'
-import { categoryDurationXScale } from './TracingSparkline'
 
 interface OperationHistogramProps {
     data: TracingDurationHistogramData
@@ -34,8 +43,22 @@ export function OperationHistogram({
     samplesLoading = false,
     actions,
 }: OperationHistogramProps): JSX.Element {
+    const theme = useChartTheme()
+    const config = useChartConfig<BarChartConfig>(() => ({}), [])
+
+    const series = useMemo<Series[]>(
+        () =>
+            data.data.map((s) => ({
+                key: s.name,
+                label: s.name,
+                data: s.values,
+                color: getColorVar(s.color),
+            })),
+        [data.data]
+    )
+
     const onSelectionChange = useCallback(
-        ({ startIndex, endIndex }: { startIndex: number; endIndex: number }): void => {
+        ({ startIndex, endIndex }: DateRangeZoomData): void => {
             const range = selectionToDurationRange(data.bucketsNs, startIndex, endIndex)
             if (range) {
                 onSelect(range)
@@ -54,16 +77,13 @@ export function OperationHistogram({
         const startIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.minNs))
         // maxNs is the exclusive upper edge — the highlight ends at the bar before it.
         const endIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.maxNs))
-        // An off-axis edge clamps toward its near end; a selection entirely off the axis
-        // (e.g. persisted before a date change reshaped the distribution) collapses to
-        // start >= end and renders no highlight.
         const startIndex = startIndexRaw !== -1 ? startIndexRaw : selection.minNs <= bucketsNs[0] ? 0 : bucketsNs.length
         const endIndex =
             endIndexRaw !== -1 ? endIndexRaw : selection.maxNs > bucketsNs[bucketsNs.length - 1] ? bucketsNs.length : 0
         if (startIndex >= endIndex) {
             return null
         }
-        return { xMin: labels[startIndex], xMax: labels[endIndex] ?? labels[labels.length - 1] }
+        return { start: labels[startIndex], end: labels[endIndex - 1] ?? labels[labels.length - 1] }
     }, [selection, data])
 
     return (
@@ -89,20 +109,27 @@ export function OperationHistogram({
                 )}
                 {actions && <div className="ml-auto">{actions}</div>}
             </div>
-            <div className="relative h-32">
+            <div className="relative h-32 flex flex-col">
                 {data.data.length > 0 ? (
-                    <Sparkline
+                    <BarChart
+                        series={series}
                         labels={data.labels}
-                        data={data.data}
-                        className="w-full h-full"
-                        onSelectionChange={onSelectionChange}
-                        withXScale={categoryDurationXScale}
-                        renderLabel={(label) => label}
-                        tooltipRowCutoff={100}
-                        hideZerosInTooltip
-                        sortTooltipByCount
-                        highlightedRange={highlightedRange}
-                    />
+                        theme={theme}
+                        config={config}
+                        onDateRangeZoom={onSelectionChange}
+                        tooltip={(ctx) => (
+                            <DefaultTooltip
+                                {...ctx}
+                                hideZeroRows
+                                sortedByValue
+                                valueFormatter={(value) => humanFriendlyNumber(value)}
+                            />
+                        )}
+                    >
+                        {highlightedRange && (
+                            <HighlightedRange start={highlightedRange.start} end={highlightedRange.end} />
+                        )}
+                    </BarChart>
                 ) : !loading ? (
                     <div className="h-full text-muted flex items-center justify-center">No spans in this range</div>
                 ) : null}

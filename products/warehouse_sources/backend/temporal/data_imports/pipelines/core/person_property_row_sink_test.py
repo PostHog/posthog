@@ -4,26 +4,46 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.db import OperationalError
 
 import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySourceProjection,
+    WarehouseBinding,
+    saved_query_binding,
+    schema_binding,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     ABANDONED_STAGED_PREFIX_TTL,
     PersonPropertyRowSink,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    ObjectStoreConfigurationError,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink"
+_STAGING_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store"
 
 
-def _sink(is_incremental: bool = False) -> PersonPropertyRowSink:
+def _aws_write_error(code: str, detail: str) -> OSError:
+    return OSError(
+        "When initiating multiple part upload for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        f"AWS Error {code} during CreateMultipartUpload operation: {detail}"
+    )
+
+
+def _sink(is_incremental: bool = False, binding: WarehouseBinding | None = None) -> PersonPropertyRowSink:
     logger = MagicMock()
     logger.adebug = AsyncMock()
+    logger.awarning = AsyncMock()
     return PersonPropertyRowSink(
-        team_id=1, schema_id="schema-1", job_id="job-1", logger=logger, is_incremental=is_incremental
+        team_id=1,
+        binding=binding or schema_binding("schema-1"),
+        job_id="job-1",
+        logger=logger,
+        is_incremental=is_incremental,
     )
 
 
@@ -44,6 +64,22 @@ async def test_should_run_reflects_projection():
     other = _sink()
     with patch(f"{_MODULE}.person_property_projection_for", return_value=[_projection("distinct_id", "plan")]):
         assert await other.should_run() is True
+
+
+@pytest.mark.asyncio
+async def test_should_run_retries_once_on_a_transient_db_connection_drop():
+    # A long-lived Temporal worker's pooled app-DB connection can go stale (pooler recycle,
+    # failover, deploy) between syncs. Without a retry, that one-off OperationalError would
+    # propagate and get treated as "no person-property mapping to sync" for the whole run instead
+    # of the transient blip it is.
+    sink = _sink()
+    projection = [_projection("distinct_id", "plan")]
+    resolver = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), projection])
+
+    with patch(f"{_MODULE}.person_property_projection_for", resolver):
+        assert await sink.should_run() is True
+
+    assert resolver.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -123,9 +159,9 @@ async def test_clear_keeps_fresh_sibling_prefixes_and_sweeps_abandoned_ones():
     # A fresh sibling prefix belongs to a consumer that is merely lagging — deleting it loses an
     # incremental sync's staged delta for good. Only long-abandoned prefixes may be swept.
     sink = _sink()
-    schema_prefix = sink._get_schema_prefix()
-    fresh_file = f"{schema_prefix}/job-recent/chunk_0.parquet"
-    stale_file = f"{schema_prefix}/job-old/chunk_0.parquet"
+    binding_prefix = sink._get_binding_prefix()
+    fresh_file = f"{binding_prefix}/job-recent/chunk_0.parquet"
+    stale_file = f"{binding_prefix}/job-old/chunk_0.parquet"
     now = datetime.now(UTC)
     s3_client = _s3_client(
         find_result={
@@ -148,7 +184,7 @@ async def test_clear_keeps_own_prefix_on_incremental_syncs():
     # An incremental retry resumes past the committed cursor, so the failed attempt's staged
     # files are the only record of those rows — clearing the job prefix would lose them for good.
     sink = _sink(is_incremental=True)
-    stale_file = f"{sink._get_schema_prefix()}/job-old/chunk_0.parquet"
+    stale_file = f"{sink._get_binding_prefix()}/job-old/chunk_0.parquet"
     s3_client = _s3_client(
         find_result={stale_file: {"LastModified": datetime.now(UTC) - ABANDONED_STAGED_PREFIX_TTL - timedelta(days=1)}}
     )
@@ -178,6 +214,60 @@ async def test_stage_chunk_filenames_are_unique_per_attempt():
         paths.append(to_thread.await_args.args[2])
 
     assert len(set(paths)) == 2
+
+
+@parameterized.expand(
+    [
+        (
+            "transient_internal_error",
+            _aws_write_error("INTERNAL_FAILURE", "We encountered an internal error. Please try again."),
+            2,
+            None,
+        ),
+        ("refused_access_denied", _aws_write_error("ACCESS_DENIED", "Access Denied"), 1, ObjectStoreConfigurationError),
+        (
+            "refused_wrong_endpoint",
+            _aws_write_error("UNKNOWN (HTTP status 301)", "Unable to parse ExceptionName: PermanentRedirect"),
+            1,
+            ObjectStoreConfigurationError,
+        ),
+        ("unclassified_failure", RuntimeError("staging blew up"), 1, RuntimeError),
+    ]
+)
+@pytest.mark.asyncio
+async def test_stage_chunk_retries_only_a_transient_object_store_failure(_name, error, expected_attempts, raises):
+    # Creating the multipart upload is a single network call, so a blip on it drops the whole chunk
+    # unless it is retried. A refused write is the deployment's configuration, which no retry
+    # changes, so it fails once as a typed error instead of stalling the sync and paging someone.
+    sink = _sink()
+    to_thread = AsyncMock(side_effect=[error, None])
+
+    with (
+        patch(f"{_MODULE}.person_property_projection_for", return_value=[_projection("distinct_id", "plan")]),
+        patch.object(sink, "_get_fs", return_value=MagicMock()),
+        patch(f"{_MODULE}.asyncio.to_thread", new=to_thread),
+        patch(f"{_STAGING_MODULE}.asyncio.sleep", new=AsyncMock()),
+    ):
+        if raises is not None:
+            with pytest.raises(raises):
+                await sink.stage_chunk(chunk=0, table=_table())
+        else:
+            await sink.stage_chunk(chunk=0, table=_table())
+
+    assert to_thread.await_count == expected_attempts
+
+
+@pytest.mark.asyncio
+async def test_clear_raises_one_configuration_error_when_the_sweep_is_refused():
+    # A refused listing of the binding prefix is the same missing grant the own-prefix delete hits,
+    # so it must surface as the one typed configuration error rather than as a second raw failure.
+    sink = _sink()
+    s3_client = _s3_client()
+    s3_client._find = AsyncMock(side_effect=PermissionError("Access Denied"))
+
+    with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
+        with pytest.raises(ObjectStoreConfigurationError):
+            await sink.clear()
 
 
 @parameterized.expand([("local_setup", True), ("non_local_setup", False)])
@@ -210,3 +300,42 @@ async def test_clear_tolerates_missing_prefixes():
 
     with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
         await sink.clear()
+
+
+@pytest.mark.asyncio
+async def test_clear_still_sweeps_abandoned_siblings_when_own_prefix_delete_fails():
+    # A permissions error (or any other non-FileNotFoundError) deleting the own prefix must not
+    # skip the sibling-sweep backstop, which is an independent cleanup — otherwise abandoned sibling
+    # prefixes from crashed jobs never get swept on every run where the own-prefix delete fails.
+    # The refusal itself is the deployment's configuration, so it is re-raised as the typed error.
+    sink = _sink()
+    stale_file = f"{sink._get_binding_prefix()}/job-old/chunk_0.parquet"
+    s3_client = _s3_client(
+        find_result={stale_file: {"LastModified": datetime.now(UTC) - ABANDONED_STAGED_PREFIX_TTL - timedelta(days=1)}}
+    )
+    s3_client._rm = AsyncMock(side_effect=[PermissionError("Access Denied"), None])
+
+    with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
+        with pytest.raises(ObjectStoreConfigurationError):
+            await sink.clear()
+
+    removed = [call.args[0] for call in s3_client._rm.await_args_list]
+    assert [f"s3://{stale_file}"] in removed  # sibling sweep still ran despite the own-prefix failure
+
+
+@parameterized.expand([("schema", schema_binding("schema-1")), ("saved_query", saved_query_binding("view-1"))])
+@pytest.mark.asyncio
+async def test_stages_under_the_binding_it_was_built_for(_name, binding):
+    # A view materialization and an import job build the same sink; the binding is what keeps their
+    # staged rows apart, so a source only ever consumes rows from the object it reads.
+    sink = _sink(binding=binding)
+    with (
+        patch(f"{_MODULE}.person_property_projection_for", return_value=[_projection("distinct_id", "plan")]) as gate,
+        patch.object(sink, "_get_fs", return_value=MagicMock()),
+        patch(f"{_MODULE}.asyncio.to_thread", new=AsyncMock()) as to_thread,
+    ):
+        await sink.stage_chunk(chunk=0, table=_table())
+
+    gate.assert_called_once_with(1, binding)
+    assert to_thread.await_args is not None
+    assert to_thread.await_args.args[2].startswith(f"{sink._get_path_prefix()}/")

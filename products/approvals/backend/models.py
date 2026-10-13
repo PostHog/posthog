@@ -5,6 +5,8 @@ from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.access_control.backend.models.role import Role
+
 if TYPE_CHECKING:
     from products.approvals.backend.actions.base import BaseAction
     from products.approvals.backend.models import ApprovalPolicy as ApprovalPolicyType
@@ -31,8 +33,8 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     action_key = models.CharField(max_length=128)
     action_version = models.IntegerField(default=1)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, related_name="+")
     resource_type = models.CharField(max_length=64)
     resource_id = models.CharField(max_length=128, null=True, blank=True)
 
@@ -40,6 +42,11 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     intent_display = models.JSONField()
 
     policy_snapshot = models.JSONField()
+
+    # Which product owned the resource when this request was created. Re-derived at apply and
+    # refused on a mismatch, so an approval binds to the ownership the approvers reviewed.
+    # NULL means no classification was recorded, which an apply treats as nothing to check.
+    owner_kind = models.CharField(max_length=64, null=True, blank=True)
 
     validation_status = models.CharField(
         max_length=16,
@@ -86,6 +93,9 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         """Get the matching approval policy for this change request."""
         from products.approvals.backend.policies import PolicyEngine
 
+        action_class = self.get_action_class()
+        if action_class is not None:
+            return PolicyEngine().get_policy_for_action(action_class, self.team, self.organization)
         return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
 
     def can_be_canceled_by(self, user_id: int) -> bool:
@@ -144,16 +154,8 @@ class ApprovalPolicyManager(models.Manager):
 class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     """Defines when an action requires approval and who can approve"""
 
-    organization = models.ForeignKey(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-    )
-    team = models.ForeignKey(
-        "posthog.Team",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-    )
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
 
     action_key = models.CharField(max_length=128)
 
@@ -201,19 +203,14 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.bypass_roles.clear()
             return
 
-        try:
-            from ee.models.rbac.role import Role
-        except ImportError:
-            pass
-        else:
-            # nosemgrep: idor-lookup-without-org (org validation after lookup)
-            roles = Role.objects.filter(id__in=role_ids)
-            invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
-            if invalid_roles:
-                invalid_names = [r.name for r in invalid_roles]
-                raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
+        # nosemgrep: idor-lookup-without-org (org validation after lookup)
+        roles = Role.objects.filter(id__in=role_ids)
+        invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
+        if invalid_roles:
+            invalid_names = [r.name for r in invalid_roles]
+            raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
 
-            self.bypass_roles.set(roles)
+        self.bypass_roles.set(roles)
 
     def get_approver_user_ids(self) -> list[int]:
         """Get list of user IDs who can approve based on this policy's approver_config."""
@@ -225,12 +222,16 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         approver_roles = self.approver_config.get("roles")
         if approver_roles:
             try:
-                from ee.models.rbac.role import RoleMembership
+                from products.access_control.backend.models.role import RoleMembership
 
-                role_user_ids = RoleMembership.objects.filter(
-                    role_id__in=approver_roles,
-                    role__organization=self.organization,
-                ).values_list("user_id", flat=True)
+                role_user_ids = (
+                    RoleMembership.objects.filter(
+                        role_id__in=approver_roles,
+                        role__organization=self.organization,
+                    )
+                    .valid_for_authorization()
+                    .values_list("user_id", flat=True)
+                )
                 user_ids.update(role_user_ids)
             except ImportError:
                 pass

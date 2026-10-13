@@ -1,9 +1,15 @@
 import pytest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.models import Organization
 
-from products.managed_warehouse.backend.facade.api import get_duckgres_query_server_config, get_stored_warehouse_config
+from products.managed_warehouse.backend.facade.api import (
+    get_duckgres_query_server_config,
+    get_stored_warehouse_config,
+    is_data_modeling_shadow_ready,
+)
 from products.managed_warehouse.backend.facade.contracts import DuckgresStoredServerConfig
 from products.managed_warehouse.backend.models import DuckgresServer
 
@@ -58,3 +64,15 @@ def test_stored_warehouse_config_maps_connection_and_catalog_without_returning_t
     assert stored.bucket is not None
     assert stored.bucket.bucket == "managed-warehouse-bucket"
     assert not hasattr(stored, "save")
+
+
+class TestDataModelingShadowReadiness(SimpleTestCase):
+    def test_requires_a_ready_trino_target_without_translation_records(self) -> None:
+        for catalog in (None, "managed_catalog"):
+            with self.subTest(catalog=catalog):
+                with patch(
+                    "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                    return_value=catalog,
+                ) as get_catalog:
+                    assert is_data_modeling_shadow_ready(organization_id="organization-id") is (catalog is not None)
+                get_catalog.assert_called_once_with("organization-id")

@@ -400,6 +400,8 @@ def get_rows(
         # fail the run once it crosses either per-run bound so it can't occupy a worker until the
         # activity's week-long timeout. The cursor is already checkpointed, so an activity retry
         # within this job resumes from here rather than re-walking from the start.
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         if pages_fetched >= MAX_PAGES_PER_RUN:
             raise SourcegraphPaginationLimitError(
                 f"Sourcegraph {endpoint} exceeded the per-run page limit ({MAX_PAGES_PER_RUN})"

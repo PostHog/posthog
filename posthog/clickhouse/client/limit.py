@@ -1,23 +1,33 @@
 import time
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from time import sleep
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from celery import current_task
 from prometheus_client import Counter
 
 from posthog import redis, settings
-from posthog.clickhouse.cluster import ExponentialBackoff
-from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags, tag_queries
+from posthog.clickhouse.backoff import ExponentialBackoff
+from posthog.clickhouse.query_tagging import (
+    Product,
+    add_fallback_query_tags,
+    get_query_tag_value,
+    get_query_tags,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.schema_enums import ProductKey
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # Default concurrency limits
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
@@ -102,6 +112,8 @@ class RateLimit:
     redis_client = redis.get_client()
     retry: Optional[float] = None
     retry_timeout: float = 10.0  # seconds
+    apply_clickhouse_kill_switch: bool = True
+    allow_team_bypass: bool = True
     get_time: Callable[[], float] = lambda: time.time()
     sleep: Callable[[float], None] = lambda d: sleep(d)
 
@@ -146,7 +158,7 @@ class RateLimit:
         elif limit_value := kwargs.get("limit", None):
             max_concurrency = int(limit_value)
 
-        if not TEST:
+        if self.apply_clickhouse_kill_switch and not TEST:
             from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 
             kill_switch_level = get_kill_switch_level()
@@ -156,7 +168,7 @@ class RateLimit:
                 max_concurrency = max(1, max_concurrency // 4)
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
-        backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
+        backoff = ExponentialBackoff(delay=self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
         wait_total = 0.0
         # Atomically check, remove expired if limit hit, and add the new task
@@ -168,7 +180,7 @@ class RateLimit:
         ):
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 
-            bypass = team_is_allowed_to_bypass_throttle(team_id)
+            bypass = self.allow_team_bypass and team_is_allowed_to_bypass_throttle(team_id)
 
             # team in beta cannot skip limits
             if bypass or (not in_beta and self.bypass_all):
@@ -487,3 +499,15 @@ def get_org_app_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
         pass
 
     return None
+
+
+@contextmanager
+def app_org_concurrency_slot(team: "Team", *, task_id: str | None = None) -> Iterator[None]:
+    with get_app_org_rate_limiter().run(
+        org_id=team.organization_id,
+        team_id=team.pk,
+        task_id=task_id,
+        is_api=is_api_key_access_method(get_query_tag_value("access_method")),
+        limit=get_org_app_concurrency_limit(team.organization_id),
+    ):
+        yield

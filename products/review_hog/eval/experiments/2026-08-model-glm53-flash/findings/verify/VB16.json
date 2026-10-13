@@ -1,0 +1,9 @@
+{
+    "id": "VB16",
+    "is_real": true,
+    "severity": "consider",
+    "confidence": "high",
+    "source": "fresh",
+    "evidence": "Backend confirmed: get_stamphog_connected catches every exception and returns False in a 200 response (frozen products/review_hog/backend/api/settings.py:77-81). Frontend confirmed: false plus toggle-off disables the switch with the definite copy 'Stamphog is not set up for this project yet' (products/review_hog/frontend/CodeReviewScene.tsx:1063-1069). No-retry confirmed: initialLoadFailed, the sole retry entry (CodeReviewScene.tsx:1589-1590), flips only on loadSettingsFailure et al. (reviewHogSettingsLogic.ts:647-660); a 200 with false never sets it. Settings load once at mount (afterMount -> loadAll, reviewHogSettingsLogic.ts:954-955, 801-808); the 10s poll targets recent reviews, not settings, and there is no focus refetch. Recovery of the stamphog read is therefore invisible until a reload or an unrelated toggle PATCH (which re-serializes the flag). Refutation attempts failed: the fail-soft is deliberate and commented (settings.py:73-76), but the comment's 'until the read recovers' presumes a re-read nothing triggers; prior sol verdict LB4 (not real) refuted different claims (latency/log flood) on the same lines. Reachability is narrow (breaker-open or DB blip at scene mount on an alpha scene), matching the validator downgrade to consider.",
+    "notes": "I would flip to not real if the settings loader gained a focus/interval refetch, or if the disabled state distinguished 'unknown' from 'confirmed disconnected'. The deliberate documented fail-soft caps severity, it does not erase the misleading persistent state."
+}

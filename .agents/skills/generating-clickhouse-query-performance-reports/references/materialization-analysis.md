@@ -5,7 +5,7 @@ dropping (to reclaim disk). **Always run on both US and EU**, since they have di
 columns and workloads, so the candidate lists differ. Write the result to the private
 `PostHog/query-performance-analysis` repo as `analysis/<date>-materialization-candidates.md`.
 
-Run everything via `query-clickhouse-via-metabase`. Split wide column-list checks into batches of ~5-6
+Run everything via `querying-production-databases-via-metabase`. Split wide column-list checks into batches of ~5-6
 to stay under the Metabase response cutoff.
 
 ## Step 1: Candidates to materialize

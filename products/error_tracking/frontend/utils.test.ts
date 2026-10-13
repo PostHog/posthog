@@ -7,6 +7,7 @@ import {
     generateDateRangeLabel,
     getIssueReplayDateRange,
     getIssueReplayFilterGroup,
+    issueVisionScannerHandoff,
     mergeIssues,
     sourceDisplay,
 } from './utils'
@@ -220,6 +221,21 @@ describe('getIssueReplayDateRange', () => {
             '2024-01-01T13:00:00.000Z'
         )
     })
+
+    // first_seen is null for an issue with no ingested events — reachable via the
+    // metrics error-spike overlay, and it used to crash the issue scene render.
+    it('anchors on last_seen when first_seen is missing', () => {
+        const range = getIssueReplayDateRange(null, dayjs('2024-01-02T12:00:00.000Z'))
+        expect(range.date_from).toEqual('2024-01-02T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-01-02T13:00:00.000Z')
+    })
+
+    it('anchors on the selected event when first_seen and last_seen are missing', () => {
+        const range = getIssueReplayDateRange(null, null, '2024-04-01T12:00:00.000Z')
+        expect(range.date_from).toEqual('2024-04-01T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-04-01T13:00:00.000Z')
+        expect(() => getIssueReplayDateRange(null, null)).not.toThrow()
+    })
 })
 
 describe('getIssueReplayFilterGroup', () => {
@@ -243,6 +259,54 @@ describe('getIssueReplayFilterGroup', () => {
                         },
                     ],
                 },
+            ],
+        })
+    })
+
+    // The label rides in a HogQL `-- comment`, which ends at a line terminator. The issue name is
+    // attacker-influenced, so a newline in it must not break out of the comment and inject a live
+    // condition that widens the scanner beyond this issue.
+    it('strips line terminators from the label so it cannot break out of the HogQL comment', () => {
+        const group = getIssueReplayFilterGroup('issue-uuid', 'TypeError\n OR 1 = 1')
+        const key = (group.values[0] as any).values[0].properties[0].key as string
+
+        expect(key).not.toMatch(/[\r\n]/)
+        expect(key).toEqual("issue_id = 'issue-uuid' -- TypeError  OR 1 = 1")
+    })
+})
+
+describe('issueVisionScannerHandoff', () => {
+    it('builds a summarizer whose query keeps the issue scoping', () => {
+        const handoff = issueVisionScannerHandoff('issue-uuid', 'TypeError: x is not a function', {
+            date_from: '2024-01-01T00:00:00.000Z',
+            date_to: '2024-01-02T00:00:00.000Z',
+        })
+
+        expect(handoff.source).toEqual('error_tracking')
+        expect(handoff.scanner).toMatchObject({
+            name: 'Error tracking: TypeError: x is not a function',
+            scanner_type: 'summarizer',
+            sampling_rate: 1.0,
+            credit_limit: 5000,
+            credit_limit_enabled: true,
+        })
+        expect(handoff.scanner.scanner_config?.prompt).toContain('"TypeError: x is not a function"')
+        // Without the issue_id filter on $exception events the scanner silently watches every session.
+        // The HogQL `-- comment` carries the error name so the scanner preview renders the condition
+        // as the error rather than an opaque `issue_id = '<uuid>'`; it's stripped before the query runs.
+        expect(handoff.scanner.query).toMatchObject({
+            kind: 'RecordingsQuery',
+            date_from: '2024-01-01T00:00:00.000Z',
+            events: [
+                expect.objectContaining({
+                    id: '$exception',
+                    properties: [
+                        {
+                            key: "issue_id = 'issue-uuid' -- TypeError: x is not a function",
+                            type: PropertyFilterType.HogQL,
+                        },
+                    ],
+                }),
             ],
         })
     })

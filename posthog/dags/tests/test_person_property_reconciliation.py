@@ -38,11 +38,7 @@ from posthog.dags.person_property_reconciliation import (
     reconcile_with_concurrent_changes,
     update_person_with_version_check,
 )
-from posthog.dags.tests.conftest import refresh_person_from_persons_db
-
-# Exercises the persons DB directly (raw reads and writes against the persons writer), so it must
-# run against the real persons DB rather than the personhog fake.
-pytestmark = pytest.mark.persons_db_direct
+from posthog.dags.tests.conftest import isolated_clickhouse_cluster, refresh_person_from_persons_db
 
 
 class TestClickHouseResultParsing:
@@ -2757,6 +2753,11 @@ class TestPersonPropertyDiffsDataclass:
 class TestClickHouseQueryIntegration:
     """Integration tests that insert data into ClickHouse and run the actual query."""
 
+    @pytest.fixture(scope="class")
+    def cluster(self, django_db_setup):
+        with isolated_clickhouse_cluster() as clickhouse_cluster:
+            yield clickhouse_cluster
+
     def test_unset_uses_latest_timestamp_regression(self, cluster: ClickhouseCluster):
         """
         Regression test: $unset should use max(timestamp), not min(timestamp).
@@ -4231,7 +4232,7 @@ class TestClickHouseQueryIntegration:
         events after bug_window_start, regardless of when the person was originally created.
         The bug window is about when the ingestion bug occurred, not when persons were created.
         """
-        team_id = 99920
+        team_id = 99919
         person_id = UUID("55550000-0000-0000-0000-000000000002")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=5)
@@ -5761,7 +5762,10 @@ class TestClickHouseQueryIntegration:
         assert "email" in single_diff.unset_updates
 
 
+# Exercises the persons DB directly (raw reads and writes against the persons writer), so it must
+# run against the real persons DB rather than the personhog fake.
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.persons_db_direct
 class TestBatchCommitsEndToEnd:
     """End-to-end integration tests for batch commit functionality.
 
@@ -6118,6 +6122,7 @@ class TestBatchCommitsEndToEnd:
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.persons_db_direct
 class TestKafkaClickHouseRoundTrip:
     """Integration tests that verify person updates flow through Kafka to ClickHouse.
 

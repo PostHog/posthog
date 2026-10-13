@@ -40,7 +40,6 @@ def reverse_content_types(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("batch_exports", "0003_alter_batchexportdestination_type"),
-        ("managed_migrations", "0001_migrate_managed_migrations_models"),
     ]
 
     operations = [

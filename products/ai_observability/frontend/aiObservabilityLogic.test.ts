@@ -12,7 +12,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { productRedirects } from '~/products'
-import { isTracesQuery } from '~/queries/utils'
+import { isEventsQuery, isTracesQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -46,6 +46,7 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
+        expect(urls.aiObservabilityScorers()).toBe('/ai-evals/evaluations/scorers')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
     })
 
@@ -72,6 +73,27 @@ describe('LLM analytics URL split', () => {
             '/prompt-management/prompts/prompt-1'
         )
     })
+
+    it.each(['/llm-analytics/reviews', '/llm-observability/reviews'])(
+        'moves legacy scorer bookmarks to Evaluations: %s',
+        (path) => {
+            expect(
+                redirectUrl(
+                    path,
+                    {},
+                    {
+                        human_reviews_tab: 'scorers',
+                        search: 'quality',
+                        archived: 'all',
+                        page: '2',
+                        queue_id: 'queue-1',
+                        review_search: 'discard',
+                        date_from: '-7d',
+                    }
+                )
+            ).toBe('/ai-evals/evaluations/scorers?search=quality&page=2&archived=all')
+        }
+    )
 
     it('redirects AI observability settings to the project-level BYOK setting', () => {
         expect(redirectUrl('/ai-observability/settings')).toBe(
@@ -581,20 +603,38 @@ describe('AI observability persisted preferences', () => {
         sharedLogic.unmount()
     })
 
-    it('persists generation column preferences across remount', () => {
-        const columns = ['uuid', 'timestamp']
-        const firstLogic = aiObservabilityGenerationsLogic()
-        firstLogic.mount()
-        firstLogic.actions.setGenerationsColumns(columns)
-        firstLogic.unmount()
+    it.each([[['uuid', 'timestamp']], [['uuid', "'' -- Sentiment", 'timestamp']]])(
+        'preserves generation column preferences while excluding retired sentiment (%j)',
+        (columns) => {
+            const firstLogic = aiObservabilityGenerationsLogic()
+            firstLogic.mount()
+            firstLogic.actions.setGenerationsColumns(columns)
+            firstLogic.unmount()
 
-        const secondLogic = aiObservabilityGenerationsLogic()
-        secondLogic.mount()
+            const secondLogic = aiObservabilityGenerationsLogic()
+            secondLogic.mount()
 
-        expect(secondLogic.values.generationsColumns).toEqual(columns)
+            expect(secondLogic.values.generationsColumns).toEqual(columns)
 
-        secondLogic.unmount()
-    })
+            const query = secondLogic.values.generationsQuery
+            if (!isEventsQuery(query.source)) {
+                throw new Error('Expected an EventsQuery')
+            }
+            expect(query.source.select).toEqual(['uuid', 'timestamp'])
+
+            secondLogic.actions.setGenerationsQuery({
+                ...query,
+                source: { ...query.source, select: columns },
+            })
+            const overriddenQuery = secondLogic.values.generationsQuery
+            expect(isEventsQuery(overriddenQuery.source) && overriddenQuery.source.select).toEqual([
+                'uuid',
+                'timestamp',
+            ])
+
+            secondLogic.unmount()
+        }
+    )
 
     it('persists traces table preferences across remount', () => {
         const firstLogic = aiObservabilityTracesTabLogic()

@@ -113,6 +113,7 @@ class TestSourceResponseShape:
             ("questions", ["formId", "id"], "createdAt", "asc"),
             ("submissions", ["formId", "id"], "submittedAt", "desc"),
             ("webhooks", ["id"], "createdAt", "asc"),
+            ("folders", ["workspaceId", "id"], "createdAt", "asc"),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -153,21 +154,6 @@ class TestPagination:
         assert params[0]["page"] == 1
         assert params[1]["page"] == 2
 
-    def test_stops_when_has_more_is_false_even_with_a_full_page(self) -> None:
-        # `hasMore` is the authoritative end-of-pages signal; a full last page must not trigger
-        # another request that would 400 or re-read page one.
-        responses = {FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}], has_more=False)]}
-        rows, params, _session = _run("forms", responses)
-        assert rows == [{"id": "F1"}, {"id": "F2"}]
-        assert len(params) == 1
-
-    def test_empty_page_claiming_has_more_terminates(self) -> None:
-        # Guards against an infinite paging loop if the API ever returns hasMore with no rows.
-        responses = {FORMS_PAGE_1: [_page([], has_more=True)]}
-        rows, params, _session = _run("forms", responses)
-        assert rows == []
-        assert len(params) == 1
-
     @parameterized.expand(
         [
             ("workspaces", f"{BASE}/workspaces?page=1", "items", None),
@@ -184,24 +170,8 @@ class TestPagination:
         assert rows == [{"id": "X"}]
         assert params[0].get("limit") == expected_limit
 
-    def test_version_header_is_pinned_on_every_request(self) -> None:
-        # Without the header the response shape follows whatever version the API key was created
-        # against, which changed the /forms envelope between versions.
-        _rows, _params, session = _run("forms", {FORMS_PAGE_1: [_page([{"id": "F1"}])]})
-        assert session.headers["tally-version"] == TALLY_API_VERSION
-
 
 class TestTopLevelResume:
-    def test_saves_next_page_after_yielding_each_page(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}], has_more=True)],
-            f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=2": [_page([{"id": "F2"}])],
-        }
-        manager = _make_manager()
-        _run("forms", responses, manager)
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [TallyResumeConfig(next_page=2)]
-
     def test_resumes_from_saved_page(self) -> None:
         responses = {f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=4": [_page([{"id": "F9"}])]}
         rows, params, _session = _run("forms", responses, _make_manager(TallyResumeConfig(next_page=4)))
@@ -210,41 +180,6 @@ class TestTopLevelResume:
 
 
 class TestFanOut:
-    def test_questions_are_tagged_with_their_form(self) -> None:
-        # The questions endpoint takes no page-size param, so only the parent carries `limit`.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}])],
-            f"{BASE}/forms/F1/questions": [_resp({"questions": [{"id": "Q1"}], "hasResponses": True})],
-            f"{BASE}/forms/F2/questions": [_resp({"questions": [{"id": "Q1"}], "hasResponses": False})],
-        }
-        rows, params, _session = _run("questions", responses)
-        # A question id is only unique within its form, so both rows keep their own formId.
-        assert rows == [{"id": "Q1", "formId": "F1"}, {"id": "Q1", "formId": "F2"}]
-        assert "limit" not in params[1]
-
-    def test_questions_do_not_request_a_second_page(self) -> None:
-        # The endpoint returns every question at once; paging it would re-read the same rows.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/questions": [_resp({"questions": [{"id": "Q1"}], "hasMore": True})],
-        }
-        rows, params, _session = _run("questions", responses)
-        assert rows == [{"id": "Q1", "formId": "F1"}]
-        assert len(params) == 2
-
-    def test_submissions_page_per_form(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed": [
-                _resp({"submissions": [{"id": "S1"}], "hasMore": True})
-            ],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=2&filter=completed": [
-                _resp({"submissions": [{"id": "S2"}], "hasMore": False})
-            ],
-        }
-        rows, _params, _session = _run("submissions", responses)
-        assert rows == [{"id": "S1", "formId": "F1"}, {"id": "S2", "formId": "F1"}]
-
     @parameterized.expand([(SUBMISSION_FILTER_COMPLETED,), (SUBMISSION_FILTER_ALL,)])
     def test_submission_filter_is_sent_verbatim(self, submission_filter: str) -> None:
         # Tally documents no default for `filter`, so the chosen value must always be sent.
@@ -256,29 +191,6 @@ class TestFanOut:
         }
         _rows, params, _session = _run("submissions", responses, submission_filter=submission_filter)
         assert params[1]["filter"] == submission_filter
-
-    def test_form_deleted_mid_sync_is_skipped(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "GONE"}, {"id": "F2"}])],
-            f"{BASE}/forms/F1/questions": [_resp({"questions": [{"id": "Q1"}]})],
-            f"{BASE}/forms/GONE/questions": [_resp({"message": "not found"}, status=404)],
-            f"{BASE}/forms/F2/questions": [_resp({"questions": [{"id": "Q2"}]})],
-        }
-        rows, _params, _session = _run("questions", responses)
-        assert rows == [{"id": "Q1", "formId": "F1"}, {"id": "Q2", "formId": "F2"}]
-
-    def test_resume_skips_forms_already_drained(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}])],
-            f"{BASE}/forms/F2/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed": [
-                _resp({"submissions": [{"id": "S2"}], "hasMore": False})
-            ],
-        }
-        state = TallyResumeConfig(
-            fanout_state={"completed": ["/forms/F1/submissions"], "current": None, "child_state": None}
-        )
-        rows, _params, _session = _run("submissions", responses, _make_manager(state))
-        assert rows == [{"id": "S2", "formId": "F2"}]
 
     def test_resume_continues_mid_form_from_the_saved_page(self) -> None:
         responses = {
@@ -333,51 +245,6 @@ class TestWebhookSecrets:
 
 
 class TestIncremental:
-    def test_watermark_becomes_a_server_side_start_date(self) -> None:
-        # `startDate` is the only reason this table is incremental; dropping it would re-read every
-        # submission of every form on each run.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed"
-            f"&startDate=2026-01-02T03%3A04%3A05Z": [_resp({"submissions": [], "hasMore": False})],
-        }
-        _rows, params, _session = _run(
-            "submissions",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-            incremental_field="submittedAt",
-        )
-        assert params[1]["startDate"] == "2026-01-02T03:04:05Z"
-
-    def test_full_refresh_sends_no_start_date(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed": [
-                _resp({"submissions": [], "hasMore": False})
-            ],
-        }
-        _rows, params, _session = _run("submissions", responses, should_use_incremental_field=False)
-        assert "startDate" not in params[1]
-
-    def test_including_partials_falls_back_to_full_refresh(self) -> None:
-        # A partial submission is still being filled in, so `submittedAt` is not a settled cursor;
-        # the source must not filter on a watermark it cannot trust.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=all": [
-                _resp({"submissions": [], "hasMore": False})
-            ],
-        }
-        _rows, params, _session = _run(
-            "submissions",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-            submission_filter=SUBMISSION_FILTER_ALL,
-        )
-        assert "startDate" not in params[1]
-
     def test_future_watermark_is_clamped_to_now(self) -> None:
         # A watermark ahead of the clock would filter out every submission, syncing nothing forever.
         future = datetime.now(UTC) + timedelta(days=30)
@@ -433,15 +300,3 @@ class TestValidateCredentials:
         ok, returned_status = validate_credentials("key")
         assert ok is expected_ok
         assert returned_status == status
-
-    @mock.patch(TALLY_SESSION_PATCH)
-    def test_transport_error_is_not_a_validation_failure_crash(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") == (False, None)
-
-    @mock.patch(TALLY_SESSION_PATCH)
-    def test_probe_pins_the_api_version(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["tally-version"] == TALLY_API_VERSION

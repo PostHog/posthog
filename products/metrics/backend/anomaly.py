@@ -31,7 +31,9 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _pick_interval, time_range_expr
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.metrics4_samples import reads_metrics4_only, series_in_range_query
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
@@ -59,7 +61,7 @@ _AGGREGATION_BY_TYPE = {
 def _default_aggregation(team: Team, metric_name: str) -> tuple[str, float | None]:
     """Pick an aggregation from the metric's OTel type: counters get `rate`,
     gauges `avg`, histograms `histogram_quantile(0.95)`."""
-    for row in MetricNamesQueryRunner(team=team, search=metric_name, limit=5).run():
+    for row in MetricNamesQueryRunner(team=team, search=metric_name, limit=5, include_sparklines=False).run():
         if row["name"] == metric_name:
             aggregation = _AGGREGATION_BY_TYPE.get(row["metric_type"], "avg")
             return aggregation, 0.95 if aggregation == "histogram_quantile" else None
@@ -156,7 +158,7 @@ def characterize_anomaly(
     interval = _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
 
     def _run(group_by: tuple[MetricGroupBy, ...] = ()) -> list[dict[str, Any]]:
-        return MetricQueryRunner(
+        return build_metric_query_runner(
             team=team,
             metric_name=metric_name,
             aggregation=aggregation,
@@ -223,31 +225,56 @@ def characterize_anomaly(
     )
 
 
+def _series_in_range(metric_name: str, date_from: dt.datetime, date_to: dt.datetime) -> ast.SelectQuery:
+    if reads_metrics4_only(date_from):
+        return series_in_range_query(metric_name, date_from, date_to)
+    query = parse_select(
+        """
+            SELECT DISTINCT series_fingerprint
+            FROM posthog.metrics
+            WHERE metric_name = {metric_name}
+              AND {time_range}
+        """,
+        placeholders={
+            "metric_name": ast.Constant(value=metric_name),
+            "time_range": time_range_expr(date_from, date_to),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
 def _discover_candidate_keys(
     team: Team, metric_name: str, date_from: dt.datetime, date_to: dt.datetime
 ) -> tuple[str, ...]:
-    """Most common attribute keys on the metric's rows in the window, with
-    service_name always considered (`attribute_field` resolves it to the
-    first-class column). The dotted `service.name` resource attribute is
-    normalized to `service_name` so the same key isn't drilled twice."""
+    """Most common attribute keys across the metric's series that reported in
+    the window, with service_name always considered (`attribute_field` resolves
+    it to the first-class column). The dotted `service.name` resource attribute
+    is normalized to `service_name` so the same key isn't drilled twice.
+
+    Keys are counted per series rather than per data point: the labels live on
+    `metric_series`, and a key carried by many series is the one worth drilling
+    into, whichever series scrapes fastest."""
     query = parse_select(
         """
             SELECT key, count() AS occurrences
             FROM (
                 SELECT arrayJoin(arrayConcat(mapKeys(attributes), mapKeys(resource_attributes))) AS key
-                FROM posthog.metrics
-                WHERE metric_name = {metric_name}
-                  AND timestamp >= {date_from}
-                  AND timestamp < {date_to}
+                FROM (
+                    SELECT any(attributes) AS attributes, any(resource_attributes) AS resource_attributes
+                    FROM posthog.metric_series
+                    WHERE metric_name = {metric_name}
+                      AND series_fingerprint IN {series_in_range}
+                    GROUP BY series_fingerprint
+                )
             )
             GROUP BY key
-            ORDER BY occurrences DESC
+            ORDER BY occurrences DESC, key ASC
             LIMIT {limit}
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
+            "series_in_range": _series_in_range(metric_name, date_from, date_to),
             "limit": ast.Constant(value=MAX_CANDIDATE_KEYS),
         },
     )

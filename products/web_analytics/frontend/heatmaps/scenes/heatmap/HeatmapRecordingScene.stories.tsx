@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -94,7 +93,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         pageUrl: urls.heatmapRecording(`iframeStorage=${STORAGE_KEY}`),
-        featureFlags: [FEATURE_FLAGS.HEATMAPS_RECORDING_CLICKMAP],
         testOptions: {
             waitForSelector: '[data-attr="heatmap-clickmap-overlay"]',
             waitForLoadersToDisappear: true,

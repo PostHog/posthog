@@ -1,0 +1,27 @@
+// Density is set through custom properties rather than overriding rules. Tailwind utilities are
+// !important in this app, so a rule that competes with one loses, but a variable it reads wins.
+[data-nav-density='compact'] {
+    --button-height-base: var(--button-height-xs);
+
+    // Section and category headers keep the padding of a comfortable row. Once the rows condense,
+    // that space reads as a gap instead of as grouping.
+    --nav-section-trigger-padding-y: 0.125rem;
+    --nav-section-gap: 0.25rem;
+    --lemon-tree-category-gap: 0.5rem;
+    --lemon-tree-category-padding-y: 0.125rem;
+
+    .button-primitive {
+        font-size: 0.75rem;
+    }
+
+    // The search bar is a control, not a list row, so it stays taller than the rows around it.
+    // At the compact row height the ⌘K badge fills the box from edge to edge.
+    [data-attr='nav-search-bar'] {
+        --button-height-base: var(--button-height-sm);
+
+        .KeyboardShortcut {
+            min-width: 1.125rem;
+            height: 1.125rem;
+        }
+    }
+}

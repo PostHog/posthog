@@ -1,3 +1,8 @@
+import {
+    PENDING_OAUTH_CONNECTION_FIXTURE,
+    setPendingOAuthConnectionCookie,
+} from 'scenes/authentication/shared/pendingOAuthConnection.mock'
+
 import type { Meta, StoryFn } from '@storybook/react'
 import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
@@ -26,6 +31,7 @@ type StoryArgs = {
     github: boolean
     gitlab: boolean
     panel: PanelOption
+    pendingOAuthConnection: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -57,6 +63,7 @@ const meta: Meta<StoryArgs> = {
             name: 'Step',
             options: ['1: Email', '2: Password', '3: Profile'] satisfies PanelOption[],
         },
+        pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
     },
     args: {
         cloud: true,
@@ -65,12 +72,23 @@ const meta: Meta<StoryArgs> = {
         github: true,
         gitlab: true,
         panel: '1: Email',
+        pendingOAuthConnection: false,
     },
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ cloud, region, googleOAuth, github, gitlab, panel: panelOption }) => {
+const Template: StoryFn<StoryArgs> = ({
+    cloud,
+    region,
+    googleOAuth,
+    github,
+    gitlab,
+    panel: panelOption,
+    pendingOAuthConnection,
+}) => {
     const panel = PANEL_INDEX[panelOption]
+    // Set synchronously: the scene reads the cookie while it mounts during this same render.
+    setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -112,3 +130,7 @@ PasswordStep.args = { panel: '2: Password' }
 
 export const ProfileStep: StoryFn<StoryArgs> = Template.bind({})
 ProfileStep.args = { panel: '3: Profile' }
+
+export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+PendingOAuthConnection.storyName = 'Pending OAuth connection'
+PendingOAuthConnection.args = { pendingOAuthConnection: true }

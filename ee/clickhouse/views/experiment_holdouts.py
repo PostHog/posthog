@@ -3,7 +3,7 @@ from typing import Any
 from django.db import transaction
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,11 +11,18 @@ from rest_framework.response import Response
 from posthog.api.documentation import FeatureFlagConditionGroupSchemaSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.approvals.backend.decorators import approval_gate
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.models.experiment import ExperimentHoldout
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.facade.filters import set_holdout
+
+# A holdout change is gated as one operation, so the flag writes it fans out into must not
+# re-enter the flag gate: a second gate inside the transaction would roll its own change
+# request back. See products/approvals/backend/actions/experiment_holdouts.py.
+HOLDOUT_GATED_AT_OPERATION = {"approval_apply": True}
 
 
 @extend_schema_field(FeatureFlagConditionGroupSchemaSerializer(many=True))
@@ -111,6 +118,7 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
         instance.save(skip_activity_log=True)  # Skip activity logging for filters update
         return instance
 
+    @approval_gate("experiment_holdout.update")
     def update(self, instance: ExperimentHoldout, validated_data):
         filters = validated_data.get("filters")
         if filters and instance.filters != filters:
@@ -120,9 +128,9 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
             with transaction.atomic():
                 for experiment in instance.experiment_set.all():
                     flag = experiment.feature_flag
-                    existing_flag_serializer = FeatureFlagSerializer(
+                    update_flag(
                         flag,
-                        data={
+                        {
                             "filters": set_holdout(
                                 flag.filters,
                                 holdout_id=instance.id,
@@ -130,18 +138,42 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
                                 exclusion_percentage=new_filters[0]["rollout_percentage"],
                             ),
                         },
-                        partial=True,
-                        context=self.context,
+                        team=self.context["get_team"](),
+                        user=self.context["request"].user,
+                        request=self.context["request"],
+                        serializer_context={**self.context, **HOLDOUT_GATED_AT_OPERATION},
                     )
-                    existing_flag_serializer.is_valid(raise_exception=True)
-                    existing_flag_serializer.save()
                 return super().update(instance, validated_data)
 
         return super().update(instance, validated_data)
 
 
+def delete_holdout_and_clear_flags(holdout: ExperimentHoldout, *, user: Any, request: Any = None) -> None:
+    """Delete a holdout and drop its exclusion from every linked experiment's flag.
+
+    Shared by the endpoint and by the apply path of an approved delete, so both write the same
+    rows in the same transaction.
+    """
+    with transaction.atomic():
+        for experiment in holdout.experiment_set.all():
+            flag = experiment.feature_flag
+            update_flag(
+                flag,
+                {"filters": set_holdout(flag.filters, holdout_id=None, exclusion_percentage=None)},
+                team=holdout.team,
+                user=user,
+                request=request,
+                serializer_context=HOLDOUT_GATED_AT_OPERATION,
+            )
+        holdout.delete()
+
+
 @extend_schema(extensions={"x-swagger-tag": "experiment_holdouts", "x-product": "experiments"})
-class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ExperimentHoldoutViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    Create, read, update and delete experiment holdouts.
+    """
+
     # Deliberately NOT an AccessControlViewSetMixin: holdouts are shared project config that
     # inherit experiment access, with no per-holdout grants. Exposing `/{id}/access_controls`
     # would let an object-level holdout grant bypass resource-level experiment access.
@@ -150,21 +182,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExperimentHoldoutSerializer
     ordering = "-created_at"
 
+    @approval_gate("experiment_holdout.delete")
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
-
-        with transaction.atomic():
-            for experiment in instance.experiment_set.all():
-                flag = experiment.feature_flag
-                existing_flag_serializer = FeatureFlagSerializer(
-                    flag,
-                    data={
-                        "filters": set_holdout(flag.filters, holdout_id=None, exclusion_percentage=None),
-                    },
-                    partial=True,
-                    context={"request": request, "team": self.team, "team_id": self.team_id},
-                )
-                existing_flag_serializer.is_valid(raise_exception=True)
-                existing_flag_serializer.save()
-
-            return super().destroy(request, *args, **kwargs)
+        delete_holdout_and_clear_flags(self.get_object(), user=request.user, request=request)
+        return Response(status=status.HTTP_204_NO_CONTENT)

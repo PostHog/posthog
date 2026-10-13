@@ -25,14 +25,22 @@ service PersonHogLeader {
   // this RPC is ever called; a leader taking partition ownership rebuilds
   // its map from the live marks before accepting writes. Fencing produces
   // nothing to the changelog and does not advance the version — the
-  // sealed version is the person's current one. While fenced, writes fail
+  // sealed version is the person's current one raised to the leader's
+  // emitted-version floor, covering a pre-fence write whose outcome is
+  // still indeterminate. While fenced, writes fail
   // FAILED_PRECONDITION with an `x-person-fenced` metadata key carrying
-  // the op type; reads are unaffected. Re-fencing with the same op_id
+  // the op type and `x-person-fenced-op-id` carrying the holder's op id;
+  // reads are unaffected. Re-fencing with the same op_id
   // re-seals with fresh state (what makes the saga's seal step safe to
   // repeat); a different op_id is rejected — at most one lifecycle op
   // holds a person. The fence never lapses on a timer: only ReleaseFence
   // (or the op being observed finished) clears it.
   rpc FencePerson(personhog.types.v1.FencePersonRequest) returns (personhog.types.v1.FencePersonResponse);
+
+  // FencePerson for many persons of one op that share one partition:
+  // every person must hash to the routed partition or the whole batch
+  // is refused INVALID_ARGUMENT; a destroyed person lands in not_found.
+  rpc FencePersons(personhog.types.v1.FencePersonsRequest) returns (personhog.types.v1.FencePersonsResponse);
 
   // The closing half of FencePerson. `committed` (the person was
   // destroyed): verify the op against its live mark row — the request
@@ -49,6 +57,11 @@ service PersonHogLeader {
   // a mark already settled as deleted absorbs the retry without a second
   // record.
   rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+
+  // ReleaseFence for many persons of one op that share one partition,
+  // routed and checked like FencePersons; the marks are read in one
+  // query and the death documents share fencing windows.
+  rpc ReleaseFences(personhog.types.v1.ReleaseFencesRequest) returns (personhog.types.v1.ReleaseFencesResponse);
 
   // Internal, saga-runner only. The merge saga's document write: fold the
   // sealed source snapshots into the target person's document under the

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign import (
     ActiveCampaignResumeConfig,
     active_campaign_source,
@@ -49,10 +47,10 @@ class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCam
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ACTIVE_CAMPAIGN,
+            name=ExternalDataSourceType.ACTIVECAMPAIGN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="ActiveCampaign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ActiveCampaign API URL and key to sync your CRM and marketing data into the PostHog Data warehouse.
 
 You can find both in your ActiveCampaign account under **Settings > Developer**. The API key is account-wide and grants read access to every endpoint listed below.""",

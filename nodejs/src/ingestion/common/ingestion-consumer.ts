@@ -20,7 +20,10 @@ type MessageInput = { message: Message }
 type MessageContext = { message: Message }
 
 export interface IngestionBatchingPipeline {
-    feed(elements: OkResultWithContext<MessageInput, MessageContext>[]): Promise<FeedResult>
+    feed(
+        elements: OkResultWithContext<MessageInput, MessageContext>[],
+        batchContext: Record<never, never>
+    ): Promise<FeedResult>
     next(): Promise<BatchResult<unknown> | null>
 }
 
@@ -167,7 +170,7 @@ class KafkaBatchHandler {
             createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
         )
 
-        const feedResult = await this.pipeline.feed(batch)
+        const feedResult = await this.pipeline.feed(batch, {})
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }

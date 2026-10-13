@@ -31,7 +31,6 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("approvals", "0001_migrate_approvals_models"),
         ("posthog", "1238_ducklakebackfill_earliest_event_date"),
     ]
 

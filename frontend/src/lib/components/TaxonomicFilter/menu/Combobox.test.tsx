@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -5,6 +7,11 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import * as featureFlagLogicModule from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -46,10 +53,16 @@ function renderCombobox(): ReturnType<typeof render> {
     )
 }
 
-function makeEntry(groupType: TaxonomicFilterGroupType, name: string, groupName: string): any {
+function makeEntry(groupType: TaxonomicFilterGroupType, name: string, groupName: string, endpoint?: string): any {
     return {
         item: { name },
-        group: { type: groupType, name: groupName, getName: (t: any) => t?.name, getValue: (t: any) => t?.name },
+        group: {
+            type: groupType,
+            name: groupName,
+            getName: (t: any) => t?.name,
+            getValue: (t: any) => t?.name,
+            ...(endpoint ? { endpoint } : {}),
+        },
         name,
     }
 }
@@ -98,6 +111,20 @@ async function openedCategoryPopup(): Promise<HTMLElement> {
         }
         return popup
     })
+}
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+}
+
+const ANNOUNCEMENT_URL = 'https://example.com/announcement'
+
+function setMoveNotices(enabled: boolean, url: string | null): void {
+    featureFlagLogicModule.featureFlagLogic.mount()
+    featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
+        [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: enabled,
+    })
+    jest.spyOn(featureFlagLogicModule, 'getFeatureFlagPayload').mockReturnValue({ url })
 }
 
 describe('MenuFilterCombobox', () => {
@@ -571,19 +598,34 @@ describe('MenuFilterCombobox', () => {
         it('collapses matching URLs into one "URL contains <query>" row, not the raw URL list', async () => {
             mockUrlValues(['https://app.posthog.com/checkout', 'https://app.posthog.com/checkout/pay'])
 
-            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'checkout' })
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: '/checkout' })
 
-            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "/checkout"'))).toBe(true))
             const rows = rowTexts()
             // Exactly one synthetic row, and none of the raw matched URLs are listed.
-            expect(rows.filter((t) => t.includes('URL contains "checkout"'))).toHaveLength(1)
+            expect(rows.filter((t) => t.includes('URL contains "/checkout"'))).toHaveLength(1)
             expect(rows.some((t) => t.includes('https://app.posthog.com/checkout'))).toBe(false)
+        })
+
+        it.each([
+            { kind: 'a plain word', query: 'checkout', offersRow: false },
+            { kind: 'a path', query: '/checkout', offersRow: true },
+        ])('offers the URL contains row for $kind only when it looks like a URL', async ({ query, offersRow }) => {
+            mockUrlValues(['https://app.posthog.com/checkout'])
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: query })
+
+            await waitFor(() =>
+                expect(apiGet.mock.calls.some(([url]: unknown[]) => String(url).includes('events/values'))).toBe(true)
+            )
+            await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
+            expect(rowTexts().some((t) => t.includes(`URL contains "${query}"`))).toBe(offersRow)
         })
 
         it('shows no URL suggestion when no pageview URL matches (0 slots)', async () => {
             mockUrlValues([])
 
-            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'zzznomatch' })
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: '/zzznomatch' })
 
             await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
             expect(screen.queryByText(/URL contains/)).not.toBeInTheDocument()
@@ -608,13 +650,13 @@ describe('MenuFilterCombobox', () => {
 
             renderAll({
                 groupTypes: [TaxonomicFilterGroupType.PageviewUrls],
-                searchQuery: 'checkout',
+                searchQuery: '/checkout',
                 onCommit,
             })
 
-            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "/checkout"'))).toBe(true))
             const row = Array.from(document.querySelectorAll('[data-slot="taxonomic-filter-menu-row"]')).find((el) =>
-                el.textContent?.includes('URL contains "checkout"')
+                el.textContent?.includes('URL contains "/checkout"')
             ) as HTMLElement
             await user.click(row)
 
@@ -622,7 +664,7 @@ describe('MenuFilterCombobox', () => {
             expect(entry.group.type).toBe(TaxonomicFilterGroupType.PageviewUrls)
             // getValue reads the item name; the synthetic row carries the query, which
             // `taxonomicPropertyFilterLogic.selectItem` turns into `$current_url IContains`.
-            expect(entry.group.getValue(entry.item)).toBe('checkout')
+            expect(entry.group.getValue(entry.item)).toBe('/checkout')
             // Tagged so the commit telemetry can measure adoption of the shortcut.
             expect((entry.item as { isContainsShortcut?: boolean }).isContainsShortcut).toBe(true)
         })
@@ -795,6 +837,33 @@ describe('MenuFilterCombobox', () => {
         expect(screen.queryByText('my_recent_event')).not.toBeInTheDocument()
     })
 
+    it.each(['Recent', 'Pinned'])(
+        'filters the %s category by the query, endpoint-backed rows included',
+        async (label) => {
+            const user = userEvent.setup()
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            // Saved rows carry their source group, and those groups fetch from an endpoint —
+            // but the rows themselves never reach it, so the query must filter them here.
+            const savedEntries = [
+                makeEntry(TaxonomicFilterGroupType.Events, 'browser_opened', 'Events', 'api/event_definitions'),
+                makeEntry(TaxonomicFilterGroupType.Events, 'checkout_started', 'Events', 'api/event_definitions'),
+            ]
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                searchQuery: 'browser',
+                recentEntries: label === 'Recent' ? savedEntries : undefined,
+                pinnedEntries: label === 'Pinned' ? savedEntries : undefined,
+            })
+
+            await user.click(screen.getByLabelText('Filter category'))
+            await user.click(await within(await openedCategoryPopup()).findByText(label))
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('browser_opened'))).toBe(true))
+            expect(rowTexts().some((t) => t.includes('checkout_started'))).toBe(false)
+        }
+    )
+
     it('tags recents and pinned rows with their source recency', async () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
 
@@ -814,6 +883,25 @@ describe('MenuFilterCombobox', () => {
         expect(recentRow).toContain('Events')
         expect(pinnedRow).toContain('Pinned')
         expect(pinnedRow).toContain('Event properties')
+    })
+
+    it('renders the tag a group supplies, from the row it is handed', async () => {
+        // The classic list renders `getTag`, so a group relying on it to mark a row (a cohort that
+        // feature flags cannot target yet) would silently lose that mark in this menu. The tag has
+        // to come off the item, not the group: a recent is stored stripped to its name and id, so
+        // the cohort group's `getTag` gets a record with no readiness on it and renders nothing.
+        const tagged = makeEntry(TaxonomicFilterGroupType.Events, 'my_tagged_event', 'Events')
+        tagged.item.tagLabel = 'Preparing'
+        const stripped = makeEntry(TaxonomicFilterGroupType.Events, 'my_stripped_event', 'Events')
+        const getTag = (item: any): JSX.Element | null => (item?.tagLabel ? <span>{item.tagLabel}</span> : null)
+        tagged.group.getTag = getTag
+        stripped.group.getTag = getTag
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], recentEntries: [tagged, stripped] })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('my_tagged_event'))).toBe(true))
+        expect(rowTexts().find((t) => t.includes('my_tagged_event'))).toContain('Preparing')
+        expect(rowTexts().find((t) => t.includes('my_stripped_event'))).not.toContain('Preparing')
     })
 
     it('recent leads the list at row 0 even when content also matches the search query', async () => {
@@ -1083,7 +1171,152 @@ describe('MenuFilterCombobox', () => {
         expect(screen.queryByText('Check for results in other categories')).not.toBeInTheDocument()
     })
 
+    // Parity with the legacy picker, whose half lives in TaxonomicFilter.test.tsx. Nothing enforces
+    // that the two agree, so the same rule is asserted on both.
+    describe('an event hidden because its data is moving', () => {
+        beforeEach(() => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            localStorage.clear()
+        })
+
+        it.each([
+            ['links the announcement', true, ANNOUNCEMENT_URL, ANNOUNCEMENT_URL],
+            [
+                'links the announcement when its URL has leading whitespace',
+                true,
+                ` ${ANNOUNCEMENT_URL}`,
+                ANNOUNCEMENT_URL,
+            ],
+            ['has no link while the announcement has no URL', true, null, undefined],
+            ['has no link while the move notices are off', false, ANNOUNCEMENT_URL, undefined],
+        ])(
+            'explains the absence, drops recovery buttons that cannot recover it, and %s',
+            async (_label, moveNoticesOn, url, expectedHref) => {
+                setMoveNotices(moveNoticesOn, url)
+                renderAll({
+                    groupTypes: [TaxonomicFilterGroupType.Events],
+                    searchQuery: '$feature_flag_called',
+                })
+
+                const empty = await waitFor(() => screen.getByTestId('menu-filter-empty'))
+                expect(within(empty).getByText(/\$feature_flag_called isn't available here/)).toBeInTheDocument()
+                expect(screen.queryByTestId('menu-filter-include-stale-events')).not.toBeInTheDocument()
+                expect(screen.queryByTestId('menu-filter-check-other-categories')).not.toBeInTheDocument()
+                const link = within(empty).queryByTestId('taxonomic-hidden-event-announcement')
+                expect(link?.getAttribute('href')).toBe(expectedHref)
+            }
+        )
+
+        it('reports no matches as usual for a team on the Events mode', async () => {
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number0)
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                searchQuery: '$feature_flag_called',
+            })
+
+            const empty = await waitFor(() => screen.getByTestId('menu-filter-empty'))
+            expect(within(empty).queryByText(/isn't available here/)).not.toBeInTheDocument()
+        })
+    })
+
     describe('reveal barrier', () => {
+        it('waits for contributing categories but not their full expansion counts', async () => {
+            let resolveProperties!: (value: { results: { id: number; name: string }[]; count: number }) => void
+            let resolveCount!: (value: { count: number }) => void
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('property_definitions')) {
+                    return new Promise((resolve) => {
+                        if (url.includes('filter_by_event_names=true')) {
+                            resolveProperties = resolve
+                        } else {
+                            resolveCount = resolve
+                        }
+                    })
+                }
+                return Promise.resolve({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
+            })
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+                searchQuery: 'browser',
+                eventNames: ['browser_opened'],
+            })
+            await waitFor(() => expect(resolveProperties).toBeTruthy())
+            expect(screen.getByTestId('menu-filter-loading')).toBeInTheDocument()
+            expect(rowTexts()).toEqual([])
+
+            await act(async () => resolveProperties({ results: [{ id: 2, name: 'browser_name' }], count: 1 }))
+            await waitFor(() => expect(rowTexts().some((text) => text.includes('browser_name'))).toBe(true))
+            expect(rowTexts().some((text) => text.includes('browser_opened'))).toBe(true)
+            expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
+            const visibleRows = rowTexts()
+
+            await act(async () => resolveCount({ count: 9 }))
+            expect(rowTexts()).toEqual(visibleRows)
+        })
+
+        it('reveals the selected category while another category is still fetching', async () => {
+            const user = userEvent.setup()
+            apiGet.mockImplementation((url: string) =>
+                url.includes('property_definitions')
+                    ? new Promise(() => {})
+                    : Promise.resolve({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
+            )
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+                searchQuery: 'browser',
+            })
+            await waitFor(() => expect(screen.getByTestId('menu-filter-loading')).toBeInTheDocument())
+            await user.click(screen.getByLabelText('Filter category'))
+            await user.click(await within(await openedCategoryPopup()).findByText('Events'))
+            await waitFor(() => expect(rowTexts().some((text) => text.includes('browser_opened'))).toBe(true))
+            expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
+        })
+
+        it.each(['Recent', 'Pinned'])('never hides %s behind skeletons when switched to mid-search', async (label) => {
+            const user = userEvent.setup()
+            apiGet.mockResolvedValue({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
+            const resolvedEntry = makeEntry(TaxonomicFilterGroupType.Events, `browser_${label.toLowerCase()}`, 'Events')
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                searchQuery: 'browser',
+                recentEntries: label === 'Recent' ? [resolvedEntry] : undefined,
+                pinnedEntries: label === 'Pinned' ? [resolvedEntry] : undefined,
+            })
+            await waitFor(() => expect(rowTexts().some((text) => text.includes('browser_opened'))).toBe(true))
+
+            // The skeleton is inserted and removed within one event's commits, so a
+            // final-state query cannot see it. Record every insertion instead.
+            let skeletonInsertions = 0
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    for (const node of Array.from(mutation.addedNodes)) {
+                        if (
+                            node instanceof HTMLElement &&
+                            (node.matches('[data-attr="menu-filter-loading"]') ||
+                                node.querySelector('[data-attr="menu-filter-loading"]'))
+                        ) {
+                            skeletonInsertions += 1
+                        }
+                    }
+                }
+            })
+            observer.observe(document.body, { childList: true, subtree: true })
+            try {
+                await user.click(screen.getByLabelText('Filter category'))
+                await user.click(await within(await openedCategoryPopup()).findByText(label))
+                await waitFor(() => expect(rowTexts().some((text) => text.includes(resolvedEntry.name))).toBe(true))
+            } finally {
+                observer.disconnect()
+            }
+            expect(skeletonInsertions).toBe(0)
+        })
+
         it('hides stale results during a refetch and reveals once it settles', async () => {
             const user = userEvent.setup()
             let resolveSecond: ((value: { results: any[]; count: number }) => void) | undefined

@@ -180,33 +180,38 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
   );
 
   useEffect(() => {
-    if (!scrollContainerRef.current || !content.activeTabId) return;
+    // Measured after paint: reading rects inside the commit forced a layout
+    // of the freshly mounted tab.
+    const frame = requestAnimationFrame(() => {
+      if (!scrollContainerRef.current || !content.activeTabId) return;
 
-    const activeTabIndex = content.tabs.findIndex(
-      (tab) => tab.id === content.activeTabId,
-    );
-    if (activeTabIndex === -1) return;
+      const activeTabIndex = content.tabs.findIndex(
+        (tab) => tab.id === content.activeTabId,
+      );
+      if (activeTabIndex === -1) return;
 
-    const container = scrollContainerRef.current;
-    const tabElement = container.children[activeTabIndex] as HTMLElement;
-    if (!tabElement) return;
+      const container = scrollContainerRef.current;
+      const tabElement = container.children[activeTabIndex] as HTMLElement;
+      if (!tabElement) return;
 
-    const containerRect = container.getBoundingClientRect();
-    const tabRect = tabElement.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = tabElement.getBoundingClientRect();
 
-    if (tabRect.right > containerRect.right - 64) {
-      tabElement.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "end",
-      });
-    } else if (tabRect.left < containerRect.left) {
-      tabElement.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "start",
-      });
-    }
+      if (tabRect.right > containerRect.right - 64) {
+        tabElement.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "end",
+        });
+      } else if (tabRect.left < containerRect.left) {
+        tabElement.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "start",
+        });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [content.activeTabId, content.tabs]);
 
   return (

@@ -29,6 +29,8 @@ import type { ValueLabelsConfig } from '../utils/use-value-labels'
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
+    /** Reserve space for custom overlays; unspecified sides keep their computed margins. */
+    margins?: LineChartConfig['margins']
     xAxis?: XAxisConfig
     /** Single object = one y-axis (today's behavior). Array = one entry per axis for dual y-axis
      *  charts: set `id` (matches `Series.yAxisId`; first entry defaults to `'left'`) and `position`
@@ -95,6 +97,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const {
         xAxis,
         yAxis,
+        margins,
         valueLabels,
         goalLines,
         confidenceIntervals,
@@ -120,7 +123,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         primaryYAxis,
         yAxes,
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
-    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis)
+    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,
@@ -140,6 +143,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const floatBaseline = primaryYAxis?.startAtZero === false && primaryYAxis?.scale !== 'log'
 
     const lineChartConfig: LineChartConfig = {
+        margins,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         xTickLabelRotation: xAxis?.tickLabelRotation,

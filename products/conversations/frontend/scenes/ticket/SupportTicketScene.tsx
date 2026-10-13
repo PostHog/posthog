@@ -1,19 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,13 +25,23 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import type { SimplifiedRepliesProps } from '../../components/ComposerHeader/ComposerHeader'
+import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
-import { SlaDisplay } from '../../components/SlaDisplay'
+import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import {
+    type Ticket,
+    type TicketPriority,
+    type TicketStatus,
+    priorityOptions,
+    statusOptionsWithoutAll,
+} from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -39,6 +50,7 @@ import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
@@ -73,6 +85,21 @@ const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[
     { value: 'resolved', statusLabel: 'resolved' },
 ]
 
+export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): SimplifiedRepliesProps {
+    const customer =
+        ticket.person?.properties?.name ||
+        ticket.person?.properties?.email ||
+        ticket.anonymous_traits?.name ||
+        ticket.anonymous_traits?.email ||
+        null
+    // Person properties and traits can hold any JSON value, and React cannot render an object.
+    const customerText = customer === null || typeof customer === 'string' ? customer : JSON.stringify(customer)
+    return {
+        recipient: ticket.channel_source === 'email' ? emailRecipients : customerText,
+        statusLabel: statusOptionsWithoutAll.find((option) => option.value === ticket.status)?.label,
+    }
+}
+
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
@@ -84,6 +111,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         assignee,
         tags,
         chatMessages,
+        deliveryStatusByMessageId,
         messagesLoading,
         messageSending,
         hasMoreMessages,
@@ -97,18 +125,24 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         unsavedTicketChanges,
         ticketUpdating,
+        ticketDeleting,
+        deleteDisabledReason,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
         replyRecipientDescription,
         snoozedUntil,
-        knowledgeGaps,
-        knowledgeGapsLoading,
         emailReplyBlockedReason,
         latestAiMessage,
+        latestAiDraftId,
         feedbackByMessageId,
         editingMessageId,
         discussionsEnabled,
+        fullEmailContent,
+        fullEmailContentLoading,
+        fullEmailMessageId,
+        composerPrefillAt,
+        aiDraftApplying,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -127,14 +161,19 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         setDraftModeEnabled,
-        dismissKnowledgeGap,
         submitAiReplyFeedback,
         startEditingMessage,
         cancelEditingMessage,
         deleteMessage,
+        deleteTicket,
+        loadFullEmail,
+        closeFullEmail,
+        applyAiDraft,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -189,6 +228,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     // Above the early returns below: this scene renders a spinner and a not-found state before the
     // thread, and a hook can't be called on only some of those paths.
     const discussionExtras = useDiscussionTimelineExtras(ticket?.id, discussionsEnabled)
+    const threadExtras = useMemo(
+        () => [...reportTimelineExtras(linkedReports), ...discussionExtras],
+        [discussionExtras, linkedReports]
+    )
 
     if (ticketLoading) {
         return (
@@ -218,7 +261,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     return (
-        <SceneContent className="lg:min-h-0 lg:flex-1">
+        <SceneContent className="flex-1 min-h-0 pb-4">
+            <SupportTicketSceneMenuBar ticketId={ticketId} />
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
@@ -230,16 +274,32 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={ticketListBackTo(searchParams)}
             />
+            <LemonModal title="Full email" isOpen={fullEmailMessageId !== null} onClose={closeFullEmail}>
+                {fullEmailContentLoading ? (
+                    <div className="flex h-40 items-center justify-center">
+                        <Spinner />
+                    </div>
+                ) : (
+                    <div className="max-h-96 overflow-y-auto break-words text-sm">
+                        <SupportMarkdown disableImages>{fullEmailContent ?? ''}</SupportMarkdown>
+                    </div>
+                )}
+            </LemonModal>
 
-            <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
+            {/* Overflow clipping is only safe side-by-side, where the thread has a bounded height.
+                Stacked, the thread is content-sized; clipping here would collapse it. */}
+            <div className="flex flex-col gap-y-4 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:flex-1 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-hidden">
                 <div
                     style={{ width: chatPanelWidth(desiredSize) }}
-                    className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
+                    className="relative shrink-0 max-w-full min-h-80  @min-[48rem]/main-content:pr-2 @min-[48rem]/main-content:max-w-[calc(100%-300px)] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:flex @min-[48rem]/main-content:flex-col"
                     ref={chatPanelRef}
                 >
                     {/* Main conversation area */}
                     <ChatView
-                        threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
+                        fillParent
+                        collapseUntilActive
+                        threadId={ticketId}
+                        threadExtras={threadExtras}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
@@ -249,8 +309,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onLoadOlderMessages={loadOlderMessages}
                         channel={ticket?.channel_source}
                         showPrivateOption
-                        unreadCustomerCount={ticket?.unread_customer_count}
-                        showDeliveryStatus={ticket?.channel_source === 'widget'}
+                        deliveryStatusByMessageId={deliveryStatusByMessageId}
                         draftContent={draftContent}
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
@@ -259,12 +318,16 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftModeChange={setDraftModeEnabled}
                         sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
                         sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
+                        simplifiedReplies={
+                            simplifiedReplies && ticket
+                                ? simplifiedRepliesFor(ticket, replyRecipientDescription)
+                                : undefined
+                        }
                         unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
                         sendDisabledReason={sendDisabledReason}
-                        minHeight="min(400px, calc(100svh - 20rem))"
-                        maxHeight="calc(100svh - 20rem)"
                         latestAiMessageId={latestAiMessage?.id ?? null}
+                        latestAiDraftId={latestAiDraftId}
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
@@ -275,14 +338,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onEditMessage={startEditingMessage}
                         onDeleteMessage={deleteMessage}
                         onCancelEdit={cancelEditingMessage}
+                        fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
+                        onViewFullEmail={loadFullEmail}
+                        composerPrefillAt={composerPrefillAt}
+                        aiSources={ticket?.ai_triage?.sources}
+                        aiDraftApplying={aiDraftApplying}
+                        onApplyAiDraft={applyAiDraft}
                     />
-                    <div className="hidden lg:block">
+                    <div className="hidden @min-[48rem]/main-content:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
                     </div>
                 </div>
 
                 {/* Sidebar with all metadata */}
-                <div className="space-y-4 flex-1 min-w-[300px] pl-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-4">
+                <div className="space-y-4 flex-1 min-w-[300px] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:pl-2 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-y-auto">
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (
@@ -373,6 +442,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <span className="text-muted-alt shrink-0">From</span>
                                     <span className="text-xs truncate text-right" title={ticket.email_from}>
                                         {ticket.email_from}
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source === 'email' && ticket?.email_to && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">To</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
+                                        {ticket.email_to}
                                     </span>
                                 </div>
                             )}
@@ -524,8 +601,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     }}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Tags</span>
+                            <div className="flex justify-between items-start gap-2">
+                                <span className="text-muted-alt shrink-0">Tags</span>
                                 <TicketTags
                                     tags={tags}
                                     onChange={setTags}
@@ -534,7 +611,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 />
                             </div>
                         </div>
-                        <div className="mt-3 pt-3 border-t flex justify-end">
+                        <div className="mt-3 pt-3 border-t flex justify-between gap-2">
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                onClick={() => deleteTicket()}
+                                loading={ticketDeleting}
+                                disabledReason={deleteDisabledReason}
+                                data-attr="ticket-delete"
+                            >
+                                Delete ticket
+                            </LemonButton>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Ticket}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -566,14 +654,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && (
-                        <AIPanel
-                            aiTriage={ticket.ai_triage}
-                            knowledgeGaps={knowledgeGaps}
-                            knowledgeGapsLoading={knowledgeGapsLoading}
-                            onDismissGap={dismissKnowledgeGap}
-                        />
-                    )}
+                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

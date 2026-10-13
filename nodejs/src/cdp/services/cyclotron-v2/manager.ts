@@ -6,7 +6,9 @@ import { isTransientPgError } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
+import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
 import {
+    CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
     CyclotronV2InFlightCounts,
@@ -178,7 +180,7 @@ export class CyclotronV2Manager {
                  lock_id = NULL,
                  last_heartbeat = NULL,
                  last_transition = EXCLUDED.last_transition,
-                 transition_count = cyclotron_jobs.transition_count + 1,
+                 transition_count = LEAST(cyclotron_jobs.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  parent_run_id = EXCLUDED.parent_run_id,
                  state = EXCLUDED.state,
                  distinct_id = EXCLUDED.distinct_id,
@@ -286,7 +288,7 @@ export class CyclotronV2Manager {
                  lock_id = NULL,
                  last_heartbeat = NULL,
                  last_transition = EXCLUDED.last_transition,
-                 transition_count = cyclotron_jobs.transition_count + 1,
+                 transition_count = LEAST(cyclotron_jobs.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  parent_run_id = EXCLUDED.parent_run_id,
                  state = EXCLUDED.state,
                  distinct_id = EXCLUDED.distinct_id,
@@ -612,8 +614,19 @@ export class CyclotronV2Manager {
      */
     async cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult> {
         const { teamId, functionId } = options
-        if ((options.jobIds !== undefined) === (options.all === true)) {
-            throw new Error('cancelJobs requires exactly one selector: jobIds or all')
+        const selectorCount = [
+            options.jobIds !== undefined,
+            options.all === true,
+            options.parentRunId !== undefined,
+        ].filter(Boolean).length
+        if (selectorCount !== 1) {
+            throw new Error('cancelJobs requires exactly one selector: jobIds, parentRunId, or all')
+        }
+        // Rejected rather than treated as unset: the SQL builder below tests truthiness, so an
+        // empty string would leave the selector clause empty and silently widen a parent-run
+        // cancel to every in-flight job of the workflow.
+        if (options.parentRunId !== undefined && options.parentRunId.length === 0) {
+            throw new Error('cancelJobs parentRunId must be a non-empty string')
         }
 
         const jobIds = options.jobIds ? [...new Set(options.jobIds)] : undefined
@@ -626,6 +639,9 @@ export class CyclotronV2Manager {
         if (jobIds) {
             params.push(jobIds)
             selectorClause = `AND id = ANY($${params.length}::uuid[])`
+        } else if (options.parentRunId) {
+            params.push(options.parentRunId)
+            selectorClause = `AND parent_run_id = $${params.length}`
         }
         if (options.excludeQueueNames?.length) {
             params.push(options.excludeQueueNames)
@@ -690,7 +706,7 @@ export class CyclotronV2Manager {
         logger.info('Cancel sweep completed', {
             teamId,
             functionId,
-            mode: jobIds ? 'jobIds' : 'all',
+            mode: jobIds ? 'jobIds' : options.parentRunId ? 'parentRunId' : 'all',
             marked,
             remaining,
         })
@@ -772,5 +788,11 @@ export class CyclotronV2Manager {
             logger.error('Cyclotron V2 depth check failed', { error: String(e) })
             return false
         }
+    }
+
+    // Wakes parked workflow steps with the outcome of the run they dispatched. Scoped to one team
+    // because the caller's token is; see processStepResumes for the per-job outcomes.
+    async resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>> {
+        return await processStepResumes(this.pool, resumes, teamId)
     }
 }

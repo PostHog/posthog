@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonLabel, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { base64Encode } from 'lib/utils/base64'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -34,20 +33,6 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
     }
 
     const insightUrl = urls.insightNew({ type: InsightType.SQL, query: dataTableNode })
-
-    const canvasContent = {
-        type: 'doc',
-        content: [
-            {
-                type: 'ph-query',
-                attrs: {
-                    query: dataTableNode,
-                },
-            },
-        ],
-    }
-
-    const canvasUrl = urls.canvas() + '#🦔=' + base64Encode(JSON.stringify(canvasContent))
 
     return (
         <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
@@ -95,22 +80,9 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                 {showEventsList ? (
                     <>
                         <div className="flex justify-end items-start">
-                            <LemonSelect
-                                placeholder="Open in..."
-                                onChange={(target) => {
-                                    if (target === 'insight') {
-                                        // Open a new tab
-                                        window.open(insightUrl, '_blank')
-                                    } else if (target === 'canvas') {
-                                        // Open a new tab
-                                        window.open(canvasUrl, '_blank')
-                                    }
-                                }}
-                                options={[
-                                    { label: 'New insight', value: 'insight' },
-                                    { label: 'New canvas', value: 'canvas' },
-                                ]}
-                            />
+                            <LemonButton type="secondary" size="small" to={insightUrl} targetBlank>
+                                New insight
+                            </LemonButton>
                         </div>
                         <div className="flex overflow-y-auto flex-col flex-1 rounded border max-h-200">
                             {eventsDataTableNode && (

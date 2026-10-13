@@ -1,33 +1,10 @@
-//! Exhaustive model-checking runs with the expected verdicts per
-//! variant. These are the durable record of what the protocol does and
-//! does not guarantee:
-//!
-//! | scenario                     | no_lost_acked_write | no_split_acceptance |
-//! |------------------------------|---------------------|----------------------|
-//! | Current, no failures         | holds               | holds                |
-//! | Current, crash/lease loss    | holds               | holds                |
-//! | Current, single zombie pod   | holds               | holds                |
-//! | Current, double zombie       | VIOLATED (residual) | VIOLATED (residual)  |
-//! | EpochFenced, double zombie   | holds               | holds                |
-//!
-//! Every row above is about *write* safety. Stale strong reads from a
-//! zombie pod are a separate, still-open residual that fencing does not
-//! address; only the configurations without a zombie window uphold
-//! `strong_reads_complete`.
-//!
-//! The single-zombie row is a result the checker sharpened beyond what
-//! the manual review claimed: a zombie *pod* alone cannot lose an acked
-//! write, because the identity freeze quorum has every registered router
-//! stashing before the drain (no honest router routes to the zombie
-//! post-warm) and anything the zombie accepts pre-warm sits below the
-//! warm HWM and is captured. Loss requires the double zombie — a
-//! lease-expired router (outside the quorum, stale table) feeding a
-//! lease-expired pod. That is the documented residual epoch fencing
-//! closes; the checker finds the exact interleaving as a counterexample.
+//! Exhaustive model-checking runs and their verdicts. Each test's doc
+//! comment states what its configuration proves; the README carries the
+//! verdict table and the state-space sizes.
 
 use std::time::Instant;
 
-use personhog_stateright::model::{ClaimDetection, HandoffModel, Variant, WarmOrder};
+use personhog_stateright::model::{ClaimDetection, HandoffModel, WarmOrder};
 use stateright::{Checker, HasDiscoveries, Model};
 
 /// Every checker explores in parallel: stateright defaults to a single
@@ -118,9 +95,8 @@ fn base() -> HandoffModel {
         routers: 2,
         late_routers: 0,
         partitions: 1,
-        variant: Variant::Current,
         warm_order: WarmOrder::FenceFirst,
-        lease_gated_reads: false,
+        claim_lapses: false,
         claim_recovers: true,
         claim_detection: ClaimDetection::Prompt,
         writes: 2,
@@ -131,13 +107,13 @@ fn base() -> HandoffModel {
         zombie_window: 0,
         hold_pods: 0,
         cancels: 0,
+        chunked_plans: false,
         probes: false,
     }
 }
 
-fn model(variant: Variant, crashes: u8, zombie_window: u8) -> HandoffModel {
+fn model(crashes: u8, zombie_window: u8) -> HandoffModel {
     HandoffModel {
-        variant,
         crashes,
         zombie_window,
         ..base()
@@ -148,9 +124,9 @@ fn model(variant: Variant, crashes: u8, zombie_window: u8) -> HandoffModel {
 /// every reachable state, the liveness property holds on every full run,
 /// and the interesting states are genuinely reachable.
 #[test]
-fn current_protocol_without_failures_is_safe_and_live() {
-    model(Variant::Current, 0, 0)
-        .explore("current_protocol_without_failures_is_safe_and_live")
+fn the_protocol_without_failures_is_safe_and_live() {
+    model(0, 0)
+        .explore("the_protocol_without_failures_is_safe_and_live")
         .assert_properties();
 }
 
@@ -158,9 +134,9 @@ fn current_protocol_without_failures_is_safe_and_live() {
 /// data plane): the convergence machinery repairs wiped pod memory and
 /// the dead-owner paths reassign, with no safety violation anywhere.
 #[test]
-fn current_protocol_with_crashes_is_safe_and_live() {
-    model(Variant::Current, 1, 0)
-        .explore("current_protocol_with_crashes_is_safe_and_live")
+fn the_protocol_with_crashes_is_safe_and_live() {
+    model(1, 0)
+        .explore("the_protocol_with_crashes_is_safe_and_live")
         .assert_properties();
 }
 
@@ -170,58 +146,30 @@ fn current_protocol_with_crashes_is_safe_and_live() {
 /// below the warm HWM. This is a stronger guarantee than the manual
 /// review claimed — found by the checker refusing to produce a
 /// counterexample for the weaker claim.
+/// Refusing reads is the kind of change that can starve liveness, so this
+/// clears every property, not only the safety ones.
 #[test]
-fn current_protocol_single_zombie_pod_is_safe() {
-    model(Variant::Current, 1, 1)
-        .explore("current_protocol_single_zombie_pod_is_safe")
-        .assert_properties();
+fn a_single_zombie_pod_is_safe() {
+    HandoffModel {
+        claim_lapses: true,
+        ..model(1, 1)
+    }
+    .explore("a_single_zombie_pod_is_safe")
+    .assert_properties();
 }
 
-/// The documented residual, now precisely characterized: a lease-expired
-/// router (excluded from the freeze quorum, never stashing, stale table)
-/// routes a write to a lease-expired pod (coordination loop dead, never
-/// fenced) after the partition's new owner warmed — the write is acked
-/// but sits beyond the warm HWM, invisible to the new owner forever.
-#[test]
-fn current_protocol_double_zombie_loses_acked_writes() {
-    let checker = model(Variant::Current, 2, 1).explore_until(
-        "current_protocol_double_zombie_loses_acked_writes",
-        &["no_lost_acked_write", "no_split_write_acceptance"],
-    );
-    assert!(
-        checker.discovery("no_lost_acked_write").is_some(),
-        "the double zombie must produce an acked-write-loss counterexample"
-    );
-    assert!(
-        checker.discovery("no_split_write_acceptance").is_some(),
-        "the double zombie must produce a dual-capability counterexample"
-    );
-}
-
-/// Epoch fencing closes the *write* half of the residual: warming bumps
-/// the broker's producer epoch, so the zombie's produce is rejected
-/// before any ack. Acked-write loss, split acceptance, and drain-ack
-/// finality all hold again, zombie window and all.
-///
-/// `strong_reads_complete` is deliberately not asserted here: it still
-/// fails, because a zombie pod serves reads from its stale cache and
-/// nothing rejects them when the read gate is off. Turning it on closes
-/// that — see `fencing_and_lease_gated_reads_together_close_the_double_zombie`.
+/// The double zombie, closed by both halves at once: fencing rejects the
+/// zombie's produce before any ack, and the read gate stops it answering
+/// from a cache the new owner is already changing. Every property holds,
+/// including the stale-read one that fencing alone used to leave broken.
 #[test]
 fn epoch_fenced_double_zombie_is_safe() {
-    let checker = model(Variant::EpochFenced, 2, 1).explore("epoch_fenced_double_zombie_is_safe");
-    assert!(
-        checker.discovery("no_lost_acked_write").is_none(),
-        "epoch fencing must eliminate acked-write loss"
-    );
-    assert!(
-        checker.discovery("no_split_write_acceptance").is_none(),
-        "epoch fencing must restore single-writer capability"
-    );
-    assert!(
-        checker.discovery("drained_ack_is_final").is_none(),
-        "a drained ack must remain final under fencing"
-    );
+    HandoffModel {
+        claim_lapses: true,
+        ..model(2, 1)
+    }
+    .explore("epoch_fenced_double_zombie_is_safe")
+    .assert_properties();
 }
 
 /// The rejected warm ordering — changelog read before fence acquisition
@@ -234,7 +182,7 @@ fn epoch_fenced_double_zombie_is_safe() {
 fn epoch_fenced_read_first_ordering_loses_acked_writes() {
     let checker = HandoffModel {
         warm_order: WarmOrder::ReadFirst,
-        ..model(Variant::EpochFenced, 2, 1)
+        ..model(2, 1)
     }
     .explore_until(
         "epoch_fenced_read_first_ordering_loses_acked_writes",
@@ -262,7 +210,6 @@ fn epoch_fenced_resume_after_cancelled_handoff_stays_live() {
     HandoffModel {
         routers: 1,
         partitions: 2,
-        variant: Variant::EpochFenced,
         writes: 1,
         reads: 0,
         crashes: 2,
@@ -279,14 +226,14 @@ fn epoch_fenced_resume_after_cancelled_handoff_stays_live() {
 /// safety and liveness properties must still hold, including under a
 /// single zombie.
 #[test]
-fn current_two_partitions_single_zombie_is_safe() {
+fn two_partitions_single_zombie_is_safe() {
     HandoffModel {
         partitions: 2,
         crashes: 1,
         zombie_window: 1,
         ..base()
     }
-    .explore("current_two_partitions_single_zombie_is_safe")
+    .explore("two_partitions_single_zombie_is_safe")
     .assert_properties();
 }
 
@@ -330,25 +277,6 @@ fn strong_reads_are_complete_across_cutover() {
     .assert_properties();
 }
 
-/// The double-zombie residual must also reproduce at two partitions —
-/// guards against the cross-partition coordinator logic (rebalance
-/// deferral, per-partition cleanup) accidentally masking or altering the
-/// single-partition verdict.
-#[test]
-fn two_partitions_double_zombie_loses_acked_writes() {
-    let checker = HandoffModel {
-        partitions: 2,
-        crashes: 2,
-        zombie_window: 1,
-        ..base()
-    }
-    .explore_until(
-        "two_partitions_double_zombie_loses_acked_writes",
-        &["no_lost_acked_write"],
-    );
-    assert!(checker.discovery("no_lost_acked_write").is_some());
-}
-
 /// Epoch fencing must close the residual at two partitions too — each
 /// partition's producer epoch is independent, and this pins that the
 /// fix doesn't rely on single-partition structure.
@@ -356,7 +284,6 @@ fn two_partitions_double_zombie_loses_acked_writes() {
 fn epoch_fenced_two_partitions_double_zombie_is_safe() {
     let checker = HandoffModel {
         partitions: 2,
-        variant: Variant::EpochFenced,
         crashes: 2,
         zombie_window: 1,
         ..base()
@@ -523,7 +450,6 @@ fn probe_divergent_quorums_are_reachable_and_safe() {
 #[test]
 fn epoch_fenced_double_zombie_with_late_joiner_is_safe() {
     let checker = HandoffModel {
-        variant: Variant::EpochFenced,
         routers: 1,
         late_routers: 1,
         router_joins: 1,
@@ -695,80 +621,12 @@ fn epoch_fenced_under_cancellation_is_safe_and_live() {
     HandoffModel {
         routers: 1,
         partitions: 2,
-        variant: Variant::EpochFenced,
         writes: 1,
         reads: 0,
         cancels: 1,
         ..base()
     }
     .explore("epoch_fenced_under_cancellation_is_safe_and_live")
-    .assert_properties();
-}
-
-/// Fencing and the read gate are complementary, not alternative.
-///
-/// Fencing alone leaves `strong_reads_complete` violated under the
-/// double zombie: it rejects a zombie's writes, not its reads, and the
-/// zombie keeps answering from a cache the new owner is already
-/// changing. The gate alone does not close it either — without fencing
-/// the zombie's write is lost, so the *legitimate* owner is the one
-/// serving a read missing an acked write. Only both together hold every
-/// safety property, which is why the leader's read gate is a
-/// prerequisite for enabling fencing rather than an independent
-/// improvement.
-#[test]
-fn fencing_and_lease_gated_reads_together_close_the_double_zombie() {
-    let cfg = |variant, gated| HandoffModel {
-        variant,
-        lease_gated_reads: gated,
-        claim_recovers: true,
-        crashes: 2,
-        zombie_window: 1,
-        ..base()
-    };
-    // The two arms below that expect a stale read stop at it; the arm that
-    // asserts none exists has to explore everything. Each arm reports under
-    // its own label, so their state counts stay comparable separately.
-    let stale_reads_reachable = |scenario, variant, gated| {
-        cfg(variant, gated)
-            .explore_until(scenario, &["strong_reads_complete"])
-            .discovery("strong_reads_complete")
-            .is_some()
-    };
-
-    assert!(
-        stale_reads_reachable("read_gate_alone", Variant::Current, true),
-        "the read gate alone must not close it: the honest owner serves a read missing the \
-         zombie's lost write"
-    );
-    assert!(
-        stale_reads_reachable("fencing_alone", Variant::EpochFenced, false),
-        "fencing alone must not close it: the zombie still answers reads"
-    );
-    assert!(
-        cfg(Variant::EpochFenced, true)
-            .explore("fencing_and_read_gate_together")
-            .discovery("strong_reads_complete")
-            .is_none(),
-        "together they must close it"
-    );
-}
-
-/// The gate makes pods refuse reads, which is exactly the kind of change
-/// that can starve liveness — so a gated configuration has to clear
-/// every property, not just the stale-read one the complementarity
-/// verdict inspects.
-#[test]
-fn a_lease_gated_fleet_is_safe_and_live() {
-    HandoffModel {
-        variant: Variant::EpochFenced,
-        lease_gated_reads: true,
-        claim_recovers: true,
-        crashes: 1,
-        zombie_window: 1,
-        ..base()
-    }
-    .explore("a_lease_gated_fleet_is_safe_and_live")
     .assert_properties();
 }
 
@@ -789,8 +647,7 @@ fn a_lease_gated_fleet_is_safe_and_live() {
 #[test]
 fn a_lapsed_claim_that_never_returns_fails_stability() {
     let checker = HandoffModel {
-        variant: Variant::EpochFenced,
-        lease_gated_reads: true,
+        claim_lapses: true,
         claim_recovers: false,
         crashes: 1,
         zombie_window: 1,
@@ -818,8 +675,7 @@ fn a_lapsed_claim_that_never_returns_fails_stability() {
 #[test]
 fn prompt_detection_is_what_makes_the_read_gate_hold() {
     let cfg = |detection| HandoffModel {
-        variant: Variant::EpochFenced,
-        lease_gated_reads: true,
+        claim_lapses: true,
         claim_recovers: true,
         claim_detection: detection,
         crashes: 2,
@@ -867,4 +723,57 @@ fn rollout_quota_mode_is_safe_and_live() {
     }
     .explore("rollout_quota_mode_is_safe_and_live")
     .assert_properties();
+}
+
+/// Chunked plan application (production: `apply_plan` past the etcd txn
+/// budget): a plan's later units land against a world that kept moving —
+/// phase advances, crashes, cancellations, competing rebalances — each
+/// guarded on its plan-time snapshot. Every safety property must hold
+/// across those interleavings and every full run must still converge.
+#[test]
+fn chunked_plan_application_is_safe_and_live() {
+    HandoffModel {
+        partitions: 2,
+        chunked_plans: true,
+        crashes: 1,
+        cancels: 1,
+        writes: 1,
+        reads: 0,
+        ..base()
+    }
+    .explore("chunked_plan_application_is_safe_and_live")
+    .assert_properties();
+}
+
+/// Both fates of a pending unit are genuinely reachable — applied after
+/// other actions interleaved, and dropped by a failed plan-time guard —
+/// and no interleaving that reaches them loses an acked write or
+/// double-plans a partition.
+#[test]
+fn probe_chunked_pending_units_reach_both_fates_safely() {
+    let checker = HandoffModel {
+        partitions: 2,
+        chunked_plans: true,
+        crashes: 1,
+        cancels: 1,
+        writes: 1,
+        reads: 0,
+        probes: true,
+        ..base()
+    }
+    .explore("probe_chunked_pending_units_reach_both_fates_safely");
+    assert!(
+        checker.discovery("chunked_pending_unit_applied").is_some(),
+        "a pending unit must be able to land after its plan's first transaction"
+    );
+    assert!(
+        checker.discovery("chunked_pending_unit_dropped").is_some(),
+        "a failed plan-time guard must be able to stand a pending unit down"
+    );
+    for safety in ["no_lost_acked_write", "no_double_planned_handoff"] {
+        assert!(
+            checker.discovery(safety).is_none(),
+            "{safety} must hold across chunked application"
+        );
+    }
 }

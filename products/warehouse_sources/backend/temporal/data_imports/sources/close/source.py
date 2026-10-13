@@ -1,15 +1,14 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import (
+    CLOSE_BASE_URL,
     CloseResumeConfig,
     close_source,
     validate_credentials as validate_close_credentials,
@@ -43,6 +42,10 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Close authentication failed. Please check your API key.",
             "403 Client Error: Forbidden for url": "Your Close API key does not have access to this resource. Please check the key's permissions.",
+            # Close rejects an over-long `_fields` list this way. The search now asks for custom
+            # fields with a single selector, so this should not recur, but a stuck sync must stop
+            # rather than let Temporal retry a request that can never succeed.
+            "List is too long.": "Close rejected the request because the field list was too long. This can happen on an account with a very large number of custom fields. Contact PostHog support so we can adjust how the Close source requests them.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -52,7 +55,16 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
         # regardless of the underlying cause (refused connection, read timeout, dropped socket), so
         # match that stable prefix rather than the per-request URL or nested error detail. Temporal
         # then retries the whole activity, so the failure is transient and self-recovering.
-        return {"Max retries exceeded with url"}
+        return {
+            "Max retries exceeded with url",
+            # `close_organizations_source` calls `/me/` and `/organization/{id}/` directly with
+            # `raise_for_status()` rather than through the shared REST engine, so a persistent 5xx
+            # there isn't wrapped as `RESTClientRetryableError`. `DEFAULT_RETRY` already retried the
+            # request in-process before this reaches us, so a Close-side 500 here is a transient
+            # upstream blip, not a bug. Match the stable prefix (status + reason + endpoint), not
+            # the organization id in the URL.
+            f"500 Server Error: Internal Server Error for url: {CLOSE_BASE_URL}/organization/",
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.close.canonical_descriptions import (
@@ -123,7 +135,7 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLOSE,
+            name=ExternalDataSourceType.CLOSE,
             category=DataWarehouseSourceCategory.CRM,
             label="Close",
             caption=(
@@ -133,7 +145,7 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
             ),
             iconPath="/static/services/close.png",
             docsUrl="https://posthog.com/docs/cdp/sources/close",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

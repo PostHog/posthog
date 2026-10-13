@@ -2,8 +2,9 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagConfig } from '~/types'
+
+import { canArchiveFeatureFlag } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 export type FeatureFlagDisableDialogSource = 'feature-flags-list' | 'feature-flag-detail'
 
@@ -16,33 +17,26 @@ export function reportFeatureFlagDisableDialogOptionSelected(
     posthog.capture('feature flag disable confirmation option selected', { source, option })
 }
 
+const ROLLBACK_DESCRIPTION = 'This flag will be immediately rolled back from the users matching the release conditions.'
+
 /**
- * Opens the disable confirmation dialog for a feature flag. The test variant of the
- * disable-and-archive experiment gets "Disable only" as the primary CTA alongside a destructive
- * "Disable and archive" option; control keeps each caller's pre-existing dialog, with this dialog's own
- * option-selected telemetry wrapped around the caller's confirm/cancel. The experiment flag is
- * read here rather than at render so the exposure lines up with the dialog actually opening.
+ * Opens the disable confirmation dialog for a feature flag. "Disable only" is the primary action;
+ * "Disable and archive" sits alongside it as a destructive secondary, so the more destructive
+ * option reads as destructive and isn't the default click.
  */
 export function openFeatureFlagDisableDialog({
     source,
+    filters,
     onDisable,
     onDisableAndArchive,
-    openControlDialog,
 }: {
     source: FeatureFlagDisableDialogSource
+    filters: FeatureFlagConfig | undefined
     onDisable: () => void
     onDisableAndArchive: () => void
-    /** The pre-experiment dialog, shown to the control variant. Called with confirm/cancel
-     *  callbacks that already report the selected option — the caller only needs to wire them
-     *  into its own dialog's primary/secondary buttons. */
-    openControlDialog: (onConfirm?: () => void, onCancel?: () => void) => void
 }): void {
-    const inTestVariant =
-        enabledFeaturesLogic.findMounted()?.values.featureFlags[
-            FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT
-        ] === 'test'
-
     posthog.capture('feature flag disable confirmation shown', { source })
+    const offerArchive = canArchiveFeatureFlag(filters)
 
     const selectDisable = (): void => {
         reportFeatureFlagDisableDialogOptionSelected(source, 'disable')
@@ -54,28 +48,26 @@ export function openFeatureFlagDisableDialog({
         onDisableAndArchive()
     }
 
-    if (!inTestVariant) {
-        openControlDialog(selectDisable, selectCancel)
-        return
-    }
-
     LemonDialog.open({
         title: 'Disable this flag?',
-        description:
-            'This flag will be immediately rolled back from the users matching the release conditions. Done with it for good? Archive it too: archived flags are hidden from the flag list, but linked experiments and surveys keep their data.',
+        description: offerArchive
+            ? `${ROLLBACK_DESCRIPTION} Done with it for good? Archive it too: archived flags are hidden from the flag list, but linked experiments and surveys keep their data.`
+            : ROLLBACK_DESCRIPTION,
         primaryButton: {
             children: 'Disable only',
             type: 'primary',
             size: 'small',
             onClick: selectDisable,
         },
-        secondaryButton: {
-            children: 'Disable and archive',
-            type: 'secondary',
-            status: 'danger',
-            size: 'small',
-            onClick: selectDisableAndArchive,
-        },
+        secondaryButton: offerArchive
+            ? {
+                  children: 'Disable and archive',
+                  type: 'secondary',
+                  status: 'danger',
+                  size: 'small',
+                  onClick: selectDisableAndArchive,
+              }
+            : null,
         tertiaryButton: {
             children: 'Cancel',
             type: 'tertiary',

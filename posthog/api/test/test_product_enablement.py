@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import OrganizationMembership
@@ -9,8 +10,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 class TestProductEnablementAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # The endpoint's admin-gated recipes (conversations, replay masking) need an admin caller;
-        # the member-denial path is covered by test_admin_gated_products_require_project_admin.
+        # The endpoint's admin-gated recipe (conversations) needs an admin caller; the member-denial
+        # path is covered by test_admin_gated_products_require_project_admin.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -50,7 +51,11 @@ class TestProductEnablementAPI(APIBaseTest):
         self.team.refresh_from_db()
         self.assertTrue(self.team.autocapture_exceptions_opt_in)
 
-    def test_enables_conversations_mints_token_but_leaves_widget_off(self):
+    @parameterized.expand([(None,), ("legacy string",), (1,)])
+    def test_enables_conversations_mints_token_but_leaves_widget_off(self, stored_settings):
+        self.team.conversations_settings = stored_settings
+        self.team.save()
+
         response = self._enable(["conversations"])
         self.assertEqual(response.json(), {"results": {"conversations": "enabled"}})
 
@@ -88,14 +93,20 @@ class TestProductEnablementAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_admin_gated_products_require_project_admin(self):
-        # A non-admin member can enable member-safe products but not the admin-gated ones
-        # (conversations / replay masking), matching the team-update API's gate.
+        # A non-admin member can enable member-safe products but not conversations, matching the
+        # team-update API's gate.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         self.assertEqual(self._enable(["error_tracking"]).status_code, status.HTTP_200_OK)
         self.team.refresh_from_db()
         self.assertTrue(self.team.autocapture_exceptions_opt_in)
+
+        # The server's own masking floor must not gate the member-safe replay opt-in.
+        self.assertEqual(self._enable(["session_replay"]).status_code, status.HTTP_200_OK)
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.session_recording_opt_in)
+        self.assertEqual(self.team.session_recording_masking_config, {"maskAllInputs": True})
 
         response = self._enable(["conversations"])
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

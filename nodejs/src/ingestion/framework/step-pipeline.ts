@@ -1,9 +1,10 @@
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { instrumentFn, isTracingActive } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
 import { pipelineStepDurationHistogram } from './metrics'
 import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, PipelineResultType, isOkResult } from './results'
+import { eventSpanAttributes } from './span-attributes'
 import { ProcessingStep } from './steps'
 
 export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends string = never, RStep extends string = never>
@@ -38,10 +39,18 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
         }
 
         const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'element' })
+        const traceContext = previousResultWithContext.context.traceContext
         let currentResult: PipelineResult<TOutput, RStep>
         try {
-            currentResult = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
-                this.currentStep(previousResult.value)
+            currentResult = await instrumentFn(
+                {
+                    key: this.stepName,
+                    sendException: false,
+                    measureTime: false,
+                    attributes: isTracingActive(traceContext) ? eventSpanAttributes(previousResult.value) : undefined,
+                    parentContext: traceContext,
+                },
+                () => this.currentStep(previousResult.value)
             )
             end({ result: PipelineResultType[currentResult.type].toLowerCase() })
         } catch (e) {

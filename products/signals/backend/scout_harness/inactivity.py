@@ -3,7 +3,7 @@
 `SignalScoutConfig.enabled` only ever moves by hand, so a scout nobody is getting value from
 keeps spending sandbox runs on its cadence indefinitely. This module is the missing stop: once a
 day (`tasks.pause_inactive_signal_scouts`, deliberately not the 30-minute coordinator tick, which
-is kept short-lived and bounded) it decides whether each enabled scout is still earning its runs.
+is kept bounded) it decides whether each enabled scout is still earning its runs.
 
 The sweep judges **consumption, not emission**. Emitting a report is not evidence anyone wanted
 it; a scout that files report after report nobody acts on is the expensive failure mode (a full
@@ -48,8 +48,10 @@ warning becomes `ignored` when report evidence establishes, and an `ignored` war
 to `no_output` when its evidence ages out, so a pause never lands on stale grounds), and
 whose `evaluated_at` check makes a racing human edit win over a sweep decision made on stale
 reads. There is no half-open probe on this axis: an inactivity pause never runs again on its
-own; a human re-enable is the only exit, and the update serializer marks that re-enable
-`auto_pause_exempt` so the sweep never overrules it.
+own; a human re-enable is the only exit. A resume re-anchors `in_cold_start_grace`, so the
+sweep waits a full fresh window and re-derives its verdict before judging the scout again;
+permanent immunity is the explicit `auto_pause_exempt` flag's job, never a side effect of the
+resume.
 """
 
 from __future__ import annotations
@@ -72,6 +74,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
 )
+from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
 
 logger = structlog.get_logger(__name__)
@@ -349,6 +352,7 @@ def _assess_team(team_id: int, skill_names: list[str], now: datetime) -> TeamAss
             skill_name__in=skill_names,
             created_at__gte=now - TOUCHED_REPORT_LOOKBACK,
         )
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .values_list("skill_name", "created_at", "emitted_finding_ids", "emitted_report_ids", "edited_report_ids")
     )
 
@@ -405,11 +409,12 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
         ).values_list("id", flat=True)
     }
     # The light-interaction feed (`viewed` endpoint, thumbs rating): every row is a person by
-    # construction, and every action type counts — reading is how digest-style reports are
+    # construction. Bulk read-state changes are excluded: reading is how digest-style reports are
     # consumed, so a recent open is as much a rescue as a note.
     engaged |= {
         str(report_id)
         for report_id in SignalReportAction.objects.for_team(team_id)
+        .exclude(type=SignalReportAction.ActionType.READ)
         .filter(
             report_id__in=report_ids,
             last_at__gte=window_start,

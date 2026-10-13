@@ -1,6 +1,6 @@
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -643,7 +643,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(history[1].content, "Memory 1")
         self.assertEqual(history[2].content, "Tool response")
 
-    @freeze_time("2024-01-01")
+    @time_machine.travel("2024-01-01", tick=False)
     async def test_prompt_substitutions(self):
         with patch.object(MemoryCollectorNode, "_model") as model_mock:
 

@@ -31,6 +31,17 @@ function chartRefId(href: unknown): string | null {
     return typeof href === 'string' ? (CHART_REF_TARGET.exec(href)?.[1] ?? null) : null
 }
 
+/** Link target for a moment in a recording, e.g. `[01:32](t:92000)`, the offset in milliseconds. */
+export const TIMESTAMP_REF_PREFIX = 't:'
+
+// Bounded digits, so an overlong target stays an ordinary link and keeps the usual URL sanitizing.
+const TIMESTAMP_REF_TARGET = new RegExp(`^${TIMESTAMP_REF_PREFIX}(\\d{1,12})$`)
+
+function timestampRefMs(href: unknown): number | null {
+    const digits = typeof href === 'string' ? TIMESTAMP_REF_TARGET.exec(href)?.[1] : undefined
+    return digits === undefined ? null : parseInt(digits, 10)
+}
+
 /** Whether a paragraph's child node is a chart reference. */
 function isChartRefNode(node: any): boolean {
     return node?.tagName === 'a' && chartRefId(node.properties?.href) !== null
@@ -62,18 +73,30 @@ export interface LemonMarkdownProps {
     children: string
     /** Whether headings should just be <strong> text. Recommended for item descriptions. */
     lowKeyHeadings?: boolean
-    /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
-    disableDocsRedirect?: boolean
     /**
      * Whether to treat images as untrusted. Use for content we don't control (e.g. LLM/agent or
      * externally-sourced output), where auto-loading an image would fire a request to an arbitrary
      * URL — leaking the viewer's IP, acting as a tracking pixel, or probing internal addresses.
      * When set, only images served from PostHog (same-origin or a `posthog.com` host) render inline
      * as <img>; every other image is rendered as a plain click-to-open link instead.
+     * `'all'` emits no <img> at all: a same-origin `src` is still a credentialed GET on this host.
      */
-    disableImages?: boolean
+    disableImages?: boolean | 'all'
+    /** Whether `@member:<id>` / `@role:<id>` stay plain text instead of chips naming a real colleague. */
+    disableMentions?: boolean
+    /**
+     * Whether every link renders as its label rather than an anchor. Preferred over stripping link syntax
+     * from the source, which has to out-guess the inline, reference, autolink and image-fallback forms.
+     */
+    disableLinks?: boolean
     className?: string
     wrapCode?: boolean
+    /**
+     * If set, block code renders at most this many lines and the rest is cut. The copy button
+     * copies the visible lines only. Use where content can carry an unboundedly long code block
+     * (e.g. a stack trace) that would otherwise dominate the surrounding UI.
+     */
+    codeMaxLines?: number
     /** Whether to generate id attributes on heading elements for anchor linking. */
     generateHeadingIds?: boolean
     /**
@@ -91,6 +114,8 @@ export interface LemonMarkdownProps {
      * is a scheme no browser can follow.
      */
     renderChartRef?: (chartId: string, sourceOffset?: number) => React.ReactNode
+    /** Without it, or on a nullish return, a `t:<ms>` target renders as its label. */
+    renderTimestampRef?: (timestampMs: number) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -124,16 +149,23 @@ export function extractTextFromChildren(children: React.ReactNode): string {
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
-    disableDocsRedirect = false,
     disableImages = false,
+    disableLinks = false,
+    disableMentions = false,
     wrapCode = false,
+    codeMaxLines,
     generateHeadingIds = false,
     renderMermaid,
     renderChartRef,
+    renderTimestampRef,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
             a: ({ href, children, node }: any): JSX.Element => {
+                const timestampMs = timestampRefMs(href)
+                if (timestampMs !== null) {
+                    return <>{renderTimestampRef?.(timestampMs) ?? children}</>
+                }
                 const chartId = chartRefId(href)
                 if (chartId !== null) {
                     // Falls back to its own label as plain text: for a consumer that can't draw
@@ -142,8 +174,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     // instead would point the reader at a scheme no browser can follow.
                     return <>{renderChartRef?.(chartId, node?.position?.start?.offset) ?? children}</>
                 }
+                if (disableLinks) {
+                    return <>{children}</>
+                }
                 return (
-                    <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
+                    <Link to={href} target="_blank" targetBlankIcon>
                         {children}
                     </Link>
                 )
@@ -157,9 +192,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                         return <>{renderMermaid(value)}</>
                     }
                     const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
+                    const lines = value.split('\n')
+                    const displayedValue =
+                        codeMaxLines && lines.length > codeMaxLines ? lines.slice(0, codeMaxLines).join('\n') : value
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
-                            {value}
+                            {displayedValue}
                         </CodeSnippet>
                     )
                 }
@@ -216,14 +254,19 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             },
             ...(disableImages
                 ? {
-                      img: ({ src, alt }: any): JSX.Element =>
-                          isTrustedPostHogUrl(src) ? (
-                              <img src={src} alt={alt} loading="lazy" />
+                      img: ({ src, alt }: any): JSX.Element => {
+                          if (disableImages !== 'all' && isTrustedPostHogUrl(src)) {
+                              return <img src={src} alt={alt} loading="lazy" />
+                          }
+                          // The click-to-open fallback is an anchor, so it answers to `disableLinks` too.
+                          return disableLinks ? (
+                              <>{alt || src}</>
                           ) : (
-                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                              <Link to={src} target="_blank" targetBlankIcon>
                                   {alt || src}
                               </Link>
-                          ),
+                          )
+                      },
                   }
                 : {}),
             li: ({ children, node }: any): JSX.Element => {
@@ -270,40 +313,39 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                   : {}),
         }),
         [
-            disableDocsRedirect,
             disableImages,
+            disableLinks,
             lowKeyHeadings,
             wrapCode,
+            codeMaxLines,
             generateHeadingIds,
             renderMermaid,
             renderChartRef,
+            renderTimestampRef,
         ]
     )
 
-    // `chart:` is not a protocol the default URL sanitizer knows, so it strips the href before the
-    // `a` override ever sees it — and an emptied href is what `Link` turns into a focusable
-    // target-blank stub that goes nowhere. Let the scheme through whether or not this caller can
-    // draw charts, so the `a` override can recognize the reference and render its label as text.
-    // Only on `href`: the same transform runs for an image `src`, where nothing downstream reads a
-    // chart reference, so `![x](chart:y)` would carry an unsanitized scheme into a broken image.
+    // The default sanitizer strips both schemes, so let them through, on `href` only.
     const urlTransform = useMemo(
         () =>
             (url: string, key: string): string =>
-                key === 'href' && chartRefId(url) !== null ? url : defaultUrlTransform(url),
+                key === 'href' && (chartRefId(url) !== null || timestampRefMs(url) !== null)
+                    ? url
+                    : defaultUrlTransform(url),
         []
     )
 
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
     // two-trailing-spaces hard-break rule (e.g. agent-written report summaries) renders with the
     // line breaks the author intended.
+    const remarkPlugins = useMemo(
+        () => (disableMentions ? [remarkGfm, remarkBreaks] : [remarkGfm, remarkBreaks, remarkMentions]),
+        [disableMentions]
+    )
+
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown
-            components={components}
-            remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]}
-            urlTransform={urlTransform}
-            skipHtml
-        >
+        <ReactMarkdown components={components} remarkPlugins={remarkPlugins} urlTransform={urlTransform} skipHtml>
             {children}
         </ReactMarkdown>
     )
@@ -313,24 +355,30 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
 function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
-    disableDocsRedirect = false,
     disableImages = false,
+    disableLinks = false,
+    disableMentions = false,
     wrapCode = false,
+    codeMaxLines,
     generateHeadingIds = false,
     renderMermaid,
     renderChartRef,
+    renderTimestampRef,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
         <LemonMarkdownContainer className={className}>
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
-                disableDocsRedirect={disableDocsRedirect}
                 disableImages={disableImages}
+                disableLinks={disableLinks}
+                disableMentions={disableMentions}
                 wrapCode={wrapCode}
+                codeMaxLines={codeMaxLines}
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}
                 renderChartRef={renderChartRef}
+                renderTimestampRef={renderTimestampRef}
             >
                 {children}
             </LemonMarkdownRenderer>

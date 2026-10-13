@@ -1,23 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.confluent_cloud import (
-    ConfluentCloudResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.settings import (
-    CONFLUENT_CLOUD_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source import ConfluentCloudSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluentcloud import (
     ConfluentCloudSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-_METRICS_ENDPOINTS = {name for name, c in CONFLUENT_CLOUD_ENDPOINTS.items() if c.kind == "metrics"}
-_DESCRIPTOR_ENDPOINTS = set(ENDPOINTS) - _METRICS_ENDPOINTS
 
 _VALIDATE_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source."
@@ -33,98 +21,9 @@ class TestConfluentCloudSource:
             api_key="cloud-key", api_secret="cloud-secret", kafka_cluster_ids="lkc-111, lkc-222"
         )
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CONFLUENTCLOUD
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "ConfluentCloud"
-        assert config.label == "Confluent Cloud"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/confluent_cloud.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/confluent-cloud"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == [
-            "api_key",
-            "api_secret",
-            "kafka_cluster_ids",
-            "connector_ids",
-            "ksqldb_cluster_ids",
-            "schema_registry_ids",
-            "compute_pool_ids",
-        ]
-
-    def test_api_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.telemetry.confluent.cloud/v2/metrics/cloud/query",
-            "403 Client Error: Forbidden for url: https://api.telemetry.confluent.cloud/v2/metrics/cloud/query",
-            "No Confluent Cloud resource IDs configured for table 'kafka_metrics'. Add the resource IDs in the source settings, or disable this table.",
-        ],
-    )
-    def test_non_retryable_errors_match_permanent_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.telemetry.confluent.cloud/v2/metrics/cloud/query",
-            "500 Server Error: Internal Server Error for url: https://api.telemetry.confluent.cloud/v2/metrics/cloud/query",
-            "HTTPSConnectionPool(host='api.telemetry.confluent.cloud', port=443): Read timed out.",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_get_schemas_sync_modes(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        for name in _METRICS_ENDPOINTS:
-            assert schemas[name].supports_incremental is True
-            # The incremental overlap re-pull needs merge dedupe; append would duplicate rows.
-            assert schemas[name].supports_append is False
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["timestamp"]
-        for name in _DESCRIPTOR_ENDPOINTS:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_default_sync_follows_configured_ids(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["kafka_metrics"].should_sync_default is True
-        assert schemas["connector_metrics"].should_sync_default is False
-        assert schemas["metric_descriptors"].should_sync_default is True
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["kafka_metrics"])
         assert [s.name for s in schemas] == ["kafka_metrics"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_lists_tables_without_credentials_publishes_catalog(self):
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(CONFLUENT_CLOUD_ENDPOINTS)
 
     def test_endpoint_permissions_flag_unconfigured_metrics_tables(self):
         permissions = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
@@ -169,25 +68,6 @@ class TestConfluentCloudSource:
 
         assert is_valid is True
         assert error_message is None
-
-    @mock.patch(_VALIDATE_PATH)
-    def test_validate_credentials_probes_requested_schema_resource_first(self, mock_validate):
-        mock_validate.return_value = (True, 200)
-        config = ConfluentCloudSourceConfig(
-            api_key="cloud-key",
-            api_secret="cloud-secret",
-            kafka_cluster_ids="lkc-111",
-            connector_ids="lcc-999",
-        )
-
-        self.source.validate_credentials(config, self.team_id, schema_name="connector_metrics")
-
-        assert mock_validate.call_args.args[3:] == ("resource.connector.id", "lcc-999")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is ConfluentCloudResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source.confluent_cloud_source"

@@ -101,7 +101,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         fs::write(&map_path, &parsed.sourcemap).context("Failed to write sourcemap file")?;
         info!("Wrote {}", map_path.display());
 
-        println!("Extracted source and sourcemap to {}", output.display());
+        crate::safe_println!("Extracted source and sourcemap to {}", output.display());
         return Ok(());
     }
 
@@ -110,7 +110,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         fs::write(&map_path, &parsed.sourcemap).context("Failed to write hermes sourcemap")?;
         info!("Wrote {}", map_path.display());
 
-        println!("Extracted hermes sourcemap to {}", output.display());
+        crate::safe_println!("Extracted hermes sourcemap to {}", output.display());
         return Ok(());
     }
 
@@ -119,7 +119,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         fs::write(&map_path, &parsed.content).context("Failed to write proguard mapping")?;
         info!("Wrote {}", map_path.display());
 
-        println!("Extracted proguard mapping to {}", output.display());
+        crate::safe_println!("Extracted proguard mapping to {}", output.display());
         return Ok(());
     }
 
@@ -182,7 +182,7 @@ fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<(
         info!("Wrote {}", out_path.display());
     }
 
-    println!(
+    crate::safe_println!(
         "Extracted dSYM ({} files) to {}",
         archive.len(),
         dsym_dir.display()

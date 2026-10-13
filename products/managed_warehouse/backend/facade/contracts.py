@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -32,7 +32,11 @@ __all__ = [
     "DuckLakeTableResult",
     "DucklingTables",
     "ManagedWarehouseBackfillState",
+    "ManagedWarehousePostgresConnection",
+    "ManagedWarehouseTrinoConnection",
+    "ManagedWarehouseTrinoConnectionUnavailable",
     "ManagedWarehouseProvisionStatus",
+    "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
     "ManagedWarehouseSourceJobStatus",
     "ManagedWarehouseSourceJobUpdate",
@@ -41,7 +45,10 @@ __all__ = [
     "ManagedWarehouseTeamMembership",
     "ServiceCredential",
     "ServiceCredentialConnect",
+    "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
+    "TrinoCompiledQuery",
+    "TrinoExpansionMode",
 ]
 
 
@@ -65,6 +72,15 @@ class ServiceCredentialConnect:
     port: int
     database: str
     sslmode: str
+
+
+@frozen
+class ServiceCredentialTrinoConnect:
+    host: str
+    port: int
+    catalog: str
+    username: str
+    http_scheme: Literal["https"]
 
 
 @dataclass(frozen=True)
@@ -92,12 +108,50 @@ class ServiceCredential:
     credential_secret: str = field(repr=False)
     expires_at: datetime
     connect: ServiceCredentialConnect
+    trino_connect: ServiceCredentialTrinoConnect | None = None
 
 
 class ServiceCredentialUnavailable(RuntimeError):
     """The control plane couldn't issue a service credential (unreachable,
     org/team not provisioned, or a 5xx). Callers decide whether to fall back
     to the stored server login or fail the run."""
+
+
+@frozen
+class ManagedWarehousePostgresConnection:
+    host: str
+    port: int
+    database: str
+    username: str
+    password: str = field(repr=False)
+    sslmode: str
+
+
+@frozen
+class ManagedWarehouseTrinoConnection:
+    """A minted Trino connection snapshot; use the connection context manager for refresh."""
+
+    host: str
+    port: int
+    catalog: str
+    username: str
+    password: str = field(repr=False)
+    credential_id: str
+    expires_at: datetime
+
+
+class ManagedWarehouseTrinoConnectionUnavailable(RuntimeError):
+    pass
+
+
+@frozen
+class ManagedWarehouseSourceAuth:
+    """Non-secret source fields needed to choose managed warehouse authentication."""
+
+    prefix: str | None
+    system_managed: bool
+    credential_kind: str | None
+    lifecycle_generation: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -116,7 +170,7 @@ class DuckgresQueryServerConfig:
     flight_port: int
     database: str
     username: str
-    password: str
+    password: str = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -127,7 +181,7 @@ class DuckLakeCatalogConnectionConfig:
     port: int
     database: str
     username: str | None
-    password: str | None
+    password: str | None = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -261,6 +315,34 @@ class DuckLakeCompiledQuery:
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
 
 
+@frozen
+class TrinoCompiledQuery:
+    """A HogQL query compiled to Trino SQL with named parameter bindings."""
+
+    sql: str
+    values: dict[str, Any]
+    hogql: str | None = None
+
+
+@frozen
+class TrinoIncrementalWrite:
+    """How a Trino model build tracks an incremental view.
+
+    With ``since`` set, the build reads only rows at or after it and merges them into the existing
+    table on ``unique_key``. Without it, the build replaces the table. Both report the highest
+    ``incremental_key`` written, so a full build seeds the next incremental one.
+    """
+
+    incremental_key: str
+    unique_key: tuple[str, ...]
+    since: Any = None
+
+
+class TrinoExpansionMode(StrEnum):
+    PURE = "pure"
+    DJANGO = "django"
+
+
 @dataclass
 class DuckLakeQueryResult:
     columns: list[str]
@@ -273,10 +355,13 @@ class DuckLakeQueryResult:
     query_ms: float | None = None
 
 
-@dataclass
+@frozen
 class DuckLakeTableResult:
     schema_name: str
     table_name: str
     row_count: int
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
+    # Highest incremental key written, for builds that track one. None when no rows were written.
+    watermark: Any = None
+    merged: bool = False

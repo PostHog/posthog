@@ -123,6 +123,18 @@ database "posthog" {
     }
   }
 
+  patch_table "sharded_ingestion_warnings" {
+    partition_by = "toYYYYMMDD(timestamp)"
+    modify_column "details" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_ingestion_warnings"
+      replica_name = "{replica}"
+    }
+  }
+
   patch_table "events_recent" {
     modify_column "properties" {
       type  = "String"
@@ -165,18 +177,6 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_events_recent"
       sharding_key    = "sipHash64(distinct_id)"
-    }
-  }
-
-  patch_table "sharded_ingestion_warnings" {
-    partition_by = "toYYYYMMDD(timestamp)"
-    modify_column "details" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_ingestion_warnings"
-      replica_name = "{replica}"
     }
   }
 }

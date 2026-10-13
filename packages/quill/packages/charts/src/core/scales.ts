@@ -10,7 +10,6 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
-import { significantDecimalPlaces } from '../utils/format'
 import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -52,9 +51,12 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
         if (s.visibility?.excluded) {
             continue
         }
+        // `data` is typed `number[]`, but a series can reach here with a null `data` from a query
+        // that returned no points — iterating it directly throws. Treat a missing array as empty.
+        const data = s.data ?? []
         // A confidence ribbon's lower bound (`fill.lowerData`) is part of the data's visible
         // extent, so it must widen the axis too — otherwise the band clips at the top series.
-        for (const v of s.fill?.lowerData ? [...s.data, ...s.fill.lowerData] : s.data) {
+        for (const v of s.fill?.lowerData ? [...data, ...s.fill.lowerData] : data) {
             if (v == null || !isFinite(v)) {
                 continue
             }
@@ -437,12 +439,18 @@ export function createScales(
     options: {
         scaleType?: 'linear' | 'log'
         percentStack?: boolean
-        /** Applied to the primary y-axis only — goal lines (`{ include }`) render against the
-         *  primary axis, so secondary axes keep their own data-derived scale. */
+        /** Applied to the primary y-axis only. A secondary axis takes its domain from
+         *  `axes[].valueDomain` instead. */
         valueDomain?: ValueDomain
         /** Per-axis overrides — explicit values win over the alternating-side default and the
          *  scalar `scaleType`/`floatBaseline` options (which only reach the primary axis). */
-        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
+        axes?: {
+            id: string
+            position?: 'left' | 'right'
+            scaleType?: 'linear' | 'log'
+            startAtZero?: boolean
+            valueDomain?: ValueDomain
+        }[]
         /** Float the primary axis to its data range instead of clamping the baseline to 0. Applied to
          *  the primary axis only, like `valueDomain`. See {@link buildValueScale}. */
         floatBaseline?: boolean
@@ -476,7 +484,7 @@ export function createScales(
         const scale = createYScale(byAxis.get(axisId) ?? [], dimensions, {
             scaleType: override?.scaleType ?? options.scaleType,
             percentStack: options.percentStack,
-            valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
+            valueDomain: override?.valueDomain ?? (axisIndex === 0 ? options.valueDomain : undefined),
             floatBaseline:
                 override?.startAtZero != null
                     ? override.startAtZero === false
@@ -523,7 +531,9 @@ function buildStackData(
 
     for (const axisSeries of seriesByAxis.values()) {
         const tableData = labels.map((_, i) => {
-            const row: Record<string, number> = {}
+            // Null-prototype: series keys come from user data (breakdown values, service names),
+            // so a key like `__proto__` must land as an own property instead of the prototype setter.
+            const row: Record<string, number> = Object.create(null)
             for (const s of axisSeries) {
                 const raw = s.data[i] ?? 0
                 row[s.key] = allowNegative ? raw : Math.max(0, raw)
@@ -855,24 +865,22 @@ function padValueRange(
     return [min < 0 ? start - reserve : start, max > 0 ? end + reserve : end]
 }
 
-export function autoFormatYTick(value: number, domainMax: number): string {
-    if (domainMax < 2) {
-        // Two decimals only resolve a domain down to ~0.1; below that every tick rounds to the same
-        // label, so scale the precision to the domain instead.
-        return value.toLocaleString('en-US', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: significantDecimalPlaces(domainMax),
-        })
-    }
-    if (domainMax < 5) {
-        return value.toFixed(1)
-    }
-    return value.toLocaleString('en-US', { maximumFractionDigits: 0 })
-}
+// Caps runaway precision if a tick set never resolves (e.g. NaN), and stops float
+// residue from rendering as a wall of digits.
+const MAX_TICK_FRACTION_DIGITS = 10
 
+/** Labels an axis's ticks with the fewest fraction digits that keep every distinct tick's label
+ *  distinct, applied uniformly so the column of labels reads as one unit. Trying digit counts
+ *  against the rendered labels sidesteps float noise in computed tick values. */
 export function autoFormatterFor(ticks: number[]): (value: number) => string {
-    const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
-    return (v) => autoFormatYTick(v, domainMax)
+    const label = (value: number, digits: number): string =>
+        value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+    const distinct = new Set(ticks).size
+    let digits = 0
+    while (digits < MAX_TICK_FRACTION_DIGITS && new Set(ticks.map((tick) => label(tick, digits))).size < distinct) {
+        digits++
+    }
+    return (value) => label(value, digits)
 }
 
 export function resolveYScaleForSeries<S extends (value: number) => number>(

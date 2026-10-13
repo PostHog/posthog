@@ -67,6 +67,12 @@ pub struct ResolverConfig {
     #[envconfig(default = "300")]
     pub frame_unresolved_ttl_seconds: u64,
 
+    // When enabled, a re-resolution that produced an unchanged frame snapshot refreshes
+    // created_at with a timestamp-only UPDATE instead of rewriting every row's full
+    // contents, and skips the write entirely when no row needs a freshness refresh yet.
+    #[envconfig(default = "false")]
+    pub skip_unchanged_frame_rewrites: bool,
+
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
     // resolvable the moment a user uploads the missing symbols, so a cached negative result
@@ -95,6 +101,15 @@ pub struct ResolverConfig {
     // This limiter is shared across frame and exception symbol resolution paths.
     #[envconfig(default = "64")]
     pub symbol_resolution_concurrency: usize,
+
+    // Parsing a symbol set can need many times its fetched size in memory, and the symbol
+    // store cache does not count that memory. Parses of fetched blobs at least this large
+    // share a small concurrency limit, so a few of them cannot run the pod out of memory.
+    #[envconfig(default = "10000000")]
+    pub symbol_set_large_parse_bytes: usize,
+
+    #[envconfig(default = "2")]
+    pub symbol_set_max_concurrent_large_parses: usize,
 
     // Shared secret authenticating the cymbal <-> cymbal-resolution gRPC seam.
     #[envconfig(default = "")]

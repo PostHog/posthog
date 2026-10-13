@@ -13,7 +13,9 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
-import { IndexedTrendResult } from 'scenes/trends/types'
+import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
@@ -22,11 +24,13 @@ import { examples } from '~/queries/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
+    HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
     Node,
@@ -40,11 +44,13 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
+    isBIVisualizationNode,
     isDataTableNode,
-    isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
+    isHogQLQuery,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -67,11 +73,13 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+
 import { insightLogic } from './insightLogic'
 
-export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
+export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null | undefined): boolean => {
     return (
-        filter !== null &&
+        filter != null &&
         filter.type === EntityTypes.EVENTS &&
         filter.id === null &&
         (!filter.name || filter.name === 'All events')
@@ -98,7 +106,7 @@ export const formatEventName = (name: string | undefined | null): string | undef
 }
 
 export const getDisplayNameFromEntityFilter = (
-    filter: EntityFilter | ActionFilter | null,
+    filter: EntityFilter | ActionFilter | null | undefined,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -116,7 +124,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode | ExperimentDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -138,7 +146,7 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isAnyDataWarehouseNode(node)
+    const id = isWarehouseSeriesNode(node)
         ? node.table_name
         : isEventsNode(node)
           ? node.event
@@ -196,7 +204,8 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 
     return insightId
         ? insightId
-        : (await api.get(`api/environments/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        : // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
+          (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
               .results[0]?.id
 }
 
@@ -252,7 +261,7 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
-// NB! Sync this with breakdown_values.py and hogql_queries/insights/utils/breakdowns.py
+// NB! Sync this with breakdown_values.py and hogql_queries/utils/breakdowns.py
 export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
 export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 export const BREAKDOWN_OTHER_DISPLAY = 'Other (i.e. all remaining values)'
@@ -304,7 +313,16 @@ function formatNumericBreakdownLabel(
         return BREAKDOWN_NULL_DISPLAY
     }
 
-    if (formatPropertyValueForDisplay) {
+    const breakdownType = (
+        typeof multipleBreakdownIndex === 'number'
+            ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type
+            : breakdownFilter?.breakdown_type
+    ) as string | undefined
+
+    // Element breakdown values (tag_name, text, href) have no matching property definition — the type
+    // falls back to Event, so a same-named DateTime/Duration event property would otherwise reformat
+    // a numeric-looking element value into a date or duration.
+    if (formatPropertyValueForDisplay && breakdownType !== 'element') {
         const nestedBreakdown =
             typeof multipleBreakdownIndex === 'number'
                 ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
@@ -327,7 +345,7 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
-// Keep in sync with NOT_IN_COHORT_ID in posthog/hogql_queries/insights/utils/breakdowns.py
+// Keep in sync with NOT_IN_COHORT_ID in posthog/hogql_queries/utils/breakdowns.py
 export const NOT_IN_COHORT_ID = 2 ** 52
 
 export function getCohortNameFromId(
@@ -515,6 +533,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
     [InsightType.JOURNEYS]: urls.insightNew({ type: InsightType.JOURNEYS }),
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
+    [InsightType.METRICS]: urls.insightNew({ type: InsightType.METRICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
@@ -742,6 +761,13 @@ export function crushDraftQueryForURL(query: Node<Record<string, any>>): string 
     return JSON.stringify(query)
 }
 
+/**
+ * Query plumbing rather than editor sections: the schema version stamp, the query log tags, and
+ * the typing-only response. A suggested query arrives without them, so comparing them reports a
+ * change nobody made. `modifiers` are handled separately below.
+ */
+const IGNORED_SOURCE_FIELDS = ['version', 'tags', 'response']
+
 const SOURCE_FIELD_LABELS: Record<string, string> = {
     breakdownFilter: 'Breakdowns',
     compareFilter: 'Compare filter',
@@ -753,6 +779,7 @@ const SOURCE_FIELD_LABELS: Record<string, string> = {
     samplingFactor: 'Sampling',
     series: 'Series',
     trendsFilter: 'Display options',
+    modifiers: 'Query modifiers',
 }
 
 function arraysEqual(arr1: any[], arr2: any[]): boolean {
@@ -780,15 +807,51 @@ function deepEqual(val1: any, val2: any): boolean {
     return equal(val1, val2)
 }
 
+/**
+ * Resolve a query's modifiers the way the backend does: explicit query modifiers win, then the
+ * team overrides, then the PostHog defaults. Absent and default-equal modifiers both resolve to
+ * the team's effective set, so comparing resolved modifiers skips changes nobody made.
+ */
+function resolveModifiersForComparison(
+    modifiers: HogQLQueryModifiers | undefined,
+    teamModifiers: HogQLQueryModifiers | undefined
+): HogQLQueryModifiers {
+    return { ...teamModifiers, ...removeUndefinedAndNull(modifiers ?? {}) }
+}
+
+/**
+ * Clean the source of an insight query for comparison. Handles both InsightVizNode (with source)
+ * and InsightQueryNode (without source). `cleanInsightQuery` only strips empty values one level
+ * deep, so it must run on the source — given the wrapping node it leaves `source.trendsFilter: {}`
+ * behind, which then reads as a changed section.
+ */
+function cleanSourceForComparison(node: any, teamModifiers: HogQLQueryModifiers | undefined): Record<string, any> {
+    const withoutNullish = removeUndefinedAndNull(node)
+    const source = withoutNullish?.source ?? withoutNullish
+    if (!source || typeof source !== 'object') {
+        return {}
+    }
+    const cleaned = cleanInsightQuery(source) as Record<string, any>
+    for (const field of IGNORED_SOURCE_FIELDS) {
+        delete cleaned[field]
+    }
+    const resolvedModifiers = resolveModifiersForComparison(cleaned.modifiers, teamModifiers)
+    if (Object.keys(resolvedModifiers).length > 0) {
+        cleaned.modifiers = resolvedModifiers
+    } else {
+        delete cleaned.modifiers
+    }
+    return cleaned
+}
+
 export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
     const changedLabels = new Set<string>()
 
-    const cleanObj1 = cleanInsightQuery(removeUndefinedAndNull(obj1)) as Record<string, any>
-    const cleanObj2 = cleanInsightQuery(removeUndefinedAndNull(obj2)) as Record<string, any>
+    const currentTeam = teamLogic.findMounted()?.values.currentTeam
+    const teamModifiers = { ...currentTeam?.default_modifiers, ...currentTeam?.modifiers }
 
-    // Handle both InsightVizNode (with source) and InsightQueryNode (without source)
-    const source1 = cleanObj1.source || cleanObj1
-    const source2 = cleanObj2.source || cleanObj2
+    const source1 = cleanSourceForComparison(obj1, teamModifiers)
+    const source2 = cleanSourceForComparison(obj2, teamModifiers)
 
     if (!objectsEqual(source1, source2)) {
         const keys = new Set([...Object.keys(source1 || {}), ...Object.keys(source2 || {})])
@@ -810,6 +873,9 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
 }
 
 export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (isBIVisualizationNode(query)) {
+        return 'business_intelligence'
+    }
     if (!query?.kind) {
         return 'product_analytics'
     }
@@ -841,13 +907,27 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
 }
 
 export const getOverrideWarningPropsForButton = (
+    query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
     variablesOverride: Record<string, HogQLVariable> | null | undefined
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
+    // The backend applies dashboard filters to a SQL query only through a {filters} placeholder, and
+    // dashboard variables only to the variables the query declares. Other overrides do not change
+    // the result, so editing discards nothing.
+    const hogQLSource = isHogQLQuery(query)
+        ? query
+        : isNodeWithSource(query) && isHogQLQuery(query.source)
+          ? query.source
+          : null
     const filterOverridesExist =
         isObject(filtersOverride) &&
-        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
-    const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
+        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0)) &&
+        (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
+    const variableOverridesExist =
+        isObject(variablesOverride) &&
+        (hogQLSource
+            ? Object.keys(variablesOverride).some((variableId) => !!hogQLSource.variables?.[variableId])
+            : !isEmptyObject(variablesOverride))
 
     const overrideType =
         filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'

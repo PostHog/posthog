@@ -1,15 +1,13 @@
 import re
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,11 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# This first cut covers Freshservice's top-level v2 endpoints only. Fan-out resources
-# (ticket conversations, solution articles/folders/categories) and webhook-driven deltas
-# are deliberately left out: Freshservice has no documented public REST API for programmatic
-# webhook management (webhooks are configured manually as Workflow Automator outbound web
-# requests), so they can't be wired up reliably without live verification.
+# Webhook-driven deltas are deliberately left out: Freshservice has no documented public REST
+# API for programmatic webhook management (webhooks are configured manually as Workflow
+# Automator outbound web requests), so they can't be wired up reliably without live verification.
 
 _DOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
@@ -78,7 +74,7 @@ class FreshserviceSource(ResumableSource[FreshserviceSourceConfig, FreshserviceR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FRESHSERVICE,
+            name=ExternalDataSourceType.FRESHSERVICE,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Freshservice",
             caption="""Enter your Freshservice domain and API key to pull your Freshservice ITSM data into the PostHog Data warehouse.

@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from django.test import SimpleTestCase
@@ -268,7 +269,7 @@ class TestSlackFormatting(SimpleTestCase):
         preformatted = slack_blocks[0]["elements"][0]
         assert preformatted["type"] == "rich_text_preformatted"
         assert preformatted["elements"] == [{"type": "text", "text": "print('hi')"}]
-        # Guard in tasks.py only posts when text or blocks are truthy - a code-only
+        # Guard in tasks/slack.py only posts when text or blocks are truthy - a code-only
         # message must produce non-empty fallback text so it isn't silently dropped.
         assert slack_text.strip() != ""
 
@@ -334,6 +335,69 @@ class TestSlackFormatting(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "paragraphs_break_once",
+                [_paragraph("one"), _paragraph("two")],
+                "one\ntwo",
+            ),
+            (
+                "authored_blank_line_stays_a_single_blank_line",
+                [_paragraph("one"), {"type": "paragraph"}, _paragraph("two")],
+                "one\n\ntwo",
+            ),
+            (
+                "hard_break_drops_its_markdown_trailing_spaces",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "one"},
+                            {"type": "hardBreak"},
+                            {"type": "text", "text": "two"},
+                        ],
+                    }
+                ],
+                "one\ntwo",
+            ),
+            (
+                "code_block_keeps_its_own_blank_lines",
+                [
+                    {"type": "codeBlock", "content": [{"type": "text", "text": "a = 1\n\nb = 2"}]},
+                    _paragraph("after"),
+                ],
+                "```\na = 1\n\nb = 2\n```\nafter",
+            ),
+        ]
+    )
+    def test_outbound_text_uses_mrkdwn_line_breaks_not_markdown_ones(
+        self, _name: str, content: list[dict], expected: str
+    ) -> None:
+        slack_text, _ = rich_content_to_slack_payload({"type": "doc", "content": content}, "")
+        assert slack_text == expected
+
+    @parameterized.expand(
+        [
+            # A section runs on from the one before it, so it needs a line ending plus the blank line.
+            ("before_a_paragraph", _paragraph("two"), "\n\n"),
+            ("before_an_image", {"type": "image", "attrs": {"src": "https://e.com/a.png", "alt": "a"}}, "\n\n"),
+            # A preformatted element is its own code box, so the blank line is all it needs.
+            ("before_a_code_block", {"type": "codeBlock", "content": [{"type": "text", "text": "x = 1"}]}, "\n"),
+        ]
+    )
+    def test_outbound_blocks_keep_an_authored_blank_line(
+        self, _name: str, follower: dict, expected_separator: str
+    ) -> None:
+        rich_content = {"type": "doc", "content": [_paragraph("one"), {"type": "paragraph"}, follower]}
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        assert slack_blocks is not None
+
+        elements = slack_blocks[0]["elements"]
+        assert len(elements) == 3
+        assert elements[1]["elements"][0]["text"] == expected_separator
+
+    @parameterized.expand(
+        [
             ("bold_stays_bold", "**bold**", "*bold*"),
             ("italic", "*italic*", "_italic_"),
             ("bold_italic", "***both***", "*_both_*"),
@@ -341,8 +405,40 @@ class TestSlackFormatting(SimpleTestCase):
             ("escaped_punctuation_unescaped", "e\\.g\\. query\\-time \\(v2\\)", "e.g. query-time (v2)"),
             ("escaped_syntax_not_emphasis", "2 \\* 3 \\* 4", "2 * 3 * 4"),
             ("backslash_outside_escape_set_kept", "path C:\\\\Users", "path C:\\Users"),
+            (
+                "link_url_keeps_nested_parens",
+                "[here](https://ph.test/sql#q=SELECT%20count(toString(a))%20FROM%20(b))",
+                "<https://ph.test/sql#q=SELECT%20count(toString(a))%20FROM%20(b)|here>",
+            ),
+            (
+                "image_url_keeps_nested_parens",
+                "![chart](https://ph.test/i/chart(1).png)",
+                "<https://ph.test/i/chart(1).png|chart>",
+            ),
+            ("unterminated_link_stays_literal", "[here](https://ph.test", "[here](https://ph.test"),
+            (
+                "link_url_with_lone_paren_stays_clickable",
+                "[here](https://ph.test/q?v=foo() ok",
+                "<https://ph.test/q?v=foo(|here> ok",
+            ),
+            (
+                "unbalanced_link_url_stops_at_whitespace",
+                "[here](https://ph.test/a( then [next](https://ph.test/b)",
+                "[here](https://ph.test/a( then <https://ph.test/b|next>",
+            ),
+            (
+                "nested_label_keeps_its_inner_brackets",
+                "[a [b]](https://ph.test/x)",
+                "<https://ph.test/x|a [b]>",
+            ),
+            # These runs are the shapes that cost quadratic time when a label is read at every `[`
+            # rather than once a destination is found. The timeout fails them if that returns.
+            ("unclosed_destination_run_closes_at_first_paren", "[x](a()" * 4000, "<a(|x>" * 4000),
+            ("unclosed_label_run_stays_literal", "[" * 25000, "[" * 25000),
+            ("nested_label_run_stays_literal", "[" * 25000 + "]" * 25000, "[" * 25000 + "]" * 25000),
         ]
     )
+    @pytest.mark.timeout(1, func_only=True)
     def test_outbound_mrkdwn_conversion(self, _name: str, markdown: str, expected: str) -> None:
         assert content_to_slack_mrkdwn(markdown) == expected
 
@@ -655,7 +751,7 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         text, blocks = rich_content_to_slack_payload(doc, "fallback")
         assert blocks is None
-        assert text == "Two options (pick one):\n\n- Use query-time properties, e.g. person.email"
+        assert text == "Two options (pick one):\n- Use query-time properties, e.g. person.email"
 
     @parameterized.expand(
         [

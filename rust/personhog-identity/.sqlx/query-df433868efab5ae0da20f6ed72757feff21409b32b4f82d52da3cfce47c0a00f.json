@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_mark_victims' */ \n        INSERT INTO lifecycle_op_person_tmp (op_id, team_id, person_id, person_uuid, role, status, mark_active)\n        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5, true\n        FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)\n        ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING\n        RETURNING person_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int8Array",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "df433868efab5ae0da20f6ed72757feff21409b32b4f82d52da3cfce47c0a00f"
+}

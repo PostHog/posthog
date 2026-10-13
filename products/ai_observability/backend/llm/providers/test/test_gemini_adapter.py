@@ -40,6 +40,10 @@ class TestGeminiAdapterErrorMapping:
             ("403_permission", 403, "PERMISSION_DENIED", "permission denied", ModelPermissionError),
             ("401_auth", 401, "UNAUTHENTICATED", "invalid api key", AuthenticationError),
             ("429_rate_limit", 429, "RESOURCE_EXHAUSTED", "rate limit exceeded", RateLimitError),
+            # A cancelled call is retryable, so it shares the transport lane. Without this the
+            # per-occurrence message files a new error tracking issue on every cancellation.
+            ("499_cancelled", 499, "CANCELLED", "The operation was cancelled.", ProviderConnectionError),
+            ("cancelled_message", 400, "UNKNOWN", "The operation was cancelled.", ProviderConnectionError),
         ]
     )
     def test_api_error_is_mapped_to_llm_error(
@@ -80,3 +84,27 @@ class TestGeminiAdapterErrorMapping:
         with patch("products.ai_observability.backend.llm.providers.gemini.genai.Client", return_value=mock_client):
             with pytest.raises(ProviderConnectionError):
                 adapter.complete(request, api_key="test-key", analytics=AnalyticsContext(capture=False))
+
+
+class TestGeminiStreamErrorSurfacing:
+    def test_retired_model_yields_actionable_message_instead_of_discarding_the_reason(self):
+        # Streaming has no exception channel, so this chunk is the entire explanation the user
+        # gets in the playground.
+        request = CompletionRequest(
+            model="gemini-1.0-pro",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="gemini",
+        )
+        mock_client = MagicMock()
+        mock_client.models.generate_content_stream.side_effect = _make_client_error(
+            404, "NOT_FOUND", "models/gemini-1.0-pro is not found"
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.gemini.genai.Client", return_value=mock_client):
+            chunks = list(
+                GeminiAdapter().stream(request, api_key="test-key", analytics=AnalyticsContext(capture=False))
+            )
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert errors == ["Model 'gemini-1.0-pro' is not available. Pick a different model and try again."]

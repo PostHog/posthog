@@ -1,3 +1,6 @@
+import base64
+import binascii
+from collections import Counter
 from typing import TYPE_CHECKING, cast
 
 import posthoganalytics
@@ -8,12 +11,18 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from products.streamlit_apps.backend.facade.api import MAX_FILE_COUNT, MAX_ZIP_SIZE, attachment_path_error
 from products.streamlit_apps.backend.facade.contracts import (
     AppContract,
     AppSandboxContract,
+    AppSourceFileContract,
     AppVersionContract,
+    AppVersionSourceContract,
     CreateAppInput,
     CreateVersionFromSourceInput,
+    EditVersionSourceInput,
+    SourceFileEdit,
+    SourceTextEdit,
     StreamlitAppUserInfo,
     UpdateAppInput,
 )
@@ -91,6 +100,17 @@ class UpdateAppInputSerializer(DataclassSerializer):
         dataclass = UpdateAppInput
 
 
+_MAX_TEXT_FILE_LENGTH = 1024 * 1024
+# Each edit scans and copies the whole text of its file, so the edit count bounds the work of one request.
+_MAX_SOURCE_EDITS = 100
+# Base64 length of MAX_ZIP_SIZE bytes: no single asset can be larger than the whole archive may be.
+_MAX_ASSET_BASE64_LENGTH = 4 * ((MAX_ZIP_SIZE + 2) // 3)
+
+
+def _decoded_base64_size(encoded: str) -> int:
+    return len(encoded) * 3 // 4 - (2 if encoded.endswith("==") else 1 if encoded.endswith("=") else 0)
+
+
 class CreateVersionFromSourceInputSerializer(DataclassSerializer):
     # "source" is the natural API field name; it shadows DRF's Field.source attribute
     # only in the eyes of mypy — DRF handles same-named declared fields fine.
@@ -98,10 +118,27 @@ class CreateVersionFromSourceInputSerializer(DataclassSerializer):
         trim_whitespace=False,
         # Bounds the JSON body before any zip is built; the multipart path gets the
         # same protection from the declared-size check against MAX_ZIP_SIZE.
-        max_length=1024 * 1024,
+        max_length=_MAX_TEXT_FILE_LENGTH,
         help_text=(
             "Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). "
             "Becomes a new version and is set as the active version."
+        ),
+    )
+
+    files = serializers.DictField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=True, max_length=_MAX_TEXT_FILE_LENGTH),
+        required=False,
+        help_text=(
+            "Extra text files to ship next to app.py, keyed by project-relative path "
+            "(for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB)."
+        ),
+    )
+    assets = serializers.DictField(
+        child=serializers.CharField(max_length=_MAX_ASSET_BASE64_LENGTH),
+        required=False,
+        help_text=(
+            "Extra binary files to ship next to app.py, keyed by project-relative path "
+            "(for example 'data/events.parquet'), each as standard base64 text."
         ),
     )
 
@@ -113,8 +150,201 @@ class CreateVersionFromSourceInputSerializer(DataclassSerializer):
             raise serializers.ValidationError("Source cannot be empty.")
         return value
 
+    def validate_files(self, value: dict[str, str]) -> dict[str, str]:
+        return _validate_attachment_paths(value)
+
+    def validate_assets(self, value: dict[str, str]) -> dict[str, str]:
+        _validate_attachment_paths(value)
+        for path, content in value.items():
+            try:
+                base64.b64decode(content, validate=True)
+            except (binascii.Error, ValueError):
+                raise serializers.ValidationError({path: "Content must be standard base64 text."}) from None
+        return value
+
+    def validate(self, attrs: CreateVersionFromSourceInput) -> CreateVersionFromSourceInput:
+        overlap = sorted(set(attrs.files) & set(attrs.assets))
+        if overlap:
+            raise serializers.ValidationError({"assets": f"Paths also present in files: {', '.join(overlap)}"})
+
+        entry_count = 1 + len(attrs.files) + len(attrs.assets)
+        if entry_count > MAX_FILE_COUNT:
+            raise serializers.ValidationError(f"Too many files ({entry_count}, max {MAX_FILE_COUNT}).")
+
+        # A path that is also a directory prefix of another cannot be unpacked on any filesystem.
+        paths = {"app.py", *attrs.files, *attrs.assets}
+        for path in sorted(paths):
+            if any(other.startswith(f"{path}/") for other in paths):
+                raise serializers.ValidationError(f"'{path}' is used as both a file and a directory.")
+
+        # Bound the work before any asset is decoded or the archive is built. The zip check
+        # after compression stays, this only refuses what could never fit.
+        raw_size = (
+            len(attrs.source.encode())
+            + sum(len(text.encode()) for text in attrs.files.values())
+            + sum(_decoded_base64_size(content) for content in attrs.assets.values())
+        )
+        if raw_size > MAX_ZIP_SIZE:
+            raise serializers.ValidationError(
+                f"App files total {raw_size / (1024 * 1024):.1f} MB, max {MAX_ZIP_SIZE / (1024 * 1024):.1f} MB."
+            )
+        return attrs
+
     class Meta:
         dataclass = CreateVersionFromSourceInput
+
+
+def _validate_attachment_paths(value: dict[str, str]) -> dict[str, str]:
+    errors = {path: error for path in value if (error := attachment_path_error(path))}
+    if errors:
+        raise serializers.ValidationError(errors)
+    return value
+
+
+class StreamlitAppSourceFileSerializer(DataclassSerializer):
+    path = serializers.CharField(
+        help_text="Project-relative path of the file, for example 'app.py' or 'pages/1_Overview.py'."
+    )
+    size = serializers.IntegerField(help_text="File size in bytes.")
+    sha256 = serializers.CharField(help_text="SHA-256 hash of the file bytes, as hex.")
+    content_type = serializers.CharField(help_text="MIME type guessed from the file extension.")
+    is_binary = serializers.BooleanField(
+        help_text="True when the file is not UTF-8 text. Binary content is never inlined."
+    )
+    content = serializers.CharField(
+        allow_null=True,
+        trim_whitespace=False,
+        help_text="Full text of the file. Null for binary files and for files that the paths filter excludes.",
+    )
+
+    class Meta:
+        dataclass = AppSourceFileContract
+
+
+class StreamlitAppVersionSourceSerializer(DataclassSerializer):
+    version_number = serializers.IntegerField(help_text="Version number that this source belongs to.")
+    files = StreamlitAppSourceFileSerializer(
+        many=True, help_text="Every file in the version, sorted by path. The manifest always lists all files."
+    )
+
+    class Meta:
+        dataclass = AppVersionSourceContract
+
+
+class VersionSourceQuerySerializer(serializers.Serializer):
+    version_number = serializers.IntegerField(
+        required=False, min_value=1, help_text="Version number to read. Defaults to the active version."
+    )
+    paths = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated file paths whose content to return, for example 'app.py,utils.py'. "
+            "Other files appear in the manifest without content. Defaults to all text files."
+        ),
+    )
+
+    def validate_paths(self, value: str) -> list[str]:
+        return [path.strip() for path in value.split(",") if path.strip()]
+
+
+class SourceTextEditSerializer(DataclassSerializer):
+    old = serializers.CharField(
+        trim_whitespace=False,
+        allow_blank=True,
+        help_text="Exact text to find in the file. Must match exactly once. Use an empty string only to fill an empty file.",
+    )
+    new = serializers.CharField(trim_whitespace=False, allow_blank=True, help_text="Replacement text.")
+
+    class Meta:
+        dataclass = SourceTextEdit
+
+
+class SourceFileEditSerializer(DataclassSerializer):
+    path = serializers.CharField(help_text="Path of an existing text file in the base version, for example 'app.py'.")
+    edits = SourceTextEditSerializer(
+        many=True,
+        help_text=(
+            "Find-and-replace operations, applied in order to the file's text. "
+            f"At most {_MAX_SOURCE_EDITS} edits per request across all files."
+        ),
+    )
+
+    def validate_edits(self, value: list[SourceTextEdit]) -> list[SourceTextEdit]:
+        if not value:
+            raise serializers.ValidationError("At least one edit is required.")
+        return value
+
+    class Meta:
+        dataclass = SourceFileEdit
+
+
+class EditVersionSourceInputSerializer(DataclassSerializer):
+    base_version = serializers.IntegerField(
+        min_value=1,
+        help_text=(
+            "Version number that the changes apply to. Must be the active version of the app, "
+            "otherwise the request fails with 409 and returns the active version number."
+        ),
+    )
+    file_edits = SourceFileEditSerializer(
+        many=True,
+        required=False,
+        help_text="Exact text edits to existing text files. Files that no change touches stay byte-for-byte the same.",
+    )
+    create_files = serializers.DictField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=True, max_length=_MAX_TEXT_FILE_LENGTH),
+        required=False,
+        help_text=(
+            "New text files keyed by project-relative path, each value the file's full text (max 1 MB). "
+            "The path must not exist in the base version."
+        ),
+    )
+    delete_files = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Paths of files to remove from the base version. app.py cannot be removed.",
+    )
+
+    def validate_create_files(self, value: dict[str, str]) -> dict[str, str]:
+        return _validate_attachment_paths(value)
+
+    def validate(self, attrs: EditVersionSourceInput) -> EditVersionSourceInput:
+        if not (attrs.file_edits or attrs.create_files or attrs.delete_files):
+            raise serializers.ValidationError("Provide at least one of file_edits, create_files, or delete_files.")
+        for name, collection in (
+            ("file_edits", attrs.file_edits),
+            ("create_files", attrs.create_files),
+            ("delete_files", attrs.delete_files),
+        ):
+            if len(collection) > MAX_FILE_COUNT:
+                raise serializers.ValidationError(
+                    f"Too many files in {name} ({len(collection)}, max {MAX_FILE_COUNT})."
+                )
+        if sum(len(file_edit.edits) for file_edit in attrs.file_edits) > _MAX_SOURCE_EDITS:
+            raise serializers.ValidationError(
+                f"Send at most {_MAX_SOURCE_EDITS} edits per request. Split larger changes across several requests."
+            )
+        touched = [edit.path for edit in attrs.file_edits] + list(attrs.create_files) + list(attrs.delete_files)
+        duplicates = sorted(path for path, count in Counter(touched).items() if count > 1)
+        if duplicates:
+            raise serializers.ValidationError(f"Each path can appear in only one change: {', '.join(duplicates)}")
+        return attrs
+
+    class Meta:
+        dataclass = EditVersionSourceInput
+
+
+class SourceEditErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the change could not be applied.")
+    path = serializers.CharField(allow_null=True, help_text="Path of the file that caused the error, if any.")
+    edit_index = serializers.IntegerField(
+        allow_null=True, help_text="Zero-based index of the failed edit inside that file's edits, if any."
+    )
+
+
+class VersionConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the change was refused.")
+    current_version = serializers.IntegerField(help_text="Active version number of the app. Read it and retry.")
 
 
 class StreamlitAppStatusSerializer(serializers.Serializer):

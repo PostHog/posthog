@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 from parameterized import parameterized
@@ -37,7 +37,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -70,7 +70,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         cohort_id: int | None = None,
         use_preaggregated: bool = False,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             properties = []
             if cohort_id is not None:
                 properties.append(CohortPropertyFilter(key="id", value=cohort_id, type="cohort"))
@@ -92,7 +92,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         cohort_id: int | None = None,
         use_preaggregated: bool = False,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             properties = []
             if cohort_id is not None:
                 properties.append(CohortPropertyFilter(key="id", value=cohort_id, type="cohort"))
@@ -113,7 +113,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         date_to: str,
         cohort_id: int | None = None,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             properties = []
             if cohort_id is not None:
                 properties.append(CohortPropertyFilter(key="id", value=cohort_id, type="cohort"))
@@ -339,7 +339,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
 
         cohort = self._create_cohort_with_person("p1")
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             properties = [CohortPropertyFilter(key="id", value=cohort.id, type="cohort")]
             modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
             query = WebOverviewQuery(
@@ -360,7 +360,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
 
         cohort = self._create_cohort_with_person("p1")
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             properties = [CohortPropertyFilter(key="id", value=cohort.id, type="cohort")]
             modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
             query = WebStatsTableQuery(

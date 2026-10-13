@@ -1,23 +1,25 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
-    DataVisualizationNode,
+    DashboardFilter,
+    VisualizationNode,
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
@@ -28,19 +30,32 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biChartDateAxis'
+import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
+import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
+import { getBIChartRecord } from 'products/business_intelligence/frontend/biDrilldown'
+import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
+import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
+import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
+import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
-import { PieChart } from './Components/Charts/PieChart'
-import { SqlChart } from './Components/Charts/SqlChart'
+import { PartOfWholeChart } from './Components/Charts/PartOfWholeChart'
+import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
+import { isSqlChartVisualizationType, SqlChart } from './Components/Charts/SqlChart'
+import { getSeriesKey } from './Components/Charts/sqlLineGraphAdapter'
+import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from './Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
-import { SqlInsightDateFilterNotice } from './Components/SqlInsightDateFilterNotice'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -53,17 +68,19 @@ import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
 export interface DataTableVisualizationProps {
     uniqueKey?: string | number
-    query: DataVisualizationNode
-    setQuery: (query: DataVisualizationNode) => void
-    context?: QueryContext<DataVisualizationNode>
+    query: VisualizationNode
+    setQuery: (query: VisualizationNode) => void
+    context?: QueryContext<VisualizationNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
     editMode?: boolean
     readOnly?: boolean
     embedded?: boolean
+    inSharedMode?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
     variablesOverride?: Record<string, HogQLVariable> | null
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
@@ -79,15 +96,17 @@ export function DataTableVisualization({
     cachedResults,
     readOnly,
     variablesOverride,
+    filtersOverride,
     attachTo,
     editMode,
     embedded,
+    inSharedMode,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const queryRef = useRef(query)
     queryRef.current = query
 
-    const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
+    const insightProps: InsightLogicProps<VisualizationNode> = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${key}`,
         query,
         setQuery,
@@ -107,17 +126,19 @@ export function DataTableVisualization({
             applyDataVisualizationQueryUpdate(queryRef, setter, setQuery)
         },
         cachedResults,
-        variablesOverride,
+        variablesOverride: variablesOverride ?? insightProps.variablesOverride,
+        filtersOverride: filtersOverride ?? insightProps.filtersOverride,
         limitContext: context?.limitContext,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
+        query: getBIVisualizationSource(query),
         key: vizKey,
         cachedResults,
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId,
-        variablesOverride,
+        variablesOverride: variablesOverride ?? insightProps.variablesOverride,
+        filtersOverride: filtersOverride ?? insightProps.filtersOverride,
         limitContext: context?.limitContext,
     }
 
@@ -132,8 +153,9 @@ export function DataTableVisualization({
         dashboardId: insightProps.dashboardId,
         sourceQuery: query,
         setQuery: setQuery,
-        onUpdate: (query: DataVisualizationNode) => {
-            loadData(shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking', undefined, query.source)
+        onUpdate: (query: VisualizationNode) => {
+            const source = getBIVisualizationSource(query)
+            loadData(shouldQueryBeAsync(source) ? 'force_async' : 'force_blocking', undefined, source)
         },
     }
 
@@ -158,6 +180,9 @@ export function DataTableVisualization({
                                 exportContext={exportContext}
                                 editMode={editMode}
                                 embedded={embedded}
+                                inSharedMode={inSharedMode}
+                                filtersOverride={filtersOverride ?? insightProps.filtersOverride}
+                                variablesOverride={variablesOverride ?? insightProps.variablesOverride}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -182,11 +207,22 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         isChartSettingsPanelOpen,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
-        presetChartHeight,
+        presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const presetChartHeight = !props.embedded && scenePresetChartHeight
+    const drilldownProps = {
+        key: dataVisualizationProps.key,
+        query,
+        filtersOverride: props.filtersOverride,
+        variablesOverride: props.variablesOverride,
+    }
+    const { inspect } = useActions(biDrilldownLogic(drilldownProps))
+    const canDrill = query.kind === NodeKind.BIVisualizationNode && !props.inSharedMode
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -194,7 +230,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
     // insight (the SQL editor and other unsaved contexts have no alerts to show). Deliberately maps
     // alerts directly instead of using the alertThresholdLines selector: that selector gates on the
-    // trends-only showAlertThresholdLines viz setting, which DataVisualizationNode doesn't have, so
+    // trends-only showAlertThresholdLines viz setting, which VisualizationNode doesn't have, so
     // going through it would hide the lines on SQL charts entirely.
     const alertsInsightProps = (props.context?.insightProps as InsightLogicProps | undefined) ?? {
         dashboardItemId: undefined,
@@ -217,6 +253,30 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
+
+    const { timezone } = useValues(teamLogic)
+    const dateBucket =
+        query.kind === NodeKind.BIVisualizationNode
+            ? getBIResultDimensions(query.config).find(({ column }) => column === xData?.column.name)?.field.dateBucket
+            : undefined
+    const showYearLabels =
+        query.kind === NodeKind.BIVisualizationNode &&
+        (xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME') &&
+        dateBucket !== 'year' &&
+        effectiveVisualizationType !== ChartDisplayType.ActionsBarValue &&
+        chartSettings.showXAxisTicks !== false
+    const dateAxis = useMemo(
+        () => (showYearLabels && xData ? getBIChartDateAxis(xData.data, timezone, dateBucket) : undefined),
+        [showYearLabels, xData, timezone, dateBucket]
+    )
+    const dateMargins = useMemo(
+        () => (showYearLabels ? { bottom: chartSettings.xAxisLabel ? 76 : 54 } : undefined),
+        [showYearLabels, chartSettings.xAxisLabel]
+    )
+
+    const controlSize = query.kind === NodeKind.BIVisualizationNode ? 'xsmall' : 'small'
+
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     let component: JSX.Element | null = null
 
@@ -243,6 +303,30 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
+    } else if (
+        query.kind === NodeKind.BIVisualizationNode &&
+        (query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+            (query.config.compareFilter?.compare &&
+                [ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber, ChartDisplayType.Metric].includes(
+                    effectiveVisualizationType
+                )))
+    ) {
+        const resultProps = {
+            config: query.config,
+            columns: columns.map((column) => column.name),
+            results: 'results' in response && Array.isArray(response.results) ? response.results : [],
+            chartSettings,
+            onInspect: canDrill ? inspect : undefined,
+        }
+        component =
+            query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
+                <BIPivotTable {...resultProps} />
+            ) : (
+                <BIComparisonSummary
+                    {...resultProps}
+                    card={effectiveVisualizationType !== ChartDisplayType.ActionsTable}
+                />
+            )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
@@ -251,39 +335,63 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
                 embedded={props.embedded}
+                onInspect={canDrill ? inspect : undefined}
             />
         )
-    } else if (
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    ) {
+    } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <SqlChart
-                className="p-3"
-                xData={_xData}
-                yData={_yData}
-                visualizationType={effectiveVisualizationType}
-                chartSettings={chartSettings}
-                dashboardId={dashboardId}
-                goalLines={[...alertThresholdLines, ...goalLines]}
-                presetChartHeight={presetChartHeight}
-            />
+            <BindLogic logic={insightLogic} props={alertsInsightProps}>
+                <SqlChart
+                    className="p-3"
+                    xData={_xData}
+                    yData={_yData}
+                    visualizationType={effectiveVisualizationType}
+                    chartSettings={chartSettings}
+                    dashboardId={dashboardId}
+                    goalLines={[...alertThresholdLines, ...goalLines]}
+                    insightNumericId={insight?.id || 'new'}
+                    showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
+                    presetChartHeight={presetChartHeight}
+                    embedded={props.embedded}
+                    directPointClick={canDrill}
+                    xAxis={dateAxis}
+                    margins={dateMargins}
+                    onPointClick={
+                        canDrill
+                            ? (seriesKey, dataIndex) => {
+                                  const series = _yData.find(
+                                      (series, index) => getSeriesKey(series, index) === seriesKey
+                                  )
+                                  if (_xData) {
+                                      inspect(
+                                          getBIChartRecord(
+                                              query,
+                                              _xData.column.name,
+                                              _xData.data[dataIndex],
+                                              series && 'breakdownValue' in series ? series.breakdownValue : undefined
+                                          )
+                                      )
+                                  }
+                              }
+                            : undefined
+                    }
+                    pointClickHint={canDrill ? 'Click to explore this result' : undefined}
+                >
+                    {showYearLabels && <BIChartYearLabels timezone={timezone} />}
+                </SqlChart>
+            </BindLogic>
         )
-    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        // Pie charts can consume breakdown series totals directly, even when there isn't
-        // a matching breakdown x-axis to swap in like the line/bar path expects.
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
-            <PieChart
+            <PartOfWholeChart
                 className="p-3"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
@@ -300,87 +408,140 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
-        component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
+        component = (
+            <TwoDimensionalHeatmap
+                allowSorting={!(props.embedded && readOnly)}
+                onInspect={canDrill ? inspect : undefined}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else if (effectiveVisualizationType === ChartDisplayType.Metric) {
+        component = (
+            <SqlMetricCard
+                xData={xData}
+                yData={yData}
+                metricSettings={chartSettings.metric}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    }
+
+    if (query.kind === NodeKind.BIVisualizationNode) {
+        component = (
+            <>
+                {seriesBreakdownData.warning ? (
+                    <LemonBanner type="info">{seriesBreakdownData.warning}</LemonBanner>
+                ) : null}
+                {!responseLoading && response && 'hasMore' in response && response.hasMore ? (
+                    <LemonBanner type="info">
+                        {query.config.compareFilter?.compare
+                            ? `This worksheet reached its ${(query.config.limit / 2).toLocaleString()} comparison group limit. Space is reserved for both periods within the ${query.config.limit.toLocaleString()} row limit.`
+                            : `This worksheet reached its ${query.config.limit.toLocaleString()} row limit.`}{' '}
+                        Increase the limit or narrow the filters to see all results.
+                    </LemonBanner>
+                ) : null}
+                {component}
+                {canDrill ? <BIDrilldownModal logicProps={drilldownProps} /> : null}
+            </>
+        )
     }
 
     if (props.embedded) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div
+                className={clsx(
+                    'DataVisualization InsightCard__viz',
+                    effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
+                )}
+            >
+                {component}
+            </div>
+        )
     }
 
     return (
         <div
-            className={clsx('DataVisualization flex flex-1 gap-2', {
+            className={clsx('DataVisualization flex min-h-0 min-w-0 flex-1 gap-2', {
                 'h-full': effectiveVisualizationType !== ChartDisplayType.ActionsTable,
             })}
         >
-            <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+            <div className="relative min-h-0 min-w-0 w-full flex flex-col gap-2 flex-1 overflow-hidden">
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex gap-4 justify-between flex-wrap px-px">
-                            <div className="flex gap-4 items-center">
-                                <Reload />
+                        <div className="flex items-center gap-2 flex-wrap px-2">
+                            <div className="flex gap-2 items-center">
+                                <Reload size={controlSize} />
                                 <ElapsedTime />
                             </div>
-                            <div className="flex gap-4 items-center">
-                                <div className="flex gap-4 items-center flex-wrap">
-                                    <AddVariableButton />
+                            <AddVariableButton buttonProps={{ size: controlSize }} />
 
-                                    {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
-                                            <DateRange
-                                                key="date-range"
-                                                query={query.source}
-                                                setQuery={(query) => {
-                                                    if (query.kind === NodeKind.HogQLQuery) {
-                                                        setQuerySource(query)
-                                                    }
-                                                }}
-                                            />
-                                        )}
-
-                                    <TableDisplay />
-
-                                    <LemonButton
-                                        icon={<IconGear />}
-                                        type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
-                                        onClick={() => toggleChartSettingsPanel()}
-                                        tooltip="Visualization settings"
-                                    />
-
-                                    {props.exportContext && (
-                                        <ExportButton
-                                            disabledReason={
-                                                effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
-                                                'Only table results are exportable'
+                            {sourceFeatures.has(QueryFeature.dateRangePicker) &&
+                                !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
+                                    <DateRange
+                                        key="date-range"
+                                        size={controlSize}
+                                        query={query.source}
+                                        setQuery={(query) => {
+                                            if (query.kind === NodeKind.HogQLQuery) {
+                                                setQuerySource(query)
                                             }
-                                            type="secondary"
-                                            items={[
-                                                {
-                                                    export_format: ExporterFormat.CSV,
-                                                    export_context: props.exportContext,
-                                                },
-                                                {
-                                                    export_format: ExporterFormat.XLSX,
-                                                    export_context: props.exportContext,
-                                                },
-                                            ]}
-                                        />
-                                    )}
-                                </div>
+                                        }}
+                                    />
+                                )}
+
+                            <div className={props.context?.chartTypeSelectorClassName}>
+                                <TableDisplay size={controlSize} />
                             </div>
+
+                            <LemonButton
+                                size={controlSize}
+                                icon={<IconGear />}
+                                type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
+                                onClick={() => toggleChartSettingsPanel()}
+                                tooltip="Visualization settings"
+                            />
+
+                            {props.exportContext && (
+                                <ExportButton
+                                    size={controlSize}
+                                    disabledReason={
+                                        effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
+                                        'Only table results are exportable'
+                                    }
+                                    type="secondary"
+                                    items={[
+                                        {
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: props.exportContext,
+                                        },
+                                        {
+                                            export_format: ExporterFormat.XLSX,
+                                            export_context: props.exportContext,
+                                        },
+                                    ]}
+                                />
+                            )}
                         </div>
                     </>
                 )}
 
-                <SqlInsightDateFilterNotice source={query.source} />
-
                 {!props.embedded && <VariablesForInsight />}
 
-                <div className="flex flex-1 flex-row gap-4">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-row gap-2">
                     {/* The gear above toggles this panel (Series/Display tabs) — same layout the
                         SQL editor's OutputPane builds around its own visualization fork. */}
                     {!readOnly && showResultControls && isChartSettingsPanelOpen && (
@@ -389,7 +550,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <LemonDivider vertical className="h-full" />
                         </>
                     )}
-                    <div className="w-full h-full flex-1 overflow-auto">{component}</div>
+                    <div className="min-h-0 min-w-0 w-full h-full flex-1 overflow-auto pb-3">{component}</div>
                 </div>
             </div>
         </div>

@@ -76,14 +76,22 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         </span>
                     )}
                     <div className="flex-1 min-w-0">
-                        {toastTitle && <div className="quill-toast-card__title">{toastTitle}</div>}
-                        {toastDescription && <div className="quill-toast-card__description">{toastDescription}</div>}
+                        {toastTitle && (
+                            <div className="quill-toast-card__title" data-base-ui-swipe-ignore>
+                                {toastTitle}
+                            </div>
+                        )}
+                        {toastDescription && (
+                            <div className="quill-toast-card__description" data-base-ui-swipe-ignore>
+                                {toastDescription}
+                            </div>
+                        )}
                     </div>
                 </div>
                 {action && (
                     <div className="flex items-center gap-3 mt-2">
                         {icon && <span className="size-6 shrink-0" />}
-                        <Button variant="outline" size="sm" className="quill-toast-card__action" onClick={action.onClick}>
+                        <Button variant="outline" onClick={action.onClick}>
                             {action.label}
                         </Button>
                     </div>

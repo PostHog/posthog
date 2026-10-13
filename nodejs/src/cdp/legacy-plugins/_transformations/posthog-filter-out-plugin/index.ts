@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 import { Meta, PluginAttachment, PluginEvent } from '~/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
@@ -25,14 +26,27 @@ export type PluginMeta = Meta<{
     }
 }>
 
+// RE2 rejects some JavaScript-valid patterns, such as lookahead and backreferences. Treat an
+// uncompilable pattern as no match rather than letting it throw and error the whole event, matching
+// how the action matcher handles user-supplied patterns.
+const safeRegexTest = (value: any, pattern: any): boolean => {
+    try {
+        return createTrackedRE2(pattern, undefined, 'filter-out:regex').test(value)
+    } catch {
+        return false
+    }
+}
+
 const operations: Record<Filter['type'], Record<string, (a: any, b: any) => boolean>> = {
     string: {
         is: (a, b) => a === b,
         is_not: (a, b) => a !== b,
         contains: (a, b) => a.includes(b),
         not_contains: (a, b) => !a.includes(b),
-        regex: (a, b) => new RegExp(b).test(a),
-        not_regex: (a, b) => !new RegExp(b).test(a),
+        // RE2 evaluates user patterns in linear time, matching the engine used elsewhere for
+        // user-supplied patterns (HogVM match, action matcher).
+        regex: (a, b) => safeRegexTest(a, b),
+        not_regex: (a, b) => !safeRegexTest(a, b),
     },
     number: {
         gt: (a, b) => a > b,

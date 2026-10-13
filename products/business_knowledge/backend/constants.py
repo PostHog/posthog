@@ -7,7 +7,10 @@ import datetime
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
-MAX_CHUNKS_PER_TEAM = 100_000
+# Generated sources are excluded from MAX_SOURCES_PER_TEAM. This bounds the
+# sources list when learning publishes one text source per accepted topic.
+MAX_LEARNED_SOURCES_PER_TEAM = 10000
+MAX_CHUNKS_PER_TEAM = 250_000
 # 1 MB of raw text. Above this Stage 1 refuses the create; for longer docs the
 # customer is expected to split them or wait for Stage 2/3.
 MAX_TEXT_SIZE_BYTES = 1_000_000
@@ -38,22 +41,27 @@ URL_USER_AGENT = f"{URL_BOT_NAME}/1.0 (+https://posthog.com)"
 
 # --- Stage 2b: crawl tunables ---
 # Discover step cap — sitemap / same-origin BFS stops emitting after this
-# many candidate URLs (BEFORE glob filtering). Purely defensive: a pathological
-# sitemap.xml can list 100k URLs.
-HARD_DISCOVER_CAP = 10_000
+# many candidate URLs (BEFORE glob filtering). The cap has to sit above a
+# full docs site, or pages that sort late in the sitemap never get indexed.
+HARD_DISCOVER_CAP = 50_000
+# Sitemap documents one discovery may fetch. This is separate from HARD_DISCOVER_CAP because a
+# sitemap index can list one child per page. Without it, a crafted index makes one request
+# per listed child, whatever `max_pages` the source asks for.
+MAX_SITEMAP_FETCHES = 200
 # Fetch step default cap. Settable per-source via `crawl_config.max_pages`,
-# but users can never exceed MAX_URLS_PER_SOURCE. Deliberately low because
-# Stage 2b is inline — every fetch blocks a request worker. Stage 5 moves
-# this to Temporal and can raise the cap.
-DEFAULT_MAX_PAGES = 50
-MAX_URLS_PER_SOURCE = 500
+# but users can never exceed MAX_URLS_PER_SOURCE. Crawls run in Temporal, so
+# this is a memory bound, not a request-timeout bound.
+DEFAULT_MAX_PAGES = 200
+MAX_URLS_PER_SOURCE = 5000
 # Default recursion depth for `same_origin` BFS.
 DEFAULT_CRAWL_MAX_DEPTH = 2
 CRAWL_HARD_MAX_DEPTH = 5
+# Pages one crawl writes per transaction. A crawl holds at most this many parsed
+# pages plus the fetches in flight, not the whole source.
+CRAWL_WRITE_BATCH_SIZE = 50
 # Per-hostname concurrency during a single crawl — prevents us from
-# hammering an origin. In-process (threading.Semaphore), not cross-worker;
-# cross-worker rate limiting is Stage 5 Temporal work.
-PER_HOST_CONCURRENCY = 2
+# hammering an origin. In-process (threading.Semaphore), not cross-worker.
+PER_HOST_CONCURRENCY = 4
 # Total bytes of page bodies the same-origin BFS may carry over to the fetch
 # phase (so traversed pages aren't downloaded twice). Past the budget the
 # fetch phase re-downloads — a bounded-memory tradeoff, not a correctness one.
@@ -181,10 +189,36 @@ BK_RERANK_SNIPPET_CHARS = 500
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 
+# --- Search endpoint bounds ---
+# Ranked-chunk count for the documents/search endpoint. The default when the
+# caller passes no `limit`, and the hard cap the view clamps `limit` to.
+# `search_knowledge` also clamps its anchor count to the max.
+BK_SEARCH_DEFAULT_LIMIT = 10
+BK_SEARCH_MAX_LIMIT = 20
+
 # --- Always-on context cap ---
 # Hard char cap for always-on sources injected into every support prompt.
 # These bypass query filtering, so unbounded injection blows the token budget.
 MAX_ALWAYS_ON_CONTEXT_CHARS = 20_000
+
+# --- Abandoned-trial shape (`logic.has_maintained_sources`) ---
+# A team that pasted a little text in to see what the product does and never came back still
+# reads as available to everything checking `is_available_for_team`, so an agent prompt
+# describing the knowledge base costs that team tokens on every run for a base nobody consults.
+# The shape below is what that trial looks like on the rows, and `has_maintained_sources`
+# treats it as not worth the prompt space. Deliberately narrow — one lone unpinned manual
+# source, this little content, quiet this long — because the opposite error hides a real
+# knowledge base from every agent. Widen it only on evidence.
+#
+# The content bar counts searchable (SAFE) chunks, not documents: an upload or a paste stores the
+# whole text as ONE document however long it is (`create_text_source` / `create_file_source`), so
+# a document count would read a book-length handbook as a one-item trial. Chunks track content
+# volume (~CHUNK_TARGET_CHARS each), so a real base clears this bar and only a genuine tire-kick
+# paste — a chunk or two — stays under it. It counts only chunks the search path would return
+# (SAFE, non-tombstoned, in a READY source), so a base of UNSAFE/UNKNOWN content that no search
+# can reach never clears the bar on volume alone.
+TRIAL_MAX_CHUNKS = 2
+TRIAL_QUIET_PERIOD = datetime.timedelta(days=60)
 
 # --- Drill-down (agentic read) tunables ---
 # Default chunk radius for get_document_window: returns center +/- radius

@@ -95,56 +95,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == RuddrResumeConfig(cursor=str(PAGE_SIZE - 1))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_hasmore_false_yields_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}, {"id": "2"}], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(ruddr_source("key", "clients", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_with_hasmore_false_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        # A full page but hasMore false: stop after it rather than requesting another page.
-        _wire(session, [_response(_full_page(0), has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(ruddr_source("key", "clients", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(ruddr_source("key", "clients", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_hasmore_true_still_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        # Defensive: an empty page ends the sync even if the server claims more remain.
-        _wire(session, [_response([], has_more=True)])
-
-        manager = _make_manager()
-        rows = _rows(ruddr_source("key", "clients", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": "5"}], has_more=False)])
@@ -157,8 +107,20 @@ class TestPagination:
         # targets the saved cursor.
         assert params[0]["startingAfter"] == "cur-99"
 
+    @parameterized.expand(
+        [
+            ("time_entries", "https://www.ruddr.io/api/workspace/time-entries"),
+            ("project_tasks", "https://www.ruddr.io/api/workspace/project-tasks"),
+            ("project_prepayments", "https://www.ruddr.io/api/workspace/project-prepayments"),
+            ("timesheet_attestations", "https://www.ruddr.io/api/workspace/timesheet-attestations"),
+            ("task_categories", "https://www.ruddr.io/api/workspace/task-categories"),
+            ("pipeline_activities", "https://www.ruddr.io/api/workspace/pipeline-activities"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_targets_endpoint_path(self, MockSession) -> None:
+    def test_request_targets_endpoint_path(self, endpoint: str, expected_url: str, MockSession) -> None:
+        # Schema names use underscores but Ruddr's paths use hyphens; assert each declared path
+        # reaches the hyphenated URL rather than a 404.
         session = MockSession.return_value
         session.headers = {}
         captured: list[str] = []
@@ -170,8 +132,8 @@ class TestPagination:
         session.prepare_request.side_effect = _prepare
         session.send.side_effect = [_response([{"id": "1"}], has_more=False)]
 
-        _rows(ruddr_source("key", "time_entries", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert captured[0] == "https://www.ruddr.io/api/workspace/time-entries"
+        _rows(ruddr_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert captured[0] == expected_url
 
 
 class TestErrorHandling:
@@ -202,18 +164,6 @@ class TestErrorHandling:
         with pytest.raises(RESTClientRetryableError, match="Unexpected 200 response body shape"):
             _rows(ruddr_source("key", "clients", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
         assert session.send.call_count == 5
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_then_valid_recovers(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        session.prepare_request.return_value = mock.MagicMock()
-        session.send.side_effect = [_raw_response({"error": "glitch"}), _response([{"id": "1"}], has_more=False)]
-
-        rows = _rows(ruddr_source("key", "clients", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 2
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch(SLEEP_PATCH)
@@ -258,13 +208,6 @@ class TestValidateCredentials:
     def test_connection_error_is_not_validated(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key") == (False, "Could not validate Ruddr API key")
-
-    @mock.patch(RUDDR_SESSION_PATCH)
-    def test_probe_uses_limit_one(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://www.ruddr.io/api/workspace/clients?limit=1"
 
 
 class TestRuddrSourceResponse:

@@ -1,3 +1,5 @@
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
 /**
  * Registry for custom nav icons that need dynamic behavior (e.g., badges, counters).
  *
@@ -17,9 +19,19 @@ export const customIconRegistry: Record<string, React.ComponentType<{ className?
 /**
  * Get a custom icon component for the given type, or undefined if none registered.
  */
-export function getCustomIcon(type: string | undefined): React.ComponentType<{ className?: string }> | undefined {
+export function getCustomIcon(
+    type: string | undefined,
+    href: string | undefined
+): React.ComponentType<{ className?: string }> | undefined {
     if (!type) {
         return undefined
+    }
+    // Starred links store the icon type, which other apps can share with Support.
+    if (type === 'conversations') {
+        const pathname = removeProjectIdIfPresent(href ?? '').split(/[?#]/)[0]
+        if (pathname !== '/support' && !pathname.startsWith('/support/')) {
+            return undefined
+        }
     }
     return customIconRegistry[type]
 }

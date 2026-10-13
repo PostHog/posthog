@@ -67,6 +67,44 @@ class TestFormatGenerationTextRepr:
         assert "Provider:" not in result
         assert "Tokens:" not in result
 
+    def test_oversized_input_keeps_output_section(self):
+        generation_data = {
+            "model": "gpt-4",
+            "input": "x" * 5000,
+            "output": "DISTINCTIVE_OUTPUT_MARKER",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=1000)
+
+        assert len(result) <= 1000
+        assert "--- Output ---" in result
+        assert "DISTINCTIVE_OUTPUT_MARKER" in result
+
+    def test_stays_within_budget_while_repairing_surrogates(self):
+        generation_data = {
+            "model": "gpt-4",
+            "input": "\ud83d\ude00" * 1000,
+            "output": "short",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=200)
+
+        assert len(result) <= 200
+        assert result.encode("utf-8")
+
+    def test_truncated_input_keeps_head_and_tail(self):
+        generation_data = {
+            "input": "SYSTEM_PROMPT_HEAD " + "x" * 5000 + " NEWEST_MESSAGE_TAIL",
+            "output": "short",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=1000)
+
+        assert len(result) <= 1000
+        assert "SYSTEM_PROMPT_HEAD" in result
+        assert "NEWEST_MESSAGE_TAIL" in result
+        assert "[truncated]" in result
+
 
 class TestFetchAndFormatTrace:
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format")

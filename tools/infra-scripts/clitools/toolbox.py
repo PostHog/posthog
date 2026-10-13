@@ -40,7 +40,8 @@ POOLS = {
         },
     },
     "flags-cache-jumphost": {
-        "default_namespace": "posthog",
+        # Golden-chart deployment in the per-app namespace, in every environment.
+        "default_namespace": "flags-cache-jumphost",
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",
     },
@@ -107,19 +108,10 @@ def main():
         pool = POOLS[args.pool]
         app_label = pool["app_label"]
         claimed_label_key = pool["claimed_label_key"]
-        # Each pool advertises its own default namespace; `KUBE_NAMESPACE`
-        # remains the escape hatch (e.g. to point the toolbox-django pool back
-        # at the legacy `posthog` namespace during migration).
-        namespace = os.environ.get("KUBE_NAMESPACE", pool["default_namespace"])
-        # The base selector is `app.kubernetes.io/name=<app_label>`. Some
-        # namespaces also host other workloads that share that label (e.g. the
-        # golden chart deploys a per-app pgbouncer under the same name in the
-        # `posthog-toolbox-django` namespace), so we may need a further
-        # discriminator to pick only the main pool pods.
-        extra_selector = pool.get("extra_selectors_by_namespace", {}).get(namespace)
-
-        print(f"🛠️  Connecting to {args.pool} pool in namespace {namespace}...")  # noqa: T201
-
+        # Each pool advertises its own default namespace. `KUBE_NAMESPACE` remains
+        # the escape hatch (e.g. to point the toolbox-django pool back at the
+        # legacy `posthog` namespace during migration).
+        namespace = os.environ.get("KUBE_NAMESPACE") or pool["default_namespace"]
         # Resolve which kubernetes context to use without ever calling
         # `kubectl config use-context`. Switching kubeconfig globally would persist past
         # this script and silently redirect later operational commands.
@@ -133,6 +125,15 @@ def main():
         else:
             selected_context = select_context(namespace)
         print(f"🔄 Using kubernetes context: {selected_context}")  # noqa: T201
+
+        # The base selector is `app.kubernetes.io/name=<app_label>`. Some
+        # namespaces also host other workloads that share that label (e.g. the
+        # golden chart deploys a per-app pgbouncer under the same name in the
+        # `posthog-toolbox-django` namespace), so we may need a further
+        # discriminator to pick only the main pool pods.
+        extra_selector = pool.get("extra_selectors_by_namespace", {}).get(namespace)
+
+        print(f"🛠️  Connecting to {args.pool} pool in namespace {namespace}...")  # noqa: T201
 
         # Get current user labels
         user_labels = get_current_user(claimed_label_key=claimed_label_key, context=selected_context)

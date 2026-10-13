@@ -14,14 +14,15 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLogic'
-import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { getDisplay, isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getDisplay, isDataTableNode, isInsightVizNode, isMetricInsightQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
+
+import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
+import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
 
 export function ExportedInsight({
     insight: legacyInsight,
@@ -59,7 +60,7 @@ export function ExportedInsight({
     // legend layout here as the chart they get normalized to.
     const trendsDisplay = isInsightVizNode(query) && isTrendsQuery(query.source) ? getDisplay(query.source) : undefined
     const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
-    const isMetric = trendsDisplay === ChartDisplayType.Metric
+    const isMetric = isMetricInsightQuery(query)
     const showLegend =
         legend &&
         isInsightVizNode(query) &&

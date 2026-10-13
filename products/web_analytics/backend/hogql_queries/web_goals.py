@@ -20,6 +20,7 @@ from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute impo
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 
 # Returns an array `seq` split into chunks of size `size`
 # Example:
@@ -204,6 +205,7 @@ WHERE {periods_expression}
                 results=[],
                 modifiers=self.modifiers,
                 preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+                preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
             )
 
         response = execute_hogql_query(
@@ -211,6 +213,7 @@ WHERE {periods_expression}
             query=query,
             team=self.team,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -268,6 +271,7 @@ WHERE {periods_expression}
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
         )
 
     def _maybe_calculate_via_lazy_precompute(self) -> Optional[WebGoalsQueryResponse]:

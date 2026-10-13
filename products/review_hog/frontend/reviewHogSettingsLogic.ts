@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { SkillPickerGroup } from 'lib/components/SkillPicker/SkillPicker'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,9 +17,9 @@ import {
     reviewHogPerspectivesPartialUpdate,
     reviewHogResolutionList,
     reviewHogResolutionPartialUpdate,
-    reviewHogReviewsList,
     reviewHogReviewsPerspectiveStatsRetrieve,
     reviewHogReviewsRetrieve,
+    reviewHogReviewsTableRetrieve,
     reviewHogReviewsTriggerCreate,
     reviewHogSettingsPartialUpdate,
     reviewHogSettingsRetrieve,
@@ -32,21 +33,39 @@ import type {
     ReviewFindingApi,
     ReviewIssuePriorityEnumApi,
     ReviewPerspectiveConfigApi,
+    ReviewPerspectiveStatItemApi,
     ReviewPerspectiveStatsApi,
     ReviewRecentReviewApi,
-    ReviewRecentReviewsPageApi,
     ReviewResolutionConfigApi,
+    ReviewReviewsTablePageApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     ReviewHogReviewsListScope,
+    ReviewHogReviewsPerspectiveStatsRetrieveScope,
+    ReviewHogReviewsTableRetrieveReviewMode,
+    ReviewHogReviewsTableRetrieveStatus,
     ReviewTriggerRequestRunModeEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
+import { llmSkillsList, llmSkillsNameDuplicateCreate } from 'products/skills/frontend/generated/api'
+import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator' | 'resolution'
 
-export type ReviewDrawerTab = 'published' | 'below_threshold' | 'dismissed' | 'chunks' | 'review'
+export type ReviewDrawerTab =
+    | 'published'
+    | 'not_posted'
+    | 'below_threshold'
+    | 'dismissed'
+    | 'chunks'
+    | 'how_it_ran'
+    | 'review'
+
+export type CodeReviewTab = 'activity' | 'settings'
+
+/** The personal preferences that fall back to a project default when the user has no own value. */
+export type ProjectDefaultKey = 'urgency_threshold' | 'celebrate_clean_reviews'
 
 export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = {
     consider: 0,
@@ -54,14 +73,8 @@ export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = 
     must_fix: 2,
 }
 
-// While a review is running, the list refreshes on this cadence so the stage/progress row is live.
+// Poll cadence while the visible page has a running review, so its stage label stays live.
 const IN_PROGRESS_POLL_INTERVAL_MS = 10_000
-
-// With nothing running the list still refreshes, just slower: reviews started outside this page
-// (the GitHub label, inbox auto-reviews, a teammate) have no other way to appear, and a finished
-// run's published state can land moments after its last in-progress response. Hidden tabs pause
-// the poll entirely, so the idle cadence only spends requests someone could actually see.
-const IDLE_POLL_INTERVAL_MS = 30_000
 
 /** What the poll remembers about a row between responses, to spot a run finishing. */
 interface ReviewRunMarker {
@@ -74,11 +87,9 @@ interface ReviewRunMarker {
 // it must not keep the list polling forever.
 const TRIGGERED_REVIEW_WATCH_TIMEOUT_MS = 2 * 60 * 1000
 
-/** The review list's initial depth, the step each "Show more" adds, and what "Show fewer" collapses to. */
-export const REVIEWS_PAGE_SIZE = 5
-
-/** Mirrors MAX_REVIEWS_LIMIT in reviews.py — the API 400s above this, so growth must stop here. */
-export const MAX_REVIEWS_LIMIT = 100
+export const REVIEWS_PAGE_SIZE = 25
+// The reviews table API caps `offset` at 1,000,000.
+const MAX_REVIEWS_PAGE = Math.floor(1_000_000 / REVIEWS_PAGE_SIZE) + 1
 
 /** The detail's valid findings split by the user's urgency threshold: on the PR vs. kept back. */
 export interface ReviewFindingsSplit {
@@ -92,12 +103,68 @@ export interface PerspectiveScore {
     count: number
 }
 
-/** The skill a "View skill" click opens in the read-only drawer. */
-export interface ViewedSkill {
-    title: string
-    body: string
-    /** The `review-hog-*` skill name, for the drawer's link to the skill's editor page. */
-    skillName: string
+// Mirrors the backend naming contract (skill_loader.py): the name prefix is a review skill's whole
+// identity, so an adopted copy must be created under its kind's prefix to be discovered by runs.
+export const REVIEW_SKILL_PREFIX_BY_KIND: Record<ReviewSkillKind, string> = {
+    perspective: 'review-hog-perspective-',
+    blind_spots: 'review-hog-blind-spots-',
+    validator: 'review-hog-validation-',
+    resolution: 'review-hog-resolution-',
+}
+
+export const REVIEW_SKILL_KIND_LABELS: Record<ReviewSkillKind, string> = {
+    perspective: 'perspective',
+    blind_spots: 'blind-spot check',
+    validator: 'validation criteria',
+    resolution: 'resolution criteria',
+}
+
+// Group headings for the adopt picker: teammates' ready-made skills of the kind first (invisible in
+// the cards above, since customs are author-only there), then the rest of the team's skill store.
+const ADOPT_TEAMMATE_GROUP_LABELS: Record<ReviewSkillKind, string> = {
+    perspective: 'Perspectives from your teammates',
+    blind_spots: 'Blind-spot checks from your teammates',
+    validator: 'Validation criteria from your teammates',
+    resolution: 'Resolution criteria from your teammates',
+}
+
+/** Mirrors the skills API name limit: the whole adopted name (prefix + slug) must fit. */
+export const SKILL_NAME_MAX_LENGTH = 64
+
+// Page size for loading the skill store; the loader follows the pagination to the end, so this
+// only bounds how many requests a large store takes, never which skills the picker offers.
+const ADOPTABLE_SKILLS_PAGE_SIZE = 300
+
+/** The existing skill an adoption copies from. */
+export interface AdoptSource {
+    name: string
+    description: string
+}
+
+/** Prefill slug for an adopted copy: the source name minus any review-hog kind prefix, cut to fit. */
+export function defaultAdoptSlug(sourceName: string, kind: ReviewSkillKind): string {
+    const knownPrefix = Object.values(REVIEW_SKILL_PREFIX_BY_KIND).find((prefix) => sourceName.startsWith(prefix))
+    const bare = knownPrefix ? sourceName.slice(knownPrefix.length) : sourceName
+    const maxSlugLength = SKILL_NAME_MAX_LENGTH - REVIEW_SKILL_PREFIX_BY_KIND[kind].length
+    return bare.slice(0, maxSlugLength).replace(/-+$/, '')
+}
+
+/** Client-side mirror of the skills API name rules, so the confirm step can reject inline. */
+export function validateAdoptSlug(slug: string, kind: ReviewSkillKind, takenNames: Set<string>): string | null {
+    if (!slug) {
+        return 'Enter a name for the copy'
+    }
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+        return 'Use lowercase letters, numbers, and single hyphens between words'
+    }
+    const fullName = REVIEW_SKILL_PREFIX_BY_KIND[kind] + slug
+    if (fullName.length > SKILL_NAME_MAX_LENGTH) {
+        return `The full name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer`
+    }
+    if (takenNames.has(fullName)) {
+        return 'A skill with this name already exists'
+    }
+    return null
 }
 
 // Thin scout-style kickoff pointers (mirrors SCOUT_AUTHOR_PROMPT): the actual authoring guide —
@@ -106,42 +173,42 @@ export interface ViewedSkill {
 // team like the perspectives. Keep knowledge there, not here.
 const SKILL_AUTHOR_TASKS: Record<ReviewSkillKind, { title: string; prompt: string }> = {
     perspective: {
-        title: 'Create a ReviewHog perspective',
-        prompt: `I'd like to create a custom ReviewHog review perspective for this PostHog project.
+        title: 'Create a PostHog Review perspective',
+        prompt: `I'd like to create a custom review perspective for PostHog Review in this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its review-perspective path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its review-perspective path.
 
 Ground yourself per that skill first, then ask me what my perspective should focus on and offer a few concrete directions the current set doesn't already cover. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: list the team's review-hog-perspective-* skills and read a canonical one to learn the shape before authoring.`,
     },
     blind_spots: {
-        title: 'Create a ReviewHog blind-spot check',
-        prompt: `I'd like to create a custom ReviewHog blind-spot check for this PostHog project.
+        title: 'Create a PostHog Review blind-spot check',
+        prompt: `I'd like to create a custom PostHog Review blind-spot check for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its blind-spot-check path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its blind-spot-check path.
 
 Ground yourself per that skill first, then ask me what my sweep should emphasize and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-blind-spots-general skill to learn the shape before authoring.`,
     },
     validator: {
-        title: 'Create ReviewHog validation criteria',
-        prompt: `I'd like to create custom ReviewHog validation criteria for this PostHog project.
+        title: 'Create PostHog Review validation criteria',
+        prompt: `I'd like to create custom PostHog Review validation criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its validation-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its validation-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar should differ — stricter, more lenient, or weighted toward specific concerns — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar should differ (stricter, more lenient, or weighted toward specific concerns) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-validation-criteria skill to learn the shape before authoring.`,
     },
     resolution: {
-        title: 'Create ReviewHog resolution criteria',
-        prompt: `I'd like to create custom ReviewHog resolution criteria for this PostHog project.
+        title: 'Create PostHog Review resolution criteria',
+        prompt: `I'd like to create custom PostHog Review resolution criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its resolution-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its resolution-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ — more conservative, more eager, or weighted toward specific kinds of fixes — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ (more conservative, more eager, or weighted toward specific kinds of fixes) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-resolution-criteria skill to learn the shape before authoring.`,
     },
@@ -151,16 +218,40 @@ function currentProjectId(): string {
     return String(teamLogic.values.currentTeamId)
 }
 
+/** "https://github.com/Org/Repo/pull/123/files" → "org/repo/123"; null when not a PR URL. */
+function parsePrPath(url: string): string | null {
+    const match = url
+        .trim()
+        .toLowerCase()
+        .match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
+    return match ? `${match[1]}/${match[2]}/${match[3]}` : null
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reviewHogSettingsLogicValues {
+    activeTab: CodeReviewTab
+    adoptNewSkillName: string
+    adoptSkillGroups: SkillPickerGroup[]
+    adoptSkillKind: ReviewSkillKind | null
+    adoptSlug: string
+    adoptSlugError: string | null
+    adoptSource: AdoptSource | null
+    adoptableSkills: LLMSkillListApi[] | null
+    adoptableSkillsLoading: boolean
+    adoptingSkill: boolean
     awaitingTriggeredReview: boolean
     blindSpots: ReviewBlindSpotsConfigApi[] | null
     blindSpotsLoading: boolean
     creatingSkillKind: ReviewSkillKind | null
-    expandedReviewIds: string[]
+    deepSkillKept: Record<string, ReviewPerspectiveStatItemApi> | null
+    deepSkillStats: ReviewPerspectiveStatsApi | null
+    deepSkillStatsLoading: boolean
+    deepValidationKept: {
+        judged: number
+        kept: number
+    } | null
     hasUserChosenReviewsScope: boolean
     initialLoadFailed: boolean
-    moreReviewsAvailable: boolean
     openedReview: ReviewRecentReviewApi | null
     openedReviewId: string | null
     perspectiveScoreboard: PerspectiveScore[] | null
@@ -169,9 +260,6 @@ export interface reviewHogSettingsLogicValues {
     perspectives: ReviewPerspectiveConfigApi[] | null
     perspectivesLoading: boolean
     pipelineDetailOpen: boolean
-    recentReviews: ReviewRecentReviewApi[] | null
-    recentReviewsPage: ReviewRecentReviewsPageApi | null
-    recentReviewsPageLoading: boolean
     resolutionSkills: ReviewResolutionConfigApi[] | null
     resolutionSkillsLoading: boolean
     reviewDetail: ReviewDetailApi | null
@@ -179,18 +267,28 @@ export interface reviewHogSettingsLogicValues {
     reviewDrawerOpen: boolean
     reviewDrawerTab: ReviewDrawerTab
     reviewFindingsSplit: ReviewFindingsSplit | null
-    reviewsExpanding: boolean
-    reviewsLimit: number
+    reviews: ReviewRecentReviewApi[] | null
+    reviewsCurrentPage: number
+    reviewsFailed: boolean
+    reviewsFiltered: boolean
+    reviewsMode: ReviewHogReviewsTableRetrieveReviewMode | null
+    reviewsPage: ReviewReviewsTablePageApi | null
+    reviewsPageLoading: boolean
+    reviewsPublished: boolean | null
+    reviewsRepository: string | null
+    reviewsRepositoryOptions: string[]
     reviewsScope: ReviewHogReviewsListScope
+    reviewsStatus: ReviewHogReviewsTableRetrieveStatus | null
     savingSkillNames: string[]
+    seenRepositories: string[]
     settings: ReviewUserSettingsApi | null
     settingsLoading: boolean
-    skillDrawerOpen: boolean
     triggerPrUrl: string
+    triggerUrlHasFullReview: boolean
+    triggerUrlResolving: boolean
     triggeringReview: boolean
     validators: ReviewValidatorConfigApi[] | null
     validatorsLoading: boolean
-    viewedSkill: ViewedSkill | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -198,8 +296,20 @@ export interface reviewHogSettingsLogicActions {
     applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => {
         scope: ReviewHogReviewsListScope
     }
+    backToAdoptSearch: () => {
+        value: true
+    }
     blockSingleActiveDeactivation: (kindLabel: string) => {
         kindLabel: string
+    }
+    chooseAdoptSource: (source: AdoptSource) => {
+        source: AdoptSource
+    }
+    clearReviewsFilters: () => {
+        value: true
+    }
+    closeAdoptSkillModal: () => {
+        value: true
     }
     closePipelineDetail: () => {
         value: true
@@ -207,8 +317,23 @@ export interface reviewHogSettingsLogicActions {
     closeReviewDrawer: () => {
         value: true
     }
-    closeSkillDrawer: () => {
-        value: true
+    followProjectDefault: (key: ProjectDefaultKey) => {
+        key: ProjectDefaultKey
+    }
+    loadAdoptableSkills: (_?: any) => any
+    loadAdoptableSkillsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAdoptableSkillsSuccess: (
+        adoptableSkills: LLMSkillListApi[],
+        payload?: any
+    ) => {
+        adoptableSkills: LLMSkillListApi[]
+        payload?: any
     }
     loadAll: () => {
         value: true
@@ -226,6 +351,21 @@ export interface reviewHogSettingsLogicActions {
         payload?: any
     ) => {
         blindSpots: ReviewBlindSpotsConfigApi[]
+        payload?: any
+    }
+    loadDeepSkillStats: () => any
+    loadDeepSkillStatsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDeepSkillStatsSuccess: (
+        deepSkillStats: ReviewPerspectiveStatsApi,
+        payload?: any
+    ) => {
+        deepSkillStats: ReviewPerspectiveStatsApi
         payload?: any
     }
     loadPerspectiveStats: (_?: any) => any
@@ -258,21 +398,6 @@ export interface reviewHogSettingsLogicActions {
         perspectives: ReviewPerspectiveConfigApi[]
         payload?: any
     }
-    loadRecentReviews: (_?: any) => any
-    loadRecentReviewsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadRecentReviewsSuccess: (
-        recentReviewsPage: ReviewRecentReviewsPageApi,
-        payload?: any
-    ) => {
-        recentReviewsPage: ReviewRecentReviewsPageApi
-        payload?: any
-    }
     loadResolutionSkills: () => any
     loadResolutionSkillsFailure: (
         error: string,
@@ -302,6 +427,21 @@ export interface reviewHogSettingsLogicActions {
     ) => {
         reviewDetail: ReviewDetailApi
         payload?: string
+    }
+    loadReviews: (_?: any) => any
+    loadReviewsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReviewsSuccess: (
+        reviewsPage: ReviewReviewsTablePageApi,
+        payload?: any
+    ) => {
+        reviewsPage: ReviewReviewsTablePageApi
+        payload?: any
     }
     loadSettings: () => any
     loadSettingsFailure: (
@@ -336,6 +476,9 @@ export interface reviewHogSettingsLogicActions {
     markInitialLoadFailed: () => {
         value: true
     }
+    openAdoptSkillModal: (kind: ReviewSkillKind) => {
+        kind: ReviewSkillKind
+    }
     openPipelineDetail: () => {
         value: true
     }
@@ -361,11 +504,32 @@ export interface reviewHogSettingsLogicActions {
     selectValidator: (skillName: string) => {
         skillName: string
     }
+    setActiveTab: (tab: CodeReviewTab) => {
+        tab: CodeReviewTab
+    }
+    setAdoptSlug: (slug: string) => {
+        slug: string
+    }
     setReviewDrawerTab: (tab: ReviewDrawerTab) => {
         tab: ReviewDrawerTab
     }
+    setReviewsMode: (mode: ReviewHogReviewsTableRetrieveReviewMode | null) => {
+        mode: ReviewHogReviewsTableRetrieveReviewMode | null
+    }
+    setReviewsPage: (page: number) => {
+        page: number
+    }
+    setReviewsPublished: (published: boolean | null) => {
+        published: boolean | null
+    }
+    setReviewsRepository: (repository: string | null) => {
+        repository: string | null
+    }
     setReviewsScope: (scope: ReviewHogReviewsListScope) => {
         scope: ReviewHogReviewsListScope
+    }
+    setReviewsStatus: (status: ReviewHogReviewsTableRetrieveStatus | null) => {
+        status: ReviewHogReviewsTableRetrieveStatus | null
     }
     setSkillSaving: (
         skillName: string,
@@ -377,12 +541,6 @@ export interface reviewHogSettingsLogicActions {
     setTriggerPrUrl: (prUrl: string) => {
         prUrl: string
     }
-    showFewerReviews: () => {
-        value: true
-    }
-    showMoreReviews: () => {
-        value: true
-    }
     startSkillAuthorTask: (kind: ReviewSkillKind) => {
         kind: ReviewSkillKind
     }
@@ -393,6 +551,15 @@ export interface reviewHogSettingsLogicActions {
         value: true
     }
     stopTriggeredReviewWatch: () => {
+        value: true
+    }
+    submitAdoptSkill: () => {
+        value: true
+    }
+    submitAdoptSkillFinished: () => {
+        value: true
+    }
+    submitAdoptSkillStarted: () => {
         value: true
     }
     submitTriggerReview: (runMode?: ReviewTriggerRequestRunModeEnumApi) => {
@@ -411,9 +578,6 @@ export interface reviewHogSettingsLogicActions {
         enabled: boolean
         skillName: string
     }
-    toggleReviewRowExpanded: (reviewId: string) => {
-        reviewId: string
-    }
     updateSettings: (patch: PatchedReviewUserSettingsApi) => PatchedReviewUserSettingsApi
     updateSettingsFailure: (
         error: string,
@@ -429,20 +593,50 @@ export interface reviewHogSettingsLogicActions {
         settings: ReviewUserSettingsApi
         payload?: PatchedReviewUserSettingsApi
     }
-    viewSkill: (skill: ViewedSkill) => {
-        skill: ViewedSkill
-    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reviewHogSettingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        recentReviews: (recentReviewsPage: ReviewRecentReviewsPageApi | null) => ReviewRecentReviewApi[] | null
-        moreReviewsAvailable: (recentReviewsPage: ReviewRecentReviewsPageApi | null, reviewsLimit: number) => boolean
+        deepSkillKept: (
+            deepSkillStats: ReviewPerspectiveStatsApi | null
+        ) => Record<string, ReviewPerspectiveStatItemApi> | null
+        deepValidationKept: (deepSkillStats: ReviewPerspectiveStatsApi | null) => {
+            judged: number
+            kept: number
+        } | null
+        adoptSkillGroups: (
+            adoptableSkills: LLMSkillListApi[] | null,
+            adoptSkillKind: ReviewSkillKind | null,
+            perspectives: ReviewPerspectiveConfigApi[] | null,
+            blindSpots: ReviewBlindSpotsConfigApi[] | null,
+            validators: ReviewValidatorConfigApi[] | null,
+            resolutionSkills: ReviewResolutionConfigApi[] | null
+        ) => SkillPickerGroup[]
+        adoptNewSkillName: (adoptSkillKind: ReviewSkillKind | null, adoptSlug: string) => string
+        adoptSlugError: (
+            adoptSlug: string,
+            adoptSkillKind: ReviewSkillKind | null,
+            adoptableSkills: LLMSkillListApi[] | null,
+            perspectives: ReviewPerspectiveConfigApi[] | null,
+            blindSpots: ReviewBlindSpotsConfigApi[] | null,
+            validators: ReviewValidatorConfigApi[] | null,
+            resolutionSkills: ReviewResolutionConfigApi[] | null
+        ) => string | null
+        reviews: (reviewsPage: ReviewReviewsTablePageApi | null) => ReviewRecentReviewApi[] | null
+        reviewsFiltered: (
+            reviewsRepository: string | null,
+            reviewsMode: ReviewHogReviewsTableRetrieveReviewMode | null,
+            reviewsStatus: ReviewHogReviewsTableRetrieveStatus | null,
+            reviewsPublished: boolean | null
+        ) => boolean
+        reviewsRepositoryOptions: (seenRepositories: string[], reviewsRepository: string | null) => string[]
         reviewFindingsSplit: (
             reviewDetail: ReviewDetailApi | null,
             settings: ReviewUserSettingsApi | null
         ) => ReviewFindingsSplit | null
+        triggerUrlHasFullReview: (triggerPrUrl: string, reviews: ReviewRecentReviewApi[] | null) => boolean
+        triggerUrlResolving: (triggerPrUrl: string, reviews: ReviewRecentReviewApi[] | null) => boolean
         perspectiveScoreboard: (reviewDetail: ReviewDetailApi | null) => PerspectiveScore[] | null
     }
 }
@@ -476,8 +670,6 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         // The active card's switch can't be turned off — exactly one stays active per kind.
         blockSingleActiveDeactivation: (kindLabel: string) => ({ kindLabel }),
         setSkillSaving: (skillName: string, saving: boolean) => ({ skillName, saving }),
-        viewSkill: (skill: ViewedSkill) => ({ skill }),
-        closeSkillDrawer: true,
         openReviewDetail: (review: ReviewRecentReviewApi) => ({ review }),
         // Opens the drawer for a review with no list row in hand — the `?review=` deep-link path
         // (PR status comments bake these links into GitHub). The drawer renders from the loaded
@@ -486,19 +678,38 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         closeReviewDrawer: true,
         openPipelineDetail: true,
         closePipelineDetail: true,
+        setActiveTab: (tab: CodeReviewTab) => ({ tab }),
         setReviewDrawerTab: (tab: ReviewDrawerTab) => ({ tab }),
-        toggleReviewRowExpanded: (reviewId: string) => ({ reviewId }),
         setReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
-        showMoreReviews: true,
-        showFewerReviews: true,
-        // Auto-select a default scope (Entire project when the user has no reviews of their own)
+        setReviewsPage: (page: number) => ({ page }),
+        setReviewsRepository: (repository: string | null) => ({ repository }),
+        setReviewsMode: (mode: ReviewHogReviewsTableRetrieveReviewMode | null) => ({ mode }),
+        setReviewsStatus: (status: ReviewHogReviewsTableRetrieveStatus | null) => ({ status }),
+        setReviewsPublished: (published: boolean | null) => ({ published }),
+        clearReviewsFilters: true,
+        // Auto-select a default scope (Everyone when the user has no reviews of their own)
         // without marking it as an explicit user choice, so a later real choice still wins.
         applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
+        // "Use an existing skill": pick a team skill, copy it under the kind's prefix, switch it on.
+        openAdoptSkillModal: (kind: ReviewSkillKind) => ({ kind }),
+        closeAdoptSkillModal: true,
+        chooseAdoptSource: (source: AdoptSource) => ({ source }),
+        backToAdoptSearch: true,
+        setAdoptSlug: (slug: string) => ({ slug }),
+        submitAdoptSkill: true,
+        // Flipped by the listener (not the submit action itself) so a repeat dispatch mid-flight is
+        // dropped before it POSTs, mirroring the trigger flow's guard.
+        submitAdoptSkillStarted: true,
+        submitAdoptSkillFinished: true,
+        // Drops the user's own value, so the project default applies again. The API never stores a
+        // value equal to the inherited one, so writing the project default clears the key.
+        followProjectDefault: (key: ProjectDefaultKey) => ({ key }),
         setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
         // Starts a run on the pasted PR URL: a review (which resolves comments per the user's
-        // setting), a review without resolving, or a resolve-only run — the split button's variants.
+        // setting), a review without resolving, a resolve-only run, or a flash review — the split
+        // button's variants.
         // The listener self-guards on `triggeringReview`, so a repeat dispatch mid-flight (Enter
         // spam, double click) is a no-op regardless of the source.
         submitTriggerReview: (
@@ -506,8 +717,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         ) => ({ runMode }),
         submitTriggerReviewStarted: true,
         submitTriggerReviewFinished: true,
-        // Keeps the recent-reviews poll on the tight cadence until a just-triggered review's report
-        // row appears; without it the poll only tightens when some review is already visibly running.
+        // Keeps the table polling until a just-triggered review's report row appears.
         startTriggeredReviewWatch: true,
         stopTriggeredReviewWatch: true,
         // Flags a load failure as the page-level one. Dispatched by the failure listeners only when
@@ -552,14 +762,49 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadResolutionSkills: async () => await reviewHogResolutionList(currentProjectId()),
             },
         ],
-        recentReviewsPage: [
-            null as ReviewRecentReviewsPageApi | null,
+        // Every live team skill, for the adopt picker. Fetched fresh on each modal open so a skill
+        // created since the last open (e.g. by an authoring task) is offered. The picker's search,
+        // grouping, and name-collision checks all assume the complete store, so the loader follows
+        // the pagination to the end instead of trusting one page to cover it.
+        adoptableSkills: [
+            null as LLMSkillListApi[] | null,
+            {
+                loadAdoptableSkills: async (_ = null, breakpoint) => {
+                    const skills: LLMSkillListApi[] = []
+                    let hasMore = true
+                    while (hasMore) {
+                        // `offset: skills.length` adapts to the page size the server actually
+                        // returned, so a server-side clamp below the requested limit skips nothing.
+                        const response = await llmSkillsList(currentProjectId(), {
+                            limit: ADOPTABLE_SKILLS_PAGE_SIZE,
+                            offset: skills.length,
+                        })
+                        breakpoint()
+                        skills.push(...response.results)
+                        // An empty page stops the loop too, so a buggy `next` can never spin it forever.
+                        hasMore = Boolean(response.next) && response.results.length > 0
+                    }
+                    return skills
+                },
+            },
+        ],
+        reviewsPage: [
+            null as ReviewReviewsTablePageApi | null,
             {
                 // The default param keeps the action zero-arg in the generated logic type.
-                loadRecentReviews: async (_ = null, breakpoint) => {
-                    const { reviewsScope: scope, reviewsLimit: limit } = values
-                    const response = await reviewHogReviewsList(currentProjectId(), { scope, limit })
-                    // A scope or limit change mid-flight dispatched a newer load — drop this stale response.
+                loadReviews: async (_ = null, breakpoint) => {
+                    // urlToAction replays each deep-link filter in turn; debounce so only the settled set loads.
+                    await breakpoint(1)
+                    const response = await reviewHogReviewsTableRetrieve(currentProjectId(), {
+                        scope: values.reviewsScope,
+                        limit: REVIEWS_PAGE_SIZE,
+                        offset: (values.reviewsCurrentPage - 1) * REVIEWS_PAGE_SIZE,
+                        ...(values.reviewsRepository ? { repository: values.reviewsRepository } : {}),
+                        ...(values.reviewsMode ? { review_mode: values.reviewsMode } : {}),
+                        ...(values.reviewsStatus ? { status: values.reviewsStatus } : {}),
+                        ...(values.reviewsPublished !== null ? { published: values.reviewsPublished } : {}),
+                    })
+                    // A filter or page change mid-flight dispatched a newer load — drop this stale response.
                     breakpoint()
                     return response
                 },
@@ -592,6 +837,18 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 },
             },
         ],
+        // The review skills on the Settings tab: the viewer's own last Deep reviews, whatever the
+        // Activity tab's Mine / Everyone switch says, because only the person who starts a Deep
+        // review picks its skills.
+        deepSkillStats: [
+            null as ReviewPerspectiveStatsApi | null,
+            {
+                loadDeepSkillStats: async () =>
+                    await reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId(), {
+                        scope: ReviewHogReviewsPerspectiveStatsRetrieveScope.OwnDeep,
+                    }),
+            },
+        ],
     })),
 
     reducers({
@@ -622,20 +879,6 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             {
                 setSkillSaving: (state, { skillName, saving }) =>
                     saving ? [...state, skillName] : state.filter((name) => name !== skillName),
-            },
-        ],
-        viewedSkill: [
-            // Kept through close so the drawer doesn't blank mid-animation; `skillDrawerOpen` gates visibility.
-            null as ViewedSkill | null,
-            {
-                viewSkill: (_, { skill }) => skill,
-            },
-        ],
-        skillDrawerOpen: [
-            false,
-            {
-                viewSkill: () => true,
-                closeSkillDrawer: () => false,
             },
         ],
         // The clicked list row: the drawer header renders from it instantly while the detail loads.
@@ -678,6 +921,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 closePipelineDetail: () => false,
             },
         ],
+        activeTab: [
+            'activity' as CodeReviewTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         reviewDrawerTab: [
             'published' as ReviewDrawerTab,
             {
@@ -686,61 +935,89 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 openReviewDetailById: () => 'published' as ReviewDrawerTab,
             },
         ],
-        expandedReviewIds: [
-            [] as string[],
-            {
-                toggleReviewRowExpanded: (state, { reviewId }) =>
-                    state.includes(reviewId) ? state.filter((id) => id !== reviewId) : [...state, reviewId],
-            },
-        ],
         perspectiveStats: {
             // A different scope is different data — drop the old numbers so the stat cards show
             // skeletons instead of the wrong scope's stats while the reload is in flight.
             setReviewsScope: () => null,
             applyDefaultReviewsScope: () => null,
         },
-        recentReviewsPage: {
-            // A different scope is a different list — drop it together with perspectiveStats so
-            // the section shows skeletons instead of the other scope's rows (and never strands
-            // them if the reload fails). Poll refreshes still keep prior rows.
+        reviewsPage: {
+            // Drop rows that no longer match the controls so the table shows loading. Poll refreshes keep them.
             setReviewsScope: () => null,
             applyDefaultReviewsScope: () => null,
-            // "Show fewer" collapses instantly from data already loaded; the listener's refetch
-            // reconciles silently and breakpoint-drops any wider in-flight response (e.g. a poll).
-            showFewerReviews: (state: ReviewRecentReviewsPageApi | null) =>
-                state
-                    ? {
-                          ...state,
-                          results: state.results.slice(0, REVIEWS_PAGE_SIZE),
-                          has_more: state.has_more || state.results.length > REVIEWS_PAGE_SIZE,
-                      }
-                    : state,
+            setReviewsPage: () => null,
+            setReviewsRepository: () => null,
+            setReviewsMode: () => null,
+            setReviewsStatus: () => null,
+            setReviewsPublished: () => null,
+            clearReviewsFilters: () => null,
         },
-        // How many rows the review list asks for — grows by a page per "Show more".
-        reviewsLimit: [
-            REVIEWS_PAGE_SIZE as number,
-            {
-                showMoreReviews: (state) => Math.min(state + REVIEWS_PAGE_SIZE, MAX_REVIEWS_LIMIT),
-                showFewerReviews: () => REVIEWS_PAGE_SIZE,
-                // A different scope is a different list — start it compact again.
-                setReviewsScope: () => REVIEWS_PAGE_SIZE,
-                applyDefaultReviewsScope: () => REVIEWS_PAGE_SIZE,
-            },
-        ],
-        // Drives the "Show more" button's loading state — the loader's own `loading` would also
-        // flash on every 10s in-progress poll.
-        reviewsExpanding: [
+        // A failed poll keeps its rows; the table shows the error only when it has none.
+        reviewsFailed: [
             false,
             {
-                showMoreReviews: () => true,
-                showFewerReviews: () => false,
-                loadRecentReviewsSuccess: () => false,
-                loadRecentReviewsFailure: () => false,
+                loadReviews: () => false,
+                loadReviewsSuccess: () => false,
+                loadReviewsFailure: () => true,
             },
         ],
-        // The page-level "For you / Entire project" switch (mirroring the inbox's): it scopes the
-        // recent-reviews list AND every stat surface fed by perspectiveStats (hero proof card,
-        // effectiveness cards). Skill lists and their toggles stay per-user regardless.
+        // A page number rarely exists once the row set narrows, so every scope and filter change resets it.
+        reviewsCurrentPage: [
+            1,
+            {
+                setReviewsPage: (_, { page }) => page,
+                setReviewsScope: () => 1,
+                applyDefaultReviewsScope: () => 1,
+                setReviewsRepository: () => 1,
+                setReviewsMode: () => 1,
+                setReviewsStatus: () => 1,
+                setReviewsPublished: () => 1,
+                clearReviewsFilters: () => 1,
+            },
+        ],
+        reviewsRepository: [
+            null as string | null,
+            {
+                setReviewsRepository: (_, { repository }) => repository,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        reviewsMode: [
+            null as ReviewHogReviewsTableRetrieveReviewMode | null,
+            {
+                setReviewsMode: (_, { mode }) => mode,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        reviewsStatus: [
+            null as ReviewHogReviewsTableRetrieveStatus | null,
+            {
+                setReviewsStatus: (_, { status }) => status,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        reviewsPublished: [
+            null as boolean | null,
+            {
+                setReviewsPublished: (_, { published }) => published,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        // Kept across filter changes so picking one repository does not empty the other options.
+        seenRepositories: [
+            [] as string[],
+            {
+                loadReviewsSuccess: (state, { reviewsPage }) => {
+                    const merged = Array.from(
+                        new Set([...state, ...reviewsPage.results.map((review) => review.repository)])
+                    ).sort()
+                    return merged.length === state.length ? state : merged
+                },
+            },
+        ],
+        // The "Mine / Everyone" filter on the reviews table: it scopes the list AND every stat
+        // surface fed by perspectiveStats (proof card, effectiveness cards on the Settings tab).
+        // Skill lists and their toggles stay per-user regardless.
         reviewsScope: [
             ReviewHogReviewsListScope.Mine as ReviewHogReviewsListScope,
             { persist: true },
@@ -750,7 +1027,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             },
         ],
         // Whether the user has explicitly picked a scope. Once true, the empty-list auto-default
-        // no longer fires, so a deliberate choice of "For you" is respected even with zero reviews.
+        // no longer fires, so a deliberate choice of "Mine" is respected even with zero reviews.
         // A shared link is an explicit choice too, so URL hydration goes through setReviewsScope.
         hasUserChosenReviewsScope: [
             false,
@@ -768,10 +1045,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadBlindSpotsFailure: () => true,
                 loadValidatorsFailure: () => true,
                 loadResolutionSkillsFailure: () => true,
-                // recentReviews/perspectiveStats failures arrive via markInitialLoadFailed instead:
-                // their loaders also run on background polls, where a one-off failure just retries
-                // on the next tick, and only a failure with nothing loaded yet (sections stuck on
-                // skeletons, no retry path) is a page-level one.
+                // perspectiveStats failures arrive via markInitialLoadFailed instead: its loader
+                // also runs after a watched run finishes, where a one-off failure is not a
+                // page-level one. Only a failure with nothing loaded yet (cards stuck on skeletons,
+                // no retry path) is. The reviews table shows its own error state.
                 markInitialLoadFailed: () => true,
             },
         ],
@@ -781,6 +1058,39 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             {
                 startSkillAuthorTask: (_, { kind }) => kind,
                 startSkillAuthorTaskFinished: () => null,
+            },
+        ],
+        // Which kind the adopt modal is open for; null means closed.
+        adoptSkillKind: [
+            null as ReviewSkillKind | null,
+            {
+                openAdoptSkillModal: (_, { kind }) => kind,
+                closeAdoptSkillModal: () => null,
+            },
+        ],
+        // The picked source skill; non-null switches the modal from the picker to the confirm step.
+        adoptSource: [
+            null as AdoptSource | null,
+            {
+                chooseAdoptSource: (_, { source }) => source,
+                backToAdoptSearch: () => null,
+                openAdoptSkillModal: () => null,
+                closeAdoptSkillModal: () => null,
+            },
+        ],
+        adoptSlug: [
+            '',
+            {
+                setAdoptSlug: (_, { slug }) => slug,
+                openAdoptSkillModal: () => '',
+                backToAdoptSearch: () => '',
+            },
+        ],
+        adoptingSkill: [
+            false,
+            {
+                submitAdoptSkillStarted: () => true,
+                submitAdoptSkillFinished: () => false,
             },
         ],
         triggerPrUrl: [
@@ -808,17 +1118,137 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     }),
 
     selectors({
-        recentReviews: [
-            (s) => [s.recentReviewsPage],
-            (recentReviewsPage: ReviewRecentReviewsPageApi | null): ReviewRecentReviewApi[] | null =>
-                recentReviewsPage?.results ?? null,
+        deepSkillKept: [
+            (s) => [s.deepSkillStats],
+            (deepSkillStats: ReviewPerspectiveStatsApi | null): Record<string, ReviewPerspectiveStatItemApi> | null =>
+                deepSkillStats
+                    ? Object.fromEntries(deepSkillStats.perspectives.map((item) => [item.skill_name, item]))
+                    : null,
         ],
-        moreReviewsAvailable: [
-            (s) => [s.recentReviewsPage, s.reviewsLimit],
-            (recentReviewsPage: ReviewRecentReviewsPageApi | null, reviewsLimit: number): boolean =>
-                // At the API's ceiling the button must go away even though more rows exist —
-                // offering it would send a limit the server rejects.
-                (recentReviewsPage?.has_more ?? false) && reviewsLimit < MAX_REVIEWS_LIMIT,
+        // Verdicts carry no validator name, so the active validator gets the total over every skill.
+        deepValidationKept: [
+            (s) => [s.deepSkillStats],
+            (deepSkillStats: ReviewPerspectiveStatsApi | null): { kept: number; judged: number } | null => {
+                if (!deepSkillStats) {
+                    return null
+                }
+                const kept = deepSkillStats.perspectives.reduce((sum, item) => sum + item.kept, 0)
+                const dismissed = deepSkillStats.perspectives.reduce((sum, item) => sum + item.dismissed, 0)
+                return { kept, judged: kept + dismissed }
+            },
+        ],
+        // The adopt picker's two groups: teammates' ready-made skills of the kind (store rows with
+        // the kind's prefix that aren't already cards above, i.e. not canonicals or own customs),
+        // then every other team skill. Cross-kind review-hog skills land in the second group on
+        // purpose: adopting, say, a validation bar as resolution criteria is legitimate reuse.
+        adoptSkillGroups: [
+            (s) => [
+                s.adoptableSkills,
+                s.adoptSkillKind,
+                s.perspectives,
+                s.blindSpots,
+                s.validators,
+                s.resolutionSkills,
+            ],
+            (
+                adoptableSkills: LLMSkillListApi[] | null,
+                adoptSkillKind: ReviewSkillKind | null,
+                perspectives: ReviewPerspectiveConfigApi[] | null,
+                blindSpots: ReviewBlindSpotsConfigApi[] | null,
+                validators: ReviewValidatorConfigApi[] | null,
+                resolutionSkills: ReviewResolutionConfigApi[] | null
+            ): SkillPickerGroup[] => {
+                if (!adoptSkillKind || !adoptableSkills) {
+                    return []
+                }
+                const prefix = REVIEW_SKILL_PREFIX_BY_KIND[adoptSkillKind]
+                const cardsByKind: Record<ReviewSkillKind, { skill_name: string }[] | null> = {
+                    perspective: perspectives,
+                    blind_spots: blindSpots,
+                    validator: validators,
+                    resolution: resolutionSkills,
+                }
+                const cardNames = new Set((cardsByKind[adoptSkillKind] ?? []).map((card) => card.skill_name))
+                const toPickerSkill = (skill: LLMSkillListApi): { name: string; description: string } => ({
+                    name: skill.name,
+                    description: skill.description,
+                })
+                return [
+                    {
+                        key: 'teammates',
+                        label: ADOPT_TEAMMATE_GROUP_LABELS[adoptSkillKind],
+                        skills: adoptableSkills
+                            .filter((skill) => skill.name.startsWith(prefix) && !cardNames.has(skill.name))
+                            .map(toPickerSkill),
+                    },
+                    {
+                        key: 'store',
+                        label: 'All team skills',
+                        skills: adoptableSkills.filter((skill) => !skill.name.startsWith(prefix)).map(toPickerSkill),
+                    },
+                ]
+            },
+        ],
+        adoptNewSkillName: [
+            (s) => [s.adoptSkillKind, s.adoptSlug],
+            (adoptSkillKind: ReviewSkillKind | null, adoptSlug: string): string =>
+                adoptSkillKind ? REVIEW_SKILL_PREFIX_BY_KIND[adoptSkillKind] + adoptSlug : '',
+        ],
+        adoptSlugError: [
+            (s) => [
+                s.adoptSlug,
+                s.adoptSkillKind,
+                s.adoptableSkills,
+                s.perspectives,
+                s.blindSpots,
+                s.validators,
+                s.resolutionSkills,
+            ],
+            (
+                adoptSlug: string,
+                adoptSkillKind: ReviewSkillKind | null,
+                adoptableSkills: LLMSkillListApi[] | null,
+                perspectives: ReviewPerspectiveConfigApi[] | null,
+                blindSpots: ReviewBlindSpotsConfigApi[] | null,
+                validators: ReviewValidatorConfigApi[] | null,
+                resolutionSkills: ReviewResolutionConfigApi[] | null
+            ): string | null => {
+                if (!adoptSkillKind) {
+                    return null
+                }
+                // Best-effort collision set: the store page plus the user's own cards. The server
+                // still rejects anything this misses.
+                const takenNames = new Set<string>([
+                    ...(adoptableSkills?.map((skill) => skill.name) ?? []),
+                    ...(perspectives?.map((card) => card.skill_name) ?? []),
+                    ...(blindSpots?.map((card) => card.skill_name) ?? []),
+                    ...(validators?.map((card) => card.skill_name) ?? []),
+                    ...(resolutionSkills?.map((card) => card.skill_name) ?? []),
+                ])
+                return validateAdoptSlug(adoptSlug, adoptSkillKind, takenNames)
+            },
+        ],
+        reviews: [
+            (s) => [s.reviewsPage],
+            (reviewsPage: ReviewReviewsTablePageApi | null): ReviewRecentReviewApi[] | null =>
+                reviewsPage?.results ?? null,
+        ],
+        reviewsFiltered: [
+            (s) => [s.reviewsRepository, s.reviewsMode, s.reviewsStatus, s.reviewsPublished],
+            (
+                repository: string | null,
+                mode: ReviewHogReviewsTableRetrieveReviewMode | null,
+                status: ReviewHogReviewsTableRetrieveStatus | null,
+                published: boolean | null
+            ): boolean => repository !== null || mode !== null || status !== null || published !== null,
+        ],
+        // The selected repository stays an option even before a page with it has loaded (a deep link).
+        reviewsRepositoryOptions: [
+            (s) => [s.seenRepositories, s.reviewsRepository],
+            (seenRepositories: string[], reviewsRepository: string | null): string[] =>
+                reviewsRepository && !seenRepositories.includes(reviewsRepository)
+                    ? [...seenRepositories, reviewsRepository].sort()
+                    : seenRepositories,
         ],
         // Splits the detail's valid findings by the threshold the run actually gated on
         // (`run_urgency_threshold`, stamped at finalize). Only rows that predate the stamp fall
@@ -845,6 +1275,36 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 }
             },
         ],
+        // Flash does not run on a pull request after a Full review was published there. Only PRs the
+        // list shows are known here; the trigger endpoint refuses the others with the same reason.
+        triggerUrlHasFullReview: [
+            (s) => [s.triggerPrUrl, s.reviews],
+            (triggerPrUrl: string, reviews: ReviewRecentReviewApi[] | null): boolean => {
+                const target = parsePrPath(triggerPrUrl)
+                return (
+                    !!target &&
+                    (reviews ?? []).some(
+                        (review) => review.full_review_published && parsePrPath(review.github_url) === target
+                    )
+                )
+            },
+        ],
+        // Mirrors the server-side busy-guard for PRs the list already shows, so the trigger button
+        // explains the refusal up front instead of surfacing it as a submit error.
+        triggerUrlResolving: [
+            (s) => [s.triggerPrUrl, s.reviews],
+            (triggerPrUrl: string, reviews: ReviewRecentReviewApi[] | null): boolean => {
+                const target = parsePrPath(triggerPrUrl)
+                return (
+                    !!target &&
+                    (reviews ?? []).some(
+                        (review) =>
+                            review.resolution?.resolution_status === 'resolving' &&
+                            parsePrPath(review.github_url) === target
+                    )
+                )
+            },
+        ],
         perspectiveScoreboard: [
             (s) => [s.reviewDetail],
             (reviewDetail: ReviewDetailApi | null): PerspectiveScore[] | null => {
@@ -864,28 +1324,25 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
-        // The poll never stops while the page is mounted (hidden tabs pause it); it only changes
-        // cadence: tight while a review is running or freshly triggered so the stage row moves,
-        // relaxed otherwise so externally-started reviews still appear. Re-adding under the same
-        // key replaces the previous timer, so every response re-arms the poll at the right speed.
-        loadRecentReviewsSuccess: () => {
-            const anyInProgress = values.recentReviews?.some((review) => review.in_progress) ?? false
-            // The watch deliberately runs its full bounded window instead of stopping when an
-            // in-progress row shows up: an unrelated already-running review would satisfy that check
-            // and could finish before the triggered row appears, relaxing the cadence too early. The
-            // cost is at most the watch window of tight 10s polls after a fast run completes.
-            const pollInterval =
-                anyInProgress || values.awaitingTriggeredReview ? IN_PROGRESS_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS
-            cache.disposables.add(() => {
-                const pollTimer = window.setInterval(() => actions.loadRecentReviews(), pollInterval)
-                return () => clearInterval(pollTimer)
-            }, 'reviewsPoll')
+        // Every response decides again whether to poll; re-adding under the same key replaces the timer.
+        loadReviewsSuccess: () => {
+            const anyInProgress = values.reviews?.some((review) => review.in_progress) ?? false
+            // The watch runs its full window: an unrelated running review would satisfy an early-stop check
+            // and could finish before the triggered row appears.
+            if (anyInProgress || values.awaitingTriggeredReview) {
+                cache.disposables.add(() => {
+                    const pollTimer = window.setInterval(() => actions.loadReviews(), IN_PROGRESS_POLL_INTERVAL_MS)
+                    return () => clearInterval(pollTimer)
+                }, 'reviewsPoll')
+            } else {
+                cache.disposables.dispose('reviewsPoll')
+            }
             // A run finishing moves numbers beyond the list: the stats cards aggregate completed
             // turns, and an open drawer still shows the report's previous turn. A poll response is
             // the only place a completion becomes visible, so fan the refresh out from here.
             const previousRuns: Map<string, ReviewRunMarker> | undefined = cache.lastSeenRuns
             const currentRuns = new Map<string, ReviewRunMarker>()
-            for (const review of values.recentReviews ?? []) {
+            for (const review of values.reviews ?? []) {
                 currentRuns.set(review.id, { inProgress: review.in_progress, runCount: review.run_count })
             }
             cache.lastSeenRuns = currentRuns
@@ -896,8 +1353,15 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                         return !!before && ((before.inProgress && !run.inProgress) || run.runCount > before.runCount)
                     })
                     .map(([id]) => id)
+                // Under the Running filter a finished review leaves the page, so count it as finished too.
+                for (const [id, before] of previousRuns) {
+                    if (before.inProgress && !currentRuns.has(id)) {
+                        finishedIds.push(id)
+                    }
+                }
                 if (finishedIds.length) {
                     actions.loadPerspectiveStats()
+                    actions.loadDeepSkillStats()
                     if (
                         values.reviewDrawerOpen &&
                         values.openedReviewId &&
@@ -907,19 +1371,19 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     }
                 }
             }
-            // No reviews of the user's own PRs: default to the whole project so the block isn't
-            // empty — only until the user picks a scope themselves.
+            // No own reviews: default to the whole project, unless the user chose a scope or a filter is set.
             if (
-                !values.recentReviews?.length &&
+                values.reviewsPage?.count === 0 &&
                 values.reviewsScope === ReviewHogReviewsListScope.Mine &&
-                !values.hasUserChosenReviewsScope
+                !values.hasUserChosenReviewsScope &&
+                !values.reviewsFiltered
             ) {
                 actions.applyDefaultReviewsScope(ReviewHogReviewsListScope.Everyone)
             }
         },
         startTriggeredReviewWatch: () => {
             // Bounded: a run that dies before creating its report row must not poll forever. The
-            // next list load after expiry sees no in-progress rows and disposes the poll itself.
+            // next table load after expiry sees no in-progress rows and disposes the poll itself.
             cache.disposables.add(() => {
                 const expiryTimer = window.setTimeout(
                     () => actions.stopTriggeredReviewWatch(),
@@ -927,6 +1391,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 )
                 return () => clearTimeout(expiryTimer)
             }, 'triggeredReviewWatch')
+            // Armed here too, because a failed first reload never reaches `loadReviewsSuccess`.
+            // The next successful load replaces or disposes this poll as usual.
+            cache.disposables.add(() => {
+                const pollTimer = window.setInterval(() => actions.loadReviews(), IN_PROGRESS_POLL_INTERVAL_MS)
+                return () => clearInterval(pollTimer)
+            }, 'reviewsPoll')
         },
         stopTriggeredReviewWatch: () => {
             cache.disposables.dispose('triggeredReviewWatch')
@@ -934,36 +1404,40 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         setReviewsScope: () => {
             // A different scope is a different list; start the finished-run comparison fresh.
             cache.lastSeenRuns = undefined
-            actions.loadRecentReviews()
+            actions.loadReviews()
             actions.loadPerspectiveStats()
         },
         applyDefaultReviewsScope: () => {
             cache.lastSeenRuns = undefined
-            actions.loadRecentReviews()
+            actions.loadReviews()
             actions.loadPerspectiveStats()
         },
-        showMoreReviews: () => actions.loadRecentReviews(),
-        showFewerReviews: () => actions.loadRecentReviews(),
+        setReviewsPage: () => actions.loadReviews(),
+        setReviewsRepository: () => actions.loadReviews(),
+        setReviewsMode: () => actions.loadReviews(),
+        setReviewsStatus: () => actions.loadReviews(),
+        setReviewsPublished: () => actions.loadReviews(),
+        clearReviewsFilters: () => actions.loadReviews(),
         loadAll: () => {
             actions.loadSettings()
             actions.loadPerspectives()
             actions.loadBlindSpots()
             actions.loadValidators()
             actions.loadResolutionSkills()
-            actions.loadRecentReviews()
+            actions.loadReviews()
             actions.loadPerspectiveStats()
+            actions.loadDeepSkillStats()
+        },
+        followProjectDefault: ({ key }) => {
+            const projectDefaults = values.settings?.project_defaults
+            if (!projectDefaults) {
+                return
+            }
+            actions.updateSettings({ [key]: projectDefaults[key] })
         },
         updateSettingsFailure: () => {
             // The global loaders toast already surfaced the error; just reconcile the optimistic state.
             actions.loadSettings()
-        },
-        // A background refresh failing is not a page-level failure: the poll retries on its next
-        // tick and the prior rows stay on screen. Only a failure with nothing loaded yet (the
-        // sections would sit on skeletons with no retry path) raises the error banner.
-        loadRecentReviewsFailure: () => {
-            if (values.recentReviewsPage === null) {
-                actions.markInitialLoadFailed()
-            }
         },
         loadPerspectiveStatsFailure: () => {
             if (values.perspectiveStats === null) {
@@ -1033,6 +1507,64 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         blockSingleActiveDeactivation: ({ kindLabel }) => {
             lemonToast.info(`One ${kindLabel} always runs — switch by selecting another one`)
         },
+        openAdoptSkillModal: () => {
+            actions.loadAdoptableSkills()
+        },
+        loadAdoptableSkillsFailure: () => {
+            // Without this the picker would render its "no skills yet" empty state over a fetch
+            // error. Closing keeps the states honest; reopening retries the load.
+            lemonToast.error("Couldn't load your team's skills. Open the picker again to retry.")
+            actions.closeAdoptSkillModal()
+        },
+        chooseAdoptSource: ({ source }) => {
+            if (values.adoptSkillKind) {
+                actions.setAdoptSlug(defaultAdoptSlug(source.name, values.adoptSkillKind))
+            }
+        },
+        submitAdoptSkill: async () => {
+            const kind = values.adoptSkillKind
+            const source = values.adoptSource
+            if (!kind || !source || values.adoptingSkill || values.adoptSlugError) {
+                return
+            }
+            const newName = values.adoptNewSkillName
+            actions.submitAdoptSkillStarted()
+            try {
+                await llmSkillsNameDuplicateCreate(currentProjectId(), source.name, { new_name: newName })
+            } catch (error: any) {
+                // Kept open so a name conflict can be fixed in place; the server's detail names it.
+                lemonToast.error(error?.data?.detail || error?.detail || error?.message || "Couldn't copy the skill")
+                actions.submitAdoptSkillFinished()
+                return
+            }
+            try {
+                if (kind === 'perspective') {
+                    await reviewHogPerspectivesPartialUpdate(currentProjectId(), newName, { enabled: true })
+                } else if (kind === 'blind_spots') {
+                    await reviewHogBlindSpotsPartialUpdate(currentProjectId(), newName, { active: true })
+                } else if (kind === 'validator') {
+                    await reviewHogValidatorsPartialUpdate(currentProjectId(), newName, { active: true })
+                } else {
+                    await reviewHogResolutionPartialUpdate(currentProjectId(), newName, { active: true })
+                }
+                lemonToast.success('Skill copied. It now runs on your PR reviews.')
+            } catch {
+                // The copy exists even though switching it on failed: close to its new card and let
+                // the user flip it on there.
+                lemonToast.error("Copied the skill, but couldn't switch it on. Turn it on from its card.")
+            }
+            if (kind === 'perspective') {
+                actions.loadPerspectives()
+            } else if (kind === 'blind_spots') {
+                actions.loadBlindSpots()
+            } else if (kind === 'validator') {
+                actions.loadValidators()
+            } else {
+                actions.loadResolutionSkills()
+            }
+            actions.submitAdoptSkillFinished()
+            actions.closeAdoptSkillModal()
+        },
         openReviewDetail: ({ review }) => {
             actions.loadReviewDetail(review.id)
         },
@@ -1067,8 +1599,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 if (response.status === 'already_reviewed') {
                     // No run started — the PR's current commit already has a published review.
                     lemonToast.info(
-                        'This pull request was already reviewed at its current commit. Find it under recent reviews.'
+                        'This pull request was already reviewed at its current commit. Find it under Reviews.'
                     )
+                } else if (response.status === 'joined_running_review') {
+                    lemonToast.info('Your request joined the review queue. Find it under Reviews.')
                 } else if (runMode === ReviewTriggerRequestRunModeEnumApi.ResolveOnly) {
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.
@@ -1076,12 +1610,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                         'Resolving comments on the pull request. Replies and fixes will land there as threads settle.'
                     )
                 } else {
-                    lemonToast.success('Review started. It will appear under recent reviews as it runs.')
+                    lemonToast.success('Review started. It will appear under Reviews as it runs.')
                     // The review's report row is created seconds later by the workflow's fetch step,
                     // so one immediate reload usually misses it — arm the watch before reloading.
                     actions.startTriggeredReviewWatch()
                 }
-                actions.loadRecentReviews()
+                actions.loadReviews()
             } catch (error: any) {
                 // The trigger endpoint's rejections come back as `{error: "..."}` bodies.
                 lemonToast.error(error?.data?.error || error?.detail || error?.message || 'Failed to start the review')
@@ -1120,6 +1654,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     // can be shared via a link; the default scope keeps the URL clean. The auto-default deliberately
     // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
     // the fallback would silently upgrade it into a permanent explicit choice on reload.
+    // The tab mirrors to `?tab=settings` so a link can open the Settings tab; Activity keeps the URL clean.
+    // The table's filters and page mirror to `reviews_*` params the same way, so a filtered view
+    // can be shared too; each default keeps its param out of the URL.
     // The drawer mirrors to `?review=<report id>` the same way — a PERMANENT PUBLIC CONTRACT (PR
     // status comments bake these links into GitHub, where they are never re-edited). Always
     // `replace`, never push, so opening/closing the drawer doesn't stack history entries.
@@ -1132,13 +1669,33 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             router.values.hashParams,
             { replace: true },
         ]
+        const withTableParams = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                reviews_scope: values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
+                reviews_repository: values.reviewsRepository ?? undefined,
+                reviews_mode: values.reviewsMode ?? undefined,
+                reviews_status: values.reviewsStatus ?? undefined,
+                reviews_published: values.reviewsPublished === null ? undefined : String(values.reviewsPublished),
+                reviews_page: values.reviewsCurrentPage > 1 ? String(values.reviewsCurrentPage) : undefined,
+            },
+            router.values.hashParams,
+            { replace: true },
+        ]
         return {
-            setReviewsScope: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            setReviewsScope: withTableParams,
+            setReviewsPage: withTableParams,
+            setReviewsRepository: withTableParams,
+            setReviewsMode: withTableParams,
+            setReviewsStatus: withTableParams,
+            setReviewsPublished: withTableParams,
+            clearReviewsFilters: withTableParams,
+            setActiveTab: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
                 router.values.location.pathname,
                 {
                     ...router.values.searchParams,
-                    reviews_scope:
-                        values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
+                    tab: values.activeTab === 'activity' ? undefined : values.activeTab,
                 },
                 router.values.hashParams,
                 { replace: true },
@@ -1157,6 +1714,43 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 parsed !== values.reviewsScope
             ) {
                 actions.setReviewsScope(parsed)
+            }
+            // Guard each against its current value: every filter setter resets the page, so
+            // replaying an unchanged filter on a deep link would knock the reader back to page 1.
+            // The page goes last for the same reason.
+            const repository =
+                typeof searchParams.reviews_repository === 'string' ? searchParams.reviews_repository : null
+            if (repository !== values.reviewsRepository) {
+                actions.setReviewsRepository(repository)
+            }
+            const mode = Object.values(ReviewHogReviewsTableRetrieveReviewMode).find(
+                (value) => value === searchParams.reviews_mode
+            )
+            if ((mode ?? null) !== values.reviewsMode) {
+                actions.setReviewsMode(mode ?? null)
+            }
+            const status = Object.values(ReviewHogReviewsTableRetrieveStatus).find(
+                (value) => value === searchParams.reviews_status
+            )
+            if ((status ?? null) !== values.reviewsStatus) {
+                actions.setReviewsStatus(status ?? null)
+            }
+            // kea-router parses `true` / `false` into booleans; the string forms cover a hand-edited link.
+            const publishedParam = String(searchParams.reviews_published)
+            const published = publishedParam === 'true' ? true : publishedParam === 'false' ? false : null
+            if (published !== values.reviewsPublished) {
+                actions.setReviewsPublished(published)
+            }
+            // A hand-edited link can carry 0, -1 or Infinity, which would send an offset the API rejects.
+            const pageParam = Number(searchParams.reviews_page ?? 1)
+            const page =
+                Number.isSafeInteger(pageParam) && pageParam > 0 && pageParam <= MAX_REVIEWS_PAGE ? pageParam : 1
+            if (page !== values.reviewsCurrentPage) {
+                actions.setReviewsPage(page)
+            }
+            const tab: CodeReviewTab = searchParams.tab === 'settings' ? 'settings' : 'activity'
+            if (tab !== values.activeTab) {
+                actions.setActiveTab(tab)
             }
             // ?review=<report id>: open that review's drawer. `openedReviewId` (set synchronously by
             // both open paths) makes the guard hold before the detail loads, so the open's own URL
@@ -1183,7 +1777,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             () => {
                 const onVisibilityChange = (): void => {
                     if (!document.hidden) {
-                        actions.loadRecentReviews()
+                        actions.loadReviews()
                     }
                 }
                 document.addEventListener('visibilitychange', onVisibilityChange)

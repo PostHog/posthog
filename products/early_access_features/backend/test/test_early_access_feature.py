@@ -20,12 +20,11 @@ from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     from products.surveys.backend.models import Survey as SurveyModel
@@ -308,6 +307,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == EarlyAccessFeature.Stage.CONCEPT
         assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
+        # The response carries the version a rollout action checks, so it has to match the row.
+        stored_flag = FeatureFlag.objects.get(pk=response_data["feature_flag"]["id"])
+        assert response_data["feature_flag"]["version"] == stored_flag.version
 
     def test_archive(self):
         response = self.client.post(
@@ -421,20 +423,39 @@ class TestEarlyAccessFeature(APIBaseTest):
             },
         )
 
+    def test_cant_link_a_flag_another_product_owns(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            key="owned-by-survey",
+            created_by=self.user,
+        )
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Poacher", "description": "d", "stage": "beta", "feature_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "already belongs to a survey" in str(response.json())
+
     @parameterized.expand(
         [
-            ("linkable_flag", False, "Rename this feature, or link the existing flag instead."),
-            ("flag_already_attached", True, "Rename this feature."),
+            ("linkable_flag", None, "Rename this feature, or link the existing flag instead."),
+            ("flag_already_attached", "feature", "Rename this feature."),
+            ("flag_owned_by_survey", "survey", "Rename this feature."),
         ]
     )
-    def test_cant_create_early_access_feature_with_duplicate_key(self, _name, attach_existing_feature, remedy):
+    def test_cant_create_early_access_feature_with_duplicate_key(self, _name, existing_owner, remedy):
         flag = FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [], "rollout_percentage": None}]},
             key="hick-bondoogling",
             created_by=self.user,
         )
-        if attach_existing_feature:
+        if existing_owner == "feature":
             EarlyAccessFeature.objects.create(
                 team=self.team,
                 name="Hick bondoogling (original)",
@@ -442,6 +463,8 @@ class TestEarlyAccessFeature(APIBaseTest):
                 stage="beta",
                 feature_flag=flag,
             )
+        elif existing_owner == "survey":
+            Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
@@ -651,6 +674,25 @@ class TestEarlyAccessFeature(APIBaseTest):
             response_data["detail"],
             "Group-based feature flags are not supported for Early Access Features.",
         )
+
+    def test_cant_create_early_access_feature_with_flag_in_another_config_format(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+            key="other-format",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Other format", "stage": "beta", "feature_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "configuration format that an early access feature cannot use yet" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.filters == {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
 
     def test_cant_create_early_access_feature_with_multivariate_flag(self):
         flag = FeatureFlag.objects.create(

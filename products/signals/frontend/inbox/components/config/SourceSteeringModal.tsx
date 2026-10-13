@@ -14,15 +14,16 @@ import {
 import { SOURCE_STEERING_MAX_LENGTH, SignalSourceConfig } from '../../types'
 
 export interface SourceSteeringModalProps {
-    sourceConfig: SignalSourceConfig
+    /** Every config row this source's guidance is saved to. See `SourceSteeringModalLogicProps`. */
+    sourceConfigs: SignalSourceConfig[]
     /** The roster label of the source being steered, for the modal title. */
     sourceLabel: string
     onClose: () => void
 }
 
-export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: SourceSteeringModalProps): JSX.Element {
+export function SourceSteeringModal({ sourceConfigs, sourceLabel, onClose }: SourceSteeringModalProps): JSX.Element {
     const formId = useId()
-    const logicProps: SourceSteeringModalLogicProps = { sourceConfig, onClose }
+    const logicProps: SourceSteeringModalLogicProps = { sourceConfigs, onClose }
     const logic = sourceSteeringModalLogic(logicProps)
     const { isSourceSteeringSubmitting, sourceSteeringChanged, sourceSteeringValidationErrors, steeringExamples } =
         useValues(logic)
@@ -78,7 +79,7 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                 enableFormOnSubmit
             >
                 <div className="flex flex-col gap-3">
-                    {sourceHasLegacyPosture(sourceConfig) && (
+                    {sourceConfigs.some(sourceHasLegacyPosture) && (
                         <LemonBanner type="info">
                             This source only reports records that clearly qualify. Saving here replaces that with what
                             you write below.

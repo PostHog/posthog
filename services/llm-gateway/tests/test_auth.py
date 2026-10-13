@@ -711,6 +711,19 @@ class TestPersonalApiKeyAuthenticator:
         assert result.is_staff is False
 
     @pytest.mark.asyncio
+    async def test_query_requires_verified_email(
+        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        token_hash = authenticator.hash_token("phx_test_key")
+        await authenticator.authenticate(token_hash, mock_pool)
+
+        query = conn.fetchrow.call_args.args[0]
+        assert "u.is_email_verified IS DISTINCT FROM false" in query
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "db_result",
         [
@@ -926,6 +939,19 @@ class TestOAuthAccessTokenAuthenticator:
         assert result.auth_method == "oauth_access_token"
         assert result.scopes == ["llm_gateway:read"]
         assert result.is_staff is True
+
+    @pytest.mark.asyncio
+    async def test_query_requires_verified_email(
+        self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        token_hash = authenticator.hash_token("pha_test_token")
+        await authenticator.authenticate(token_hash, mock_pool)
+
+        query = conn.fetchrow.call_args.args[0]
+        assert "u.is_email_verified IS DISTINCT FROM false" in query
 
     @pytest.mark.asyncio
     async def test_valid_token_with_null_team_id(

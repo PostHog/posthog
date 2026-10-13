@@ -55,5 +55,5 @@ Two cross-cutting rules:
 ## 4. Verification tools
 
 - Runtime loading audits and traffic simulation: [references/loading-audit.md](references/loading-audit.md).
-- Production query-side checks (per-team event series, UA splits, ingestion warnings): the `query-clickhouse-via-metabase` skill covers prod-us and prod-eu access.
+- Production query-side checks (per-team event series, UA splits, ingestion warnings): the `querying-production-databases-via-metabase` skill covers prod-us and prod-eu access.
 - Error tracking: MCP `query-error-tracking-issues-list` / `query-error-tracking-issue-events` with `verbosity: stack` gives sourcemapped frames.

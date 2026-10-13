@@ -1,10 +1,13 @@
 import { DateTime } from 'luxon'
 
 import { Team } from '../types'
+import { createIncomingEvent } from './_tests/fixtures'
 import { CdpInternalEvent } from './schema'
-import { LogEntry } from './types'
+import { LogEntry, MinimalLogEntry } from './types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
+    convertToHogFunctionInvocationGlobals,
+    createAddLogFunction,
     fixLogDeduplication,
     getSensitiveValues,
     gzipObject,
@@ -54,6 +57,23 @@ describe('Utils', () => {
             })
         }
     )
+
+    test.each([
+        ['$feature_flag_called', '?event=%24feature_flag_called'],
+        ['$pageview', ''],
+    ])('names the event in the event link of %s only when it is a flag call', (eventName, expectedQuery) => {
+        const uuid = '018f0000-0000-7000-8000-000000000002'
+
+        const globals = convertToHogFunctionInvocationGlobals(
+            createIncomingEvent(1, { uuid, event: eventName }),
+            { id: 1, name: 'Test project' } as Team,
+            'https://us.posthog.com'
+        )
+
+        expect(globals.event.url).toBe(
+            `https://us.posthog.com/project/1/events/${uuid}/${encodeURIComponent(globals.event.timestamp)}${expectedQuery}`
+        )
+    })
 
     describe('gzip compressions', () => {
         it("should compress and decompress a string using gzip's sync functions", async () => {
@@ -145,6 +165,37 @@ describe('Utils', () => {
                 []
             )
         })
+
+        it.each([
+            ['integration', { $integration_id: 1, key_info: { private_key: 'nested-private-key' } }],
+            ['integration_multi', [{ $integration_id: 1, key_info: { private_key: 'nested-private-key' } }]],
+        ])('masks a nested secret in an %s input', (type, value) => {
+            const hogFunction: any = { inputs_schema: [{ key: 'connection', type }] }
+            expect(getSensitiveValues(hogFunction, { connection: value })).toContain('nested-private-key')
+        })
+
+        it('masks a credential-named input that the stored schema leaves non-secret', () => {
+            const hogFunction: any = { inputs_schema: [{ key: 'apiKey', type: 'string', secret: false }] }
+            expect(getSensitiveValues(hogFunction, { apiKey: 'stale-schema-key' })).toEqual(['stale-schema-key'])
+        })
+    })
+
+    describe('createAddLogFunction', () => {
+        it.each([
+            [
+                'a derived credential header',
+                { headers: { Authorization: 'Basic ZGVyaXZlZC1rZXk6' } },
+                'ZGVyaXZlZC1rZXk6',
+            ],
+            ['a credential under an unlisted header name', { headers: { 'PRIVATE-TOKEN': 'glpat-abc123' } }, 'abc123'],
+            ['a response cookie', { headers: { 'set-cookie': 'session=abc123' } }, 'abc123'],
+            ['a multi-line secret in a stringified body', { body: JSON.stringify({ key: 'line1\nline2' }) }, 'line2'],
+        ])('redacts %s in a logged object', (_name, loggedObject, leakedText) => {
+            const logs: MinimalLogEntry[] = []
+            createAddLogFunction(logs, ['line1\nline2'])('debug', 'options', loggedObject)
+            expect(logs[0].message).toContain('***REDACTED***')
+            expect(logs[0].message).not.toContain(leakedText)
+        })
     })
 
     describe('sanitizeLogMessage', () => {
@@ -152,9 +203,23 @@ describe('Utils', () => {
             const message = sanitizeLogMessage(['test', 'test2'])
             expect(message).toBe('test, test2')
         })
-        it('should sanitize the log message with a sensitive value', () => {
-            const message = sanitizeLogMessage(['test', 'test2'], ['test2'])
-            expect(message).toBe('test, ***REDACTED***')
+        it.each([
+            ['a string argument', ['test', 'test2'], ['test2'], 'test, ***REDACTED***'],
+            [
+                'a multi-line value in an object',
+                [{ key: 'line1\nline2' }],
+                ['line1\nline2'],
+                '{"key":"***REDACTED***"}',
+            ],
+            ['a quoted value in an object', [{ key: 'say "hi"' }], ['say "hi"'], '{"key":"***REDACTED***"}'],
+            [
+                'repeated values that occur inside the marker',
+                [{ key: '*' }],
+                ['*', '*', '*', '*', '*', '*', '*', '*', 'R'],
+                '{"key":"***REDACTED***"}',
+            ],
+        ])('should redact a sensitive value in %s', (_name, args, sensitiveValues, expected) => {
+            expect(sanitizeLogMessage(args, sensitiveValues)).toBe(expected)
         })
         it('should sanitize a range of values types', () => {
             const message = sanitizeLogMessage(['test', 'test2', 1, true, false, null, undefined, { test: 'test' }])

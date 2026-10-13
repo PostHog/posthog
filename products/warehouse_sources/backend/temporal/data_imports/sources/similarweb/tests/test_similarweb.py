@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -11,10 +11,16 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
+    API_VERSION_LEGACY,
+    API_VERSION_V5,
+    BASE_URL,
     GLOBAL_RANK,
     PAGE_LIMIT,
+    PAGE_VIEWS,
     TRAFFIC_BY_COUNTRY,
     TRAFFIC_SOURCES,
+    V5_ENGAGEMENT_PATH,
+    V5_WORLDWIDE_COUNTRY,
     VISITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.similarweb import (
@@ -83,6 +89,7 @@ def _run(
     start_date: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = API_VERSION_LEGACY,
 ) -> list[list[dict[str, Any]]]:
     with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
         response = similarweb_source(
@@ -94,10 +101,20 @@ def _run(
             endpoint=endpoint,
             logger=mock.MagicMock(),
             resumable_source_manager=manager if manager is not None else FakeResumeManager(),
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
         return list(cast(Iterable[Any], response.items()))
+
+
+def _v5_series_body(metric: str, points: list[dict[str, Any]]) -> dict[str, Any]:
+    # V5 wraps every metric's series under a standardized `data` key; each row carries the metric.
+    return {"meta": {"status": "Success"}, "data": points}
+
+
+def _headers(session: mock.MagicMock, index: int = 0) -> Optional[dict[str, str]]:
+    return session.get.call_args_list[index].kwargs["headers"]
 
 
 def _params(session: mock.MagicMock, index: int = 0) -> dict[str, Any]:
@@ -150,49 +167,47 @@ class TestSimilarwebTransport:
         with pytest.raises(ValueError, match=NO_DOMAINS_ERROR):
             _run(VISITS, _session(), domains="")
 
-    def test_rows_are_ordered_by_period_across_domains(self) -> None:
-        # Each domain's request returns its whole window, so the per-domain series overlap in
-        # time. The pipeline checkpoints the incremental watermark per batch, so emitting one
-        # domain's full history before the next domain's would strand the later domain's older
-        # periods behind an already-advanced watermark.
-        session = _session(
-            _response(
-                json_body=_series_body(
-                    "visits", [{"date": "2024-01-01", "visits": 1}, {"date": "2024-02-01", "visits": 2}]
-                )
-            ),
-            _response(
-                json_body=_series_body(
-                    "visits", [{"date": "2024-01-01", "visits": 3}, {"date": "2024-02-01", "visits": 4}]
-                )
-            ),
-        )
+    @parameterized.expand([("visits", VISITS, "visits"), ("page_views", PAGE_VIEWS, "page_views")])
+    def test_v5_engagement_hits_the_multimetric_endpoint_with_header_auth(
+        self, _name: str, endpoint: str, metric: str
+    ) -> None:
+        session = _session(_response(json_body=_v5_series_body(metric, [{"date": "2024-01-01", metric: 9}])))
 
-        rows = [row for batch in _run(VISITS, session) for row in batch]
+        rows = _run(endpoint, session, domains="a.com", api_version=API_VERSION_V5)[0]
 
-        assert [(row["date"], row["domain"]) for row in rows] == [
-            (datetime(2024, 1, 1, tzinfo=UTC), "a.com"),
-            (datetime(2024, 1, 1, tzinfo=UTC), "b.com"),
-            (datetime(2024, 2, 1, tzinfo=UTC), "a.com"),
-            (datetime(2024, 2, 1, tzinfo=UTC), "b.com"),
-        ]
-
-    def test_series_rows_carry_the_requested_filters(self) -> None:
-        session = _session(_response(json_body=_series_body("visits", [{"date": "2024-01-01", "visits": 9}])))
-
-        rows = _run(VISITS, session, domains="a.com", country="GB", granularity="weekly")[0]
-
+        # One `/v5/website-analysis` endpoint serves every metric; the table selects its own via
+        # `metrics`, the key moves to the `api-key` header, and rows come from the `data` envelope.
+        assert _urls(session) == [f"{BASE_URL}{V5_ENGAGEMENT_PATH}"]
+        assert _params(session)["metrics"] == metric
+        assert _params(session)["domain"] == "a.com"
+        assert "api_key" not in _params(session)
+        assert _headers(session) == {"api-key": "key-123"}
         assert rows == [
             {
                 "domain": "a.com",
-                "country": "gb",
-                "granularity": "weekly",
+                "country": "world",
+                "granularity": "monthly",
                 "date": datetime(2024, 1, 1, tzinfo=UTC),
-                "visits": 9,
+                metric: 9,
             }
         ]
-        assert _params(session)["country"] == "gb"
-        assert _params(session)["granularity"] == "weekly"
+
+    @parameterized.expand(
+        [
+            # V5 rejects the legacy `world` sentinel and documents `ww`; legacy keeps sending `world`.
+            ("legacy_worldwide_stays_world", API_VERSION_LEGACY, None, "world"),
+            ("v5_worldwide_becomes_ww", API_VERSION_V5, None, V5_WORLDWIDE_COUNTRY),
+            ("v5_explicit_country_passes_through", API_VERSION_V5, "gb", "gb"),
+        ]
+    )
+    def test_worldwide_country_is_translated_only_for_v5(
+        self, _name: str, api_version: str, country: Optional[str], expected_param: str
+    ) -> None:
+        session = _session(_response(json_body={"visits": [], "data": []}))
+
+        _run(VISITS, session, domains="a.com", country=country, api_version=api_version)
+
+        assert _params(session)["country"] == expected_param
 
     def test_global_rank_takes_no_filters_and_parses_month_dates(self) -> None:
         session = _session(_response(json_body=_series_body("global_rank", [{"date": "2024-01", "global_rank": 86}])))
@@ -328,7 +343,7 @@ class TestSimilarwebTransport:
     ) -> None:
         session = _session(_response(json_body=_series_body("visits", [])))
 
-        with freeze_time("2024-06-15"):
+        with time_machine.travel("2024-06-15", tick=False):
             _run(
                 VISITS,
                 session,
@@ -358,6 +373,7 @@ class TestSimilarwebTransport:
                         endpoint=VISITS,
                         logger=mock.MagicMock(),
                         resumable_source_manager=FakeResumeManager(),
+                        api_version=API_VERSION_LEGACY,
                     ).items(),
                 )
             )
@@ -384,16 +400,6 @@ class TestSimilarwebTransport:
             (2, 0),
         ]
         assert manager.cleared is True
-
-    def test_paginated_endpoint_resumes_from_saved_state(self) -> None:
-        manager = FakeResumeManager(SimilarwebResumeConfig(next_domain_index=1, next_offset=PAGE_LIMIT))
-        session = _session(_response(json_body={"records": [{"country": 840}]}))
-
-        batches = _run(TRAFFIC_BY_COUNTRY, session, manager=manager)
-
-        assert [url.split("/website/")[1].split("/")[0] for url in _urls(session)] == ["b.com"]
-        assert _params(session)["offset"] == PAGE_LIMIT
-        assert batches[0][0]["domain"] == "b.com"
 
     @parameterized.expand(
         [

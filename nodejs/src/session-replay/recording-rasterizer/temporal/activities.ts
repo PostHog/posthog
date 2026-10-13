@@ -6,15 +6,18 @@ import * as os from 'os'
 import * as path from 'path'
 
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { blockSourceFromS3 } from '~/session-replay/recording-rasterizer/capture/file-block-source'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { config } from '~/session-replay/recording-rasterizer/config'
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
-import { computeVideoTimestamps } from '~/session-replay/recording-rasterizer/postprocess'
+import { renderOutputFields } from '~/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
+import { extractThumbnails } from '~/session-replay/recording-rasterizer/thumbnail'
 import {
     ActivityTimings,
+    ExtractThumbnailsInput,
     RasterizationProgress,
     RasterizeRecordingInput,
     RasterizeRecordingOutput,
@@ -22,14 +25,15 @@ import {
 import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
 function toActivityError(err: unknown): Error {
-    if (err instanceof RasterizationError) {
+    const rasterizationError = asRasterizationError(err)
+    if (rasterizationError) {
         // The code travels as the failure type either way, so a caller can tell a recording that can never render
         // (NO_SNAPSHOTS) from one that merely ran out of retries. Retryability stays the player's call: NO_SNAPSHOTS is
-        // retryable while a recording is still being ingested, so the code is only conclusive once Temporal has spent
-        // the attempts.
-        return err.retryable
-            ? ApplicationFailure.retryable(err.message, err.code, err)
-            : ApplicationFailure.nonRetryable(err.message, err.code, err)
+        // retryable while nothing has loaded, as the recording may still be ingesting, and final when no window has a
+        // full snapshot to draw from.
+        return rasterizationError.retryable
+            ? ApplicationFailure.retryable(rasterizationError.message, rasterizationError.code, rasterizationError)
+            : ApplicationFailure.nonRetryable(rasterizationError.message, rasterizationError.code, rasterizationError)
     }
     return err instanceof Error ? err : new Error(String(err))
 }
@@ -55,6 +59,7 @@ async function rasterizeRecordingActivity(
     const workDir = process.env.VIDEO_WORK_DIR || os.tmpdir()
     const ext = input.output_format || 'mp4'
     const outputPath = path.join(workDir, `ph-video-${id}.${ext}`)
+    const sourcePath = path.join(workDir, `ph-source-${id}.jsonl`)
 
     const timings: ActivityTimings = { total_s: 0, setup_s: 0, capture_s: 0, upload_s: 0 }
 
@@ -122,17 +127,24 @@ async function rasterizeRecordingActivity(
     }, 10_000)
 
     try {
+        const blockSource = input.source_s3_uri
+            ? await blockSourceFromS3(input.source_s3_uri, sourcePath, {
+                  allowedPrefixes: config.sourceS3Prefixes,
+                  maxCompressedBytes: config.maxRecordingCompressedBytes,
+                  maxDecompressedBytes: config.maxSourceDecompressedBytes,
+                  signal: abort.signal,
+              })
+            : undefined
         const result = await rasterizeRecording(pool, input, outputPath, playerHtml, onProgress, {
             progress,
             log,
             signal: abort.signal,
+            blockSource,
         })
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
-
-        const periods = computeVideoTimestamps(result.inactivity_periods)
 
         progress.phase = 'upload'
         onProgress()
@@ -158,11 +170,7 @@ async function rasterizeRecordingActivity(
 
         const output: RasterizeRecordingOutput = {
             s3_uri: s3Uri,
-            video_duration_s: result.capture_duration_s,
-            playback_speed: result.playback_speed,
-            show_metadata_footer: !!input.show_metadata_footer,
-            truncated: result.truncated,
-            inactivity_periods: periods,
+            ...renderOutputFields(result, input),
             file_size_bytes: stat.size,
             timings,
         }
@@ -192,22 +200,51 @@ async function rasterizeRecordingActivity(
         } else {
             RasterizationMetrics.observeUpload('error', failedStageS)
         }
-        if (err instanceof RasterizationError) {
-            RasterizationMetrics.incrementError(err.code, err.retryable)
+        const rasterizationError = asRasterizationError(err)
+        if (rasterizationError) {
+            RasterizationMetrics.incrementError(rasterizationError.code, rasterizationError.retryable)
         } else {
             RasterizationMetrics.incrementError('UNKNOWN', true)
         }
-        throw toActivityError(err)
+        // Classification collapses the raw rejection into a stable ApplicationFailure message that
+        // drops the CDP method and stack. Log the original here, the last point that still holds it,
+        // so a setup-phase death (browser-pool logs nothing at error level) stays diagnosable.
+        // Non-retryable codes are the recording's own fault (NO_SNAPSHOTS, INVALID_INPUT) and are
+        // routine, so they stay off the error level that infra alerts on.
+        const logAtErrorLevel = !rasterizationError || rasterizationError.retryable
+        const logFailure = logAtErrorLevel ? log.error.bind(log) : log.warn.bind(log)
+        logFailure({ err, code: rasterizationError?.code ?? 'UNKNOWN' }, 'rasterization failed')
+        throw toActivityError(rasterizationError ?? err)
     } finally {
         clearInterval(heartbeatInterval)
         ctx.cancellationSignal.removeEventListener('abort', onCancel)
         RasterizationMetrics.activityFinished()
         await fs.rm(outputPath, { force: true })
+        await fs.rm(sourcePath, { force: true })
+    }
+}
+
+async function runMediaActivity<T>(run: () => Promise<T>): Promise<T> {
+    // The media path is fail-soft, so these counters are the only sign that the fleet is failing.
+    RasterizationMetrics.activityStarted()
+    try {
+        return await run()
+    } catch (err) {
+        const rasterizationError = asRasterizationError(err)
+        RasterizationMetrics.incrementError(
+            rasterizationError?.code ?? 'UNKNOWN',
+            rasterizationError?.retryable ?? true
+        )
+        throw toActivityError(rasterizationError ?? err)
+    } finally {
+        RasterizationMetrics.activityFinished()
     }
 }
 
 export function createActivities(pool: BrowserPool, playerHtml: string) {
     return {
         'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
+        // No browser and no pool: this one reads an MP4 the rasterizer already produced.
+        'extract-thumbnails': (input: ExtractThumbnailsInput) => runMediaActivity(() => extractThumbnails(input)),
     }
 }

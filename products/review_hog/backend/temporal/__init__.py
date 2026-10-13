@@ -1,24 +1,33 @@
 from products.review_hog.backend.temporal.activities import (
+    add_review_reaction_activity,
     append_code_review_artefact_activity,
     build_body_activity,
+    coordinator_review_activity,
     dedup_activity,
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    gate_push_activity,
     generate_schemas_activity,
+    lens_review_activity,
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
+    nudge_stamphog_activity,
     post_status_comment_activity,
     publish_review_activity,
+    record_turn_marker_activity,
+    remove_review_reaction_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
+    single_agent_review_activity,
     split_chunks_activity,
     sync_review_skills_activity,
     track_review_completed_activity,
     track_review_failed_activity,
+    track_review_started_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
 )
@@ -27,7 +36,12 @@ from products.review_hog.backend.temporal.outcomes_activities import (
     discover_outcome_teams_activity,
 )
 from products.review_hog.backend.temporal.outcomes_workflow import ClassifyFindingOutcomesWorkflow
-from products.review_hog.backend.temporal.resolution import ResolvePRWorkflow, resolve_threads_activity
+from products.review_hog.backend.temporal.resolution import (
+    ResolvePRWorkflow,
+    fail_resolution_activity,
+    resolve_threads_activity,
+)
+from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, review_resolution_running_activity
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -35,6 +49,7 @@ from products.review_hog.backend.temporal.workflow import (
 )
 
 WORKFLOWS = [
+    ReviewPRQueueWorkflow,
     ReviewPRWorkflow,
     ReviewPerspectivesWorkflow,
     ValidateIssuesWorkflow,
@@ -43,9 +58,11 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    review_resolution_running_activity,
     validate_github_integration_activity,
     fetch_pr_data_activity,
     resolve_acting_user_activity,
+    gate_push_activity,
     sync_review_skills_activity,
     generate_schemas_activity,
     split_chunks_activity,
@@ -53,19 +70,28 @@ ACTIVITIES = [
     select_perspectives_activity,
     load_blind_spots_skill_activity,
     review_chunk_activity,
+    single_agent_review_activity,
+    lens_review_activity,
+    coordinator_review_activity,
     dedup_activity,
     load_validation_skill_activity,
     validate_chunk_activity,
     build_body_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     post_status_comment_activity,
     finalize_status_comment_activity,
     fail_status_comment_activity,
+    add_review_reaction_activity,
+    nudge_stamphog_activity,
+    remove_review_reaction_activity,
     track_review_completed_activity,
     track_review_failed_activity,
+    track_review_started_activity,
     append_code_review_artefact_activity,
     discover_outcome_teams_activity,
     classify_team_outcomes_activity,
     resolve_threads_activity,
+    fail_resolution_activity,
 ]

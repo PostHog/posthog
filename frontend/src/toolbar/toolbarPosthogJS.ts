@@ -7,7 +7,7 @@ const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 
 const runningOnPosthog = !!window.POSTHOG_APP_CONTEXT
 const apiKey = runningOnPosthog ? window.JS_POSTHOG_API_KEY : DEFAULT_API_KEY
-const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://internal-j.posthog.com'
+const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://internal-cf.posthog.com'
 
 const initResult = posthog.init(
     apiKey || DEFAULT_API_KEY,

@@ -28,6 +28,12 @@ def main() -> None:
         "--scanner-id", action="append", dest="scanner_ids", help="Restrict to specific scanner ids (repeatable)."
     )
     parser.add_argument("--seed", type=int, default=42, help="Seed for the uniform sample, for reproducibility.")
+    parser.add_argument(
+        "--max-observations",
+        type=int,
+        default=200,
+        help="Newest observations to consider per scanner; lower paginates much faster.",
+    )
     args = parser.parse_args()
 
     # Env var only, deliberately: a key passed as a CLI flag leaks into shell history and ps output.
@@ -47,6 +53,7 @@ def main() -> None:
         per_type=args.per_type,
         scanner_ids=args.scanner_ids,
         seed=args.seed,
+        max_observations_per_scanner=args.max_observations,
     )
     by_type: dict[str, int] = {}
     for case in dataset.cases:

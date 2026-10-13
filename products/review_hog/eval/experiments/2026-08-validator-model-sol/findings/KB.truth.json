@@ -1,0 +1,64 @@
+{
+    "KB1": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 39,
+        "source": "verified-same-claim:KA"
+    },
+    "KB2": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 35,
+        "source": "cluster 3/3"
+    },
+    "KB3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA"
+    },
+    "KB4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified",
+        "confidence": "medium"
+    },
+    "KB5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 2,
+        "source": "verified",
+        "confidence": "medium"
+    },
+    "KB6": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA"
+    },
+    "KB7": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 1,
+        "source": "verified-same-claim:W11"
+    },
+    "KB8": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "verified-same-claim:KA"
+    },
+    "KB9": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "cluster 0/5"
+    },
+    "KB10": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "cluster 0/6"
+    }
+}

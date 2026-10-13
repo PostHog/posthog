@@ -9,8 +9,6 @@ import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneFullscreen } from 'lib/components/Scenes/SceneFullscreen'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { ScenePin } from 'lib/components/Scenes/ScenePin'
-import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -37,6 +35,7 @@ import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalL
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
 import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
+import { dashboardTemplateForExport } from './dashboardUtils'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -46,12 +45,12 @@ export function DashboardScenePanel(): JSX.Element | null {
         dashboardMode,
         canEditDashboard,
         isSavingTags,
-        isPinned,
         asDashboardTemplate,
-        effectiveDashboardVariableOverrides,
+        currentDashboardVariables,
         apiUrl,
+        tiles,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const { setDashboardMode, updateDashboardTags, setTerraformModalOpen } = useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -98,7 +97,6 @@ export function DashboardScenePanel(): JSX.Element | null {
                                 Copy to another project
                             </ButtonPrimitive>
                         )}
-                        <ScenePin dataAttrKey={RESOURCE_TYPE} onClick={togglePinned} isPinned={isPinned} />
                         <SceneFullscreen
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => {
@@ -115,7 +113,7 @@ export function DashboardScenePanel(): JSX.Element | null {
 
                 {dashboard && canEditDashboard && (
                     <>
-                        {hasDashboardColors && (
+                        {hasDashboardColors && tiles.length > 0 && (
                             <ButtonPrimitive
                                 onClick={() => showInsightColorsModal(dashboard.id)}
                                 menuItem
@@ -133,7 +131,6 @@ export function DashboardScenePanel(): JSX.Element | null {
                             <IconNotebook />
                             Create notebook from dashboard
                         </ButtonPrimitive>
-                        <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
                         <SceneExportDropdownMenu
                             dropdownMenuItems={[
                                 {
@@ -141,7 +138,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                                     dashboard: dashboard.id,
                                     context: {
                                         path: apiUrl(),
-                                        variables_override: effectiveDashboardVariableOverrides,
+                                        variables_override: currentDashboardVariables,
                                     },
                                     dataAttr: `${RESOURCE_TYPE}-export-png`,
                                 },
@@ -150,7 +147,9 @@ export function DashboardScenePanel(): JSX.Element | null {
                                           {
                                               format: ExporterFormat.JSON,
                                               context: {
-                                                  localData: JSON.stringify(asDashboardTemplate),
+                                                  localData: JSON.stringify(
+                                                      dashboardTemplateForExport(asDashboardTemplate)
+                                                  ),
                                                   filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
                                                   mediaType: ExporterFormat.JSON,
                                               },

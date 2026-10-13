@@ -35,31 +35,33 @@ def integration(db):
     )
 
 
-def _input(integration: Integration, text: str) -> SlackAppModelOverrideInput:
+def _input(integration: Integration, text: str, thread_ts: str | None = None) -> SlackAppModelOverrideInput:
     return SlackAppModelOverrideInput(
         integration_id=integration.id,
         slack_team_id=integration.integration_id or "",
         event_text=text,
+        thread_ts=thread_ts,
     )
 
 
 class TestClassifySlackAppModelOverrideActivity:
     @pytest.mark.parametrize(
-        "flag_on,catalogue",
+        "text,catalogue",
         [
-            (False, CATALOGUE),
             # The gateway is the source of truth for what can run; with no catalogue
             # there is nothing to validate a request against.
-            (True, ()),
+            ("use fable for this one", ()),
+            # A follow-up that is only an attachment carries no sentence to read.
+            ("   ", CATALOGUE),
         ],
+        ids=["empty_catalogue", "blank_text"],
     )
-    def test_gates_return_no_override_without_calling_the_llm(self, integration, flag_on, catalogue):
+    def test_gates_return_no_override_without_calling_the_llm(self, integration, text, catalogue):
         with (
-            patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=flag_on),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=catalogue),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override") as classify,
         ):
-            result = classify_slack_app_model_override_activity(_input(integration, "use fable for this one"))
+            result = classify_slack_app_model_override_activity(_input(integration, text))
         assert result is None
         classify.assert_not_called()
 
@@ -74,10 +76,24 @@ class TestClassifySlackAppModelOverrideActivity:
     )
     def test_passes_the_mention_to_the_classifier_and_returns_its_verdict(self, integration, classified):
         with (
-            patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=True),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=CATALOGUE),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override", return_value=classified) as classify,
         ):
             text = "fix the flaky checkout test"
             assert classify_slack_app_model_override_activity(_input(integration, text)) == classified
-        classify.assert_called_once_with(text, CATALOGUE)
+        classify.assert_called_once_with(text, CATALOGUE, trace_id=None)
+
+    @pytest.mark.parametrize(
+        "thread_ts,groups_with_its_thread",
+        [(None, False), ("1700000000.000100", True)],
+        ids=["no_thread_ts", "thread_ts"],
+    )
+    def test_forwards_a_thread_trace_id_so_the_call_groups_with_its_mention(
+        self, integration, thread_ts, groups_with_its_thread
+    ):
+        with (
+            patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=CATALOGUE),
+            patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override", return_value=None) as classify,
+        ):
+            classify_slack_app_model_override_activity(_input(integration, "use fable", thread_ts))
+        assert (classify.call_args.kwargs["trace_id"] is not None) is groups_with_its_thread

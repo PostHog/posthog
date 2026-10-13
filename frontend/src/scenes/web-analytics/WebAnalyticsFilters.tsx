@@ -7,7 +7,7 @@ import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { COMPARE_ALL_TIME_DISABLED_REASON, CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
@@ -441,7 +441,7 @@ export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggest
     )
 }
 
-const WebAnalyticsDeviceToggle = (): JSX.Element => {
+export const WebAnalyticsDeviceToggle = ({ variant }: { variant?: 'select' } = {}): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -464,12 +464,17 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
         scope: Scene.WebAnalytics,
     })
 
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+    if (
+        variant === 'select' ||
+        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] ||
+        featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
+    ) {
         return (
             <LemonSelect
                 size="small"
                 value={deviceTypeFilter ?? undefined}
                 allowClear={true}
+                placeholder="All devices"
                 onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
                 options={DEVICE_TYPE_SELECT_OPTIONS}
             />
@@ -537,11 +542,7 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
         <CompareFilter
             compareFilter={compareFilter}
             updateCompareFilter={setCompareFilter}
-            disableReason={
-                dateFilter.dateFrom === 'all'
-                    ? "All time starts at your first event, so there's no earlier period to compare to. Pick a date range to compare."
-                    : null
-            }
+            disableReason={dateFilter.dateFrom === 'all' ? COMPARE_ALL_TIME_DISABLED_REASON : null}
         />
     )
 }
@@ -576,7 +577,7 @@ const ShareButton = (): JSX.Element => {
 
 function FiltersPopover(): JSX.Element {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, conversionGoal, preAggregatedEnabled, productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, conversionGoal, restrictedUiEnabled, productTab } = useValues(webAnalyticsLogic)
 
     const { setWebAnalyticsFilters, setConversionGoal } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -593,11 +594,11 @@ function FiltersPopover(): JSX.Element {
 
     const showConversionGoal =
         productTab === ProductTab.ANALYTICS &&
-        (!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
+        (!restrictedUiEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
 
     const cohortFilterEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
-    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false, cohortFilterEnabled)
-    const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
+    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(restrictedUiEnabled ?? false, cohortFilterEnabled)
+    const propertyAllowList = restrictedUiEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
     const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)
 
@@ -728,10 +729,10 @@ const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
 }
 
 const IncompatibleFiltersWarning = (): JSX.Element | null => {
-    const { hasIncompatibleFilters, incompatibleFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
+    const { hasIncompatibleFilters, incompatibleFilters, restrictedUiEnabled } = useValues(webAnalyticsLogic)
     const { removeIncompatibleFilters } = useActions(webAnalyticsLogic)
 
-    if (!preAggregatedEnabled || !hasIncompatibleFilters) {
+    if (!restrictedUiEnabled || !hasIncompatibleFilters) {
         return null
     }
 

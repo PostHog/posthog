@@ -150,7 +150,7 @@ class DuckLakeStorageConfig:
     """
 
     access_key: str
-    secret_key: str
+    secret_key: str = dataclasses.field(repr=False)
     region: str
     endpoint: str
     use_ssl: bool
@@ -776,12 +776,20 @@ def create_staging_read_secret(conn: psycopg.Connection, catalog_bucket: str) ->
     )
 
 
-def connect_to_duckgres(server: DuckgresServer, *, application_name: str = "posthog") -> psycopg.Connection:
+def connect_to_duckgres(
+    server: DuckgresServer,
+    *,
+    application_name: str = "posthog",
+    options: str | None = None,
+) -> psycopg.Connection:
     """Open a psycopg connection to a duckgres server.
 
     ``application_name`` is a caller-identifying slug echoed into duckgres's
     analytics events, so callers should pass one instead of relying on the
     ``"posthog"`` default.
+
+    ``options`` is forwarded as the libpq startup options for caller-specific
+    Duckgres settings.
     """
     return psycopg.connect(
         host=server.host,
@@ -791,6 +799,7 @@ def connect_to_duckgres(server: DuckgresServer, *, application_name: str = "post
         password=server.password,
         autocommit=True,
         application_name=application_name,
+        options=options,
     )
 
 

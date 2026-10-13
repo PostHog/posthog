@@ -5,7 +5,6 @@ import { LemonLabel, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { PRODUCT_BRANDING } from 'scenes/welcome/productBranding'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -15,9 +14,9 @@ import {
     SIDEBAR_CUSTOMIZABLE_SECTIONS,
     SidebarCustomizableItem,
 } from '~/layout/panel-layout/sidebarCustomization'
+import { sidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
 import { HomepageConfiguration } from '~/layout/scenes/HomepageConfiguration'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
-import { productConfiguration } from '~/products'
 import { FileSystemImport, SidebarDensity } from '~/queries/schema/schema-general'
 
 export function HomepageSetting(): JSX.Element {
@@ -99,7 +98,14 @@ export function SidebarItemsSetting(): JSX.Element {
                     className="py-2"
                     checked={true}
                     disabledReason={`${item.label} always stays visible`}
-                    label={<ItemLabel icon={item.icon} label={item.label} description={item.description} />}
+                    label={
+                        <ItemLabel
+                            icon={item.icon}
+                            label={item.label}
+                            description={item.description}
+                            docsHref={item.docsHref}
+                        />
+                    }
                     bordered
                     fullWidth
                     data-attr={`sidebar-customization-item-${item.label.toLowerCase()}`}
@@ -113,7 +119,14 @@ export function SidebarItemsSetting(): JSX.Element {
                 checked={isSidebarItemShown(key)}
                 onChange={(checked) => setSidebarItemShown(key, checked)}
                 loading={userLoading}
-                label={<ItemLabel icon={item.icon} label={item.label} description={item.description} />}
+                label={
+                    <ItemLabel
+                        icon={item.icon}
+                        label={item.label}
+                        description={item.description}
+                        docsHref={item.docsHref}
+                    />
+                }
                 bordered
                 fullWidth
                 data-attr={`sidebar-customization-item-${key}`}
@@ -142,6 +155,7 @@ export function SidebarItemsSetting(): JSX.Element {
                                     icon={section.icon}
                                     label={section.label}
                                     description={section.description}
+                                    docsHref={section.docsHref}
                                 />
                             }
                             bordered
@@ -167,9 +181,9 @@ export function SidebarItemsSetting(): JSX.Element {
     )
 }
 
-export function SidebarMyToolsSetting(): JSX.Element {
-    const { enabledToolPaths, customProductsLoading } = useValues(customProductsLogic)
-    const { setToolEnabled } = useActions(customProductsLogic)
+export function SidebarMyProductsSetting(): JSX.Element {
+    const { enabledProductPaths, customProductsLoading } = useValues(customProductsLogic)
+    const { setProductEnabled } = useActions(customProductsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const products = getDefaultTreeProducts()
@@ -200,7 +214,7 @@ export function SidebarMyToolsSetting(): JSX.Element {
     }
 
     return (
-        // The colorful-product-icons group class turns on each tool's brand color, as in the navbar.
+        // The colorful-product-icons group class turns on each product's brand color, as in the navbar.
         <div className="flex flex-col gap-4 max-w-160 group/colorful-product-icons colorful-product-icons-true">
             {[...productsByCategory.entries()]
                 .sort(
@@ -212,18 +226,13 @@ export function SidebarMyToolsSetting(): JSX.Element {
                     <div key={category} className="flex flex-col gap-2">
                         <LemonLabel>{category}</LemonLabel>
                         {[...categoryProducts].sort(sortProducts).map((product) => {
-                            const description: string | undefined = product.sceneKey
-                                ? productConfiguration[product.sceneKey]?.description
-                                : undefined
-                            const docsHref: string | undefined = product.intents?.length
-                                ? PRODUCT_BRANDING[product.intents[0]]?.docsHref
-                                : undefined
+                            const { description, docsHref } = sidebarProductMeta(product)
                             return (
                                 <LemonSwitch
                                     key={product.path}
                                     className="py-2"
-                                    checked={enabledToolPaths.has(product.path)}
-                                    onChange={(checked) => setToolEnabled(product.path, checked)}
+                                    checked={enabledProductPaths.has(product.path)}
+                                    onChange={(checked) => setProductEnabled(product.path, checked)}
                                     loading={customProductsLoading}
                                     label={
                                         <ItemLabel

@@ -53,11 +53,9 @@ export function removeBranchEdge(branchEdges: HogFlowEdge[], conditionIndex: num
  * Percentages for an even N-way cohort split, summing to exactly 100.
  *
  * Shares are allocated in hundredths of a percent rather than whole percents, because whole percents
- * can't divide 100 evenly for most counts and the runtime routes any shortfall to the last cohort
- * (see getRandomCohort). Allocating in whole percents therefore gave 30 cohorts ten shares of 4% and
- * twenty of 3%, so a third of the branches carried 33% more than the rest. The leftover hundredths
- * are spread one each across the leading cohorts, which keeps every share within 0.01 of its fair
- * value.
+ * can't divide 100 evenly for most counts, and a total that misses 100 trips the editor's warning
+ * even though the runtime splits by relative weight. The leftover hundredths are spread one each
+ * across the leading cohorts, which keeps every share within 0.01 of its fair value.
  */
 export function normalizeCohortPercentages(count: number): number[] {
     if (count <= 0) {
@@ -120,10 +118,9 @@ export function updateItemWithOptionalName<T>(
     })
 }
 
-export function useDebouncedNameInputs<T extends { name?: string }>(
+export function useNameInputs<T extends { name?: string }>(
     items: T[],
-    updateItems: (items: T[]) => void,
-    debounceDelay: number = 300
+    updateItems: (items: T[]) => void
 ): {
     localNames: (string | undefined)[]
     handleNameChange: (index: number, value: string | undefined) => void
@@ -135,19 +132,13 @@ export function useDebouncedNameInputs<T extends { name?: string }>(
         setLocalNames((items ?? []).map((item) => item.name))
     }, [items?.length, items]) // Only update when number of items changes
 
-    // Debounced function to update items
-    const debouncedUpdate = useDebouncedCallback((index: number, value: string | undefined) => {
-        updateItems(updateItemWithOptionalName(items, index, value))
-    }, debounceDelay)
-
     const handleNameChange = (index: number, value: string | undefined): void => {
         // Update local state immediately for responsive typing
         const newNames = [...localNames]
         newNames[index] = value
         setLocalNames(newNames)
 
-        // Debounced update to persist the name
-        debouncedUpdate(index, value)
+        updateItems(updateItemWithOptionalName(items, index, value))
     }
 
     return {

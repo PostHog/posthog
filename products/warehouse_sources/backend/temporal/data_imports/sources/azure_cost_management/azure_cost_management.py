@@ -89,6 +89,11 @@ def normalize_scope(scope: str) -> str:
     trimmed = raw.strip("/")
     if not trimmed:
         raise ValueError("Azure Cost Management scope is required")
+    # Every Cost Management scope names a collection and an id (`subscriptions/<id>`,
+    # `providers/Microsoft.Billing/billingAccounts/<id>`). A single segment is usually a bare
+    # subscription id copied out of the portal, and it can only 404 once it reaches Azure.
+    if "/" not in trimmed:
+        raise ValueError("Azure Cost Management scope must be an ARM path such as subscriptions/<subscription id>")
     return trimmed
 
 
@@ -387,6 +392,26 @@ class AzureCostManagementClient:
             return response.json()
 
 
+def _scope_probe_failure_message(error: Exception) -> str:
+    """Name the one thing to fix. Azure denies a scope the service principal may not read (403)
+    separately from a scope it cannot find (400/404), and the two need opposite fixes."""
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status == 403:
+        return (
+            "The service principal cannot read Cost Management on this scope. "
+            "Give it the Cost Management Reader role on the scope, then connect again."
+        )
+    if status in (400, 404):
+        return (
+            "Azure has no Cost Management scope at this path. Check it is an Azure Resource "
+            "Manager path such as subscriptions/<subscription id>, then connect again."
+        )
+    return (
+        "Could not read Azure Cost Management for that scope. Check the scope path and that the "
+        "service principal has the Cost Management Reader role on it."
+    )
+
+
 def validate_credentials(
     tenant_id: str, client_id: str, client_secret: str, scope: str, api_version: str
 ) -> tuple[bool, Optional[str]]:
@@ -405,11 +430,8 @@ def validate_credentials(
 
     try:
         client.request("GET", _endpoint_url(normalized_scope, "dimensions", api_version))
-    except Exception:
-        return (
-            False,
-            "Could not read Azure Cost Management for that scope. Check the scope path and that the service principal has the Cost Management Reader role on it.",
-        )
+    except Exception as error:
+        return False, _scope_probe_failure_message(error)
 
     return True, None
 

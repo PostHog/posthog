@@ -1,14 +1,22 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, LifecycleQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    FunnelsQuery,
+    LifecycleQuery,
+    Node,
+    NodeKind,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
@@ -17,10 +25,14 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
-    InsightType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import {
+    funnelInvalidExclusionError,
+    funnelResult,
+} from 'products/product_analytics/frontend/insights/funnels/__mocks__/funnelDataLogicMocks'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -36,6 +48,9 @@ describe('insightVizDataLogic', () => {
             get: {
                 '/api/environments/:team_id/insights/trend': [],
                 '/api/environments/:team_id/insights/': { results: [{}] },
+                '/api/projects/:team_id/actions/': {
+                    results: [{ id: 7, name: 'Sign up', steps: [{ event: '$pageview' }, { event: 'sign_up' }] }],
+                },
             },
         })
         initKeaTests()
@@ -226,6 +241,42 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('clears a custom retention aggregation target when an entity switches away from the data warehouse', () => {
+            const dataWarehouseEntity = {
+                id: 'warehouse_orders',
+                type: 'data_warehouse' as const,
+                table_name: 'warehouse_orders',
+                timestamp_field: 'created_at',
+                aggregation_target_field: 'order_id',
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    customAggregationTarget: true,
+                    targetEntity: dataWarehouseEntity,
+                    returningEntity: dataWarehouseEntity,
+                },
+            } as RetentionQuery)
+            expect(builtInsightVizDataLogic.values.retentionFilter).toMatchObject({ customAggregationTarget: true })
+
+            // updateInsightFilter merges entity changes into the full filter, so the stale flag rides along
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    customAggregationTarget: true,
+                    targetEntity: { id: '$pageview', type: 'events' },
+                    returningEntity: dataWarehouseEntity,
+                },
+            } as RetentionQuery)
+
+            expect(builtInsightVizDataLogic.values.retentionFilter).toEqual({
+                customAggregationTarget: undefined,
+                targetEntity: { id: '$pageview', type: 'events' },
+                returningEntity: dataWarehouseEntity,
+            })
+        })
+
         it('clears unsupported lifecycle globals when switching to a data warehouse series', () => {
             const lifecycleQuery: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
@@ -291,61 +342,244 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('disables filterTestAccounts and properties when adding a data warehouse series to trends', () => {
+        const warehouseSeries = {
+            id: 'warehouse_orders',
+            table_name: 'warehouse_orders',
+            name: 'Orders',
+            timestamp_field: 'created_at',
+            id_field: 'order_id',
+        }
+        const warehouseEntity = {
+            id: 'warehouse_orders',
+            type: 'data_warehouse' as const,
+            table_name: 'warehouse_orders',
+            timestamp_field: 'created_at',
+            aggregation_target_field: 'customer_id',
+        }
+        const addsWarehouseSeries = (kind: NodeKind, warehouseKind: NodeKind): Record<string, any> => ({
+            kind,
+            added: 'series',
+            initial: { series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }] },
+            update: { series: [{ ...warehouseSeries, kind: warehouseKind }] },
+        })
+
+        it.each([
+            addsWarehouseSeries(NodeKind.TrendsQuery, NodeKind.DataWarehouseNode),
+            addsWarehouseSeries(NodeKind.FunnelsQuery, NodeKind.FunnelsDataWarehouseNode),
+            addsWarehouseSeries(NodeKind.StickinessQuery, NodeKind.DataWarehouseNode),
+            {
+                kind: NodeKind.RetentionQuery,
+                added: 'target entity',
+                initial: { retentionFilter: { targetEntity: { id: '$pageview', type: 'events' } } },
+                update: { retentionFilter: { targetEntity: warehouseEntity } },
+            },
+            {
+                kind: NodeKind.RetentionQuery,
+                added: 'returning entity',
+                initial: { retentionFilter: { targetEntity: { id: '$pageview', type: 'events' } } },
+                update: {
+                    retentionFilter: {
+                        targetEntity: { id: '$pageview', type: 'events' },
+                        returningEntity: warehouseEntity,
+                    },
+                },
+            },
+        ])(
+            'disables filterTestAccounts and properties when adding a data warehouse $added to $kind',
+            ({ kind, initial, update }) => {
+                const initialSource: Record<string, unknown> = {
+                    kind,
+                    filterTestAccounts: true,
+                    properties: [{ type: 'event', key: 'browser', value: 'Chrome', operator: 'exact' }],
+                    ...initial,
+                }
+                builtInsightVizDataLogic.actions.updateQuerySource(initialSource as QuerySourceUpdate)
+
+                expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                    kind,
+                    filterTestAccounts: true,
+                    properties: [expect.objectContaining({ key: 'browser' })],
+                })
+
+                const updateSource: Record<string, unknown> = { kind, ...update }
+                builtInsightVizDataLogic.actions.updateQuerySource(updateSource as QuerySourceUpdate)
+
+                expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                    kind,
+                    filterTestAccounts: false,
+                    properties: undefined,
+                })
+            }
+        )
+
+        const warehouseTrendsSeries = { ...warehouseSeries, kind: NodeKind.DataWarehouseNode }
+        const pageviewSeries = { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }
+        const flagCallsNode = {
+            id: 'posthog.flag_evaluations',
+            table_name: 'posthog.flag_evaluations',
+            name: 'Feature flag called',
+            timestamp_field: 'timestamp',
+            aggregation_target_field: 'person_id',
+        }
+        const flagCallsEntity = { ...flagCallsNode, type: 'data_warehouse' as const }
+
+        it('clears sampling when adding a data warehouse series to an insight with no other unsupported settings', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: 0.1 } as TrendsQuery)
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: 0.1 })
+
+            builtInsightVizDataLogic.actions.updateQuerySource({ series: [warehouseTrendsSeries] } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: undefined })
+        })
+
+        it.each([
+            {
+                name: 'an event breakdown',
+                breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
+                series: [warehouseTrendsSeries],
+                expected: undefined,
+                toasts: [expect.stringMatching(/^A data warehouse series doesn't support this breakdown/)],
+            },
+            {
+                name: 'multiple breakdowns with an event one',
+                breakdownFilter: {
+                    breakdowns: [
+                        { type: 'data_warehouse', property: 'status' },
+                        { type: 'event', property: '$browser' },
+                    ],
+                },
+                series: [warehouseTrendsSeries],
+                expected: undefined,
+                toasts: [expect.stringMatching(/^A data warehouse series doesn't support this breakdown/)],
+            },
+            {
+                name: 'a data warehouse breakdown',
+                breakdownFilter: { breakdown_type: 'data_warehouse', breakdown: 'status' },
+                series: [warehouseTrendsSeries],
+                expected: { breakdown_type: 'data_warehouse', breakdown: 'status' },
+                toasts: [],
+            },
+            {
+                name: 'an event breakdown when a flag calls series joins an event series',
+                breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
+                series: [pageviewSeries, { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: undefined,
+                toasts: [expect.stringMatching(/^Feature flag called doesn't support this breakdown/)],
+            },
+            {
+                name: 'a flag response breakdown when a trends series changes to flag calls',
+                breakdownFilter: { breakdown_type: 'event', breakdown: '$feature_flag_response' },
+                series: [{ ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: { breakdown_type: 'data_warehouse', breakdown: 'response' },
+                toasts: [],
+            },
+            {
+                name: 'multiple breakdowns with a flag key one when a trends series changes to flag calls',
+                breakdownFilter: { breakdowns: [{ type: 'event', property: '$feature_flag' }] },
+                series: [{ ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: { breakdowns: [{ type: 'data_warehouse', property: 'flag_key' }] },
+                toasts: [],
+            },
+            {
+                name: 'a flag calls breakdown when an event series joins a flag calls series',
+                breakdownFilter: { breakdown_type: 'data_warehouse', breakdown: 'flag_key' },
+                series: [pageviewSeries, { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: undefined,
+                toasts: [
+                    expect.stringMatching(/^Feature flag called can't share a breakdown with event or action series/),
+                ],
+            },
+        ])(
+            'handles $name when a trends series changes to a data warehouse series',
+            ({ breakdownFilter, series, expected, toasts }) => {
+                builtInsightVizDataLogic.actions.updateQuerySource({ breakdownFilter } as TrendsQuery)
+                const infoToast = jest.spyOn(lemonToast, 'info')
+
+                builtInsightVizDataLogic.actions.updateQuerySource({ series } as TrendsQuery)
+
+                expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual(expected)
+                expect(infoToast.mock.calls.map(([message]) => message)).toEqual(toasts)
+                infoToast.mockRestore()
+            }
+        )
+
+        it.each([
+            {
+                kind: NodeKind.FunnelsQuery,
+                flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.FunnelsDataWarehouseNode }] },
+                targets: (source: any) => [source.series[0].aggregation_target_field],
+            },
+            {
+                kind: NodeKind.LifecycleQuery,
+                flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.LifecycleDataWarehouseNode }] },
+                targets: (source: any) => [source.series[0].aggregation_target_field],
+            },
+            {
+                kind: NodeKind.RetentionQuery,
+                flagCalls: { retentionFilter: { targetEntity: flagCallsEntity, returningEntity: flagCallsEntity } },
+                targets: (source: any) => [
+                    source.retentionFilter.targetEntity.aggregation_target_field,
+                    source.retentionFilter.returningEntity.aggregation_target_field,
+                ],
+            },
+        ])('counts $kind flag calls by the aggregation group', ({ kind, flagCalls, targets }) => {
+            const update = (source: Record<string, unknown>): void =>
+                builtInsightVizDataLogic.actions.updateQuerySource({ kind, ...source } as QuerySourceUpdate)
+
+            update({ aggregation_group_type_index: 1 })
+            update(flagCalls)
+            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['$group_1']))
+
+            update({ aggregation_group_type_index: undefined })
+            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['person_id']))
+        })
+
+        it('counts funnel flag calls by the funnel aggregation expression', () => {
+            const update = (source: Record<string, unknown>): void =>
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.FunnelsQuery,
+                    ...source,
+                } as QuerySourceUpdate)
+            const target = (): string | undefined =>
+                (builtInsightVizDataLogic.values.querySource as any).series[0].aggregation_target_field
+
+            update({ series: [{ ...flagCallsNode, kind: NodeKind.FunnelsDataWarehouseNode }] })
+            update({ funnelsFilter: { funnelAggregateByHogQL: 'properties.$session_id' } })
+            expect(target()).toEqual('properties.$session_id')
+
+            update({ funnelsFilter: { funnelAggregateByHogQL: undefined } })
+            expect(target()).toEqual('person_id')
+        })
+
+        it('does not toast on an edit of a saved trends insight whose mixed series left empty properties', () => {
+            builtInsightDataLogic.actions.setQuery({
+                kind: NodeKind.InsightVizNode,
+                source: { kind: NodeKind.TrendsQuery, series: [pageviewSeries, warehouseTrendsSeries], properties: [] },
+            } as Node)
+            const infoToast = jest.spyOn(lemonToast, 'info')
+
+            builtInsightVizDataLogic.actions.updateQuerySource({ dateRange: { date_from: '-30d' } } as TrendsQuery)
+
+            expect(infoToast).not.toHaveBeenCalled()
+            infoToast.mockRestore()
+        })
+
+        it('keeps test accounts off when a later edit turns them on for a retention insight with a data warehouse entity', () => {
             builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: { targetEntity: warehouseEntity, returningEntity: warehouseEntity },
+            } as QuerySourceUpdate)
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...builtInsightVizDataLogic.values.querySource,
                 filterTestAccounts: true,
-                properties: [
-                    {
-                        type: 'event',
-                        key: 'browser',
-                        value: 'Chrome',
-                        operator: 'exact',
-                    },
-                ],
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                    },
-                ],
-            } as TrendsQuery)
+            } as QuerySourceUpdate)
 
             expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
-                filterTestAccounts: true,
-                properties: [expect.objectContaining({ key: 'browser' })],
+                kind: NodeKind.RetentionQuery,
+                filterTestAccounts: false,
             })
-
-            expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource({
-                    series: [
-                        {
-                            kind: NodeKind.DataWarehouseNode,
-                            id: 'warehouse_orders',
-                            table_name: 'warehouse_orders',
-                            name: 'Orders',
-                            timestamp_field: 'created_at',
-                            id_field: 'order_id',
-                            distinct_id_field: 'customer_id',
-                        },
-                    ],
-                } as TrendsQuery)
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: expect.objectContaining({
-                        kind: NodeKind.TrendsQuery,
-                        filterTestAccounts: false,
-                        properties: undefined,
-                        series: [
-                            expect.objectContaining({
-                                kind: NodeKind.DataWarehouseNode,
-                                table_name: 'warehouse_orders',
-                            }),
-                        ],
-                    }),
-                },
-            })
+            expect(builtInsightVizDataLogic.values.hasDataWarehouseEntity).toBe(true)
         })
     })
 
@@ -862,9 +1096,6 @@ describe('insightVizDataLogic', () => {
     describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.FUNNELS,
-                },
                 result: funnelResult.result,
             }
 
@@ -899,6 +1130,27 @@ describe('insightVizDataLogic', () => {
                 } as Record<string, any>)
             }).toMatchValues({ hasRenderableResults: false })
         })
+
+        it.each([
+            ['blocks time series rows under a donut chart', ChartDisplayType.ActionsDonut, { data: [1, 2, 3] }, false],
+            [
+                'renders total value rows under a donut chart',
+                ChartDisplayType.ActionsDonut,
+                { aggregated_value: 6 },
+                true,
+            ],
+            ['renders time series rows under a scatter plot', ChartDisplayType.ScatterPlot, { data: [1, 2, 3] }, true],
+            [
+                'renders time series rows under a two dimensional heatmap',
+                ChartDisplayType.TwoDimensionalHeatmap,
+                { data: [1, 2, 3] },
+                true,
+            ],
+        ])('%s', (_, display, row, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ ...trendsQueryDefault, trendsFilter: { display } })
+            builtInsightDataLogic.actions.loadDataSuccess({ results: [row] })
+            expect(builtInsightVizDataLogic.values.hasRenderableResults).toBe(expected)
+        })
     })
 
     describe('isSingleSeriesOutput', () => {
@@ -914,6 +1166,20 @@ describe('insightVizDataLogic', () => {
                     ],
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isSingleSeriesOutput: true })
+        })
+
+        it.each([
+            ['a single breakdown', { breakdown: '$browser', breakdown_type: 'event' }, undefined],
+            ['multiple breakdowns', { breakdowns: [{ property: '$browser', type: 'event' }] }, undefined],
+            ['a breakdown and one formula', { breakdowns: [{ property: '$browser', type: 'event' }] }, 'A * 2'],
+        ])('returns false for a single series with %s', (_, breakdownFilter, formula) => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter,
+                    trendsFilter: formula ? { formula } : undefined,
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
 
         it('returns false for multiple series without formula', () => {
@@ -1150,6 +1416,30 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('showLegend', () => {
+        const rows = (count: number, compare_label?: string): Record<string, any>[] =>
+            Array.from({ length: count }, (_, i) => ({ breakdown_value: `part ${i}`, compare_label }))
+
+        it.each([
+            ['a proportion bar with few parts', rows(15), true],
+            ['a proportion bar with many parts', rows(25), undefined],
+            [
+                'a proportion bar saved with compare on, counting only the current period',
+                [...rows(15, 'current'), ...rows(15, 'previous')],
+                true,
+            ],
+        ])('%s', async (_name, result, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+            } as TrendsQuery)
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({ result })
+            }).toMatchValues({ showLegend: expected })
+        })
+    })
+
     describe('supportsCompare', () => {
         const setFunnelVizType = (funnelVizType: FunnelVizType): void => {
             builtInsightVizDataLogic.actions.updateQuerySource({
@@ -1168,6 +1458,43 @@ describe('insightVizDataLogic', () => {
             setFunnelVizType(funnelVizType)
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
+        })
+
+        it.each([
+            [ChartDisplayType.ActionsPie, true],
+            [ChartDisplayType.ActionsProportionBar, false],
+        ])('trends %s display -> %s', (display, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                trendsFilter: { display },
+            } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
+        })
+    })
+
+    describe('allEventNames', () => {
+        it('resolves action series once actionsModel mounts, without mounting it itself', async () => {
+            initKeaTests()
+            actionsModel.build()
+            const props = { dashboardItemId: Insight123 }
+            builtInsightDataLogic = insightDataLogic(props)
+            builtInsightVizDataLogic = insightVizDataLogic(props)
+            builtInsightDataLogic.mount()
+            builtInsightVizDataLogic.mount()
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                series: [{ kind: NodeKind.ActionsNode, id: 7 }],
+            } as TrendsQuery)
+
+            expect(actionsModel.isMounted()).toBe(false)
+            expect(builtInsightVizDataLogic.values.allEventNames).toEqual([])
+
+            actionsModel.mount()
+            await expectLogic(builtInsightVizDataLogic)
+                .toDispatchActions([actionsModel.actionTypes.loadActionsSuccess])
+                .toMatchValues({ allEventNames: ['$pageview', 'sign_up'] })
         })
     })
 })

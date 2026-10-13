@@ -12,7 +12,11 @@ export function useTaskViewed() {
   const queryClient = useQueryClient();
   const timestampsQueryKey = trpc.workspace.getAllTaskTimestamps.queryKey();
 
-  const { data: rawTimestamps = {}, isLoading } = useQuery(
+  const {
+    data: rawTimestamps = {},
+    isLoading,
+    isSuccess: timestampsReady,
+  } = useQuery(
     trpc.workspace.getAllTaskTimestamps.queryOptions(undefined, {
       staleTime: 30_000,
     }),
@@ -127,6 +131,7 @@ export function useTaskViewed() {
 
   return {
     timestamps,
+    timestampsReady,
     isLoading,
     markAsViewed,
     markActivity,

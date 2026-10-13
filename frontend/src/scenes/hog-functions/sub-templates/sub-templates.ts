@@ -21,9 +21,19 @@ export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
-// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
-const MCP_EFFECTIVE_TOOL_EXPR =
-    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+// actually invoked rides on $mcp_exec_tool_call_name. Rejected calls only carry the target.
+const MCP_EFFECTIVE_TOOL_EXPR = `(() -> {
+    if (event.properties.$mcp_exec_tool_call_name) {
+        return event.properties.$mcp_exec_tool_call_name;
+    }
+    if (event.properties.$mcp_tool_name = 'exec'
+        and event.properties.$mcp_exec_verb = 'call'
+        and event.properties.$mcp_exec_target_tool
+        and event.properties.$mcp_exec_target_tool != 'unrecognized') {
+        return event.properties.$mcp_exec_target_tool;
+    }
+    return event.properties.$mcp_tool_name;
+})()`
 
 // How long one failing tool stays deduped. Long enough to collapse a retry loop, short enough that
 // a breakage that is still happening reappears in the channel.
@@ -69,6 +79,12 @@ const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
 // batch_export_id, but HogMaskerService skips masking on falsy hashes, so fall back defensively.
 const BATCH_EXPORT_ALERT_MASKING_HASH =
     "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
+
+// A sync that runs every few minutes would post a message per run, so limit each table to one
+// completed-sync message per hour. HogMaskerService skips masking on falsy hashes, so fall back
+// defensively.
+const DWH_SYNC_COMPLETED_MASKING_TTL_SECONDS = 60 * 60
+const DWH_SYNC_COMPLETED_MASKING_HASH = "{event.properties.schema_id ? event.properties.schema_id : 'unknown-table'}"
 
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
@@ -136,13 +152,14 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'activity-log',
         type: 'internal_destination',
         context_id: 'activity-log',
-        filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$activity_log_entry_created', type: 'events' }] },
     },
     'feature-flag-change': {
         sub_template_id: 'feature-flag-change',
         type: 'internal_destination',
         context_id: 'activity-log',
         filters: {
+            source: 'internal-events',
             events: [
                 {
                     id: '$activity_log_entry_created',
@@ -163,89 +180,127 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'discussion-mention',
         type: 'internal_destination',
         context_id: 'discussion-mention',
-        filters: { events: [{ id: '$discussion_mention_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$discussion_mention_created', type: 'events' }] },
     },
     'error-tracking-issue-created': {
         sub_template_id: 'error-tracking-issue-created',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
     },
     'error-tracking-issue-reopened': {
         sub_template_id: 'error-tracking-issue-reopened',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
     'error-tracking-issue-spiking': {
         sub_template_id: 'error-tracking-issue-spiking',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
         type: 'internal_destination',
         context_id: 'insight-alerts',
-        filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
     'experiment-significant': {
         sub_template_id: 'experiment-significant',
         type: 'internal_destination',
         context_id: 'experiment-alerts',
-        filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$experiment_metric_significant', type: 'events' }] },
     },
     'logs-alert-firing': {
         sub_template_id: 'logs-alert-firing',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_firing', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_firing', type: 'events' }] },
     },
     'logs-alert-resolved': {
         sub_template_id: 'logs-alert-resolved',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_resolved', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_resolved', type: 'events' }] },
     },
     'logs-alert-auto-disabled': {
         sub_template_id: 'logs-alert-auto-disabled',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
     },
     'logs-alert-errored': {
         sub_template_id: 'logs-alert-errored',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_errored', type: 'events' }] },
     },
     'health-check-firing': {
         sub_template_id: 'health-check-firing',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_firing', type: 'events' }] },
     },
     'health-check-resolved': {
         sub_template_id: 'health-check-resolved',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
     },
     'batch-export-run-failed': {
         sub_template_id: 'batch-export-run-failed',
         type: 'internal_destination',
         context_id: 'batch-export-alerts',
-        filters: { events: [{ id: '$batch_export_run_failed', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$batch_export_run_failed', type: 'events' }] },
         masking: {
             hash: BATCH_EXPORT_ALERT_MASKING_HASH,
             ttl: BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS,
             threshold: null,
         },
         flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
+    },
+    'data-warehouse-sync-failed': {
+        sub_template_id: 'data-warehouse-sync-failed',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_failed', type: 'events' }] },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'data-warehouse-sync-recovered': {
+        sub_template_id: 'data-warehouse-sync-recovered',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_recovered', type: 'events' }] },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'data-warehouse-sync-completed': {
+        sub_template_id: 'data-warehouse-sync-completed',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$data_warehouse_sync_completed', type: 'events' }] },
+        masking: {
+            hash: DWH_SYNC_COMPLETED_MASKING_HASH,
+            ttl: DWH_SYNC_COMPLETED_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'data-warehouse-billing-limit-reached': {
+        sub_template_id: 'data-warehouse-billing-limit-reached',
+        type: 'internal_destination',
+        context_id: 'data-warehouse-alerts',
+        filters: {
+            source: 'internal-events',
+            events: [{ id: '$data_warehouse_billing_limit_reached', type: 'events' }],
+        },
+        flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'replay-vision-request-completed': {
+        sub_template_id: 'replay-vision-request-completed',
+        type: 'internal_destination',
+        context_id: 'replay-vision-requests',
+        filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
     },
 }
 
@@ -622,6 +677,53 @@ function notificationVariants({
 const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
 const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
 
+// source_type, schema_name and error come from the source system, so they get the same escaping and
+// bounds as the other producer-controlled notification fields.
+interface DwhMessageFields {
+    sourceType: string
+    table: string
+    error: string
+}
+
+const DWH_SLACK_FIELDS: DwhMessageFields = {
+    sourceType: `{${slackEscapeExpr('event.properties.source_type', 100)}}`,
+    table: `{${slackEscapeExpr('event.properties.schema_name', 200)}}`,
+    error: `{${slackEscapeExpr('event.properties.error', 1000)}}`,
+}
+const DWH_MARKDOWN_FIELDS: DwhMessageFields = {
+    sourceType: `{${markdownEscapeExpr('event.properties.source_type', 100)}}`,
+    table: `{${markdownEscapeExpr('event.properties.schema_name', 200)}}`,
+    error: `{${markdownEscapeExpr('event.properties.error', 1000)}}`,
+}
+
+const DWH_TABLE_URL = '{event.properties.schema_url}'
+const DWH_SOURCE_URL = '{event.properties.source_url}'
+const DWH_MARKDOWN_TABLE_LINK = `[View table](${DWH_TABLE_URL})`
+const DWH_MARKDOWN_SOURCE_LINK = `[View source](${DWH_SOURCE_URL})`
+
+function dwhSyncFailedMessage(fields: DwhMessageFields, bold: string): string {
+    return (
+        `${bold}Sync failed${bold} for table ${bold}${fields.table}${bold} from ${fields.sourceType}.` +
+        `{event.properties.paused ? ' The table is paused.' : ''}\n` +
+        `${bold}Error:${bold} ${fields.error}`
+    )
+}
+
+function dwhSyncRecoveredMessage(fields: DwhMessageFields, bold: string): string {
+    return `Table ${bold}${fields.table}${bold} from ${fields.sourceType} is syncing again.`
+}
+
+function dwhSyncCompletedMessage(fields: DwhMessageFields, bold: string): string {
+    return `Table ${bold}${fields.table}${bold} from ${fields.sourceType} finished a sync. Rows synced: {event.properties.rows_synced}.`
+}
+
+function dwhBillingLimitMessage(fields: DwhMessageFields, bold: string): string {
+    return (
+        `{event.properties.kind == 'too_low' ? 'The billing limit is too low to sync' : 'The billing limit was reached, so this sync did not run for'} ` +
+        `table ${bold}${fields.table}${bold} from ${fields.sourceType}.`
+    )
+}
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
@@ -632,6 +734,46 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackFallbackText: 'An MCP tool call failed',
         markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
         slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
+    }),
+    'data-warehouse-sync-failed': notificationVariants({
+        subTemplateId: 'data-warehouse-sync-failed',
+        nameSuffix: 'when a table sync fails',
+        description: 'Know when a table stops syncing and why',
+        webhookDescription: 'Send failed table syncs to your own endpoint',
+        slackMessage: dwhSyncFailedMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'A table sync failed',
+        markdownMessage: `${dwhSyncFailedMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
+        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
+    }),
+    'data-warehouse-sync-recovered': notificationVariants({
+        subTemplateId: 'data-warehouse-sync-recovered',
+        nameSuffix: 'when a table sync recovers',
+        description: 'Know when a table that failed is syncing again',
+        webhookDescription: 'Send recovered table syncs to your own endpoint',
+        slackMessage: dwhSyncRecoveredMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'A table sync recovered',
+        markdownMessage: `${dwhSyncRecoveredMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
+        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
+    }),
+    'data-warehouse-sync-completed': notificationVariants({
+        subTemplateId: 'data-warehouse-sync-completed',
+        nameSuffix: 'when a table sync completes',
+        description: 'Know when a table finishes syncing, at most once an hour for each table',
+        webhookDescription: 'Send completed table syncs to your own endpoint',
+        slackMessage: dwhSyncCompletedMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'A table sync completed',
+        markdownMessage: `${dwhSyncCompletedMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_TABLE_LINK}`,
+        slackButton: { url: DWH_TABLE_URL, label: 'View table' },
+    }),
+    'data-warehouse-billing-limit-reached': notificationVariants({
+        subTemplateId: 'data-warehouse-billing-limit-reached',
+        nameSuffix: 'when the billing limit stops a sync',
+        description: 'Know when the data warehouse billing limit stops a table from syncing',
+        webhookDescription: 'Send billing limit events to your own endpoint',
+        slackMessage: dwhBillingLimitMessage(DWH_SLACK_FIELDS, '*'),
+        slackFallbackText: 'The billing limit stopped a table sync',
+        markdownMessage: `${dwhBillingLimitMessage(DWH_MARKDOWN_FIELDS, '**')}\n\n${DWH_MARKDOWN_SOURCE_LINK}`,
+        slackButton: { url: DWH_SOURCE_URL, label: 'View source' },
     }),
     'pa-rageclick': notificationVariants({
         subTemplateId: 'pa-rageclick',
@@ -1332,7 +1474,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'context',
                             elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
                         },
-                        { type: 'divider' },
+                        // A hog template that is a single {…} expression resolves to the expression's raw
+                        // value, so this string becomes a whole block: a chart of the alerted insight when
+                        // one was rendered (`insight_chart_url`, set for any firing alert by
+                        // dispatch_alert_notification), otherwise the plain divider. Slack has no way to
+                        // omit a block conditionally, and an image block with an empty URL fails the send.
+                        "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
                         {
                             type: 'actions',
                             // The alert id in the block_id is what lets the datetimepicker action identify
@@ -1693,6 +1840,42 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'replay-vision-request-completed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when a Replay vision request completes',
+            description: 'Send a webhook when every session in a scan request has finished',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack when a Replay vision request completes',
+            description: 'Post to a Slack channel when every session in a scan request has finished',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                // verbatim stops Slack turning a caller's `@channel` in the reference into a ping.
+                                verbatim: true,
+                                text: 'Replay vision request {event.properties.label_mrkdwn} finished: *{event.properties.succeeded_count}* of {event.properties.session_count} sessions succeeded.',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Replay vision request {event.properties.request_id} finished: {event.properties.succeeded_count} of {event.properties.session_count} sessions succeeded',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1707,6 +1890,12 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$error_tracking_issue_created':
         case '$error_tracking_issue_reopened':
         case '$error_tracking_issue_spiking':
+        case '$error_tracking_issue_resolved':
+        case '$error_tracking_issue_suppressed':
+        case '$error_tracking_issue_assigned':
+        case '$error_tracking_issue_unassigned':
+        case '$error_tracking_issue_merged':
+        case '$error_tracking_issue_split':
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'
@@ -1726,6 +1915,24 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'health-alerts'
         case '$batch_export_run_failed':
             return 'batch-export-alerts'
+        case '$data_warehouse_sync_failed':
+        case '$data_warehouse_sync_recovered':
+        case '$data_warehouse_sync_completed':
+        case '$data_warehouse_billing_limit_reached':
+            return 'data-warehouse-alerts'
+        case '$billing_alert_firing':
+        case '$billing_alert_resolved':
+        case '$billing_alert_errored':
+        case '$billing_alert_auto_disabled':
+            return 'billing-alerts'
+        case '$replay_vision_alert_firing':
+        case '$replay_vision_alert_resolved':
+        case '$replay_vision_alert_errored':
+        case '$replay_vision_alert_auto_disabled':
+        case '$replay_vision_alert_match':
+            return 'replay-vision-alerts'
+        case '$replay_vision_request_completed':
+            return 'replay-vision-requests'
         default:
             return 'standard'
     }

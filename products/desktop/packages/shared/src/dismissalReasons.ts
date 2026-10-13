@@ -3,4 +3,7 @@ export {
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
   isDismissalReasonSnooze,
-} from "./dismissal-reasons";
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
+} from "@posthog/agent-contracts/dismissal-reasons";

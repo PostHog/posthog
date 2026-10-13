@@ -3,7 +3,8 @@ import {
   fillSpendDays,
   type SpendAnalysisWindow,
 } from "@posthog/core/billing/spendAnalysisFormat";
-import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Button, Callout, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useSpendAnalysis } from "../useSpendAnalysis";
 import { ModelBreakdownCards } from "./ModelBreakdownCards";
@@ -47,7 +48,7 @@ export function SpendAnalysisSection() {
             disabled={isFetching}
             onClick={refetch}
           >
-            {isFetching && !isLoading ? <Spinner size="1" /> : "Refresh"}
+            {isFetching && !isLoading ? <Spinner size="sm" /> : "Refresh"}
           </Button>
         </Flex>
       </Flex>

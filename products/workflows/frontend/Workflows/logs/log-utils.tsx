@@ -1,8 +1,9 @@
 import { IconTrash } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EmailViewerChip } from '../EmailViewerModal'
 import { getHogFlowStep } from '../hogflows/steps/HogFlowSteps'
@@ -17,6 +18,7 @@ const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
 const EVENT_REGEX = /\[Event:([a-zA-Z0-9_-]+)\|(.*?)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*?)\]/
 const EMAIL_REGEX = /\[Email:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]*)\]/
+const TASK_REGEX = /\[Task:([a-zA-Z0-9-]+)\|([a-zA-Z0-9-]*)\]/
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
     // Modifies the rendered log message to auto-detect action or person parts and replace them with a link
@@ -85,17 +87,39 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             continue
         }
 
-        const matchesEventRegex = EVENT_REGEX.exec(part)
-        if (matchesEventRegex) {
-            const eventUuid = matchesEventRegex[1]
-            const eventName = matchesEventRegex[2]
-            const eventTimestamp = matchesEventRegex[3]
+        const matchesTaskRegex = TASK_REGEX.exec(part)
+        if (matchesTaskRegex) {
+            const taskId = matchesTaskRegex[1]
 
             elements.push(
                 <Link
                     key={part}
                     className="rounded p-1 -m-1 bg-border text-bg-primary"
-                    to={urls.event(eventUuid, eventTimestamp)}
+                    to={urls.codeTaskLink(taskId)}
+                    target="_blank"
+                    targetBlankIcon
+                >
+                    View task
+                </Link>
+            )
+            continue
+        }
+
+        const matchesEventRegex = EVENT_REGEX.exec(part)
+        if (matchesEventRegex) {
+            const eventUuid = matchesEventRegex[1]
+            const eventName = matchesEventRegex[2]
+            const eventTimestamp = matchesEventRegex[3]
+            // The events page reads flag calls from flag_evaluations only when the link names the event.
+            // Other names stay off the link because the log token strips | from event names.
+            // A name that contained | would then match no event.
+            const linkEventName = eventName === '$feature_flag_called' ? eventName : undefined
+
+            elements.push(
+                <Link
+                    key={part}
+                    className="rounded p-1 -m-1 bg-border text-bg-primary"
+                    to={urls.event(eventUuid, eventTimestamp, linkEventName)}
                     target="_blank"
                     targetBlankIcon
                 >

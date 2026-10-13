@@ -93,11 +93,11 @@ export function getRuntimeModeVocabulary(runtimeAdapter: string): PermissionMode
     return runtimeAdapter === RuntimeAdapterEnumApi.Codex ? CODEX_MODES : CLAUDE_MODES
 }
 
-/** Claude opens on Plan, Codex on Auto — matching the desktop app's per-runtime defaults. */
+/** Both runtimes open on Auto — the agent gets to work instead of waiting on a plan approval. */
 export function getDefaultModeForRuntimeAdapter(runtimeAdapter: string): PermissionMode {
     return runtimeAdapter === RuntimeAdapterEnumApi.Codex
         ? CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto
-        : InitialPermissionModeEnumApi.Plan
+        : InitialPermissionModeEnumApi.Auto
 }
 
 export const DEFAULT_COMPOSER_MODE: PermissionMode = getDefaultModeForRuntimeAdapter(RuntimeAdapterEnumApi.Claude)

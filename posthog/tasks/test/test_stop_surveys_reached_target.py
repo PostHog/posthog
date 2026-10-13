@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import TestCase
@@ -54,7 +54,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             team=survey.team,
         )
 
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_stop_surveys_with_enough_responses(self) -> None:
         # Fixed ids: the survey id list is inlined into the snapshotted ClickHouse SQL,

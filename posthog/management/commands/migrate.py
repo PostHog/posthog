@@ -13,15 +13,22 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import shutil
 import warnings
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as DjangoMigrateCommand
-from django.db import DEFAULT_DB_ALIAS
+from django.db import DEFAULT_DB_ALIAS, NotSupportedError
 from django.db.migrations.recorder import MigrationRecorder
+
+from posthog.cloud_utils import is_ci
+from posthog.management.migration_profiling.profiler import profile_migrations
 
 from common.migration_utils import (
     MIGRATION_CACHE_DIR,
@@ -32,6 +39,9 @@ from common.migration_utils import (
     temporary_max_migration,
     temporary_migration_file,
 )
+
+if TYPE_CHECKING:
+    from django.db.backends.base.base import BaseDatabaseWrapper
 
 
 def get_managed_apps() -> set[str]:
@@ -185,6 +195,38 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
         return False
 
 
+# EX_CONFIG from sysexits.h. bin/migrate reads it to skip its retries.
+UNSUPPORTED_DATABASE_EXIT_CODE = 78
+
+
+def check_database_version(connection: BaseDatabaseWrapper) -> None:
+    """Stop with recovery steps when the server is older than Django supports.
+
+    Django refuses to connect below its minimum version, so without this the run
+    dies on its first query with a raw driver error and no way forward.
+    """
+    try:
+        connection.ensure_connection()
+    except NotSupportedError as exc:
+        raise CommandError(
+            f"{exc}\n\n"
+            "No migration ran, so the database is unchanged. Upgrade the PostgreSQL "
+            "server to a supported version, then deploy again.\n\n"
+            "On a Docker Compose deployment:\n"
+            "  1. Back up the data. Stop here if this reports an error:\n"
+            "     docker compose exec -T db pg_dumpall --clean -U posthog > posthog-backup.sql && gzip -f posthog-backup.sql\n"
+            "  2. Check that the backup is complete. The last lines must say the cluster dump is complete:\n"
+            "     gunzip -c posthog-backup.sql.gz | tail -3\n"
+            "  3. Stop the stack, then delete the old postgres-data volume. The backup file is now the only copy of the data.\n"
+            "  4. Start the db service again. It uses the PostgreSQL version PostHog pins.\n"
+            "  5. Restore the data. Errors about the posthog role and database already existing are expected:\n"
+            "     gunzip -c posthog-backup.sql.gz | docker compose exec -T db psql -U posthog\n"
+            "  6. Check that the data is back. This must print a count, not an error:\n"
+            "     docker compose exec -T db psql -U posthog -c 'select count(*) from django_migrations'",
+            returncode=UNSUPPORTED_DATABASE_EXIT_CODE,
+        ) from exc
+
+
 class Command(DjangoMigrateCommand):
     """Extended migrate command with caching and orphan detection."""
 
@@ -200,19 +242,41 @@ class Command(DjangoMigrateCommand):
             action="store_true",
             help="Production mode: skip orphan check and migration caching (local-dev features).",
         )
+        parser.add_argument(
+            "--profile-operations",
+            action="store_true",
+            help="Capture per-operation and per-SQL-statement timings into a JSONL file.",
+        )
+        parser.add_argument(
+            "--profile-output",
+            metavar="PATH",
+            default=None,
+            help="Path to write the profile JSONL. Defaults to /tmp/migration-profile-<db>-<unix_ts>.jsonl.",
+        )
+        parser.add_argument(
+            "--profile-full-sql",
+            action="store_true",
+            help="Don't truncate captured SQL bodies (default truncates at 4 KB).",
+        )
 
     def handle(self, *args, **options):
         database = options.get("database", DEFAULT_DB_ALIAS)
         interactive = options.get("interactive", True)
         production_mode = options.get("production", False)
         test_mode = settings.TEST
-        skip_caching = production_mode or test_mode
+        profile_operations = options.get("profile_operations", False)
+        # When profiling, the assumption is a fresh-DB run — both code paths
+        # below assume migrations were previously applied, which fights that.
+        # The cache and the orphan check serve local worktree switches, not CI.
+        skip_caching = production_mode or test_mode or profile_operations or is_ci()
         skip_orphan_check = options.get("skip_orphan_check", False) or skip_caching
 
         # Get connection for orphan check
         from django.db import connections
 
         connection = connections[database]
+
+        check_database_version(connection)
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):
@@ -302,8 +366,62 @@ class Command(DjangoMigrateCommand):
             recorder = MigrationRecorder(connection)
             applied_before = set(recorder.applied_migrations())
 
-        # Run the actual migrate command
-        super().handle(*args, **options)
+        # Run the actual migrate command — optionally under the profiler.
+        if profile_operations:
+            profile_output = options.get("profile_output")
+            if not profile_output:
+                profile_output = f"/tmp/migration-profile-{database}-{int(time.time())}.jsonl"
+            profile_path = Path(profile_output)
+            full_sql = options.get("profile_full_sql", False)
+
+            # Optional Python-side sampling via pyinstrument. Pure Python, no
+            # root needed (unlike py-spy on macOS). Activated automatically if
+            # pyinstrument is importable.
+            py_profiler = None
+            html_path = profile_path.with_suffix(".pyinstrument.html")
+            try:
+                from pyinstrument import Profiler
+
+                py_profiler = Profiler(interval=0.01)
+                py_profiler.start()
+            except ImportError:
+                pass
+
+            try:
+                with profile_migrations(database=database, output_path=profile_path, full_sql=full_sql):
+                    super().handle(*args, **options)
+            finally:
+                if py_profiler is not None:
+                    py_profiler.stop()
+                    try:
+                        html_path.write_text(py_profiler.output_html())
+                        self.stdout.write(self.style.SUCCESS(f"Wrote pyinstrument HTML to {html_path}"))
+                    except Exception as exc:
+                        self.stdout.write(self.style.WARNING(f"pyinstrument HTML failed: {exc}"))
+                    try:
+                        from pyinstrument.renderers import JSONRenderer
+
+                        json_path = profile_path.with_suffix(".pyinstrument.json")
+                        json_path.write_text(py_profiler.output(JSONRenderer()))
+                        self.stdout.write(self.style.SUCCESS(f"Wrote pyinstrument JSON to {json_path}"))
+                    except Exception as exc:
+                        self.stdout.write(self.style.WARNING(f"pyinstrument JSON failed: {exc}"))
+                    try:
+                        from pyinstrument.renderers import SpeedscopeRenderer
+
+                        speedscope_path = profile_path.with_suffix(".speedscope.json")
+                        speedscope_path.write_text(py_profiler.output(SpeedscopeRenderer()))
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f"Wrote speedscope JSON to {speedscope_path} — open at https://www.speedscope.app/"
+                            )
+                        )
+                    except Exception as exc:
+                        self.stdout.write(self.style.WARNING(f"pyinstrument speedscope failed: {exc}"))
+
+            self.stdout.write(self.style.SUCCESS(f"Wrote migration profile to {profile_path}"))
+        else:
+            super().handle(*args, **options)
 
         # Cache any newly applied migrations (skip in production and test mode)
         if not skip_caching:
@@ -315,3 +433,15 @@ class Command(DjangoMigrateCommand):
                 if app_label in managed_apps:
                     if cache_migration(app_label, migration_name):
                         self.stdout.write(self.style.SUCCESS(f"  Cached: {app_label}.{migration_name}"))
+
+        # A fresh database takes the squash path, which folds the historical
+        # RunPython seeds (auth groups, default theme, dashboard templates,
+        # ...). Re-seed after every default-DB migrate; the command is
+        # idempotent and a no-op on databases that already carry the rows.
+        # Skipped when targeting another alias or checking, never on failure —
+        # a migrate that raised has already propagated by this point.
+        if database == DEFAULT_DB_ALIAS and not options.get("check_unapplied") and not options.get("plan"):
+            try:
+                call_command("ensure_migration_defaults", verbosity=0)
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(f"ensure_migration_defaults failed: {exc}"))

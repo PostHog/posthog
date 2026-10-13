@@ -5,8 +5,10 @@ from parameterized import parameterized
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
+from ee.api.agentic_provisioning.ratelimits import RATE_LIMITED_MESSAGE
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 
@@ -38,7 +40,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert res.json() == {
             "status": "error",
             "id": "",
-            "error": {"code": "rate_limited", "message": "Rate limit exceeded for this partner. Try again later."},
+            "error": {"code": "rate_limited", "message": RATE_LIMITED_MESSAGE},
         }
 
     @patch("ee.api.agentic_provisioning.views.resources.capture_provisioning_event")
@@ -75,6 +77,29 @@ class TestProvisioningResources(ProvisioningTestBase):
             "/api/agentic/provisioning/resources/99999",
             token=token,
         )
+        assert res.status_code == 403
+
+    @parameterized.expand(
+        [
+            ("read_access_control_revoked", "read", "access_control"),
+            ("read_org_membership_removed", "read", "membership"),
+            ("create_access_control_revoked", "create", "access_control"),
+            ("create_org_membership_removed", "create", "membership"),
+        ]
+    )
+    def test_resource_endpoints_rejected_after_team_access_lost(self, _name: str, endpoint: str, revocation: str):
+        token = self._get_bearer_token()
+
+        if revocation == "access_control":
+            self._restrict_team_access(self.team)
+        else:
+            self.organization_membership.delete()
+
+        if endpoint == "read":
+            res = self._get_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}", token=token)
+        else:
+            res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+
         assert res.status_code == 403
 
     def test_get_resource_invalid_id_returns_400(self):
@@ -442,7 +467,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -533,7 +558,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -627,11 +652,12 @@ class TestProvisioningResources(ProvisioningTestBase):
 
 
 class TestProvisioningResourceRemove(ProvisioningTestBase):
-    def test_remove_strips_team_from_sibling_tokens(self):
+    @parameterized.expand([("same_user", False), ("other_org_member", True)])
+    def test_remove_strips_team_from_sibling_tokens(self, _name: str, sibling_is_other_member: bool) -> None:
         # Removing a resource has to revoke the team from every live token
-        # the partner installation holds for that user. Otherwise a sibling
-        # bearer that still has the team in scope can short-circuit past the
-        # auto-add guard and keep operating on the removed team.
+        # the partner holds, for any user. Otherwise a sibling bearer that still
+        # has the team in scope can short-circuit past the auto-add guard and keep
+        # operating on the removed team.
         from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -642,10 +668,16 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             defaults={"stripe_project_id": "proj_remove_me", "application": access_token.application},
         )
 
-        # Sibling token for the same user+application also has the team in scope.
+        sibling_user = (
+            User.objects.create_and_join(
+                organization=self.organization, email="teammate@example.com", password="testpass", first_name="Mate"
+            )
+            if sibling_is_other_member
+            else access_token.user
+        )
         sibling_at = OAuthAccessToken.objects.create(
             application=access_token.application,
-            user=access_token.user,
+            user=sibling_user,
             token="sibling_access_token_value",
             expires=access_token.expires,
             scope=access_token.scope,
@@ -653,7 +685,7 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         )
         sibling_rt = OAuthRefreshToken.objects.create(
             application=access_token.application,
-            user=access_token.user,
+            user=sibling_user,
             token="sibling_refresh_token_value",
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],

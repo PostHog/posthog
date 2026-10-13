@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class CdcOpenDataSourceConfig(config.Config):
-    pass
+    dataset_ids: str
+    app_token: str | None = None

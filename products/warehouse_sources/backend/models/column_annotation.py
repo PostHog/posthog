@@ -3,6 +3,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
+from products.warehouse_sources.backend.types import WarehouseColumnAnnotationDescriptionSource
+
 
 class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Semantic description of a data warehouse table or column, surfaced to the AI agent.
@@ -14,19 +16,17 @@ class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     marked `is_user_edited` is never overwritten by automatic enrichment.
     """
 
-    class DescriptionSource(models.TextChoices):
-        CANONICAL = "canonical", "Canonical"
-        AI_GENERATED = "ai_generated", "AI generated"
-        USER_EDITED = "user_edited", "User edited"
+    # Kept on the model so the nested names stay unchanged.
+    DescriptionSource = WarehouseColumnAnnotationDescriptionSource
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable", on_delete=models.CASCADE, related_name="column_annotations"
     )
     # Empty string = table-level annotation; otherwise the column this describes.
     column_name = models.CharField(max_length=400, blank=True, default="")
     description = models.TextField()
-    description_source = models.CharField(max_length=32, choices=DescriptionSource)
+    description_source = models.CharField(max_length=32, choices=DescriptionSource.choices)
     ai_model = models.CharField(max_length=128, null=True, blank=True)
     is_user_edited = models.BooleanField(default=False)
 

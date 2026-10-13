@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 const THREAD_POLL_INTERVAL_MS = 5_000;
 
-export function taskThreadQueryKey(taskId: string | undefined) {
+function taskThreadQueryKey(taskId: string | undefined) {
   return ["task-thread", taskId ?? "none"] as const;
 }
 
@@ -25,8 +25,7 @@ export function useTaskThread(
   },
 ): {
   messages: TaskThreadMessage[];
-  isLoading: boolean;
-  /** The thread has come back at least once. Distinct from `!isLoading`, which flips back
+  /** The thread has come back at least once. Distinct from a loading flag, which flips back
    *  on a refetch and would blink a loader over content already on screen. */
   hasLoaded: boolean;
 } {
@@ -68,7 +67,6 @@ export function useTaskThread(
   ]);
   return {
     messages: query.data ?? [],
-    isLoading: query.isLoading,
     hasLoaded: query.isSuccess || query.isError,
   };
 }

@@ -18,6 +18,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.helpers import fetch_data
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.scopes import HubspotForbiddenError
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     HUBSPOT_ENDPOINTS,
     HUBSPOT_METADATA_ENDPOINTS,
@@ -25,9 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     apply_crm_api_version,
 )
 
-# A portal that hasn't enabled an object (or a grant that can't read it) answers with one of these
-# for that object type only. Skipping keeps one unavailable object type from failing the table.
-_SKIPPABLE_STATUSES = (403, 404)
+# A portal that hasn't enabled an object answers 404 for that object type only. An object the
+# grant cannot read answers 403, which `HubspotForbiddenError` carries instead.
+_SKIPPABLE_STATUSES = (404,)
 
 
 def _normalize_row(row: dict[str, Any], columns: list[str]) -> dict[str, Any]:
@@ -43,9 +44,18 @@ def _iter_pages(
     refresh_token: str,
     source_id: str | None,
     logger: FilteringBoundLogger,
+    *,
+    skip_forbidden: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     try:
         yield from fetch_data(path, api_key, refresh_token, source_id=source_id)
+    except HubspotForbiddenError:
+        # A fan-out reads one path per object type, so an object the portal cannot read must not
+        # fail the whole table. A single-endpoint table keeps the 403: nothing is left to sync,
+        # and the customer must know to reconnect.
+        if not skip_forbidden:
+            raise
+        logger.warning(f"Hubspot: skipping {path} (status=403); the portal cannot read it")
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else None
         if status in _SKIPPABLE_STATUSES:
@@ -64,7 +74,7 @@ def get_pipelines_rows(
     columns = HUBSPOT_METADATA_ENDPOINTS["pipelines"].columns
     for object_type in PIPELINE_OBJECT_TYPES:
         path = apply_crm_api_version(f"/crm/v3/pipelines/{object_type}", api_version)
-        for page in _iter_pages(path, api_key, refresh_token, source_id, logger):
+        for page in _iter_pages(path, api_key, refresh_token, source_id, logger, skip_forbidden=True):
             # `stages` is dropped here — it is the pipeline_stages table.
             yield [
                 _normalize_row({**{k: v for k, v in p.items() if k != "stages"}, "object_type": object_type}, columns)
@@ -82,7 +92,7 @@ def get_pipeline_stages_rows(
     columns = HUBSPOT_METADATA_ENDPOINTS["pipeline_stages"].columns
     for object_type in PIPELINE_OBJECT_TYPES:
         path = apply_crm_api_version(f"/crm/v3/pipelines/{object_type}", api_version)
-        for page in _iter_pages(path, api_key, refresh_token, source_id, logger):
+        for page in _iter_pages(path, api_key, refresh_token, source_id, logger, skip_forbidden=True):
             rows = [
                 _normalize_row({**stage, "object_type": object_type, "pipeline_id": pipeline.get("id")}, columns)
                 for pipeline in page
@@ -102,7 +112,7 @@ def get_properties_rows(
     columns = HUBSPOT_METADATA_ENDPOINTS["properties"].columns
     for object_type in HUBSPOT_ENDPOINTS:
         path = apply_crm_api_version(f"/crm/v3/properties/{object_type}", api_version)
-        for page in _iter_pages(path, api_key, refresh_token, source_id, logger):
+        for page in _iter_pages(path, api_key, refresh_token, source_id, logger, skip_forbidden=True):
             yield [_normalize_row({**p, "object_type": object_type}, columns) for p in page]
 
 

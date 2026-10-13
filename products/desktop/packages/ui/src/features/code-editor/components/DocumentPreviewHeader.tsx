@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { type ReactElement, type ReactNode, useState } from "react";
 
 interface DocumentPreviewHeaderProps {
@@ -48,76 +49,78 @@ export function DocumentPreviewHeader({
   };
 
   return (
-    <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-b-(--gray-6) px-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
-          {label}
-        </span>
-        {versionNav}
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {actions}
-        {!editing && onToggleRendered && (
+    <ChromeBar
+      inset="even"
+      actions={
+        <>
+          {actions}
+          {!editing && onToggleRendered && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon"
+                    variant="default"
+                    onClick={onToggleRendered}
+                    aria-label={showRendered ? "View source" : "View preview"}
+                  >
+                    {showRendered ? <Code size={14} /> : <Eye size={14} />}
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                {showRendered ? "View source" : "View preview"}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   size="icon"
                   variant="default"
-                  onClick={onToggleRendered}
-                  aria-label={showRendered ? "View source" : "View preview"}
+                  onClick={handleCopySource}
+                  aria-label="Copy source"
                 >
-                  {showRendered ? <Code size={14} /> : <Eye size={14} />}
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
                 </Button>
               }
             />
-            <TooltipContent>
-              {showRendered ? "View source" : "View preview"}
-            </TooltipContent>
+            <TooltipContent>{copied ? "Copied" : "Copy source"}</TooltipContent>
           </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
+          {editing ? (
+            <>
               <Button
-                size="icon"
-                variant="default"
-                onClick={handleCopySource}
-                aria-label="Copy source"
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                onClick={onCancel}
               >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
+                Cancel
               </Button>
-            }
-          />
-          <TooltipContent>{copied ? "Copied" : "Copy source"}</TooltipContent>
-        </Tooltip>
-        {editing ? (
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={saving}
-              onClick={onCancel}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              loading={saving}
-              onClick={onSave}
-            >
-              Save
-            </Button>
-          </>
-        ) : (
-          canEdit && (
-            <Button size="sm" variant="outline" onClick={onEdit}>
-              Edit
-            </Button>
-          )
-        )}
-      </div>
-    </div>
+              <Button
+                size="sm"
+                variant="primary"
+                loading={saving}
+                onClick={onSave}
+              >
+                Save
+              </Button>
+            </>
+          ) : (
+            canEdit && (
+              <Button size="sm" variant="outline" onClick={onEdit}>
+                Edit
+              </Button>
+            )
+          )}
+        </>
+      }
+    >
+      <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
+        {label}
+      </span>
+      {versionNav}
+    </ChromeBar>
   );
 }

@@ -50,9 +50,13 @@ export const manifest: ProductManifest = {
         action: {
             name: 'Action',
             href: (ref: string) => urls.action(ref),
+            listHref: () => urls.actions(),
             filterKey: 'action',
             iconType: 'action' as FileSystemIconType,
-            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-actions-light)',
+                'var(--color-product-actions-dark)',
+            ] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -61,7 +65,10 @@ export const manifest: ProductManifest = {
             path: 'Action',
             href: urls.createAction(),
             iconType: 'action' as FileSystemIconType,
-            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-actions-light)',
+                'var(--color-product-actions-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsMetadata: [
@@ -69,6 +76,7 @@ export const manifest: ProductManifest = {
             path: 'Actions',
             category: 'Schema',
             href: urls.actions(),
+            searchKeywords: ['event group', 'grouped events'],
             iconType: 'action' as FileSystemIconType,
             sceneKey: 'Actions',
         },

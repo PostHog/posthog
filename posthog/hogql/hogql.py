@@ -4,10 +4,9 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import NotImplementedError, QueryError, SyntaxError
+from posthog.hogql.modifiers import alias_poe_mode_for_legacy
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-
-from posthog.queries.util import alias_poe_mode_for_legacy
 
 
 # This is called only from "non-hogql-based" insights to translate HogQL expressions into ClickHouse SQL

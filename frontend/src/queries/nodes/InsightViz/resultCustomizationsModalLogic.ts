@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorToken } from 'lib/colors'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -10,11 +9,13 @@ import {
     getTrendResultCustomization,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { ResultCustomizationBy, TrendsFilter } from '~/queries/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown, InsightLogicProps } from '~/types'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import type { DataColorTheme } from '../../../lib/colors'
 import type { FunnelStepWithConversionMetrics } from '../../../types'

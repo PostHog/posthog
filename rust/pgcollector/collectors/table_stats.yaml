@@ -1,0 +1,21 @@
+name: table_stats
+description: Per-table scan/tuple/vacuum counters (pg_stat_user_tables + pg_statio_user_tables).
+interval: 10m
+scope: database
+kind: cumulative
+key: [schemaname, relname]
+passthrough: [n_live_tup, n_dead_tup, n_mod_since_analyze, xid_age, mxid_age, reltuples, relpages]
+query: |
+  SELECT s.schemaname, s.relname, s.relid::bigint AS relid,
+         s.seq_scan, s.seq_tup_read, s.idx_scan, s.idx_tup_fetch,
+         s.n_tup_ins, s.n_tup_upd, s.n_tup_del, s.n_tup_hot_upd,
+         s.n_live_tup, s.n_dead_tup, s.n_mod_since_analyze,
+         s.vacuum_count, s.autovacuum_count, s.analyze_count, s.autoanalyze_count,
+         s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze,
+         io.heap_blks_read, io.heap_blks_hit, io.idx_blks_read, io.idx_blks_hit,
+         io.toast_blks_read, io.toast_blks_hit, io.tidx_blks_read, io.tidx_blks_hit,
+         age(c.relfrozenxid)::bigint AS xid_age, mxid_age(c.relminmxid)::bigint AS mxid_age,
+         c.reltuples::bigint AS reltuples, c.relpages::bigint AS relpages
+  FROM pg_stat_user_tables s
+  JOIN pg_statio_user_tables io ON io.relid = s.relid
+  JOIN pg_class c ON c.oid = s.relid

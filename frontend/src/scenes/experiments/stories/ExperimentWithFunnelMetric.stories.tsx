@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -10,6 +9,13 @@ import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_que
 import FUNNELS_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
+
+const RECALCULATION = recalculationMocks(
+    EXPERIMENT_WITH_FUNNEL_METRIC,
+    resultsByMetricType(EXPERIMENT_WITH_FUNNEL_METRIC, { funnel: FUNNELS_METRIC_RESULT })
+)
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Experiments',
@@ -18,10 +24,17 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id),
+        testOptions: {
+            // The funnel chart only renders once the metric result AND the exposure query have
+            // both resolved. The loader wait covers the metric table alone, so wait for the chart
+            // itself to avoid snapshotting before it appears.
+            waitForSelector: '[data-attr="experiment-funnel-chart"]',
+        },
     },
     decorators: [
         mswDecorator({
             get: {
+                ...RECALCULATION.get,
                 [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/`]:
                     EXPERIMENT_WITH_FUNNEL_METRIC,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
@@ -31,14 +44,11 @@ const meta: Meta = {
                 [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
+                ...RECALCULATION.post,
+                // Exposures still load through experimentLogic; metric results come from the recalculation run.
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURE_QUERY_RESULT]
-                    }
-
-                    return [200, FUNNELS_METRIC_RESULT]
+                    return body.query.kind === NodeKind.ExperimentExposureQuery ? [200, EXPOSURE_QUERY_RESULT] : [404]
                 },
             },
         }),
@@ -48,5 +58,4 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Small delay to ensure charts render completely
-export const ExperimentWithFunnelMetric: Story = { play: makeDelay(500) }
+export const ExperimentWithFunnelMetric: Story = {}

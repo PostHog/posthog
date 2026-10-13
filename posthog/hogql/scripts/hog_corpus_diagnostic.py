@@ -99,7 +99,8 @@ _REDACTION_PASSES: list[tuple[str, str]] = [
     (r"\yeyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+", "<jwt>"),
     (r"\y[sprk]k_(live|test)_[A-Za-z0-9]{10,}", "<stripe_key>"),
     (r"\y(AKIA|ASIA)[A-Z0-9]{16}\y", "<aws_key>"),
-    (r"\ygh[posru]_[A-Za-z0-9]{30,}", "<gh_token>"),
+    # `.`/`_`/`-` in the class: a `ghs_` installation token is `ghs_<app id>_<jwt>`.
+    (r"\ygh[posru]_[A-Za-z0-9._-]{30,}", "<gh_token>"),
     (r"\ygithub_pat_[A-Za-z0-9_]{20,}", "<gh_token>"),
     (r"\yxox[bpoars]-[A-Za-z0-9-]{10,}", "<slack_token>"),
     (r"([0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}", "<ipv6>"),

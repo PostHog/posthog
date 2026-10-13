@@ -5,7 +5,7 @@ from operator import or_
 from typing import Any, Optional, cast
 
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -20,26 +20,47 @@ from pydantic import (
 )
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, DateRange, SourceMap
+from posthog.schema import (
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    DateRange,
+    MarketingAnalyticsTableQuery,
+    SourceMap,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    app_org_concurrency_slot,
+    get_api_team_rate_limiter,
+)
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
@@ -50,6 +71,7 @@ from products.marketing_analytics.backend.services.conversion_goals_inspector im
     explain_conversion_goal,
     list_conversion_goals,
 )
+from products.marketing_analytics.backend.services.conversion_recordings import ConversionRecordingsQuery
 from products.marketing_analytics.backend.services.data_source_health import get_data_source_health
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
@@ -68,15 +90,15 @@ from products.marketing_analytics.backend.services.setup_types import (
     SetCampaignFieldPreference,
     UpdateConversionGoal,
 )
-from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UTM_ISSUE_KIND_CHOICES
+from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UtmIssueKind
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
 
-def _setup_enabled(request: Request, team: Team) -> bool:
-    """Evaluate the Setup flag once per request.
+def _setup_enabled(request: Request, team: Team, *, include_onboarding: bool = False) -> bool:
+    """Evaluate eligible marketing flags once per request.
 
     Evaluated for the requesting person, because the flag's release conditions target
     people and the frontend renders the Setup tab off that same per-person answer.
@@ -85,23 +107,31 @@ def _setup_enabled(request: Request, team: Team) -> bool:
     condition matches too. Cached on the request because a second call in the same one
     would fire a redundant `$feature_flag_called`.
     """
-    cached = getattr(request, "_ma_setup_flag", None)
+    cache_attribute = "_ma_onboarding_flag" if include_onboarding else "_ma_setup_flag"
+    cached = getattr(request, cache_attribute, None)
     if cached is not None:
         return cached
     person_properties = {}
     email = getattr(request.user, "email", None)
     if email:
         person_properties["email"] = email
-    enabled = feature_enabled_or_false(
-        "marketing-analytics-setup",
-        # Service credentials authenticate as a synthetic user with no person behind them;
-        # the team UUID keeps the call well-formed, and a person condition won't match it.
-        getattr(request.user, "distinct_id", None) or str(team.uuid),
-        groups={"organization": str(team.organization.id)},
-        person_properties=person_properties,
-        group_properties={"organization": {"id": str(team.organization.id)}},
+    enabled = any(
+        feature_enabled_or_false(
+            flag,
+            # Service credentials authenticate as a synthetic user with no person behind them;
+            # the team UUID keeps the call well-formed, and a person condition won't match it.
+            getattr(request.user, "distinct_id", None) or str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            person_properties=person_properties,
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        )
+        for flag in (
+            "marketing-analytics-setup",
+            "new-marketing-analytics-dashboard",
+            *(("marketing-analytics-source-onboarding",) if include_onboarding else ()),
+        )
     )
-    request._ma_setup_flag = enabled  # type: ignore[attr-defined]
+    setattr(request, cache_attribute, enabled)
     return enabled
 
 
@@ -137,11 +167,10 @@ class UtmAlternativeSourceSerializer(serializers.Serializer):
 class UtmIssueSerializer(serializers.Serializer):
     field = serializers.CharField(help_text="The UTM field with the issue (e.g. utm_campaign, utm_source)")
     severity = serializers.ChoiceField(choices=["error", "warning"], help_text="Issue severity level")
-    # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
-    # ENUM_NAME_OVERRIDES ("UtmIssueKindEnum") rather than being flattened to a plain string —
-    # consumers get the five values as a union instead of having to restate them.
+    # `kind` collides with other enums in drf-spectacular. The UtmIssueKind class gives the enum a
+    # stable name (UtmIssueKindEnum), so consumers get the five values as a union.
     kind = serializers.ChoiceField(
-        choices=UTM_ISSUE_KIND_CHOICES,
+        choices=UtmIssueKind.choices,
         help_text="Which kind of UTM problem this campaign has",
     )
     message = serializers.CharField(
@@ -186,16 +215,22 @@ class CampaignAuditResultSerializer(serializers.Serializer):
     issues = UtmIssueSerializer(many=True, help_text="List of detected UTM configuration issues")
 
 
+class SourceMatch(models.TextChoices):
+    NONE = "none", "none"
+    AUTO = "auto", "auto"
+    MAPPED = "mapped", "mapped"
+
+
 class UtmEventSerializer(serializers.Serializer):
     utm_campaign = serializers.CharField(help_text="UTM campaign value from pageview events")
     utm_source = serializers.CharField(help_text="UTM source value from pageview events")
     event_count = serializers.IntegerField(help_text="Number of pageview events with this UTM combination")
     campaign_match = serializers.ChoiceField(
-        choices=["none", "auto", "mapped"],
+        choices=SourceMatch.choices,
         help_text="How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)",
     )
     source_match = serializers.ChoiceField(
-        choices=["none", "auto", "mapped"],
+        choices=SourceMatch.choices,
         help_text="How utm_source matched: none, auto (default source), or mapped (custom mapping)",
     )
     matched_campaign = serializers.CharField(allow_null=True, help_text="Name of the matched campaign, if any")
@@ -418,6 +453,13 @@ class ConversionGoalWriteResponseSerializer(serializers.Serializer):
 
 
 # --- list_data_sources ---
+
+
+class SourceValidationSerializer(serializers.Serializer):
+    errors_by_source = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Validation errors keyed by the source or mapped table ID. Valid sources are omitted.",
+    )
 
 
 class DataSourcesQuerySerializer(serializers.Serializer):
@@ -711,6 +753,21 @@ class AttributionHealthEntrySerializer(serializers.Serializer):
     matched_pct = serializers.FloatField(help_text="Percentage of UTM events matched to this integration")
     sample_unmatched_utm_sources = UnmatchedUtmSampleSerializer(
         many=True, help_text="Sample of likely-yours unmatched utm_source values"
+    )
+    events_matched_paid_last_7d = serializers.IntegerField(
+        help_text=(
+            "Of the matched events, how many show paid evidence for this integration: a cost-bearing utm_medium "
+            "(cpc, cpm, cpv, cpa, ppc, retargeting, or anything starting with 'paid') or one of this integration's "
+            "own ad click parameters in the event properties or the current URL (for example gclid for Google Ads "
+            "or msclkid for Microsoft Ads). Pinterest clicks with pp=1 never count. Campaign names, fbclid, and "
+            "epik alone do not count."
+        )
+    )
+    events_matched_tagged_medium_last_7d = serializers.IntegerField(
+        help_text=(
+            "Matched events carrying any utm_medium in the lookback window. Zero means no matched event "
+            "carried a medium, including when no events matched. Missing paid signals do not prove organic traffic."
+        )
     )
 
 
@@ -1062,6 +1119,57 @@ class ApplySetupOpsResponseSerializer(serializers.Serializer):
     marketing_analytics_config = serializers.JSONField(help_text="The config as it now stands")
 
 
+@extend_schema_field(MarketingAnalyticsTableQuery)  # type: ignore[arg-type]  # Supported by the Pydantic schema extension.
+class ConversionRecordingsSourceField(serializers.JSONField):
+    def to_internal_value(self, data: object) -> dict[str, Any]:
+        try:
+            return MarketingAnalyticsTableQuery.model_validate(data).model_dump(mode="json")
+        except PydanticValidationError:
+            raise serializers.ValidationError("Provide a valid Marketing analytics table query.")
+
+
+class ConversionRecordingsRequestSerializer(serializers.Serializer):
+    client_query_id = serializers.UUIDField(
+        default=uuid.uuid4, help_text="A unique query ID for tracing this request in query logs."
+    )
+    source = ConversionRecordingsSourceField(  # type: ignore[assignment]
+        help_text="The table query whose conversion cell was selected."
+    )
+    goal_id = serializers.CharField(help_text="The selected conversion goal ID.")
+    # The recordings query compares these row keys to table values exactly, and campaign names and UTM values
+    # can keep surrounding spaces. A trimmed key selects another row or no row.
+    group = serializers.CharField(
+        allow_blank=True, trim_whitespace=False, help_text="The displayed row grouping value."
+    )
+    source_name = serializers.CharField(
+        default="", allow_blank=True, trim_whitespace=False, help_text="The displayed row source."
+    )
+    campaign_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The displayed campaign ID, omitted for comparison rows.",
+    )
+    after = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="The last session ID returned by the previous page. Omit for the first page.",
+    )
+    limit = serializers.IntegerField(
+        default=100, min_value=1, max_value=100, help_text="The maximum number of conversion session IDs to return."
+    )
+
+
+class ConversionRecordingsResponseSerializer(serializers.Serializer):
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Sessions in which the attributed conversions occurred. A session might not have a recording.",
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page of conversion sessions is available.")
+    preparing = serializers.BooleanField(help_text="Whether the conversion data is still being prepared.")
+
+
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     # `marketing_analytics` is gated by the API scope of the same name and inherits
     # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
@@ -1070,6 +1178,50 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "marketing_analytics"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
+
+    @validated_request(
+        operation_id="marketing_analytics_conversion_recordings_list",
+        request_serializer=ConversionRecordingsRequestSerializer,
+        responses={200: ConversionRecordingsResponseSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["marketing_analytics:read", "session_recording:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def conversion_recordings(self, request: Request, *args: object, **kwargs: object) -> Response:
+        data = request.validated_data
+        tag_queries(
+            team_id=self.team_id,
+            product=Product.MARKETING_ANALYTICS,
+            feature=Feature.QUERY,
+            client_query_id=str(data["client_query_id"]),
+        )
+        runner = ConversionRecordingsQuery(
+            query=MarketingAnalyticsTableQuery.model_validate(data["source"]),
+            team=self.team,
+            user=cast(User, request.user),
+        )
+        is_api = is_api_key_access_method(get_query_tag_value("access_method"))
+        try:
+            with (
+                get_api_team_rate_limiter().run(
+                    team_id=self.team_id, is_api=is_api, limit=runner.get_api_queries_concurrency_limit()
+                ),
+                app_org_concurrency_slot(self.team),
+            ):
+                result = runner.sessions(
+                    goal_id=data["goal_id"],
+                    group=data["group"],
+                    source=data["source_name"],
+                    campaign_id=data.get("campaign_id"),
+                    after=str(data["after"]) if data.get("after") else None,
+                    limit=data["limit"],
+                )
+        except ConcurrencyLimitExceeded as error:
+            raise Throttled(detail="Too many queries are running. Try again in a moment.") from error
+        return Response(ConversionRecordingsResponseSerializer(result).data)
 
     @validated_request(
         query_serializer=UtmAuditQuerySerializer,
@@ -1303,6 +1455,23 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         )
 
     @validated_request(
+        responses={200: SourceValidationSerializer},
+        summary="Validate marketing sources",
+        description="Check connected marketing sources using the same validators as campaign queries. Read-only.",
+    )
+    @action(methods=["GET"], detail=False, url_path="source_validation", required_scopes=["marketing_analytics:read"])
+    def source_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        factory = MarketingSourceFactory(
+            context=QueryContext(
+                date_range=None,
+                team=self.team,
+                database=Database.create_for(team=self.team, user=cast(User, request.user)),
+            )
+        )
+        errors = factory.get_validation_errors(factory.create_adapters(raise_on_error=True))
+        return Response(SourceValidationSerializer({"errors_by_source": errors}).data)
+
+    @validated_request(
         query_serializer=DataSourcesQuerySerializer,
         responses={
             200: OpenApiResponse(
@@ -1452,7 +1621,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 response=SetupPlanResponseSerializer,
                 description="Ranked, machine-applicable setup suggestions plus per-capability readiness",
             ),
-            404: OpenApiResponse(description="The marketing-analytics-setup feature flag is off for this team"),
+            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
         },
         summary="Get the marketing analytics setup plan",
         description=(
@@ -1467,7 +1636,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False, url_path="setup_plan", required_scopes=["marketing_analytics:read"])
     def setup_plan(self, request: Request, *args, **kwargs) -> Response:
         # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
-        if not _setup_enabled(request, self.team):
+        if not _setup_enabled(request, self.team, include_onboarding=True):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
         date_from = request.validated_query_data["date_from"]
@@ -1484,6 +1653,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 self.team,
                 date_from=date_from,
                 user=user,
+                refresh_source_scan=request.validated_query_data["refresh"],
             )
             # `model_dump(mode="json")` so the Pydantic op models inside each suggestion
             # come out as plain JSON — the serializer exposes them as JSONField.
@@ -1509,7 +1679,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 description="The applied operations and the ops that reverse them",
             ),
             400: OpenApiResponse(description="An operation was malformed, unsupported, or not applicable"),
-            404: OpenApiResponse(description="The marketing-analytics-setup feature flag is off for this team"),
+            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
         },
         summary="Apply setup operations",
         description=(

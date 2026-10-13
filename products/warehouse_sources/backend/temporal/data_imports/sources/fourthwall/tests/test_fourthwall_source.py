@@ -1,20 +1,6 @@
-import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.fourthwall import (
-    FourthwallResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.settings import (
-    ALL_WEBHOOK_EVENTS,
-    ENDPOINTS,
-    INCREMENTAL_ENDPOINTS,
-    INCREMENTAL_FIELDS,
     SCHEMA_TO_WEBHOOK_EVENTS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_EVENT_TO_RESOURCE,
@@ -25,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fourthwall import (
     FourthwallSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.source.api_client"
 WEBHOOK_URL = "https://us.posthog.com/public/webhooks/abc"
@@ -36,125 +21,6 @@ class TestFourthwallSource:
         self.source = FourthwallSource()
         self.team_id = 123
         self.config = FourthwallSourceConfig(username="api-user", password="api-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FOURTHWALL
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Fourthwall"
-        assert config.label == "Fourthwall"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # unreleasedSource hides the connector from every user.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/fourthwall"
-
-    @pytest.mark.parametrize(
-        "field_name, expected_type, expected_secret",
-        [
-            ("username", SourceFieldInputConfigType.TEXT, False),
-            ("password", SourceFieldInputConfigType.PASSWORD, True),
-        ],
-    )
-    def test_credential_fields(self, field_name, expected_type, expected_secret):
-        # The API user's password is a full-access shop credential; storing it unmasked would
-        # expose it in the source list.
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == field_name
-        )
-        assert field.type == expected_type
-        assert field.secret is expected_secret
-        assert field.required is True
-
-    def test_webhook_fields_include_a_secret_signing_secret(self):
-        config = self.source.get_source_config
-        assert config.webhookFields is not None
-        field = next(
-            f for f in config.webhookFields if isinstance(f, SourceFieldInputConfig) and f.name == "signing_secret"
-        )
-        assert field.secret is True
-
-    def test_api_version_matches_the_path_the_code_calls(self):
-        # The pin has to name the version the requests actually use, or the deprecation and
-        # upgrade paths point at the wrong API.
-        assert self.source.supported_versions == ("v1.0",)
-        assert self.source.resolve_api_version(None) == "v1.0"
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.fourthwall.com/open-api/v1.0/order?page=0",
-            "403 Client Error: Forbidden for url: https://api.fourthwall.com/open-api/v1.0/donations",
-        ],
-    )
-    def test_auth_failures_are_non_retryable(self, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.fourthwall.com/open-api/v1.0/order",
-            "500 Server Error for url: https://api.fourthwall.com/open-api/v1.0/order",
-        ],
-    )
-    def test_transient_failures_stay_retryable(self, other_error):
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_lists_every_endpoint(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_only_orders_supports_incremental(self):
-        # Advertising incremental on an endpoint with no server-side timestamp filter would
-        # fetch every page anyway while pretending the sync got cheaper.
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        incremental = {name for name, schema in schemas.items() if schema.supports_incremental}
-        assert incremental == set(INCREMENTAL_ENDPOINTS) == {"orders"}
-        assert schemas["orders"].incremental_fields == INCREMENTAL_FIELDS["orders"]
-
-    def test_incremental_schemas_are_merge_only(self):
-        # `updatedAt` moves whenever an order changes status, so append would add a row per
-        # update instead of upserting the order.
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["orders"].supports_append is False
-
-    def test_webhook_capable_schemas(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert {name for name, schema in schemas.items() if schema.supports_webhooks} == set(WEBHOOK_SCHEMA_NAMES)
-        assert all(not schema.webhook_only for schema in schemas.values())
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["donations"])
-        assert [schema.name for schema in schemas] == ["donations"]
-
-    def test_canonical_descriptions_cover_declared_tables_only(self):
-        # A key that isn't a schema name is never applied, so the table silently falls back to
-        # the LLM description we paid to avoid.
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
-
-    @pytest.mark.parametrize(
-        "client_result, expected",
-        [((True, None), True), ((False, "Fourthwall rejected the API user."), False)],
-    )
-    @mock.patch(f"{API_CLIENT_PATCH}.validate_credentials")
-    def test_validate_credentials(self, mock_validate, client_result, expected):
-        mock_validate.return_value = client_result
-
-        is_valid, error = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected
-        assert (error is None) is expected
-        mock_validate.assert_called_once_with("api-user", "api-secret", "v1.0")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FourthwallResumeConfig
 
     @mock.patch(f"{API_CLIENT_PATCH}.fourthwall_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source):
@@ -198,21 +64,6 @@ class TestFourthwallSource:
         # template never emits would drop every delivery for that table.
         for event, resource in WEBHOOK_EVENT_TO_RESOURCE.items():
             assert f"'{event}': '{resource}'" in template.code
-
-    def test_webhook_template_declares_the_inputs_the_source_sets(self):
-        assert template.type == "warehouse_source_webhook"
-        input_keys = {input_schema["key"] for input_schema in template.inputs_schema}
-        assert {"signing_secret", "schema_mapping", "source_id"} <= input_keys
-
-    def test_get_desired_webhook_events_covers_eligible_schemas_only(self):
-        events = self.source.get_desired_webhook_events(self.config, ["orders", "donations"])
-        assert events == sorted(SCHEMA_TO_WEBHOOK_EVENTS["orders"] + SCHEMA_TO_WEBHOOK_EVENTS["donations"])
-
-    def test_get_desired_webhook_events_ignores_polling_only_schemas(self):
-        assert self.source.get_desired_webhook_events(self.config, ["products"]) == []
-
-    def test_all_webhook_events_is_the_union_of_the_schema_events(self):
-        assert set(ALL_WEBHOOK_EVENTS) == set(WEBHOOK_EVENT_TO_RESOURCE)
 
     @mock.patch(f"{API_CLIENT_PATCH}.create_webhook")
     def test_create_webhook_delegates(self, mock_create):

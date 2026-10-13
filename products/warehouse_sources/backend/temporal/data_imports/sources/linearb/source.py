@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -44,13 +42,13 @@ class LinearbSource(ResumableSource[LinearbSourceConfig, LinearbResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LINEARB,
+            name=ExternalDataSourceType.LINEARB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="LinearB",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your LinearB API key to pull your engineering intelligence and DORA metrics into the PostHog Data warehouse.
 
-Generate an API token from **Settings → API Tokens** in your [LinearB account](https://app.linearb.io/). The token grants access to your organization's teams, users, services, deployments, and computed metrics.
+Generate an API token from **Settings → API Tokens** in your [LinearB account](https://app.linearb.io/). The token grants access to your organization's teams, users, services, deployments, incidents, and computed metrics.
 
 The **Measurements** table is only available on LinearB Business and Enterprise plans and is off by default — enable it if your plan includes API metrics access.""",
             iconPath="/static/services/linearb.png",

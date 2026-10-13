@@ -1,0 +1,12 @@
+{
+    "id": "MA2",
+    "file": "products/review_hog/backend/api/settings.py",
+    "lines": "58-65,71-78",
+    "priority": "must_fix",
+    "title": "Child environment access reaches parent Stamphog settings",
+    "problem": "The endpoint stores settings under the canonical parent team, but its default permissions authorize the team from the URL. The new fields read the parent team's Stamphog state and control approvals for parent repositories. A user with child-only access can use the child URL to read parent connection state and change parent-owned behavior. Stamphog's viewsets add a canonical-team permission for this exact boundary.",
+    "suggestion": "Authorize the requester against resolve_effective_team_id(self.team_id) before serialization or PATCH. Check canonical-team membership and token scope. Extract or reproduce the policy used by StamphogCanonicalTeamAccessPermission without importing Stamphog presentation code.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

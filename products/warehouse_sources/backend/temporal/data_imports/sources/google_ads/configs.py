@@ -9,6 +9,7 @@ run path in ``source.py``. See ``google_ads.py`` for the SDK-backed functions.
 """
 
 import re
+import datetime
 import dataclasses
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
@@ -16,16 +17,36 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 
+# Declared as the source's `history_lookback`. Not an API limit — Google serves older rows, so
+# this costs first-sync catch-up time rather than correctness.
+GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
 
-@dataclasses.dataclass
+
+def parse_start_date(value: str) -> datetime.date:
+    """Read a configured start date, or raise `ValueError`.
+
+    Strict where a cursor's own coercion is lenient: a permissive parser fills the missing part of
+    "2020" from the current date, so the same stored value would mean a different day on a different
+    run and import less than it plainly reads as, without failing. Stripped because the field is
+    free text and a date pasted from a spreadsheet carries whitespace.
+
+    Shared with `validate_credentials` deliberately: a value accepted at setup and rejected at sync
+    time, or the reverse, is the shape that puts an unasked-for range in a table.
+    """
+    return datetime.datetime.fromisoformat(value.strip()).date()
+
+
+@dataclasses.dataclass(frozen=True)
 class GoogleAdsResumeConfig:
     """Resumable state for the Google Ads source.
 
     `page_token` is the opaque continuation token returned by
-    `GoogleAdsService.search` for the next page to fetch.
+    `GoogleAdsService.search` for the next page to fetch. `campaign_id` names the campaign
+    shard that the token belongs to, for resources that are read one campaign at a time.
     """
 
     page_token: str
+    campaign_id: str | None = None
 
 
 def clean_customer_id(s: str | None) -> str | None:

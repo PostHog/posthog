@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { AGENT_CLI_API_KEY_SCOPES, API_SCOPES, APIScope, scopesArrayToObject } from 'lib/scopes'
+import { AGENT_CLI_API_KEY_SCOPES, API_SCOPES, APIScope, scopeMatchesSearch, scopesArrayToObject } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationBasicType } from '~/types'
@@ -284,6 +284,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             [] as { id: number; name: string }[],
             {
                 loadProjects: async (organizationId: string) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsList() from '~/generated/core/api' instead.
                     const response = await api.get(`api/organizations/${organizationId}/projects/`)
                     return response.results || []
                 },
@@ -310,6 +311,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             }),
             submit: async ({ userCode, projectId, scopes }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.create('api/cli-auth/authorize/', {
                         user_code: userCode.toUpperCase().replace(/\s/g, ''),
                         project_id: projectId,
@@ -356,16 +358,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         ],
         filteredScopes: [
             (s) => [s.searchTerm],
-            (searchTerm: string): APIScope[] => {
-                const search = searchTerm.trim().toLowerCase()
-                if (!search) {
-                    return API_SCOPES
-                }
-                return API_SCOPES.filter(
-                    (scope) =>
-                        scope.key.toLowerCase().includes(search) || scope.objectPlural.toLowerCase().includes(search)
-                )
-            },
+            (searchTerm: string): APIScope[] => API_SCOPES.filter((scope) => scopeMatchesSearch(scope, searchTerm)),
         ],
         allAccessSelected: [
             (s) => [s.authorize],

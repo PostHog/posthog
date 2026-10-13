@@ -1,14 +1,18 @@
-from datetime import UTC, date, datetime
-from urllib.parse import parse_qs, urlparse
+import io
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
-    MAX_WINDOW_DAYS,
+    MASTER_MAX_LOOKBACK_DAYS,
+    MASTER_MAX_REQUEST_DAYS,
+    RAW_LOOKBACK_DAYS,
+    RAW_MAX_LOOKBACK_DAYS,
+    RAW_MAX_REQUEST_DAYS,
     AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
     _normalize_header,
@@ -19,9 +23,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import (
-    APPSFLYER_ENDPOINTS,
-    ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import APPSFLYER_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source import AppsFlyerSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsflyer import (
+    AppsFlyerSourceConfig,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer"
@@ -33,12 +45,71 @@ _CSV = (
 )
 
 
+class _Raw(io.BytesIO):
+    """Stands in for urllib3's raw stream, which the transport sets `decode_content` on.
+
+    urllib3 closes the stream on the read that satisfies Content-Length, so anything still
+    holding it open sees a closed file rather than EOF.
+    """
+
+    decode_content = False
+
+    def __init__(self, body: bytes) -> None:
+        super().__init__(body)
+        self._length = len(body)
+
+    def read(self, size: int | None = -1) -> bytes:
+        data = super().read(size)
+        if self.tell() >= self._length:
+            self.close()
+        return data
+
+    def read1(self, size: int | None = -1) -> bytes:
+        return self.read(size)
+
+
+def _iter_content(raw: _Raw, chunk_size: int) -> Iterator[bytes]:
+    """Mirrors `Response.iter_content`, which stops once the body is consumed."""
+    while not raw.closed:
+        chunk = raw.read(chunk_size)
+        if not chunk:
+            return
+        yield chunk
+
+
 def _response(text: str, status: int = 200) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.text = text
+    raw = _Raw(text.encode())
+    resp.raw = raw
+    resp.iter_content = lambda chunk_size=8192, **kwargs: _iter_content(raw, chunk_size)
     resp.status_code = status
     resp.ok = status < 400
     return resp
+
+
+def _serve(text: str = _CSV, status: int = 200):
+    """A fresh response per call, since each request consumes its own stream."""
+    return lambda *args, **kwargs: _response(text, status)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(AppsFlyerSource(), AppsFlyerSourceConfig(app_id="id123", api_token="token"))
+
+
+def _csv_response(body: str = _CSV) -> ScriptedResponse:
+    return ScriptedResponse(body=body.encode())
+
+
+def _requested_windows(result: DriveResult) -> list[tuple[date, date]]:
+    windows = []
+    for request in result.requests:
+        start = request.param("from")
+        end = request.param("to")
+        assert start is not None
+        assert end is not None
+        windows.append((date.fromisoformat(start), date.fromisoformat(end)))
+    return windows
 
 
 class TestHelpers:
@@ -91,11 +162,11 @@ class TestHelpers:
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_succeeds_on_200(self, mock_session):
-        mock_session.return_value.get.return_value = _response("", status=200)
+    def test_validate_credentials_succeeds_on_200(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("token", "id123") is True
 
-        assert validate_credentials("token", "id123") is True
+        assert len(network.requests_log) == 1
 
     @pytest.mark.parametrize(
         "status_code, expected_substring",
@@ -106,136 +177,219 @@ class TestValidateCredentials:
             (404, "app id"),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_distinguishes_token_from_app_id(self, mock_session, status_code, expected_substring):
-        mock_session.return_value.get.return_value = _response("", status=status_code)
-
-        with pytest.raises(AppsFlyerCredentialsError) as exc:
-            validate_credentials("token", "id123")
+    def test_validate_credentials_distinguishes_token_from_app_id(
+        self, status_code: int, expected_substring: str
+    ) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]):
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("token", "id123")
         assert expected_substring in str(exc.value)
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_rejects_bad_app_id_without_request(self, mock_session):
-        with pytest.raises(AppsFlyerCredentialsError) as exc:
-            validate_credentials("token", "bad app!")
+    def test_validate_rejects_bad_app_id_without_request(self) -> None:
+        with scripted_network([]) as network:
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("token", "bad app!")
         assert "app id" in str(exc.value)
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize("status_code", [400, 418, 451])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_raises_with_status_on_unexpected_code(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = _response("", status=status_code)
-
-        with pytest.raises(AppsFlyerCredentialsError) as exc:
-            validate_credentials("token", "id123")
+    def test_validate_raises_with_status_on_unexpected_code(self, status_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]):
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("token", "id123")
         assert str(status_code) in str(exc.value)
 
     @pytest.mark.parametrize("status_code", [429, 500, 503])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_raises_on_transient_status(self, mock_session, status_code):
+    def test_validate_raises_on_transient_status(self, status_code: int) -> None:
         # Rate-limit / 5xx are transient; the caller must be able to tell them from a bad token.
-        mock_session.return_value.get.return_value = _response("", status=status_code)
-
-        with pytest.raises(AppsFlyerRetryableError):
-            validate_credentials("token", "id123")
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            with pytest.raises(AppsFlyerRetryableError):
+                validate_credentials("token", "id123")
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_pull_uses_max_window(self, mock_session):
-        mock_session.return_value.get.return_value = _response(_CSV)
-
-        batches = list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
-
-        flat = [row for batch in batches for row in batch]
-        assert len(flat) == 2
-        url = mock_session.return_value.get.call_args.args[0]
-        query = parse_qs(urlparse(url).query)
-        window = date.fromisoformat(query["to"][0]) - date.fromisoformat(query["from"][0])
-        assert window.days == MAX_WINDOW_DAYS
-        assert urlparse(url).path == "/api/agg-data/export/app/id123/daily_report/v5"
-
     @pytest.mark.parametrize(
         "endpoint, expected_path",
         [
             ("daily_report", "/api/agg-data/export/app/id123/daily_report/v5"),
             ("geo_report", "/api/agg-data/export/app/id123/geo_by_date_report/v5"),
             ("partners_report", "/api/agg-data/export/app/id123/partners_by_date_report/v5"),
+            ("installs", "/api/raw-data/export/app/id123/installs_report/v5"),
+            ("installs_organic", "/api/raw-data/export/app/id123/organic_installs_report/v5"),
+            # AppsFlyer spells the retargeting slugs with hyphens while every other raw report
+            # uses underscores, so a "consistent" rename here 404s.
+            ("installs_retargeting", "/api/raw-data/export/app/id123/installs-retarget/v5"),
+            ("in_app_events", "/api/raw-data/export/app/id123/in_app_events_report/v5"),
+            ("in_app_events_organic", "/api/raw-data/export/app/id123/organic_in_app_events_report/v5"),
+            ("in_app_events_retargeting", "/api/raw-data/export/app/id123/in-app-events-retarget/v5"),
+            ("uninstall_events", "/api/raw-data/export/app/id123/uninstall_events_report/v5"),
+            ("blocked_installs", "/api/raw-data/export/app/id123/blocked_installs_report/v5"),
+            ("blocked_in_app_events", "/api/raw-data/export/app/id123/blocked_in_app_events_report/v5"),
+            ("post_attribution_installs", "/api/raw-data/export/app/id123/detection/v5"),
+            ("ad_revenue", "/api/raw-data/export/app/id123/ad_revenue_raw/v5"),
+            ("ad_revenue_organic", "/api/raw-data/export/app/id123/ad_revenue_organic_raw/v5"),
+            ("ad_revenue_retargeting", "/api/raw-data/export/app/id123/ad-revenue-raw-retarget/v5"),
+            ("master_report", "/api/master-agg-data/v4/app/id123"),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_report_slug_matches_appsflyer_api(self, mock_session, endpoint, expected_path):
-        mock_session.return_value.get.return_value = _response(_CSV)
+    def test_report_slug_matches_appsflyer_api(self, endpoint: str, expected_path: str) -> None:
+        result = _driver().run(endpoint, always(_csv_response()))
 
-        list(get_rows("token", "id123", endpoint, mock.MagicMock()))
+        assert result.raised is None
+        assert result.paths
+        assert all(path == expected_path for path in result.paths)
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert urlparse(url).path == expected_path
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_starts_at_watermark_minus_lookback(self, mock_session):
-        mock_session.return_value.get.return_value = _response(_CSV)
+    def test_incremental_starts_at_watermark_minus_lookback(self) -> None:
         watermark = datetime.now(UTC).date()
 
-        list(
-            get_rows(
-                "token",
-                "id123",
-                "daily_report",
-                mock.MagicMock(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
-            )
+        result = _driver().run(
+            "daily_report",
+            [_csv_response()],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
         )
 
-        url = mock_session.return_value.get.call_args.args[0]
-        query = parse_qs(urlparse(url).query)
+        assert result.raised is None
         expected_from = watermark.toordinal() - LOOKBACK_DAYS
-        assert date.fromisoformat(query["from"][0]).toordinal() == expected_from
+        start = result.params("from")[0]
+        assert start is not None
+        assert date.fromisoformat(start).toordinal() == expected_from
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_rows_are_chunked(self, mock_session):
+    def test_rows_are_chunked(self) -> None:
         header = "Date,Agency/PMD (af_prt),Media Source (pid),Campaign (c)\n"
         body = "".join(f"2024-01-01,a,m,c{i}\n" for i in range(CHUNK_SIZE + 1))
-        mock_session.return_value.get.return_value = _response(header + body)
 
-        batches = list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
+        result = _driver().run("daily_report", [_csv_response(header + body)])
 
-        assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [CHUNK_SIZE, 1]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_requests_csv_explicitly(self, mock_session):
-        mock_session.return_value.get.return_value = _response(_CSV)
+    def test_requests_csv_explicitly(self) -> None:
+        result = _driver().run("daily_report", [_csv_response()])
 
-        list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
-
-        headers = mock_session.call_args.kwargs["headers"]
+        assert result.raised is None
+        headers = result.session_options[0]["headers"]
         assert headers["Accept"] == "text/csv"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_report_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _response("Date,Media Source (pid)\n")
 
-        assert list(get_rows("token", "id123", "daily_report", mock.MagicMock())) == []
+class TestRawAndMasterWindows:
+    def test_raw_pull_walks_contiguous_windows_inside_the_lookback_limit(self) -> None:
+        # AppsFlyer refuses a raw window starting more than 90 days back, and the windows have to
+        # tile the range exactly once: a gap loses rows, an overlap re-merges them, and a window
+        # that doesn't advance loops forever.
+        today = datetime.now(UTC).date()
+
+        result = _driver().run("installs", always(_csv_response()))
+
+        assert result.raised is None
+        windows = _requested_windows(result)
+        assert windows[0][0] == today - timedelta(days=RAW_MAX_LOOKBACK_DAYS)
+        assert windows[-1][1] == today
+        for window_start, window_end in windows:
+            assert 0 <= (window_end - window_start).days < RAW_MAX_REQUEST_DAYS
+        for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
+            assert next_start == previous_end + timedelta(days=1)
+
+    def test_master_pull_never_exceeds_the_31_day_call_limit(self) -> None:
+        # The Master API rejects a range wider than 31 days, so the backfill has to be windowed.
+        today = datetime.now(UTC).date()
+
+        result = _driver().run("master_report", always(_csv_response()))
+
+        assert result.raised is None
+        windows = _requested_windows(result)
+        assert windows[0][0] == today - timedelta(days=MASTER_MAX_LOOKBACK_DAYS)
+        assert windows[-1][1] == today
+        for window_start, window_end in windows:
+            assert 0 <= (window_end - window_start).days < MASTER_MAX_REQUEST_DAYS
+
+    @pytest.mark.parametrize("endpoint", ["installs", "in_app_events", "ad_revenue"])
+    def test_raw_incremental_repulls_a_whole_window_before_the_watermark(self, endpoint: str) -> None:
+        # A worker shutdown can interrupt a window part-way through, and AppsFlyer documents no row
+        # order within one, so the next run has to start far enough back to redo the whole window.
+        watermark = datetime.now(UTC).date() - timedelta(days=10)
+
+        result = _driver().run(
+            endpoint,
+            always(_csv_response()),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        windows = _requested_windows(result)
+        assert windows[0][0] == watermark - timedelta(days=RAW_LOOKBACK_DAYS)
+        assert RAW_LOOKBACK_DAYS >= RAW_MAX_REQUEST_DAYS
+
+    def test_ad_revenue_pull_requests_its_monetization_dimensions(self) -> None:
+        # monetization_network / ad_unit / placement are additional fields, and they make up the
+        # row key — without them every revenue row for a user collapses onto one key.
+        result = _driver().run("ad_revenue", always(_csv_response()))
+
+        assert result.raised is None
+        additional_fields = result.params("additional_fields")[0]
+        assert additional_fields is not None
+        requested = set(additional_fields.split(","))
+        assert {"monetization_network", "ad_unit", "placement"} <= requested
+        assert set(APPSFLYER_ENDPOINTS["ad_revenue"].primary_keys) - {"appsflyer_id", "event_time"} <= requested
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_field",
+        [
+            ("blocked_installs", "blocked_reason"),
+            ("blocked_in_app_events", "blocked_reason"),
+            ("post_attribution_installs", "fraud_reason"),
+            ("post_attribution_installs", "detection_date"),
+        ],
+    )
+    def test_protect360_pull_requests_its_fraud_columns(self, endpoint: str, expected_field: str) -> None:
+        # The fraud classification is an additional field, so a report pulled without asking for it
+        # comes back saying nothing about why the row was blocked.
+        result = _driver().run(endpoint, always(_csv_response()))
+
+        assert result.raised is None
+        additional_fields = result.params("additional_fields")[0]
+        assert additional_fields is not None
+        assert expected_field in additional_fields.split(",")
+
+    def test_master_pull_sends_groupings_and_kpis(self) -> None:
+        # The Master API rejects a request that omits either one.
+        result = _driver().run("master_report", always(_csv_response()))
+
+        assert result.raised is None
+        groupings = result.params("groupings")[0]
+        kpis = result.params("kpis")[0]
+        assert groupings is not None
+        assert kpis is not None
+        assert "install_time" in groupings.split(",")
+        assert "installs" in kpis.split(",")
+
+    @mock.patch(f"{_MODULE}.RAW_MAX_ROWS", 2)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_warns_when_a_raw_window_fills_the_row_cap(self, mock_session):
+        # AppsFlyer drops the rest of the window silently, so the sync has to say so.
+        mock_session.return_value.get.side_effect = _serve()
+        logger = mock.MagicMock()
+
+        list(get_rows("token", "id123", "installs", logger))
+
+        assert logger.warning.called
+
+    def test_value_with_an_embedded_newline_survives_streaming(self) -> None:
+        # Raw event values carry newlines; splitting the body into lines would tear the row apart.
+        csv_body = 'AppsFlyer ID,Event Time,Event Value\naf-1,2024-01-01 00:00:00,"line one\nline two"\n'
+
+        result = _driver().run("installs", always(_csv_response(csv_body)))
+
+        assert result.raised is None
+        assert result.rows[0] == {
+            "appsflyer_id": "af-1",
+            "event_time": "2024-01-01 00:00:00",
+            "event_value": "line one\nline two",
+        }
 
 
 class TestAppsFlyerSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = APPSFLYER_ENDPOINTS[endpoint]
-        response = appsflyer_source("token", "id123", endpoint, mock.MagicMock())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-        # Dimension keys can collide (blank campaigns etc), but that's expected for report data
-        # and must not block incremental syncing - regression test for the schema-wide incremental
-        # sync outage this caused when has_duplicate_primary_keys was set unconditionally.
-        assert not response.has_duplicate_primary_keys
-        validate_incremental_sync(True, response)
-
     def test_geo_report_key_includes_country(self):
         response = appsflyer_source("token", "id123", "geo_report", mock.MagicMock())
         assert "country" in (response.primary_keys or [])

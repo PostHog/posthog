@@ -34,6 +34,26 @@ export function usageLimitContent(args: {
     };
   }
 
+  if (cause === "model_unavailable") {
+    return {
+      title: "This model isn't available",
+      description:
+        "It's in preview and isn't turned on for your account yet. Pick another model to keep going.",
+      actionLabel: null,
+      dismissLabel: "Got it",
+    };
+  }
+
+  if (cause === "user_limit") {
+    return {
+      title: "Usage limit reached",
+      description:
+        "You've reached a usage limit for now. Hourly model limits reset within the hour and daily limits after a day. Switch to a smaller model to keep working.",
+      actionLabel: null,
+      dismissLabel: "Got it",
+    };
+  }
+
   if (cause === "org_limit") {
     if (!canManageBilling) {
       return {

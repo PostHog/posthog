@@ -30,9 +30,9 @@ from django.core import signing
 
 import structlog
 from pydantic import BaseModel, ValidationError
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
 
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -56,7 +56,11 @@ def find_linked_posthog_user(
     **most-recently-linked** one — they just authenticated, presumably with
     intent — and emit a warn-log so the rare collision is visible in prod.
 
-    Returns ``None`` when no link exists or none of the linked users are
+    Deactivated accounts are dropped before that pick, so an offboarded person
+    can't be reached through a Slack identity that still points at them, and a
+    stale link of theirs can't hide a colleague's older active one.
+
+    Returns ``None`` when no link exists or none of the linked users are active
     members of a connected org. Caller still owns the access-level
     (``effective_membership_level``) check on the resolved user.
     """
@@ -74,6 +78,7 @@ def find_linked_posthog_user(
                 kind=UserIntegration.IntegrationKind.SLACK,
                 integration_id=slack_user_id,
                 config__slack_team_id=slack_team_id,
+                user__is_active=True,
             )
             .select_related("user")
             .order_by("-created_at")
@@ -307,7 +312,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
     """
     client_id, client_secret = _credentials()
     try:
-        token_response = WebClient().openid_connect_token(
+        token_response = WebClient(source="slack_user_oauth", app_id="posthog").openid_connect_token(
             client_id=client_id,
             client_secret=client_secret,
             code=code,
@@ -325,7 +330,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
         raise SlackUserOAuthError("Slack OIDC token response missing access_token")
 
     try:
-        userinfo = WebClient(token=user_token).openid_connect_userInfo()
+        userinfo = WebClient(token=user_token, source="slack_user_oauth", app_id="posthog").openid_connect_userInfo()
     except SlackApiError as exc:
         error = exc.response.get("error") if exc.response else None
         logger.warning("slack_app_user_link_oidc_userinfo_failed", error=error)

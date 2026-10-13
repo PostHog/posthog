@@ -4,12 +4,13 @@ import { useEffect } from 'react'
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { isUUIDLike } from 'lib/utils/guards'
-import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { ActorsQueryResponse } from '~/queries/schema/schema-general'
+
+import { personsSceneLogic } from 'products/persons/frontend/logics/personsSceneLogic'
 
 interface PersonDisplayNameNudgeBannerProps {
     uniqueKey: string

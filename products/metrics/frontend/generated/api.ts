@@ -11,19 +11,29 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
+    DashboardImportApi,
+    DashboardImportCreateApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
+    MetricsErrorSpikesRetrieveParams,
+    MetricsNamesRetrieveParams,
     MetricsValuesRetrieveParams,
+    PanelQueryCheckRequestApi,
+    PanelQueryCheckResponseApi,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
     _MetricAttributeKeysResponseApi,
     _MetricAttributeValuesResponseApi,
+    _MetricCatalogValuesParamsApi,
+    _MetricErrorSpikesResponseApi,
     _MetricNamesResponseApi,
+    _MetricPickerNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
     _MetricSamplesResponseApi,
+    _MetricsOverviewResponseApi,
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
@@ -119,9 +129,8 @@ export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: Metr
 }
 
 /**
- * Distinct attribute keys seen on the team's metrics (datapoint and
- * resource attributes merged), most frequent first. Backs the filter
- * bar's key autocomplete.
+ * Attribute keys ordered by distinct series count, from highest to
+ * lowest. `metricName` limits choices to one metric.
  */
 export const metricsAttributesRetrieve = async (
     projectId: string,
@@ -155,6 +164,114 @@ export const metricsCharacterizeCreate = async (
     })
 }
 
+export const getMetricsDashboardImportsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/`
+}
+
+/**
+ * The user's dashboard imports of the last 7 days that used the agent, with the progress of the ones that run.
+ */
+export const metricsDashboardImportsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DashboardImportApi[]> => {
+    return apiMutator<DashboardImportApi[]>(getMetricsDashboardImportsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsDashboardImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/`
+}
+
+/**
+ * Import a Grafana dashboard JSON model or a dashboard screenshot as a new dashboard. Panels that match the project's metrics import at once. An AI agent converts the rest, and the response then has an id to poll.
+ */
+export const metricsDashboardImportsCreate = async (
+    projectId: string,
+    dashboardImportCreateApi: DashboardImportCreateApi,
+    options?: RequestInit
+): Promise<DashboardImportApi> => {
+    return apiMutator<DashboardImportApi>(getMetricsDashboardImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardImportCreateApi),
+    })
+}
+
+export const getMetricsDashboardImportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/${id}/`
+}
+
+/**
+ * Status of one of the user's dashboard imports. Poll it until the status is not 'running'.
+ */
+export const metricsDashboardImportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DashboardImportApi> => {
+    return apiMutator<DashboardImportApi>(getMetricsDashboardImportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsDashboardImportsValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/validate/`
+}
+
+/**
+ * Check dashboard panel queries before they go on a dashboard: the metrics must exist, PromQL must
+ * run, and SQL must compile and read only logs or traces.
+ */
+export const metricsDashboardImportsValidateCreate = async (
+    projectId: string,
+    panelQueryCheckRequestApi: PanelQueryCheckRequestApi,
+    options?: RequestInit
+): Promise<PanelQueryCheckResponseApi> => {
+    return apiMutator<PanelQueryCheckResponseApi>(getMetricsDashboardImportsValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(panelQueryCheckRequestApi),
+    })
+}
+
+export const getMetricsErrorSpikesRetrieveUrl = (projectId: string, params: MetricsErrorSpikesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/error_spikes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/error_spikes/`
+}
+
+/**
+ * Error Tracking issue spikes detected in a time window — backs the
+ * metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
+ * to the metric's own service.
+ */
+export const metricsErrorSpikesRetrieve = async (
+    projectId: string,
+    params: MetricsErrorSpikesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricErrorSpikesResponseApi> => {
+    return apiMutator<_MetricErrorSpikesResponseApi>(getMetricsErrorSpikesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/has_metrics/`
 }
@@ -164,6 +281,54 @@ export const metricsHasMetricsRetrieve = async (
     options?: RequestInit
 ): Promise<_HasMetricsResponseApi> => {
     return apiMutator<_HasMetricsResponseApi>(getMetricsHasMetricsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsNamesRetrieveUrl = (projectId: string, params?: MetricsNamesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/names/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/names/`
+}
+
+/**
+ * Distinct metric names for the viewer picker, without sparklines or caching.
+ */
+export const metricsNamesRetrieve = async (
+    projectId: string,
+    params?: MetricsNamesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricPickerNamesResponseApi> => {
+    return apiMutator<_MetricPickerNamesResponseApi>(getMetricsNamesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsOverviewRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/overview/`
+}
+
+/**
+ * Ingestion rollup for the overview page: freshness of the newest
+ * datapoint plus per-service metric/series counts over the last day.
+ */
+export const metricsOverviewRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<_MetricsOverviewResponseApi> => {
+    return apiMutator<_MetricsOverviewResponseApi>(getMetricsOverviewRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -224,7 +389,7 @@ export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsV
 }
 
 /**
- * Distinct metric names for the team. Backs the picker UI.
+ * Distinct metric names for the team. Backs the catalog UI.
  */
 export const metricsValuesRetrieve = async (
     projectId: string,
@@ -234,5 +399,25 @@ export const metricsValuesRetrieve = async (
     return apiMutator<_MetricNamesResponseApi>(getMetricsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMetricsValuesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/values/`
+}
+
+/**
+ * Distinct metric names for the team. Backs the catalog UI.
+ */
+export const metricsValuesCreate = async (
+    projectId: string,
+    _metricCatalogValuesParamsApi: _MetricCatalogValuesParamsApi,
+    options?: RequestInit
+): Promise<_MetricNamesResponseApi> => {
+    return apiMutator<_MetricNamesResponseApi>(getMetricsValuesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricCatalogValuesParamsApi),
     })
 }

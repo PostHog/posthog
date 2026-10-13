@@ -1,0 +1,720 @@
+from typing import cast
+
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.conf import settings
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    PredicateIndexVerdict as SchemaPredicateIndexVerdict,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.index_eligibility import (
+    IndexEligibilityReport,
+    IndexKind,
+    PredicateIndexEligibility,
+    PredicateIndexVerdict,
+    PredicateQuickfix,
+    analyze_index_eligibility,
+    build_index_eligibility_report,
+    eligibility_from_plan,
+)
+from posthog.hogql.metadata import get_hogql_metadata
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property_metadata import MaterializedColumnsByTable, PropertyMetadata
+from posthog.hogql.property_planner import (
+    ComparisonCompatibility,
+    PropertyAccessPlan,
+    PropertyComparisonPlan,
+    PropertyLiteralConversion,
+    PropertyMinmaxBlocker,
+    PropertyScope,
+    PropertySourceKind,
+    PropertySourcePlan,
+)
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.property_types import build_property_swapper
+
+from posthog.schema_enums import PredicateFixAction, QueryIndexUsage
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.property_type import PropertyType
+
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+Op = ast.CompareOperationOp
+
+
+def _plan(
+    *,
+    operator: ast.CompareOperationOp = Op.Eq,
+    kind: PropertySourceKind = PropertySourceKind.JSON,
+    minmax: bool = False,
+    bloom: bool = False,
+    ngram_lower: bool = False,
+    bloom_lower: bool = False,
+    blocker: PropertyMinmaxBlocker | None = None,
+    restricted: bool = False,
+    semantic_type: ast.ConstantType | None = None,
+    physical_type: ast.ConstantType | None = None,
+    value_type: ast.ConstantType | None = None,
+    physical_compatibility: ComparisonCompatibility | None = None,
+) -> PropertyComparisonPlan:
+    source = PropertySourcePlan(
+        kind=kind,
+        table_name="events",
+        field_name="properties",
+        column_name="properties" if kind == PropertySourceKind.JSON else "mat_duration",
+        physical_type=physical_type or ast.StringType(nullable=True),
+        is_nullable=True,
+        has_minmax_index=minmax,
+        has_bloom_filter_index=bloom,
+        has_ngram_lower_index=ngram_lower,
+        has_bloom_filter_lower_index=bloom_lower,
+        restricted=restricted,
+    )
+    access = PropertyAccessPlan(
+        property_name="duration",
+        scope=PropertyScope.EVENT,
+        semantic_type=semantic_type or ast.StringType(nullable=True),
+        source=source,
+        property_type=ast.PropertyType(
+            chain=["duration"],
+            field_type=ast.FieldType(name="properties", table_type=ast.TableType(table=EventsTable())),
+        ),
+    )
+    return PropertyComparisonPlan(
+        access=access,
+        property_side="left",
+        operator=operator,
+        value_type=value_type or ast.StringType(nullable=True),
+        semantic_compatibility=ComparisonCompatibility.DEFINITELY_COMPATIBLE,
+        physical_compatibility=physical_compatibility
+        or (
+            ComparisonCompatibility.EXPENSIVE_CAST
+            if blocker == PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE
+            else ComparisonCompatibility.DEFINITELY_COMPATIBLE
+        ),
+        literal_conversion=PropertyLiteralConversion.NONE,
+        source_matches_semantics=blocker != PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+        minmax_blocker=blocker,
+    )
+
+
+class TestIndexEnumsMatchTheSchema(SimpleTestCase):
+    def test_verdict_wire_values_match_the_generated_enum(self) -> None:
+        # The verdict enum is deliberately declared twice: the local one carries the ClickHouse
+        # reasoning in its docstrings. `metadata.py` converts by value, so a new member added on one
+        # side only raises once a query happens to produce it.
+        assert {member.value for member in PredicateIndexVerdict} == {
+            member.value for member in SchemaPredicateIndexVerdict
+        }
+
+
+class TestIndexEligibilityVerdicts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "json_equality_has_no_index",
+                _plan(),
+                PredicateIndexVerdict.UNINDEXED_JSON,
+                (),
+            ),
+            (
+                "bloom_filter_covers_equality",
+                _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True),
+                PredicateIndexVerdict.INDEXED,
+                (IndexKind.BLOOM_FILTER,),
+            ),
+            (
+                "bloom_filter_does_not_cover_ranges",
+                _plan(operator=Op.Gt, kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True),
+                PredicateIndexVerdict.UNINDEXED_COLUMN,
+                (),
+            ),
+            (
+                "minmax_covers_ranges",
+                _plan(operator=Op.Gt, kind=PropertySourceKind.MATERIALIZED_COLUMN, minmax=True),
+                PredicateIndexVerdict.INDEXED,
+                (IndexKind.MINMAX,),
+            ),
+            (
+                "storage_type_mismatch_defeats_the_index",
+                _plan(
+                    operator=Op.Gt,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+                ),
+                PredicateIndexVerdict.BLOCKED,
+                (),
+            ),
+            (
+                "value_type_mismatch_defeats_the_index",
+                _plan(
+                    operator=Op.Gt,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                ),
+                PredicateIndexVerdict.BLOCKED,
+                (),
+            ),
+            (
+                # The planner reports the missing minmax index ahead of the type problem, so the verdict
+                # has to find the cast on its own or a bloom-only column reads as indexed.
+                "value_type_mismatch_defeats_a_bloom_filter_too",
+                _plan(
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    bloom=True,
+                    blocker=PropertyMinmaxBlocker.NO_MINMAX_INDEX,
+                    value_type=ast.IntegerType(),
+                    physical_compatibility=ComparisonCompatibility.EXPENSIVE_CAST,
+                ),
+                PredicateIndexVerdict.BLOCKED,
+                (),
+            ),
+            (
+                "negated_equality_prunes_nothing",
+                _plan(operator=Op.NotEq, kind=PropertySourceKind.MATERIALIZED_COLUMN, minmax=True, bloom=True),
+                PredicateIndexVerdict.OPERATOR_NOT_INDEXABLE,
+                (),
+            ),
+            (
+                "regex_prunes_nothing",
+                _plan(operator=Op.Regex, kind=PropertySourceKind.MATERIALIZED_COLUMN, minmax=True, bloom=True),
+                PredicateIndexVerdict.OPERATOR_NOT_INDEXABLE,
+                (),
+            ),
+            (
+                "ngram_covers_case_insensitive_like",
+                _plan(operator=Op.ILike, kind=PropertySourceKind.MATERIALIZED_COLUMN, ngram_lower=True),
+                PredicateIndexVerdict.INDEXED,
+                (IndexKind.NGRAM_LOWER,),
+            ),
+            (
+                "case_sensitive_like_is_not_claimed_as_indexed",
+                _plan(operator=Op.Like, kind=PropertySourceKind.MATERIALIZED_COLUMN, ngram_lower=True),
+                PredicateIndexVerdict.OPERATOR_NOT_INDEXABLE,
+                (),
+            ),
+            (
+                "property_group_equality_uses_its_bloom_filter",
+                _plan(kind=PropertySourceKind.PROPERTY_GROUP, bloom=True),
+                PredicateIndexVerdict.INDEXED,
+                (IndexKind.BLOOM_FILTER,),
+            ),
+            (
+                "absent_index_is_not_a_type_blocker",
+                _plan(blocker=PropertyMinmaxBlocker.NO_MINMAX_INDEX),
+                PredicateIndexVerdict.UNINDEXED_JSON,
+                (),
+            ),
+            (
+                "in_against_matching_members_still_prunes",
+                _plan(
+                    operator=Op.In,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                    value_type=ast.TupleType(item_types=[ast.StringType(), ast.StringType()]),
+                ),
+                PredicateIndexVerdict.INDEXED,
+                (IndexKind.MINMAX,),
+            ),
+            (
+                "in_against_mismatched_members_does_not",
+                _plan(
+                    operator=Op.In,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                    value_type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType()]),
+                ),
+                PredicateIndexVerdict.BLOCKED,
+                (),
+            ),
+        ]
+    )
+    def test_verdict_for_operator_and_source(
+        self,
+        _name: str,
+        plan: PropertyComparisonPlan,
+        expected_verdict: PredicateIndexVerdict,
+        expected_indexes: tuple[IndexKind, ...],
+    ) -> None:
+        eligibility = eligibility_from_plan(plan)
+
+        assert eligibility.verdict == expected_verdict
+        assert eligibility.usable_indexes == expected_indexes
+
+    @parameterized.expand(
+        [
+            (PredicateIndexVerdict.UNINDEXED_JSON, _plan(), True),
+            (
+                PredicateIndexVerdict.BLOCKED,
+                _plan(minmax=True, blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE),
+                True,
+            ),
+            (
+                PredicateIndexVerdict.BLOCKED,
+                _plan(
+                    operator=Op.Gt,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+                    semantic_type=ast.FloatType(nullable=True),
+                ),
+                True,
+            ),
+            (PredicateIndexVerdict.INDEXED, _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True), False),
+        ]
+    )
+    def test_only_actionable_verdicts_carry_a_fix(
+        self,
+        expected_verdict: PredicateIndexVerdict,
+        plan: PropertyComparisonPlan,
+        expects_fix: bool,
+    ) -> None:
+        eligibility = eligibility_from_plan(plan)
+
+        assert eligibility.verdict == expected_verdict
+        assert (eligibility.fix is not None) == expects_fix
+
+    @parameterized.expand(
+        [
+            (
+                "value_type_mismatch_is_fixable_in_the_query",
+                _plan(minmax=True, blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE),
+                True,
+            ),
+            (
+                "source_type_mismatch_is_not",
+                _plan(
+                    operator=Op.Gt,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+                    semantic_type=ast.FloatType(nullable=True),
+                ),
+                False,
+            ),
+            ("json_reads_are_not", _plan(), False),
+            ("indexed_reads_are_not", _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True), False),
+        ]
+    )
+    def test_only_query_fixable_predicates_get_a_marker(
+        self, _name: str, plan: PropertyComparisonPlan, expects_marker: bool
+    ) -> None:
+        assert eligibility_from_plan(plan).editor_actionable == expects_marker
+
+    @parameterized.expand(
+        [
+            (
+                "value_type_mismatch",
+                _plan(minmax=True, blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE),
+            ),
+            (
+                "in_against_mismatched_members",
+                _plan(
+                    operator=Op.In,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                    value_type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType()]),
+                ),
+            ),
+        ]
+    )
+    def test_marked_predicates_carry_an_ai_prompt_never_prose(self, _name: str, plan: PropertyComparisonPlan) -> None:
+        # `HogQLNotice.fix` is substituted into the query verbatim by the editor's quick fix, so the
+        # marker path may only ever emit an `ai_prompt:` instruction. `metadata.py` derives that value
+        # from `ai_fix_prompt`, so a marked predicate without one would put nothing there and a marked
+        # predicate carrying only prose would put advice into the user's query.
+        eligibility = eligibility_from_plan(plan)
+
+        assert eligibility.editor_actionable is True
+        assert eligibility.ai_fix_prompt is not None
+
+    @parameterized.expand(
+        [
+            ("integer", ast.Constant(value=120, start=10, end=13), "'120'"),
+            # A float's text form is Python's, not the row's: 2.0 stores as "2" and 1e20 as "1e+20".
+            ("float", ast.Constant(value=1.5, start=10, end=13), None),
+            (
+                "tuple_of_numbers",
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Constant(value=2)], start=10, end=16),
+                "('1', '2')",
+            ),
+            ("string_already", ast.Constant(value="120", start=10, end=15), None),
+            ("boolean_has_no_certain_text_form", ast.Constant(value=True, start=10, end=14), None),
+            ("computed_value", ast.Call(name="now", args=[], start=10, end=15), None),
+            (
+                "tuple_with_a_computed_member",
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="now", args=[])], start=10, end=20),
+                None,
+            ),
+            ("literal_without_a_position", ast.Constant(value=120), None),
+        ]
+    )
+    def test_quickfix_quotes_only_plain_numeric_literals(
+        self, _name: str, value_expr: ast.Expr, expected_text: str | None
+    ) -> None:
+        operator = Op.In if isinstance(value_expr, ast.Tuple) else Op.Eq
+        plan = _plan(
+            operator=operator,
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            bloom=True,
+            blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+            value_type=ast.IntegerType(),
+        )
+
+        eligibility = eligibility_from_plan(plan, value_expr=value_expr)
+
+        assert eligibility.verdict == PredicateIndexVerdict.BLOCKED
+        assert eligibility.fix_action == PredicateFixAction.EDIT_QUERY
+        if expected_text is None:
+            assert eligibility.quickfix is None
+            assert eligibility.ai_fix_prompt is not None
+        else:
+            assert eligibility.quickfix == PredicateQuickfix(
+                start=value_expr.start or 0, end=value_expr.end or 0, text=expected_text
+            )
+            assert expected_text in (eligibility.fix or "")
+
+    @parameterized.expand([(Op.Gt,), (Op.GtEq,), (Op.Lt,), (Op.LtEq,)])
+    def test_an_ordering_comparison_is_never_rewritten_as_text(self, operator: ast.CompareOperationOp) -> None:
+        # Quoting the literal would reorder the results, because '900' is above '1000' as text and
+        # below it as numbers. A marker or an AI prompt here would offer that swap as a fix.
+        plan = _plan(
+            operator=operator,
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            minmax=True,
+            blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+            value_type=ast.IntegerType(),
+        )
+
+        eligibility = eligibility_from_plan(plan, value_expr=ast.Constant(value=1000, start=10, end=14))
+
+        assert eligibility.verdict == PredicateIndexVerdict.BLOCKED
+        assert eligibility.quickfix is None
+        assert eligibility.ai_fix_prompt is None
+        assert eligibility.editor_actionable is False
+        assert eligibility.fix_action == PredicateFixAction.EDIT_PROPERTY_TYPE
+
+    def test_an_uninferable_value_type_is_not_reported_as_a_mismatch(self) -> None:
+        # A subquery or placeholder on the right-hand side leaves the value type unknown. Claiming a
+        # mismatch there warns about a filter that is very likely correct.
+        plan = _plan(
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            bloom=True,
+            blocker=PropertyMinmaxBlocker.NO_MINMAX_INDEX,
+            physical_compatibility=ComparisonCompatibility.UNKNOWN,
+        )
+
+        eligibility = eligibility_from_plan(plan)
+
+        assert eligibility.verdict == PredicateIndexVerdict.INDEXED
+        assert eligibility.editor_actionable is False
+
+    def test_a_storage_type_mismatch_never_gets_a_quickfix(self) -> None:
+        plan = _plan(
+            operator=Op.Gt,
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            minmax=True,
+            blocker=PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+            semantic_type=ast.FloatType(nullable=True),
+        )
+
+        eligibility = eligibility_from_plan(plan, value_expr=ast.Constant(value=100, start=10, end=13))
+
+        assert eligibility.quickfix is None
+        assert eligibility.fix_action == PredicateFixAction.EDIT_PROPERTY_TYPE
+
+    def test_a_denied_property_reports_the_same_as_an_unmaterialized_one(self) -> None:
+        denied = eligibility_from_plan(_plan(restricted=True))
+        allowed = eligibility_from_plan(_plan())
+
+        assert denied == allowed
+
+    def test_negation_overrides_an_otherwise_usable_index(self) -> None:
+        plan = _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True)
+
+        assert eligibility_from_plan(plan).verdict == PredicateIndexVerdict.INDEXED
+        assert eligibility_from_plan(plan, negated=True).verdict == PredicateIndexVerdict.OPERATOR_NOT_INDEXABLE
+
+    @parameterized.expand(
+        [
+            ([], QueryIndexUsage.UNDECISIVE),
+            ([PredicateIndexVerdict.INDEXED], QueryIndexUsage.YES),
+            ([PredicateIndexVerdict.INDEXED, PredicateIndexVerdict.UNINDEXED_JSON], QueryIndexUsage.PARTIAL),
+            ([PredicateIndexVerdict.UNINDEXED_JSON, PredicateIndexVerdict.BLOCKED], QueryIndexUsage.NO),
+        ]
+    )
+    def test_report_usage_summarizes_predicates(
+        self, verdicts: list[PredicateIndexVerdict], expected: QueryIndexUsage
+    ) -> None:
+        report = IndexEligibilityReport(
+            predicates=tuple(
+                PredicateIndexEligibility(
+                    property_name="duration",
+                    scope=PropertyScope.EVENT,
+                    operator=Op.Eq,
+                    source_kind=PropertySourceKind.JSON,
+                    source_label="JSON blob",
+                    column_name="properties",
+                    semantic_type="String",
+                    physical_type="String",
+                    available_indexes=(),
+                    usable_indexes=(),
+                    verdict=verdict,
+                    blocker=None,
+                    message="",
+                    fix=None,
+                    ai_fix_prompt=None,
+                    fix_action=None,
+                    quickfix=None,
+                    start=None,
+                    end=None,
+                )
+                for verdict in verdicts
+            )
+        )
+
+        assert report.usage == expected
+
+
+def _materialized(property_name: str, *, minmax: bool = False, bloom: bool = False) -> MaterializedColumn:
+    return MaterializedColumn(
+        name=f"mat_{property_name}",
+        details=MaterializedColumnDetails(
+            table_column="properties",
+            property_name=property_name,
+            is_disabled=False,
+        ),
+        is_nullable=False,
+        has_minmax_index=minmax,
+        has_bloom_filter_index=bloom,
+    )
+
+
+class TestIndexEligibilityThroughThePlanner(BaseTest):
+    """Verdicts reached through the real planner rather than a constructed plan.
+
+    Every other verdict test hands `eligibility_from_plan` a `PropertyComparisonPlan` built by the
+    test, so it proves the operator mapping and nothing about whether `plan_property_comparison`
+    emits such a plan for a real query. These two cover that seam: a synthetic materialized-column
+    registry stands in for ClickHouse, and the query goes through resolution and planning as it does
+    in production.
+    """
+
+    def _report(
+        self,
+        query: str,
+        *,
+        columns: MaterializedColumnsByTable,
+        property_types: dict[str, dict[str, str | None]] | None = None,
+    ) -> IndexEligibilityReport:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(context.team_id, modifiers=context.modifiers, team=context.team)
+        # Pre-setting the bundle stands in for ClickHouse and skips the Postgres-backed loader, so the
+        # planner sees a materialized column with the indexes this test is about.
+        context.property_metadata = PropertyMetadata(
+            event_properties=property_types or {},
+            materialized_columns=lambda: columns,
+        )
+        return build_index_eligibility_report(parse_select(query), context)
+
+    def test_materialized_column_with_a_bloom_filter_is_indexed(self) -> None:
+        report = self._report(
+            "select count() from events where properties.$browser = 'Chrome'",
+            columns={"events": {("$browser", "properties"): _materialized("$browser", bloom=True)}},
+        )
+
+        [predicate] = report.predicates
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.usable_indexes == ()
+            assert report.usage == QueryIndexUsage.NO
+        else:
+            assert predicate.verdict == PredicateIndexVerdict.INDEXED
+            assert predicate.usable_indexes == (IndexKind.BLOOM_FILTER,)
+            assert report.usage == QueryIndexUsage.YES
+
+    def test_numeric_property_stored_as_string_is_blocked(self) -> None:
+        report = self._report(
+            "select count() from events where properties.duration > 100",
+            columns={"events": {("duration", "properties"): _materialized("duration", minmax=True)}},
+            property_types={"duration": {"type": PropertyType.Numeric.value}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.verdict == (
+            PredicateIndexVerdict.UNINDEXED_JSON
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else PredicateIndexVerdict.BLOCKED
+        )
+        assert predicate.usable_indexes == ()
+        # The advice is real but not a query edit, so it must not become an editor marker.
+        assert predicate.fix is not None
+        assert predicate.editor_actionable is False
+
+    def test_number_against_a_text_column_gets_a_quoted_quickfix(self) -> None:
+        query = "select count() from events where properties.$browser_version = 120"
+        report = self._report(
+            query,
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.quickfix is None
+            return
+        assert predicate.verdict == PredicateIndexVerdict.BLOCKED
+        assert predicate.quickfix is not None
+        assert predicate.quickfix.text == "'120'"
+        assert query[predicate.quickfix.start : predicate.quickfix.end] == "120"
+
+    def test_an_in_list_quickfix_covers_the_whole_bracketed_list(self) -> None:
+        # The replacement text stands in for everything the range covers. If a Tuple's span ever
+        # stopped including its parentheses, the edit would write `in (('120', '121'))`, which is
+        # valid SQL that matches nothing.
+        query = "select count() from events where properties.$browser_version in (120, 121)"
+        report = self._report(
+            query,
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.quickfix is None
+            return
+        assert predicate.quickfix is not None
+        assert query[predicate.quickfix.start : predicate.quickfix.end] == "(120, 121)"
+        assert predicate.quickfix.text == "('120', '121')"
+
+    def test_an_ordering_comparison_through_the_planner_offers_no_rewrite(self) -> None:
+        # The operator table and the copy are unit tested on a constructed plan, so this covers the
+        # seam: that a real ordering comparison on a text column still reaches that state.
+        report = self._report(
+            "select count() from events where properties.$browser_version > 120",
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", minmax=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.quickfix is None
+            return
+        assert predicate.verdict == PredicateIndexVerdict.BLOCKED
+        assert predicate.quickfix is None
+        assert predicate.editor_actionable is False
+        assert predicate.fix_action == PredicateFixAction.EDIT_PROPERTY_TYPE
+
+
+class TestIndexEligibilityAnalysis(BaseTest):
+    def _report(self, query: str) -> IndexEligibilityReport:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(context.team_id, modifiers=context.modifiers, team=context.team)
+        node = cast(ast.SelectQuery, resolve_types(parse_select(query), context, dialect="clickhouse"))
+        build_property_swapper(node, context)
+        return analyze_index_eligibility(node, context)
+
+    def test_only_filtering_positions_are_reported(self) -> None:
+        report = self._report(
+            "select properties.selected = '1' from events "
+            "where properties.filtered = '2' "
+            "group by properties.grouped having properties.grouped != '3'"
+        )
+
+        assert [predicate.property_name for predicate in report.predicates] == ["filtered"]
+
+    def test_predicates_inside_a_boolean_tree_are_reported(self) -> None:
+        report = self._report(
+            "select count() from events where (properties.a = '1' or properties.b = '2') and not (properties.c = '3')"
+        )
+
+        verdicts = {predicate.property_name: predicate.verdict for predicate in report.predicates}
+        assert verdicts == {
+            "a": PredicateIndexVerdict.UNINDEXED_JSON,
+            "b": PredicateIndexVerdict.UNINDEXED_JSON,
+            "c": PredicateIndexVerdict.OPERATOR_NOT_INDEXABLE,
+        }
+
+    def _metadata(self, query: str) -> HogQLMetadataResponse:
+        with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True):
+            return get_hogql_metadata(
+                HogQLMetadata(
+                    kind="HogQLMetadata",
+                    language=HogLanguage.HOG_QL,
+                    query=query,
+                    indexUsage=True,
+                ),
+                self.team,
+            )
+
+    def test_metadata_reports_index_usage_for_a_json_backed_filter(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="duration", property_type=PropertyType.Numeric)
+
+        response = self._metadata("select count() from events where properties.duration > 100")
+
+        assert response.isValid is True
+        assert response.isUsingIndices == QueryIndexUsage.NO
+        assert response.index_usage is not None
+        [usage] = response.index_usage
+        assert usage.property_name == "duration"
+        assert usage.fix is not None
+
+    def test_metadata_marks_only_the_literal_a_quickfix_rewrites(self) -> None:
+        query = "select count() from events where properties.$browser_version = 120"
+        columns: MaterializedColumnsByTable = {
+            "events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}
+        }
+        PropertyDefinition.objects.create(team=self.team, name="$browser_version", property_type=PropertyType.String)
+
+        with patch(
+            "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table", return_value=columns
+        ):
+            response = self._metadata(query)
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert response.warnings == []
+            [predicate] = response.index_usage or []
+            assert predicate.quickfix is None
+            return
+        [warning] = response.warnings
+        assert warning.fix == "'120'"
+        assert query[warning.start : warning.end] == "120"
+        [predicate] = response.index_usage or []
+        assert predicate.quickfix is not None and predicate.quickfix.text == "'120'"
+
+    def test_a_failed_analysis_leaves_the_query_valid(self) -> None:
+        # The caller turns any exception from here into an invalid query, so a report that blows up
+        # while it is being written into the response would tell the editor a working query is broken.
+        with patch("posthog.hogql.metadata._record_index_usage", side_effect=ValueError("boom")):
+            response = self._metadata("select count() from events where properties.duration > 100")
+
+        assert response.isValid is True
+        assert response.errors == []
+        assert not response.index_usage
+
+    def test_metadata_reports_no_index_usage_without_property_filters(self) -> None:
+        response = self._metadata("select count() from events where event = '$pageview'")
+
+        assert response.isUsingIndices == QueryIndexUsage.UNDECISIVE
+        assert response.index_usage == []

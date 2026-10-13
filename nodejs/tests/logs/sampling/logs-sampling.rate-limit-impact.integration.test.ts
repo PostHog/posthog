@@ -1,9 +1,11 @@
 import avro from 'avsc'
+import { randomUUID } from 'crypto'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
+import { runPipelineStages } from '~/logs/pipeline/log-processing-pipeline'
 import { compileRuleSet } from '~/logs/sampling/compile-rules'
 import { LogsSamplingService } from '~/logs/sampling/logs-sampling.service'
 import { Hub } from '~/types'
@@ -38,9 +40,9 @@ const LOG_RECORD_AVRO = avro.Type.forSchema({
 })
 
 const SERVICE = 'smokescreen'
-const TEAM_ID = 4242
+const TEAM_ID = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 8), 16)
 // LogsSamplingService names its limiter 'logs-sampling-rate'; key prefix uses the test root.
-const SAMPLING_RATE_KEY_PREFIX = '@posthog-test/logs-sampling-rate'
+const SAMPLING_RATE_KEY_PREFIX = `@posthog-test/logs-sampling-rate/tokens/${TEAM_ID}`
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
@@ -88,7 +90,7 @@ function logRow(uuid: string, bytesUncompressed: number): LogRecord {
 }
 
 describe('logs drop-rule rate limit — save-to-impact', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
 
     let hub: Hub
     let redis: RedisV2
@@ -131,7 +133,7 @@ describe('logs drop-rule rate limit — save-to-impact', () => {
         ruleSet: ReturnType<typeof compileRuleSet>
     ): Promise<{ kept: LogRecord[]; recordsDropped: number; allDropped: boolean }> {
         const [, , records] = await decodeLogRecords(buffer)
-        const { kept, stats } = await service.sampleRecords(records, ruleSet, TEAM_ID)
+        const { kept, stats } = await runPipelineStages(records, [service.makeSamplingStage(ruleSet, TEAM_ID)])
         return { kept, recordsDropped: stats.recordsDropped, allDropped: kept.length === 0 }
     }
 

@@ -12,12 +12,18 @@ import { examples } from '~/queries/examples'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import {
+    Breakdown,
+    BreakdownFilter,
+    DataWarehouseNode,
     EventsQuery,
     FunnelsQuery,
     InsightVizNode,
+    MetricsQuery,
     NodeKind,
     Node,
     ProductKey,
+    RetentionQuery,
+    StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -31,7 +37,8 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
+    InsightModel,
+    RetentionEntity,
     StepOrderValue,
 } from '~/types'
 
@@ -156,7 +163,7 @@ describe('insightNavLogic', () => {
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.loadInsightSuccess({
                         query: examples.InsightFunnels,
-                    } as QueryBasedInsightModel)
+                    } as InsightModel)
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })
@@ -225,6 +232,50 @@ describe('insightNavLogic', () => {
                         },
                     },
                 })
+            })
+        })
+
+        describe('metrics tab visibility', () => {
+            const enableMetricsBuilder = (): void => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.METRICS]: true,
+                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+                })
+            }
+
+            it('hides the metrics tab without both flags', () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true })
+                expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
+            })
+
+            it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
+                enableMetricsBuilder()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.METRICS)
+                }).toFinishAllListeners()
+                expect(logic.values.activeView).toEqual(InsightType.METRICS)
+                expect(builtInsightDataLogic.values.query).toMatchObject({ kind: NodeKind.MetricsQuery, clauses: [] })
+
+                const editedQuery: MetricsQuery = {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [{ name: 'a', metricName: 'requests_total', aggregation: 'rate' }],
+                    dateRange: { date_from: '-6h' },
+                }
+                await expectLogic(builtInsightDataLogic, () => {
+                    builtInsightDataLogic.actions.setQuery(editedQuery)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+                expect(logic.values.tabs.map((tab) => tab.type)).toContain(InsightType.METRICS)
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.METRICS)
+                }).toFinishAllListeners()
+                expect(logic.values.activeView).toEqual(InsightType.METRICS)
+                expect(builtInsightDataLogic.values.query).toEqual(editedQuery)
             })
         })
 
@@ -561,46 +612,59 @@ describe('insightNavLogic', () => {
                 ])
             })
 
-            it('gets rid of multiple breakdowns when switching from trends to funnels', async () => {
-                trendsQuery.source = {
-                    ...trendsQuery.source,
-                    breakdownFilter: {
-                        breakdowns: [
-                            { property: 'num', type: 'person', histogram_bin_count: 10 },
-                            { property: '$device_type', type: 'event' },
-                        ],
-                    },
-                } as TrendsQuery
+            it.each([
+                {
+                    name: 'keeps the first breakdown',
+                    breakdowns: [
+                        { property: 'num', type: 'person', histogram_bin_count: 10 },
+                        { property: '$device_type', type: 'event' },
+                    ],
+                    expected: { breakdown: 'num', breakdown_type: 'person', breakdown_histogram_bin_count: 10 },
+                },
+                {
+                    name: 'skips element breakdowns, which funnels do not support',
+                    breakdowns: [
+                        { property: 'text', type: 'element' },
+                        { property: '$device_type', type: 'event' },
+                    ],
+                    expected: { breakdown: '$device_type', breakdown_type: 'event' },
+                },
+                {
+                    name: 'clears the breakdown when only element breakdowns remain',
+                    breakdowns: [{ property: 'text', type: 'element' }],
+                    expected: {},
+                },
+            ] as { name: string; breakdowns: Breakdown[]; expected: BreakdownFilter }[])(
+                'switching from trends to funnels with multiple breakdowns $name',
+                async ({ breakdowns, expected }) => {
+                    trendsQuery.source = {
+                        ...trendsQuery.source,
+                        breakdownFilter: { breakdowns },
+                    } as TrendsQuery
 
-                await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery(trendsQuery)
-                })
+                    await expectLogic(logic, () => {
+                        builtInsightDataLogic.actions.setQuery(trendsQuery)
+                    })
 
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.FUNNELS)
-                }).toDispatchActions([
-                    builtInsightDataLogic.actionCreators.setQuery({
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'FunnelsQuery',
-                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
-                            funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
-                            filterTestAccounts: true,
-                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
-                            interval: 'hour',
-                            breakdownFilter: {
-                                breakdowns: undefined,
-                                breakdown: 'num',
-                                breakdown_type: 'person',
-                                breakdown_histogram_bin_count: 10,
-                                breakdown_group_type_index: undefined,
-                                breakdown_normalize_url: undefined,
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(InsightType.FUNNELS)
+                    }).toDispatchActions([
+                        builtInsightDataLogic.actionCreators.setQuery({
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'FunnelsQuery',
+                                series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                                funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
+                                filterTestAccounts: true,
+                                version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
+                                interval: 'hour',
+                                breakdownFilter: expected,
+                                tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                             },
-                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        },
-                    } as Node),
-                ])
-            })
+                        } as Node),
+                    ])
+                }
+            )
 
             it('keeps multiple breakdowns when switching from funnels to trends', async () => {
                 funnelsQuery.source = {
@@ -782,6 +846,256 @@ describe('insightNavLogic', () => {
                 expect((builtInsightDataLogic.values.query as InsightVizNode).source).not.toMatchObject({
                     retentionFilter: expect.objectContaining({ showValuesOnSeries: true }),
                 })
+            })
+
+            it('SCRATCH count+math', async () => {
+                const trendsQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: 'a_event',
+                                event: 'a_event',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                            { kind: NodeKind.EventsNode, name: 'b_event', event: 'b_event' },
+                            { kind: NodeKind.EventsNode, name: 'c_event', event: 'c_event' },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                const back = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                // eslint-disable-next-line no-console
+                console.log('SCRATCH after round trip:', JSON.stringify(back.series))
+                expect(back.series).toHaveLength(3)
+            })
+
+            it('keeps every trends series and its math through a retention round trip', async () => {
+                const trendsQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: 'a_event',
+                                event: 'a_event',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                            { kind: NodeKind.EventsNode, name: 'b_event', event: 'b_event' },
+                            { kind: NodeKind.EventsNode, name: 'c_event', event: 'c_event' },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                // Retention holds a single target entity, so the series beyond the first only survive
+                // in the cache — dropping them here silently deleted the rest of the insight.
+                const backToTrends = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(backToTrends.series).toMatchObject([
+                    { event: 'a_event', math: BaseMathType.UniqueUsers },
+                    { event: 'b_event' },
+                    { event: 'c_event' },
+                ])
+            })
+
+            it('carries a funnel event into retention as a targetEntity in the right shape', async () => {
+                const funnelsQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, name: 'signed_up', event: 'signed_up' },
+                            { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(funnelsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                const retentionSource = (builtInsightDataLogic.values.query as InsightVizNode).source as RetentionQuery
+                expect(retentionSource.retentionFilter?.targetEntity).toEqual({
+                    kind: NodeKind.EventsNode,
+                    type: 'events',
+                    id: 'signed_up',
+                    name: 'signed_up',
+                })
+                // A RetentionEntity forbids the EventsNode `event` key, which was a 400 before
+                expect(retentionSource.retentionFilter?.targetEntity).not.toHaveProperty('event')
+            })
+
+            it('carries a retention target entity back into a series on switch away', async () => {
+                const retentionQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                kind: NodeKind.EventsNode,
+                                type: 'events',
+                                id: 'purchase',
+                                name: 'purchase',
+                            },
+                            returningEntity: {
+                                kind: NodeKind.EventsNode,
+                                type: 'events',
+                                id: 'purchase',
+                                name: 'purchase',
+                            },
+                        },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(retentionQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                const trendsSource = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsSource.series).toMatchObject([
+                    { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                ])
+            })
+
+            it('preserves a data warehouse retention target through a trends round trip', async () => {
+                const dwhEntity: RetentionEntity = {
+                    type: 'data_warehouse',
+                    id: 'stripe_customers',
+                    name: 'stripe_customers',
+                    table_name: 'stripe_customers',
+                    timestamp_field: 'created_at',
+                    aggregation_target_field: 'customer_id',
+                }
+                const retentionDwh: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: { targetEntity: dwhEntity, returningEntity: dwhEntity },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(retentionDwh)
+                })
+
+                // Switching to trends must not fabricate a series event named after the warehouse table.
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+                const trendsSource = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsSource.series).not.toContainEqual(expect.objectContaining({ event: 'stripe_customers' }))
+
+                // Switching back must keep the warehouse target intact rather than replacing it with an event.
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+                const retentionSource = (builtInsightDataLogic.values.query as InsightVizNode).source as RetentionQuery
+                expect(retentionSource.retentionFilter?.targetEntity).toMatchObject({
+                    type: 'data_warehouse',
+                    table_name: 'stripe_customers',
+                })
+                expect(retentionSource.retentionFilter?.returningEntity).toMatchObject({
+                    type: 'data_warehouse',
+                    table_name: 'stripe_customers',
+                })
+            })
+
+            it('keeps event property filters on a retention target through a trends round trip', async () => {
+                const targetEntity: RetentionEntity = {
+                    kind: NodeKind.EventsNode,
+                    type: 'events',
+                    id: 'purchase',
+                    name: 'purchase',
+                    properties: [
+                        {
+                            key: '$browser',
+                            type: PropertyFilterType.Event,
+                            value: 'Chrome',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                }
+                const retentionFiltered: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: { targetEntity, returningEntity: targetEntity },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(retentionFiltered)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                // Without copying `properties` across the conversion the target would return unfiltered,
+                // silently widening the retention count.
+                const retentionSource = (builtInsightDataLogic.values.query as InsightVizNode).source as RetentionQuery
+                expect(retentionSource.retentionFilter?.targetEntity?.properties).toEqual([
+                    expect.objectContaining({ key: '$browser', value: 'Chrome' }),
+                ])
+            })
+
+            it('does not carry a trends-only display into stickiness', async () => {
+                const trendsPie: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                        trendsFilter: { display: ChartDisplayType.ActionsPie },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsPie)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.STICKINESS)
+                }).toFinishAllListeners()
+
+                const stickinessSource = (builtInsightDataLogic.values.query as InsightVizNode)
+                    .source as StickinessQuery
+                expect(stickinessSource.stickinessFilter?.display).toBeUndefined()
             })
 
             it('preserves multiple breakdowns through round-trip via single-breakdown type', async () => {
@@ -1173,6 +1487,45 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it('normalizes the ActionsStackedBar alias when switching from trends to stickiness', async () => {
+                const trendsQueryWithAlias: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        // ActionsStackedBar reaches this path only via the API/MCP; the UI never emits it.
+                        trendsFilter: { display: ChartDisplayType.ActionsStackedBar },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithAlias)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.STICKINESS)
+                }).toFinishAllListeners()
+
+                const stickinessSource = (builtInsightDataLogic.values.query as InsightVizNode)
+                    .source as StickinessQuery
+                expect(stickinessSource.stickinessFilter?.display).toEqual(ChartDisplayType.ActionsBar)
+            })
+
+            const flagCallsTrendsNode: DataWarehouseNode = {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                name: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                id_field: 'uuid',
+                timestamp_field: 'timestamp',
+                distinct_id_field: 'distinct_id',
+            }
             const dataWarehouseTestCases: {
                 label: string
                 source: InsightVizNode['source']
@@ -1371,6 +1724,159 @@ describe('insightNavLogic', () => {
                             },
                         ],
                         funnelsFilter: { funnelVizType: 'steps' },
+                    },
+                },
+                {
+                    label: 'trends flag calls to funnels',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [flagCallsTrendsNode],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'trends flag calls by group to funnels',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        aggregation_group_type_index: 0,
+                        series: [flagCallsTrendsNode],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        aggregation_group_type_index: 0,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                aggregation_target_field: '$group_0',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'trends flag calls to retention',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'Feature flag called',
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.RETENTION,
+                    expectedSource: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                type: 'data_warehouse',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                            returningEntity: {
+                                type: 'data_warehouse',
+                                table_name: 'posthog.flag_evaluations',
+                                aggregation_target_field: 'person_id',
+                            },
+                        },
+                    },
+                },
+                {
+                    label: 'retention flag calls to funnels',
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                type: 'data_warehouse',
+                                id: 'posthog.flag_evaluations',
+                                name: 'Feature flag called',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        },
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'trends flag calls to lifecycle',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [flagCallsTrendsNode],
+                    },
+                    targetView: InsightType.LIFECYCLE,
+                    expectedSource: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                                created_at_field: 'timestamp',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'lifecycle flag calls to trends',
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'posthog.flag_evaluations',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                                created_at_field: 'timestamp',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
                     },
                 },
             ]

@@ -36,14 +36,3 @@ export function runStatusVariant(
 ): RunStatusVariant {
   return status ? RUN_STATUS_VARIANTS[status] : "default";
 }
-
-/**
- * Whether the run is still in flight, and so worth animating in a list. Canvases
- * and tasks that never started carry no run to wait on, and `not_started` is a
- * queued-but-unclaimed task rather than one doing work.
- */
-export function isRunStatusActive(
-  status: TaskRunStatus | null | undefined,
-): boolean {
-  return status === "queued" || status === "in_progress";
-}

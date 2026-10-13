@@ -15,7 +15,13 @@ import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
 import type { AccessControlsTab, ScopeType } from './types'
 
-export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
+export function AccessControls({
+    projectId,
+    tabsRightSlot,
+}: {
+    projectId: string
+    tabsRightSlot?: React.ReactNode
+}): JSX.Element {
     const logic = accessControlsLogic({ projectId })
 
     const {
@@ -33,6 +39,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         loading,
         activePanelSubject,
         visibleResourceKeySet,
+        filteredResourceKeySet,
         accessDetailPanelEnabled,
         ruleModalState,
     } = useValues(logic)
@@ -64,6 +71,8 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                         },
                         { key: 'members' as AccessControlsTab, label: 'Members' },
                     ]}
+                    rightSlot={tabsRightSlot}
+                    rightSlotClassName="pr-0"
                 />
 
                 <AccessControlTabContainer activeTab={activeTab}>
@@ -89,6 +98,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 loading={loading}
                                 canEditAny={canEdit}
                                 visibleResources={visibleResourceKeySet}
+                                filteredResources={filteredResourceKeySet}
                                 selectedEntryId={openInPanelId}
                                 onEdit={(entry) => {
                                     if (!accessDetailPanelEnabled) {
@@ -112,13 +122,19 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
 function AccessControlTabContainer(props: { activeTab: AccessControlsTab; children?: React.ReactNode }): JSX.Element {
     if (props.activeTab === 'roles') {
         return (
-            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>{props.children}</PayGateMini>
+            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS} featureDetail="resource-access-controls-roles">
+                <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="access-control-roles">
+                    {props.children}
+                </PayGateMini>
             </PayGateMini>
         )
     }
     if (props.activeTab === 'members') {
-        return <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>{props.children}</PayGateMini>
+        return (
+            <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="access-control-members">
+                {props.children}
+            </PayGateMini>
+        )
     }
 
     return <>{props.children}</>

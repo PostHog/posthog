@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -23,9 +25,23 @@ EVENTS_DEFAULT_LOOKBACK_DAYS = 30
 EVENTS_ENDPOINT = "events"
 COHORTS_ENDPOINT = "cohorts"
 ANNOTATIONS_ENDPOINT = "annotations"
+EVENT_TYPES_ENDPOINT = "event_types"
+EVENT_PROPERTIES_ENDPOINT = "event_properties"
+USER_PROPERTIES_ENDPOINT = "user_properties"
+EVENT_CATEGORIES_ENDPOINT = "event_categories"
+
+TAXONOMY_EVENT_PATH = "/api/2/taxonomy/event"
 
 
-@dataclass
+@frozen
+class AmplitudeFanoutConfig:
+    parent_path: str
+    parent_data_selector: str
+    # Stamped onto every child row, so the composite primary key is never half null.
+    join_field: str
+
+
+@frozen
 class AmplitudeEndpointConfig:
     name: str
     path: str
@@ -40,6 +56,8 @@ class AmplitudeEndpointConfig:
     # Must be a STABLE datetime field (never `updated_at`/`last_seen`) so partitions don't
     # rewrite on every sync.
     partition_key: str | None = None
+    # Set when the endpoint only lists rows for one parent at a time.
+    fanout: AmplitudeFanoutConfig | None = None
 
 
 AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
@@ -72,6 +90,37 @@ AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
     ANNOTATIONS_ENDPOINT: AmplitudeEndpointConfig(
         name=ANNOTATIONS_ENDPOINT,
         path="/api/2/annotations",
+        primary_keys=["id"],
+        data_selector="data",
+    ),
+    # Taxonomy API lookups. None expose a timestamp filter or a cursor, so all are full refresh.
+    EVENT_TYPES_ENDPOINT: AmplitudeEndpointConfig(
+        name=EVENT_TYPES_ENDPOINT,
+        path=TAXONOMY_EVENT_PATH,
+        primary_keys=["event_type"],
+        data_selector="data",
+    ),
+    EVENT_PROPERTIES_ENDPOINT: AmplitudeEndpointConfig(
+        name=EVENT_PROPERTIES_ENDPOINT,
+        path="/api/2/taxonomy/event-property",
+        # A property name is only unique within its event type, so the event type is part of the key.
+        primary_keys=["event_type", "event_property"],
+        data_selector="data",
+        fanout=AmplitudeFanoutConfig(
+            parent_path=TAXONOMY_EVENT_PATH,
+            parent_data_selector="data",
+            join_field="event_type",
+        ),
+    ),
+    USER_PROPERTIES_ENDPOINT: AmplitudeEndpointConfig(
+        name=USER_PROPERTIES_ENDPOINT,
+        path="/api/2/taxonomy/user-property",
+        primary_keys=["user_property"],
+        data_selector="data",
+    ),
+    EVENT_CATEGORIES_ENDPOINT: AmplitudeEndpointConfig(
+        name=EVENT_CATEGORIES_ENDPOINT,
+        path="/api/2/taxonomy/category",
         primary_keys=["id"],
         data_selector="data",
     ),

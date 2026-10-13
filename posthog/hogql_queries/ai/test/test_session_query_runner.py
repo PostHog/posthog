@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import DateRange, SessionQuery
@@ -59,6 +61,12 @@ def _select_queries_without_metadata(queries: list[str]) -> list[str]:
 
 
 class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
+    def test_evaluation_reads_do_not_share_a_cache_key_with_plain_reads(self) -> None:
+        query = SessionQuery(sessionId="session-a", dateRange=DateRange(date_from="-1d", date_to="now"))
+        plain = SessionQueryRunner(team=self.team, query=query)
+        evaluation = SessionQueryRunner(team=self.team, query=query, for_evaluation=True)
+        self.assertNotEqual(evaluation.get_cache_key(), plain.get_cache_key())
+
     def test_reads_complete_trace_when_only_root_has_session_id(self) -> None:
         bulk_create_ai_events(
             [
@@ -131,6 +139,88 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.outputTokens, 2)
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)
         self.assertEqual(trace.totalLatency, 3)
+
+    def test_sums_distinguish_reported_zero_from_no_report(self) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-zero",
+                        "$ai_trace_id": "trace_zero",
+                        "$ai_latency": 1,
+                        "$ai_input_tokens": 0,
+                        "$ai_output_tokens": 0,
+                        "$ai_input_cost_usd": 0,
+                        "$ai_output_cost_usd": 0,
+                        "$ai_total_cost_usd": 0,
+                    },
+                },
+                # A generation whose provider never reported usage carries no
+                # token or cost properties at all.
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 1, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-zero",
+                        "$ai_trace_id": "trace_unpriced",
+                        "$ai_latency": 1,
+                    },
+                },
+            ]
+        )
+
+        runner = SessionQueryRunner(team=self.team, query=SessionQuery(sessionId="session-zero"))
+        traces = {trace.id: trace for trace in runner.calculate().results}
+
+        zero_trace = traces["trace_zero"]
+        self.assertEqual(zero_trace.totalCost, 0)
+        self.assertEqual(zero_trace.inputCost, 0)
+        self.assertEqual(zero_trace.inputTokens, 0)
+
+        unpriced_trace = traces["trace_unpriced"]
+        self.assertIsNone(unpriced_trace.totalCost)
+        self.assertIsNone(unpriced_trace.inputCost)
+        self.assertIsNone(unpriced_trace.inputTokens)
+
+    def test_root_trace_latency_is_not_summed_with_its_children(self) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_trace",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-root-latency",
+                        "$ai_trace_id": "trace-root-latency",
+                        "$ai_latency": 1.806,
+                    },
+                },
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 1, tzinfo=UTC),
+                    "properties": {
+                        "$ai_trace_id": "trace-root-latency",
+                        "$ai_parent_id": "trace-root-latency",
+                        "$ai_latency": 0.917,
+                    },
+                },
+            ]
+        )
+
+        runner = SessionQueryRunner(team=self.team, query=SessionQuery(sessionId="session-root-latency"))
+        response = runner.calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].totalLatency, 1.81)
 
     def test_paginates_session_traces(self) -> None:
         bulk_create_ai_events(
@@ -337,7 +427,10 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         trace = response.results[0]
         self.assertEqual(trace.id, "trace-date-from")
         self.assertEqual(trace.aiSessionId, "session-date-from")
-        self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("$ai_output_choices", trace.events[0].properties)
+        else:
+            self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
         self.assertEqual(trace.inputTokens, 5)
         self.assertEqual(trace.outputTokens, 2)
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)

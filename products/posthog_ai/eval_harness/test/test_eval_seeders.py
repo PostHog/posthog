@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import DateRange, ErrorTrackingQuery
@@ -31,7 +31,7 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
                 materialize("events", property_name)
         super().setUpClass()
 
-    @freeze_time("2026-05-22T12:00:00Z")
+    @time_machine.travel("2026-05-22T12:00:00Z", tick=False)
     def test_error_tracking_seeded_events_survive_person_filters(self) -> None:
         test_users_cohort = get_or_create_internal_test_users_cohort(
             self.team, initiating_user_email="eval-master-seed@posthog.test"

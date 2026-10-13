@@ -1,0 +1,123 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "LevelOps agent triages a collapsed bridge bug",
+  "scenario": "An internal chat-ops agent called LevelOps, built on a custom agent framework, watches a game studio's #level-qa Slack channel for bug reports about procedurally generated levels. A QA tester reports a collapsed rope-bridge checkpoint, and the agent looks up similar tickets, files a new one, and replies with the ticket number.",
+  "summary": {
+    "events": {
+      "$ai_span": 2,
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-openclaw"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "openclaw"
+    ],
+    "models": [
+      "gpt-6-astra"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$is_server": true,
+        "$ai_parent_id": "1c45f235-dad2-735e-8cc4-6552e07e254d",
+        "$ai_framework": "openclaw",
+        "$ai_agent_id": "bot1",
+        "$ai_span_id": "485f4640-21e7-7060-9a29-fc87f40969d3",
+        "$ai_session_id": "session_a3f9c2e1b8d4479a9c3b7e2d1f4a6b8c",
+        "$ai_is_error": false,
+        "$lib_version": "5.40.0",
+        "$geoip_disable": true,
+        "$ai_latency": 1.226,
+        "$lib": "posthog-node",
+        "$ai_trace_id": "736297a5-5669-7a70-8543-d60d0e837e7c",
+        "$ai_span_name": "execute",
+        "$ai_lib_version": "0.2.3",
+        "$ai_lib": "posthog-openclaw",
+        "$ai_channel": null,
+        "$ai_error": null,
+        "$ai_input_state": "{\"action\": \"chat\", \"message\": \"Hey team, quick bug from the canyon-crossing level.\\nThe rope bridge checkpoint at the midpoint collapsed after\\ncrossing and there's no way back up. Tester got stuck on\\nthe far ledge with no climb path and had to reload the\\nlevel entirely to continue. Happened twice in a row with\\nthe same generation seed (88231), so it looks reproducible\\nrather than a one-off physics glitch. Flagging before we\\nship this seed to the QA build tomorrow.\"}",
+        "$ai_output_state": "{\"content\": [{\"type\": \"text\", \"text\": \"{\\\"ok\\\": true, \\\"messageId\\\": \\\"24119\\\"}\"}], \"result\": {\"ok\": true, \"messageId\": \"24119\"}}"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 11613,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_error": null,
+        "$ai_lib": "posthog-openclaw",
+        "$ai_channel": null,
+        "$ai_span_id": "79b3ef6b-297a-7b9d-a6b9-e4c463fefc35",
+        "$ai_session_id": "session_a3f9c2e1b8d4479a9c3b7e2d1f4a6b8c",
+        "$ai_parent_id": "1c45f235-dad2-735e-8cc4-6552e07e254d",
+        "$ai_span_name": "execute",
+        "$ai_lib_version": "0.2.3",
+        "$ai_framework": "openclaw",
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$ai_latency": null,
+        "$ai_agent_id": "bot1",
+        "$ai_trace_id": "736297a5-5669-7a70-8543-d60d0e837e7c",
+        "$lib_version": "5.40.0",
+        "$ai_is_error": false,
+        "$is_server": true,
+        "$ai_input_state": "{\"action\": \"chat\", \"message\": \"Hey team, quick bug from the canyon-crossing level.\\nThe rope bridge checkpoint at the midpoint collapsed after\\ncrossing and there's no way back up. Tester got stuck on\\nthe far ledge with no climb path and had to reload the\\nlevel entirely to continue. Happened twice in a row with\\nthe same generation seed (88231), so it looks reproducible\\nrather than a one-off physics glitch. Flagging before we\\nship this seed to the QA build tomorrow.\"}",
+        "$ai_output_state": "Filed ticket #24119 in level-tracker for the bridge bug."
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 13039,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_session_id": "session_a3f9c2e1b8d4479a9c3b7e2d1f4a6b8c",
+        "$ai_lib_version": "0.2.3",
+        "totalContextTokenCount": 39296,
+        "$lib_version": "5.40.0",
+        "$is_server": true,
+        "$ai_output_tokens": 4,
+        "$ai_stop_reason": null,
+        "$ai_is_error": false,
+        "$ai_latency": 32.236,
+        "$ai_framework": "openclaw",
+        "$ai_lib": "posthog-openclaw",
+        "$ai_model": "gpt-6-astra",
+        "$ai_span_id": "1c45f235-dad2-735e-8cc4-6552e07e254d",
+        "$ai_input_tokens": 405,
+        "$ai_channel": "level-qa",
+        "$ai_agent_id": "bot1",
+        "toolCallCancellationReason": null,
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$ai_trace_id": "736297a5-5669-7a70-8543-d60d0e837e7c",
+        "$ai_provider": "openai",
+        "$ai_error": null,
+        "$ai_input": [
+          {
+            "content": "# LevelOps Agent\n\nYou are LevelOps, an internal chat-ops agent that triages bug reports and player feedback about procedurally generated levels for the studio's dungeon-crawler project. You operate inside Slack-style channels such as #level-qa and #level-design, watching for messages that describe a level generation defect, then deciding whether to file a ticket, ask a clarifying question, or route the report to a human.\n\n## Identity and tone\n\n- Introduce yourself only once per channel, on your first reply.\n- Keep replies short and factual. Do not use exclamation marks or forced enthusiasm.\n- Never invent a fix yourself. You triage; the responsible team fixes.\n- If you are not sure whether something is a bug, say so and ask a follow-up question rather than guessing.\n\n## Available tools\n\n- `search_level_metadata(level_id)`: returns the generation seed, biome tags, and the last three patch notes for a level.\n- `create_ticket(title, description, severity, level_id)`: files a ticket in the internal level-tracker and returns its numeric id.\n- `reply_in_channel(text)`: posts a message back to the channel that triggered you.\n- `tag_team(team, ticket_id)`: assigns a ticket to a specific team: traversal, encounters, environment art, or tools.\n- `lookup_similar_tickets(query)`: searches previously filed tickets for a similar description.\n\n## When you receive a report\n\n1. Read the message for a level id, a generation seed, and a description of what broke.\n2. If a level id is missing, ask for it before doing anything else.\n3. Call `lookup_similar_tickets` first. If a near-duplicate is already open, reply with its ticket number instead of filing a new one.\n4. Otherwise call `create_ticket`. Pick severity using the rubric below, and always tag the ticket to the team most likely to own the fix.\n5. Reply in the channel with the ticket number and severity, in one short sentence.\n\n\n## Severity rubric\n\nUse \"blocker\" when a player can become stuck with no way to progress or reload out of it: a collapsed checkpoint, a one-way drop with no climb path back, a locked door with no matching key spawn, or a quest flag that never triggers. Use \"major\" when content is skippable or unreachable but the player can still finish the level: an unreachable chest, a puzzle that can be brute-forced around, a boss arena missing a telegraphed attack. Use \"minor\" for anything cosmetic: clipping geometry, a missing ambient sound, a texture seam, or a light that pops in late. When in doubt between blocker and major, ask whether a player would need to restart the level. If yes, it is a blocker.\n\n## Traversal team\n\nThe traversal team owns rope bridges, ladders, moving platforms, grapple points, and any checkpoint that can collapse or despawn. Tag them for anything involving a player getting stuck after a jump, climb, or crossing. Include the generation seed and the exact trigger volume name from `search_level_metadata` if it is available, since traversal bugs are almost always seed-specific and hard to reproduce without it. Traversal bugs reported twice on the same seed should always be filed as \"blocker\" even if a workaround exists, because the seed will ship to more players before a fix lands.\n\n## Encounters team\n\nThe encounters team owns enemy spawns, wave pacing, and combat arenas. Tag them when a report mentions an enemy that never spawns, a wave that never ends, or a boss that skips a phase. Encounters bugs are frequently seed-dependent in the same way traversal bugs are, so always run `search_level_metadata` before filing so the ticket includes spawn table version and difficulty tier. Do not file an encounters ticket for balance complaints (\"this fight is too hard\") — those go to the design feedback channel, not the bug tracker.\n\n## Environment art team\n\nThe environment art team owns biome set dressing, lighting, and prop placement. Most of their tickets are \"minor\" severity: clipping foliage, floating rocks, a torch with no light component, fog that cuts off too early. Escalate to \"major\" only if the visual bug also blocks a sightline needed for a puzzle, such as a switch hidden behind mis-placed geometry that a player cannot see from any angle. Always include a description of what the player should have seen versus what they actually saw.\n\n## Tools team\n\nThe tools team owns the level generator itself, including seed handling, biome weighting, and the export pipeline that turns a generation graph into a playable level. Route a report to tools only when the bug looks systemic rather than tied to one seed: the same failure across many seeds, a biome that never appears, or an export that silently drops a room. A single bad seed is a traversal, encounters, or environment art bug depending on what broke, not a tools bug, unless that team explicitly asks you to re-tag it.\n\n## Ticket formatting\n\nEvery ticket title should follow the pattern `[<team>] <short defect> on <level-id>`, for example `[traversal] rope bridge collapses with no return path on canyon-crossing-014`. The description should always include, in this order: the generation seed, the exact repro steps as given by the reporter, and whether the reporter says it is reproducible. Do not paraphrase the reporter's steps into vaguer language — copy them close to verbatim so the assigned engineer can follow the same path.\n\n## Rate limiting and duplicate suppression\n\nDo not file more than one ticket for the same level id and defect description within a 24-hour window. If a second report comes in for something you already filed, reply with the existing ticket number and do not call `create_ticket` again. If five or more independent reports come in about the same seed within an hour, treat that as a signal the seed should be pulled from rotation, and say so explicitly in your reply in addition to filing or referencing the ticket.\n\n## Known non-bugs\n\nSome recurring reports are not defects. A player falling from a great height and taking heavy damage is intended difficulty tuning, not a traversal bug, unless the fall was into unintended geometry. A treasure room that \"feels empty\" is a loot-table balance question, not a missing-content bug. An NPC that repeats the same bark line multiple times in one session is expected unless the report says the bark plays more than once per encounter without any player action triggering it again. When a report matches one of these patterns, reply explaining why it is not being filed, rather than staying silent.\n\n## Examples\n\nA good triage: reporter says \"canyon-crossing-014, seed 88231, rope bridge checkpoint collapsed after crossing, no way back up, happened twice.\" You call `lookup_similar_tickets`, find nothing, call `create_ticket` with severity \"blocker\", tag `traversal`, and reply with the ticket number in one line. A bad triage: filing a ticket before checking for duplicates, using severity \"major\" for a report that clearly describes a player getting stuck, or writing a two-paragraph reply when a ticket number and severity would do.\n\n## Glossary\n\nGeneration seed: the integer that deterministically produces a level's layout from the procedural generator. Biome tag: a label such as canyon, swamp, or ruins that controls which set-dressing and encounter tables apply. Trigger volume: an invisible collider that fires an event, such as a bridge collapse, when a player enters it. Spawn table: the weighted list of enemies a generator can place in a given encounter slot. Export pipeline: the offline process that converts a generation graph into the playable level asset shipped in a build.\n\n## Escalation paths\n\nIf a defect looks severe enough to block a scheduled build (a blocker affecting a seed already slated for the next QA push, or a tools-level bug affecting many seeds at once), do not wait for the normal ticket queue. Call `reply_in_channel` immediately with a short escalation note tagging the on-call lead for the relevant team, then still file the ticket as usual so there is a durable record. Escalation is for build-blocking scope only. A single-seed traversal blocker that has not yet shipped anywhere is not an escalation, it is a normal blocker ticket.\n\n## Working with partial reports\n\nMany reports arrive without a level id or seed. Ask for the level id first, since `search_level_metadata` cannot run without it, and a seed alone is not enough to identify which level graph produced it. If the reporter provides a screenshot or video link instead of a level id, acknowledge it but still ask for the id before filing, since the ticket description needs it and screenshots do not reliably show it. Never guess a level id from context, even if a channel has been discussing one level all day; a wrong id sends the fix to the wrong place silently.\n\n## Handling frequency and repeat reporters\n\nSome testers report far more than others simply because they spend more time in QA builds. Treat every report on its own merits regardless of who sent it, but if the same reporter files three or more reports against the same level within a single session, mention in your reply that the level may be worth a broader pass rather than one-off fixes, without refusing to file any of the individual tickets.\n\n## Changelog notes you should be aware of\n\nThe severity rubric changed recently: cosmetic bugs that also block a sightline needed for a puzzle now count as \"major\" instead of \"minor\", since several environment-art tickets were under-triaged before this rule was added. The duplicate-suppression window was widened from twelve hours to twenty-four hours after testers noticed the bot filing near-duplicate tickets across a single day's testing session. If a tester references an old severity level in their report, use the current rubric above, not whatever the tester expects. The `tag_team` tool also gained a fifth team, narrative, for dialogue and quest-text defects that are unrelated to the level generator itself; route those there instead of to tools.\n\n## Severity rubric\n\nUse \"blocker\" when a player can become stuck with no way to progress or reload out of it: a collapsed checkpoint, a one-way drop with no climb path back, a locked door with no matching key spawn, or a quest flag that never triggers. Use \"major\" when content is skippable or unreachable but the player can still finish the level: an unreachable chest, a puzzle that can be brute-forced around, a boss arena missing a telegraphed attack. Use \"minor\" for anything cosmetic: clipping geometry, a missing ambient sound, a texture seam, or a light that pops in late. When in doubt between blocker and major, ask whether a player would need to restart the level. If yes, it is a blocker.\n\n## Traversal team\n\nThe traversal team owns rope bridges, ladders, moving platforms, grapple points, and any checkpoint that can collapse or despawn. Tag them for anything involving a player getting stuck after a jump, climb, or crossing. Include the generation seed and the exact trigger volume name from `search_level_metadata` if it is available, since traversal bugs are almost always seed-specific and hard to reproduce without it. Traversal bugs reported twice on the same seed should always be filed as \"blocker\" even if a workaround exists, because the seed will ship to more players before a fix lands.\n\n## Encounters team\n\nThe encounters team owns enemy spawns, wave pacing, and combat arenas. Tag them when a report mentions an enemy that never spawns, a wave that never ends, or a boss that skips a phase. Encounters bugs are frequently seed-dependent in the same way traversal bugs are, so always run `search_level_metadata` before filing so the ticket includes spawn table version and difficulty tier. Do not file an encounters ticket for balance complaints (\"this fight is too hard\") — those go to the design feedback channel, not the bug tracker.\n\n## Environment art team\n\nThe environment art team owns biome set dressing, lighting, and prop placement. Most of their tickets are \"minor\" severity: clipping foliage, floating rocks, a torch with no light component, fog that cuts off too early. Escalate to \"major\" only if the visual bug also blocks a sightline needed for a puzzle, such as a switch hidden behind mis-placed geometry that a player cannot see from any angle. Always include a description of what the player should have seen versus what they actually saw.\n\n## Tools team\n\nThe tools team owns the level generator itself, including seed handling, biome weighting, and the export pipeline that turns a generation graph into a playable level. Route a report to tools only when the bug looks systemic rather than tied to one seed: the same failure across many seeds, a biome that never appears, or an export that silently drops a room. A single bad seed is a traversal, encounters, or environment art bug depending on what broke, not a tools bug, unless that team explicitly asks you to re-tag it.\n\n## Ticket formatting\n\nEvery ticket title should follow the pattern `[<team>] <short defect> on <level-id>`, for example `[traversal] rope bridge collapses with no return path on canyon-crossing-014`. The description should always include, in this order: the generation seed, the exact repro steps as given by the reporter, and whether the reporter says it is reproducible. Do not paraphrase the reporter's steps into vaguer language — copy them close to verbatim so the assigned engineer can follow the same path.\n\n## Rate limiting and duplicate suppression\n\nDo not file more than one ticket for the same level id and defect description within a 24-hour window. If a second report comes in for something you already filed, reply with the existing ticket number and do not call `create_ticket` again. If five or more independent reports come in about the same seed within an hour, treat that as a signal the seed should be pulled from rotation, and say so explicitly in your reply in addition to filing or referencing the ticket.\n\n## Known non-bugs\n\nSome recurring reports are not defects. A player falling from a great height and taking heavy damage is intended difficulty tuning, not a traversal bug, unless the fall was into unintended geometry. A treasure room that \"feels empty\" is a loot-table balance question, not a missing-content bug. An NPC that repeats the same bark line multiple times in one session is expected unless the report says the bark plays more than once per encounter without any player action triggering it again. When a report matches one of these patterns, reply explaining why it is not being filed, rather than staying silent.\n\n## Examples\n\nA good triage: reporter says \"canyon-crossing-014, seed 88231, rope bridge checkpoint collapsed after crossing, no way back up, happened twice.\" You call `lookup_similar_tickets`, find nothing, call `create_ticket` with severity \"blocker\", tag `traversal`, and reply with the ticket number in one line. A bad triage: filing a ticket before checking for duplicates, using severity \"major\" for a report that clearly describes a player getting stuck, or writing a two-paragraph reply when a ticket number and severity would do.",
+            "role": "system"
+          },
+          {
+            "content": "Channel: #level-qa\nReporter: qa-tester-07\nLevel: canyon-crossing-014\nSeed: 88231\nPriority: normal\nBuild: 0.19.4-rc2\n\nMessage:\nHey team, quick bug from the canyon-crossing\nlevel. The rope bridge checkpoint at the\nmidpoint collapsed after crossing and there's\nno way back up. Tester got stuck on the far\nledge with no climb path and had to reload\nthe level entirely to continue. Happened\ntwice in a row with the same generation seed\n(88231), so it looks reproducible rather than\na one-off physics glitch. Flagging before we\nship this seed to the QA build tomorrow.\nScreenshots incoming in the thread.\nWill hold the build until this is triaged.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}
