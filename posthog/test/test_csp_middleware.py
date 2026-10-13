@@ -2,7 +2,7 @@ from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
 from posthog.test.base import APIBaseTest, override_settings
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
@@ -10,13 +10,7 @@ from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.csp_middleware import (
-    CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG,
-    CSPMiddleware,
-    app_csp_header_name,
-    narrowed_app_policy,
-    object_storage_upload_source,
-)
+from posthog.csp_middleware import CSPMiddleware, app_csp_header_name, narrowed_app_policy, object_storage_upload_source
 
 
 def _parse_policies(header: str) -> list[dict[str, list[str]]]:
@@ -170,32 +164,19 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("app_root", "/", True),
+            ("app_root", "/"),
             # No route serves this path, so the app catch-all answers it. It must keep the app
             # policy, because the frame policy is enforced and its script-src 'none' stops the app
             # from starting.
-            ("path_under_the_replay_frame_prefix", "/replay_player_frame", True),
-            # A customer's page frames this document, and the enforced list names only PostHog
-            # origins.
-            ("embeddable_document", "/shared/notarealtoken", False),
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+            ("messaging_preferences", "/messaging-preferences/abc"),
         ]
     )
-    def test_signed_out_page_without_the_flag_enforces_only_frame_ancestors(
-        self, _name, path, enforces_frame_ancestors
-    ):
+    def test_signed_out_page_is_fully_enforced(self, _name, path):
         self.client.logout()
         response = self.client.get(path)
-        reported = response["Content-Security-Policy-Report-Only"]
-        assert "default-src 'self'" in reported
-        if not enforces_frame_ancestors:
-            assert "Content-Security-Policy" not in response
-            return
-        # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
-        # The enforced list has to be the one the reported policy names, or the two drift apart.
-        enforced = response["Content-Security-Policy"]
-        assert enforced.startswith("frame-ancestors 'self' https://posthog.com")
-        assert "default-src" not in enforced
-        assert enforced in reported
+        assert "default-src 'self'" in response["Content-Security-Policy"]
+        assert "Content-Security-Policy-Report-Only" not in response
 
     def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self):
         # The wiring guard for app_csp_header_name. The matrix of paths lives in
@@ -491,8 +472,7 @@ class TestAppCspHeaderName(SimpleTestCase):
             ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177"),
         ]
     )
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_embeddable_document_stays_report_only_under_enforcement(self, _name, path, _mock_flag):
+    def test_embeddable_document_stays_report_only(self, _name, path):
         # A customer's site frames each of these. The app policy names only PostHog origins in
         # frame-ancestors, so enforcing it here stops the document rendering on their page.
         assert app_csp_header_name(self._request(path)) == "Content-Security-Policy-Report-Only"
@@ -500,67 +480,28 @@ class TestAppCspHeaderName(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("app_root", "/", "abc", False),
-            ("project_page", "/project/2/dashboard", "abc", False),
+            ("app_root", "/", "abc"),
+            ("project_page", "/project/2/dashboard", "abc"),
             # Neither prefix owns these. A shorter prefix match would hand the app catch-all the
             # carve-out and quietly exempt an ordinary page from enforcement.
-            ("shared_prefix_without_separator", "/sharedthing", "abc", False),
-            ("exporter_prefix_without_separator", "/exporterthing", "abc", False),
-            ("login", "/login", None, False),
-            ("signup", "/signup", None, False),
-            ("reset_link", "/reset/abc/def", None, False),
-            ("reset_2fa_link", "/reset_2fa/abc/def", None, False),
-            ("verify_email_link", "/verify_email/abc/def", None, False),
-            ("other_signed_out_page_with_the_flag", "/messaging-preferences/abc", None, True),
+            ("shared_prefix_without_separator", "/sharedthing", "abc"),
+            ("exporter_prefix_without_separator", "/exporterthing", "abc"),
+            ("login", "/login", None),
+            ("signup", "/signup", None),
+            ("reset_link", "/reset/abc/def", None),
+            ("reset_2fa_link", "/reset_2fa/abc/def", None),
+            ("verify_email_link", "/verify_email/abc/def", None),
+            ("other_signed_out_page", "/messaging-preferences/abc", None),
         ]
     )
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled")
-    def test_page_is_enforced(
-        self, _name: str, path: str, distinct_id: str | None, flag_enabled: bool, mock_flag: MagicMock
-    ) -> None:
-        mock_flag.side_effect = lambda key, *args, **kwargs: (
-            flag_enabled and key == CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG
-        )
+    def test_page_is_enforced(self, _name: str, path: str, distinct_id: str | None) -> None:
         assert app_csp_header_name(self._request(path, distinct_id=distinct_id)) == "Content-Security-Policy"
 
-    @parameterized.expand(
-        [
-            ("other_signed_out_page", "/messaging-preferences/abc"),
-            ("login_prefix_without_separator", "/loginfoo"),
-        ]
-    )
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=False)
-    def test_other_signed_out_page_stays_report_only_without_the_flag(self, _name: str, path: str, _mock_flag) -> None:
-        assert app_csp_header_name(self._request(path, distinct_id=None)) == "Content-Security-Policy-Report-Only"
-
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=False)
-    def test_a_request_without_a_user_follows_the_signed_out_rules(self, _mock_flag: MagicMock) -> None:
+    def test_a_request_without_a_user_is_enforced(self) -> None:
         # CSPMiddleware runs before AuthenticationMiddleware, so a response from a middleware between
         # the two carries no request.user.
         assert app_csp_header_name(RequestFactory().get("/login")) == "Content-Security-Policy"
-        assert (
-            app_csp_header_name(RequestFactory().get("/messaging-preferences/abc"))
-            == "Content-Security-Policy-Report-Only"
-        )
-
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_each_signed_out_document_draws_its_own_bucket(self, mock_flag: MagicMock) -> None:
-        app_csp_header_name(self._request("/messaging-preferences/abc", distinct_id=None))
-        app_csp_header_name(self._request("/messaging-preferences/abc", distinct_id=None))
-        # A fixed id would put every signed-out visitor in one bucket, so a rollout percentage
-        # would enforce for everyone or nobody.
-        first, second = (call.args[1] for call in mock_flag.call_args_list)
-        assert first != second
-        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
-        assert mock_flag.call_args.kwargs["send_feature_flag_events"] is False
-
-    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
-    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag: MagicMock) -> None:
-        # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
-        assert (
-            app_csp_header_name(self._request("/messaging-preferences/abc", distinct_id=None))
-            == "Content-Security-Policy-Report-Only"
-        )
+        assert app_csp_header_name(RequestFactory().get("/messaging-preferences/abc")) == "Content-Security-Policy"
 
 
 class TestNarrowedAppPolicy(SimpleTestCase):

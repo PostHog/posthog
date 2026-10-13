@@ -8224,6 +8224,7 @@ export const ErrorTrackingOrderByApi = {
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
@@ -11273,6 +11274,10 @@ export const DashboardTemplatesListScope = {
 } as const
 
 export type DashboardsListParams = {
+    /**
+     * Optional. Return only dashboards created by the user with this UUID.
+     */
+    created_by?: string
     /**
      * Optional. Exclude dashboards that PostHog generated.
      */

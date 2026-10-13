@@ -165,9 +165,15 @@ s3://<bucket>/<prefix>/
 
 ```text
 s3://<object-storage bucket>/<prefix>/serving/
-├── models/<model_name>@<model_version>/metadata.json + <head>.ubj   # the refit boosters only
+├── models/<model_name>@<model_version>/metadata.json + <head>.ubj   # xgboost: the refit boosters only
+├── models/<model_name>@<model_version>/metadata.json + model.onnx   # onnx: one graph for every head
 └── manifest.json                                                    # the models one scoring pass runs
 ```
+
+Each entry names its `model_kind`, and the sweep loads it through that kind's handler in `products/signals/backend/ranking/model_store.py`:
+
+- `xgboost`, the default for a model without the field: one booster per head, `<head>.ubj`. The entry's `heads` list names the files.
+- `onnx`: one `model.onnx` for every head. The entry names it in `model_file`, and `heads` still lists the heads it scores. The graph takes one float32 input, `report`, of shape (batch, feature-set width), and gives one output, `probabilities`, of shape (batch, heads). The column order of that output is `output_heads` in the model's `metadata.json`, and each head entry in `heads` there names `model.onnx` as its `file`. At load, the handler checks the input names and widths against what the model's feature set builds, and a mismatch skips the model like an unloadable booster. The session runs on CPU with a bounded thread count, and `onnxruntime` is imported only when a model loads. The project-vector inputs are not served yet.
 
 The manifest holds one entry per model with its `roles`: `served` for the champion of `INBOX_RANKING_SERVED_FAMILY`, `daily_candidate` for that family's candidate on this partition when it is a different, readable model, `pinned` for each model the `pin` override keeps (see [Overrides](#overrides)), and `cross_family` for every other family's champion that has a readable head. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit, dropping `cross_family` entries first and `pinned` entries next. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. No family has a champion until the first promotion, so until then the asset writes nothing and says why.
 
@@ -329,11 +335,18 @@ Nothing here touches the prod bucket: the reader credential is read-only and the
 
 ### The multi-head prototype
 
-`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up:
+`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up.
+
+The network is PyTorch. torch is not a main dependency: it comes from the `inbox-ranking` dependency group, with the CPU-only wheels, together with `onnx` and `onnxruntime`. The group conflicts with the `sentiment` group, which takes the CUDA build of torch, so install one or the other. No image installs the group.
 
 ```bash
+uv sync --group inbox-ranking
 DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead --output multihead.json
 ```
+
+`multihead/network.py` is the only module that imports torch. `multihead/inputs.py` holds the inputs and the settings, so the prototype and its callers build them without torch. Never import `network.py` from a module on the Django, Temporal or Dagster import path: `test_multihead_network.py` fails if torch reaches one. Without the group, the torch tests skip. `ci-inbox-ranking.yml` installs the group and runs them.
+
+`export_onnx(network, path)` writes the network as one ONNX graph and returns its head order. The inputs are `report` (N x 1536) and, for the network with project vectors, `project` (N x 4 x 1536) and `has_history` (N x 4), all float32. The one output is `probabilities` (N x heads), after the sigmoid. N is a dynamic axis.
 
 The run takes the newest day that has the state, labels and report embeddings cached, unless you pass `--partition`. It builds the `open`, `action` and `fixed` examples with the training dag's own `example_moments`, `cap_examples` and `holdout_mask`. Then it prints pooled AUC, within-team AUC (`team_auc`), average precision and ECE per head for three models on each head's own holdout rows:
 

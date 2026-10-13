@@ -586,7 +586,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def table_row_count_is_cumulative(self) -> bool:
         # These sync types append/merge into the warehouse table across runs, so its true size is the
         # full table count — not the latest run's row_count, which is only that run's delta. Full refresh
-        # replaces the whole table, so there the run's row_count already equals the table size.
+        # replaces the whole table, so there the run's row_count equals the table size unless the run
+        # resumed: a resumed run counts only the rows of its last attempt.
         return self.should_use_incremental_field or self.is_cdc or self.is_xmin
 
     @property
