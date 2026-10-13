@@ -5,6 +5,7 @@ import { IconSend } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
     urlForNewWorkflowWithTrigger,
@@ -30,7 +31,13 @@ export function IssueWorkflowButton({ issueId }: { issueId: string }): JSX.Eleme
             tooltip="Open a workflow that emails people each time they hit this issue"
             onClick={() => {
                 captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(urlForNewWorkflowWithTrigger(issueWorkflowTrigger(issueId), SOURCE))
+                router.actions.push(
+                    urlForNewWorkflowWithTrigger(
+                        issueWorkflowTrigger(issueId),
+                        SOURCE,
+                        draftMessage({ kind: 'issue_hit' })
+                    )
+                )
             }}
             data-attr="issue-panel-start-workflow"
         >

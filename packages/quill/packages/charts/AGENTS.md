@@ -17,6 +17,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `FunnelChart`          | Funnel steps as grouped bars over a hatched drop-off track — one band per step, one bar per variant, valued as percent of first step        |
 | `PieChart`             | Part of whole, one value per series; `innerRadiusRatio` for a donut                                                                         |
 | `ProportionBar`        | Part of whole as one flat 100% bar with no axes, legend rows show `share · value`; takes the same `series` as `PieChart`                    |
+| `BarList`              | Ranked rows of label, bar on a neutral track, and value; takes the same `series` as `PieChart`, one row per series                          |
 | `ScatterChart`         | Two continuous numeric axes — one marker per `{ x, y }` point; takes `points`, not `labels`                                                 |
 | `BoxPlot`              | Distribution summaries — `{ min, p25, median, mean, p75, max }` per label                                                                   |
 | `Heatmap`              | 2D density grid (latency over time) — `xLabels` × `yLabels`, `cells[row][col]`                                                              |
@@ -107,18 +108,18 @@ Import helpers from `@posthog/quill-charts/testing` (jsdom only): `getHogChart` 
 
 ## Docs index
 
-| Doc                                                | Covers                                                                                                                 |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                             |
-| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, box plot, heatmap, sankey, sparkline, metric card     |
-| [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis |
-| [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                 |
-| [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                         |
-| [docs/legend.md](./src/docs/legend.md)             | Click model, controlled state, visibility groups, row rendering, layout caps                                           |
-| [docs/overlays.md](./src/docs/overlays.md)         | Built-in overlays and writing a custom one                                                                             |
-| [docs/interactions.md](./src/docs/interactions.md) | Clicks, drag-to-zoom, 2D brush, hover                                                                                  |
-| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Layers, conventions, adding a chart type                                                                               |
-| [docs/TESTING.md](./src/docs/TESTING.md)           | The accessor contract and test recipes                                                                                 |
+| Doc                                                | Covers                                                                                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                                   |
+| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, bar list, box plot, heatmap, sankey, sparkline, metric card |
+| [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis       |
+| [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                       |
+| [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                               |
+| [docs/legend.md](./src/docs/legend.md)             | Click model, controlled state, visibility groups, row rendering, layout caps                                                 |
+| [docs/overlays.md](./src/docs/overlays.md)         | Built-in overlays and writing a custom one                                                                                   |
+| [docs/interactions.md](./src/docs/interactions.md) | Clicks, drag-to-zoom, 2D brush, hover                                                                                        |
+| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Layers, conventions, adding a chart type                                                                                     |
+| [docs/TESTING.md](./src/docs/TESTING.md)           | The accessor contract and test recipes                                                                                       |
 
 ## Maintenance
 

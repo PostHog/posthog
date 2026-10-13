@@ -239,6 +239,7 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
+            "flash_coordinator": False,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
 
