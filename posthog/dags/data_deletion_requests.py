@@ -664,10 +664,10 @@ def _event_removal_placements(
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 
-# Immediate deletion leaves flag_evaluations rows to the table's TTL. A HogQL predicate does not
-# compile against that table, so gating on it refused every such request whose team had matching
-# $feature_flag_called rows. Deferred deletion still queues the table's uuids.
-_IMMEDIATE_SKIP_TARGETS = (FLAG_EVALUATIONS,)
+# An immediate request with a HogQL predicate leaves flag_evaluations rows to the table's TTL. The
+# predicate does not compile against that table. Without the skip, the unsweepable-rows gate would
+# refuse every such request whose team has matching $feature_flag_called rows.
+_IMMEDIATE_HOGQL_SKIP_TARGETS = (FLAG_EVALUATIONS,)
 
 
 @frozen
@@ -794,7 +794,8 @@ def get_event_removal_shards(
     if deletion_request.execution_mode == ExecutionMode.DEFERRED.value:
         return
 
-    placements = _event_removal_placements(cluster, deletion_request, skip_targets=_IMMEDIATE_SKIP_TARGETS)
+    skip_targets = _IMMEDIATE_HOGQL_SKIP_TARGETS if deletion_request.hogql_predicate else ()
+    placements = _event_removal_placements(cluster, deletion_request, skip_targets=skip_targets)
     # placement.cluster, not the job's handle: shard numbers are per cluster.
     shards = [
         EventRemovalShard(data_table=placement.target.data_table, shard_num=shard_num)

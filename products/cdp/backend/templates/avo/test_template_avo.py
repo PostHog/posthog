@@ -1,12 +1,11 @@
 from posthog.test.base import BaseTest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.models.plugin import PluginConfig
 from products.cdp.backend.templates.avo.template_avo import (
     TemplateAvoMigrator,
     template as template_avo,
 )
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateAvo(BaseHogFunctionTemplateTest):

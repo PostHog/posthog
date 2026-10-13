@@ -47,6 +47,7 @@ import type {
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
+    AnalyticsQueryResponseBase,
     CoreEvent,
     CurrencyCode,
     CustomerAnalyticsConfig,
@@ -2697,6 +2698,7 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     query: R | null
     query_status?: QueryStatus
     query_scan?: QueryScanSummary
+    warnings?: AnalyticsQueryResponseBase['warnings'] | null
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
@@ -6080,6 +6082,7 @@ export interface AccessControlDefaultsResponse {
     available_project_levels: AccessControlLevel[]
     available_resource_levels: AccessControlLevel[]
     can_edit: boolean
+    is_managed_by_terraform: boolean
     project_access_level: AccessControlLevel
     resource_access_levels: Record<string, EffectiveAccessControlEntry>
     /** Resources supporting object-level rules, derived server-side from viewset registration,

@@ -68,7 +68,11 @@ from products.autoresearch.backend.dataset.labeling import (
     rolling_selection,
 )
 from products.autoresearch.backend.evaluation.history import latest_validation_runs
-from products.autoresearch.backend.evaluation.segment_thresholds import BASE_RATE_DATES, segment_thresholds
+from products.autoresearch.backend.evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    champion_training_base_rate,
+    segment_thresholds,
+)
 from products.autoresearch.backend.inference.failures import classify_failure
 from products.autoresearch.backend.inference.sandbox import (
     _FOLD_COL,
@@ -395,7 +399,10 @@ def _likely_segment(*, team_id: int, pipeline: AutoresearchPipeline, scored: Sco
     The run keeps the count because its score distribution stores only quantiles, and the model
     list must not query the prediction events for every pipeline.
     """
-    threshold = segment_thresholds(latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES)).likely
+    threshold = segment_thresholds(
+        latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES),
+        training_rate=champion_training_base_rate(team_id, pipeline),
+    ).likely
     return {
         "likely_count": sum(1 for row in scored.rows if row["p_y"] >= threshold),
         "likely_threshold": threshold,

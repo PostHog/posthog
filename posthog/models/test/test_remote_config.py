@@ -11,13 +11,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.helpers import mock_transpile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
