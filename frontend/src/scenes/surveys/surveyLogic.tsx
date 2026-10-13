@@ -95,6 +95,7 @@ import {
     SurveyRates,
     SurveySchedule,
     SurveyStats,
+    SurveyType,
 } from '~/types'
 
 import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
@@ -108,7 +109,6 @@ import type {
     SurveyAppearance,
     SurveyDisplayConditions,
     SurveyQuestionDescriptionContentType,
-    SurveyType,
     TeamPublicType,
     TeamType,
     UserType,
@@ -3201,7 +3201,11 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         targetingFullRolloutError: [
             (s) => [s.survey],
-            (survey: NewSurvey | Survey): string | null => getFullRolloutTargetingError(survey.targeting_flag_filters),
+            (survey: NewSurvey | Survey): string | null =>
+                // sanitizeSurvey drops targeting for external surveys
+                survey.type === SurveyType.ExternalSurvey
+                    ? null
+                    : getFullRolloutTargetingError(survey.targeting_flag_filters),
         ],
         urlMatchTypeValidationError: [
             (s) => [s.survey],
