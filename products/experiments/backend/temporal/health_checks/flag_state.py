@@ -2,7 +2,7 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation, SignalContent
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.experiments.backend.health.checks.flag_state import flag_state
@@ -10,7 +10,6 @@ from products.experiments.backend.temporal.health_checks.findings import (
     detect_experiment_findings,
     live_gate_team_ids,
     render_finding_alert,
-    render_finding_signal,
 )
 
 
@@ -43,10 +42,6 @@ class ExperimentFlagStateCheck(HealthCheck):
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         return render_finding_alert(issue)
-
-    @classmethod
-    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
-        return render_finding_signal(issue)
 
     @classmethod
     def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
