@@ -220,44 +220,55 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         The raw rows nominate candidates without resolving versions, so the set can only be too
         wide. The latest-version resolution then runs over those candidates only, not over the
-        team's whole mapping.
+        team's whole mapping. The column names are unique, so a join to the events table does not
+        make the event filter's `distinct_id` or `person_id` ambiguous.
         """
+
+        def global_in(field: str, subquery: ast.SelectQuery) -> ast.CompareOperation:
+            # GLOBAL: the initiator builds each set once and ships it, so no shard runs the scan of
+            # a distributed table again.
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=[field]), right=subquery
+            )
+
+        recorded_distinct_ids = parse_select(
+            "SELECT s.distinct_id FROM raw_session_replay_events AS s WHERE {scope}",
+            placeholders={"scope": self._recording_scope()},
+        )
+        recorded_persons = parse_select(
+            "SELECT person_id FROM raw_person_distinct_ids WHERE {recorded}",
+            placeholders={"recorded": global_in("distinct_id", cast(ast.SelectQuery, recorded_distinct_ids))},
+        )
+        candidates = parse_select(
+            "SELECT distinct_id FROM raw_person_distinct_ids WHERE {persons}",
+            placeholders={"persons": global_in("person_id", cast(ast.SelectQuery, recorded_persons))},
+        )
         query = parse_select(
             """
-            SELECT distinct_id, argMax(person_id, version) AS person_id
+            SELECT distinct_id AS mapped_distinct_id, argMax(person_id, version) AS mapped_person_id
             FROM raw_person_distinct_ids
-            WHERE distinct_id IN (
-                SELECT distinct_id FROM raw_person_distinct_ids
-                WHERE person_id IN (
-                    SELECT person_id FROM raw_person_distinct_ids
-                    WHERE distinct_id IN (SELECT s.distinct_id FROM raw_session_replay_events AS s WHERE {scope})
-                )
-            )
+            WHERE {candidates}
             GROUP BY distinct_id
             HAVING argMax(is_deleted, version) = 0
             """,
-            placeholders={"scope": self._recording_scope()},
+            placeholders={"candidates": global_in("distinct_id", cast(ast.SelectQuery, candidates))},
         )
         assert isinstance(query, ast.SelectQuery)
         return query
 
     def _unsessioned_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
-        """One row per distinct id and minute with matching events that carry no session id.
+        """One row per person and minute with matching events that carry no session id.
 
-        The filter runs here, on the events table alone, so its unqualified fields cannot clash with
-        the joined tables. Only distinct ids of persons with a recording in scope are read, and the
-        minute grouping bounds the join for busy ids. There is no row cap here: the only cap applies
-        to matched sessions.
+        The join to the person mapping both resolves the event's current person and limits the scan
+        to distinct ids of persons with a recording in scope. The minute grouping bounds the join to
+        the recording windows for busy persons. There is no row cap here: the only cap applies to
+        matched sessions.
         """
         exprs: list[ast.Expr] = [
             # coalesce, because an absent session id reads as NULL and empty(NULL) is not true.
             parse_expr("coalesce(properties.$session_id, '') = ''"),
             parse_expr("timestamp <= now()"),
             clone_expr(filter_expr),
-            parse_expr(
-                "distinct_id IN (SELECT distinct_id FROM {mapping})",
-                placeholders={"mapping": self._unsessioned_person_mapping()},
-            ),
         ]
         events_date_from = self._events_date_from()
         if events_date_from is not None:
@@ -273,40 +284,65 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
         return ast.SelectQuery(
             select=[
-                ast.Alias(alias="event_distinct_id", expr=ast.Field(chain=["distinct_id"])),
+                ast.Alias(alias="event_person_id", expr=ast.Field(chain=["event_person", "mapped_person_id"])),
                 ast.Alias(alias="first_timestamp", expr=parse_expr("min(timestamp)")),
                 ast.Alias(alias="last_timestamp", expr=parse_expr("max(timestamp)")),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    # GLOBAL: the initiator builds the mapping once and ships it to each shard.
+                    join_type="GLOBAL INNER JOIN",
+                    table=self._unsessioned_person_mapping(),
+                    alias="event_person",
+                    constraint=ast.JoinConstraint(
+                        expr=parse_expr("event_person.mapped_distinct_id = events.distinct_id"),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
             where=ast.And(exprs=exprs),
-            group_by=[ast.Field(chain=["distinct_id"]), parse_expr("toStartOfMinute(timestamp)")],
+            group_by=[
+                ast.Field(chain=["event_person", "mapped_person_id"]),
+                parse_expr("toStartOfMinute(timestamp)"),
+            ],
         )
+
+    def _unsessioned_recordings_query(self) -> ast.SelectQuery:
+        query = parse_select(
+            """
+            SELECT s.session_id AS session_id,
+                   recording_person.mapped_person_id AS person_id,
+                   min(s.min_first_timestamp) AS window_start,
+                   max(s.max_last_timestamp) AS window_end
+            FROM raw_session_replay_events AS s
+            INNER JOIN {recording_person} AS recording_person ON recording_person.mapped_distinct_id = s.distinct_id
+            WHERE {scope}
+            GROUP BY s.session_id, recording_person.mapped_person_id
+            """,
+            placeholders={"recording_person": self._unsessioned_person_mapping(), "scope": self._recording_scope()},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        assert query.select_from is not None and query.select_from.next_join is not None
+        # GLOBAL: the initiator builds the mapping once and ships it to each shard.
+        query.select_from.next_join.join_type = "GLOBAL INNER JOIN"
+        return query
 
     def _unsessioned_sessions_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
         """Recordings of the person who sent a matching event without a session id, around its time.
 
         A recording matches when the event falls inside the recording window of one of that
         person's distinct ids. Both sides resolve the person through the current distinct id
-        mapping, so a merge after the event is followed in every persons-on-events mode. The
-        events join the recording windows before any cap, so only matched sessions count
-        toward the limit. The minute grouping can widen the match by up to one minute past
-        the margin.
+        mapping, so a merge after the event is followed in every persons-on-events mode. Each
+        side builds the mapping once. The events join the recording windows before any cap, so
+        only matched sessions count toward the limit. The minute grouping can widen the match by
+        up to one minute past the margin.
         """
         query = parse_select(
             """
             SELECT recording.session_id AS session_id
             FROM {unsessioned} AS unsessioned
-            INNER JOIN {event_person} AS event_person ON event_person.distinct_id = unsessioned.event_distinct_id
-            INNER JOIN (
-                SELECT s.session_id AS session_id,
-                       recording_person.person_id AS person_id,
-                       min(s.min_first_timestamp) AS window_start,
-                       max(s.max_last_timestamp) AS window_end
-                FROM raw_session_replay_events AS s
-                INNER JOIN {recording_person} AS recording_person ON recording_person.distinct_id = s.distinct_id
-                WHERE {scope}
-                GROUP BY s.session_id, recording_person.person_id
-            ) AS recording ON recording.person_id = event_person.person_id
+            INNER JOIN {recording} AS recording ON recording.person_id = unsessioned.event_person_id
             WHERE unsessioned.last_timestamp >= subtractMinutes(recording.window_start, {margin})
               AND unsessioned.first_timestamp <= addMinutes(recording.window_end, {margin})
             GROUP BY recording.session_id
@@ -314,9 +350,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             """,
             placeholders={
                 "unsessioned": self._unsessioned_events_query(filter_expr),
-                "event_person": self._unsessioned_person_mapping(),
-                "recording_person": self._unsessioned_person_mapping(),
-                "scope": self._recording_scope(),
+                "recording": self._unsessioned_recordings_query(),
                 "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
                 "limit": ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT),
             },
