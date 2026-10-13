@@ -4,14 +4,17 @@ from typing import Any
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.capture import CaptureInternalResult
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, PropertyDefinition
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import PeopleImportInvalid
@@ -162,10 +165,11 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
 
 
 class TestPeopleImportTasks(_StorageMixin, BaseTest):
-    def _stage(self) -> tuple[int, str]:
+    def _stage(self, distinct_ids: tuple[str, ...] = ("user-1",)) -> tuple[int, str]:
         cohort = Cohort.objects.create(team=self.team, name="List", is_static=True, is_calculating=True)
         key = f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.json"
-        self.storage.write(key, json.dumps([{"distinct_id": "user-1", "properties": {"email": "a@example.com"}}]))
+        people = [{"distinct_id": d, "properties": {"email": f"{d}@example.com"}} for d in distinct_ids]
+        self.storage.write(key, json.dumps(people))
         return cohort.pk, key
 
     @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
@@ -180,20 +184,21 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert (event["event"], event["distinct_id"], event["properties"]) == (
             "$set",
             "user-1",
-            {"$set": {"email": "a@example.com"}},
+            {"$set": {"email": "user-1@example.com"}},
         )
         assert capture.call_args.kwargs["process_person_profile"] is True
         fill.assert_called_once()
 
-    @parameterized.expand([("capture_raises", ConnectionError("capture is down")), ("capture_drops_events", None)])
+    @parameterized.expand([("capture_raises", ConnectionError("capture is down")), ("capture_acks_nothing", None)])
     @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
     @patch("products.workflows.backend.tasks.people_import.capture_batch_internal")
     def test_capture_closes_the_import_after_the_last_retry(
         self, _name: str, error: Exception | None, capture: MagicMock, fill: MagicMock
     ) -> None:
         cohort_id, key = self._stage()
-        capture.side_effect = error
-        capture.return_value.succeeded.return_value = False
+        capture.side_effect = error or (
+            lambda events, **_: CaptureInternalResult(status_code=503, unaccounted=[e["event_uuid"] for e in events])
+        )
 
         capture_people_import.apply(
             kwargs={"team_id": self.team.id, "cohort_id": cohort_id, "storage_key": key},
@@ -204,6 +209,50 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert (cohort.is_calculating, cohort.errors_calculating) == (False, 1)
         assert key not in self.storage.objects
         fill.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("partial_ack", None, {"ok": ["user-1"], "retried": ["user-2"]}, ["user-1", "user-2"], ["user-2"]),
+            ("dropped_only", None, {"ok": ["user-1"], "dropped": ["user-2"]}, ["user-1", "user-2"], None),
+            ("retry_of_a_subset", ["user-2"], {"ok": ["user-2"]}, ["user-2"], None),
+        ]
+    )
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
+    @patch("products.workflows.backend.tasks.people_import.capture_batch_internal")
+    def test_capture_resends_only_unacknowledged_events(
+        self,
+        _name: str,
+        pending: list[str] | None,
+        buckets: dict[str, list[str]],
+        sent: list[str],
+        retried: list[str] | None,
+        capture: MagicMock,
+        fill: MagicMock,
+    ) -> None:
+        cohort_id, key = self._stage(("user-1", "user-2"))
+
+        def submit(events: list[dict], **_: object) -> CaptureInternalResult:
+            uuid_of = {event["distinct_id"]: event["event_uuid"] for event in events}
+
+            def uuids(bucket: str) -> list[str]:
+                return [uuid_of[distinct_id] for distinct_id in buckets.get(bucket, [])]
+
+            return CaptureInternalResult(
+                status_code=200, ok=uuids("ok"), dropped=uuids("dropped"), retried=uuids("retried")
+            )
+
+        capture.side_effect = submit
+        with patch.object(capture_people_import, "retry", return_value=Retry()) as retry:
+            try:
+                capture_people_import(
+                    team_id=self.team.id, cohort_id=cohort_id, storage_key=key, pending_distinct_ids=pending
+                )
+            except Retry:
+                pass
+
+        assert [event["distinct_id"] for event in capture.call_args.kwargs["events"]] == sent
+        retried_ids = retry.call_args.kwargs["kwargs"]["pending_distinct_ids"] if retry.called else None
+        assert (retried_ids, fill.called) == (retried, retried is None)
 
     @parameterized.expand(
         [
@@ -249,6 +298,22 @@ class TestPeopleImportAPI(_StorageMixin, ClickhouseTestMixin, APIBaseTest):
         assert created.json()["columns"] == ["email", "org"]
         assert Cohort.objects.filter(pk=created.json()["cohort_id"], team_id=self.team.id).exists()
         assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("person_viewer", "viewer", 403), ("person_editor", "editor", 201)])
+    def test_import_needs_person_edit_access(self, _name: str, person_access: str, expected_status: int) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="person", resource_id=None, access_level=person_access)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_people_imports/",
+            {"name": "List", "rows": [{"email": "a@example.com"}]},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
 
     @parameterized.expand(
         [("cohort_only", ["cohort:write"], 403), ("cohort_and_person", ["cohort:write", "person:write"], 201)]
