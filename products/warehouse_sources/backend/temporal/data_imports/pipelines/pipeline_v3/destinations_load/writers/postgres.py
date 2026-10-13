@@ -361,7 +361,7 @@ class PostgresDestinationWriter:
         # Declared at creation rather than added later, so the merge target carries its own
         # constraint. `_ensure_unique_index` still covers a table the customer already had,
         # which this never touches.
-        key = [(name, type_name) for name, type_name in fields if name in set(primary_keys or ())]
+        key = [name for name, _ in fields if name in set(primary_keys or ())]
 
         await client.acreate_table(
             self._schema,
