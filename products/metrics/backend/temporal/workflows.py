@@ -17,6 +17,8 @@ from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from django.conf import settings
+
     from products.metrics.backend.suggested_dashboards.timeouts import GENERATE_TIMEOUT, SUGGEST_TIMEOUT
     from products.metrics.backend.temporal.activities import (
         analyze_team_activity,
@@ -45,6 +47,7 @@ _SHORT = timedelta(minutes=2)
 _ANALYZE = timedelta(minutes=10)
 _MODEL_STEP = timedelta(minutes=10)
 _RENDER = timedelta(minutes=5)
+_RENDER_QUEUED = timedelta(minutes=10)
 _HEARTBEAT = timedelta(minutes=2)
 _RETRY = temporalio.common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=10))
 # A render fails while the web server restarts, so it waits longer between tries.
@@ -157,6 +160,9 @@ class MetricsDashboardGenerateWorkflow(PostHogWorkflow):
                 asset_id = await temporalio.workflow.execute_activity(
                     render_preview_activity,
                     RoundInputs(template_id=template_id, round=round_number),
+                    # The workers of this queue have the browser service that renders the picture.
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    schedule_to_start_timeout=_RENDER_QUEUED,
                     start_to_close_timeout=_RENDER,
                     heartbeat_timeout=_HEARTBEAT,
                     retry_policy=_RENDER_RETRY,

@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from django.conf import settings
+
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -58,12 +60,16 @@ async def _run(script: Script) -> str | None:
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         task_queue = f"test-{uuid.uuid4()}"
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[MetricsDashboardGenerateWorkflow],
-            activities=[start, draft, render, check, finish],
-            workflow_runner=UnsandboxedWorkflowRunner(),
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[MetricsDashboardGenerateWorkflow],
+                activities=[start, draft, check, finish],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ),
+            # Only the workers of this queue can render a picture.
+            Worker(env.client, task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE, activities=[render]),
         ):
             return await env.client.execute_workflow(
                 MetricsDashboardGenerateWorkflow.run,
