@@ -84,6 +84,7 @@ the row lists both.
 | apitally                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | apollo                           | HTTP                        | requests                                                        | ✅                          |
 | app_store_connect                | HTTP                        | requests                                                        | ✅                          |
+| appcues                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | appdynamics                      | HTTP                        | requests                                                        | ✅                          |
 | appfigures                       | HTTP                        | requests                                                        | ✅                          |
 | appfollow                        | HTTP                        | requests                                                        | ✅                          |
@@ -1004,7 +1005,6 @@ doesn't conflict with concurrent PRs.
 - anodot_cost
 - anomalo
 - apaleo
-- appcues
 - appdirect
 - appfolio
 - apptivo
