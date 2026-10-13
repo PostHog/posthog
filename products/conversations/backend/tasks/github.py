@@ -11,6 +11,7 @@ from celery import shared_task
 
 from posthog.comment.formatting import rich_content_to_markdown
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.team import Team
@@ -321,7 +322,9 @@ def post_reply_to_github(
         return
 
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo, source="conversations")
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, ticket.github_repo, source="conversations", priority=Priority.CRITICAL
+        )
     except GitHubRateLimitError as e:
         # The access probe hit GitHub's limit — retry the reply later rather than dropping it.
         logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
@@ -405,7 +408,7 @@ def create_github_issue(
         logger.warning("github_create_issue_integration_not_found", integration_id=integration_id)
         return None
 
-    github = GitHubIntegration(integration, source="conversations")
+    github = GitHubIntegration(integration, source="conversations", priority=Priority.CRITICAL)
 
     try:
         issue_data = github.create_issue({"title": title, "body": body, "repository": repo, "labels": labels})

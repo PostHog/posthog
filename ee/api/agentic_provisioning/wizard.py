@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.api.github_callback.team_services import link_github_installation_for_user
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.oauth import OAuthApplication
@@ -170,7 +171,12 @@ def create_wizard_run(
     # reach the requested repo — a valid grant for one installation could otherwise report
     # wizard success for an owner/repo it can't operate on. Fail fast instead (after the
     # rate limits, so this GitHub call can't be used as an unthrottled probe).
-    if GitHubIntegration.first_for_team_repository(team.id, repository, source="integration") is None:
+    if (
+        GitHubIntegration.first_for_team_repository(
+            team.id, repository, source="integration", priority=Priority.CRITICAL
+        )
+        is None
+    ):
         raise _github_integration_required_error(partner, team)
 
     try:
