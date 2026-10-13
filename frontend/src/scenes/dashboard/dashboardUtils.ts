@@ -38,6 +38,7 @@ import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstan
 // own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
 const RATE_LIMITED_ERROR_CODE = 'rate_limited'
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+const RATE_LIMIT_USER_MESSAGE = 'Too many queries are running right now.'
 
 export function getInsightQueryError(insight: InsightModel): ApiError | null {
     const queryStatus = insight.query_status
@@ -53,7 +54,7 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     // A capacity rejection must stay 429 for the same reason: the query is fine, PostHog is busy.
     const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : code === RATE_LIMITED_ERROR_CODE ? 429 : 400
     return new ApiError(undefined, status, undefined, {
-        detail: parsedError.message,
+        detail: parsedError.message === RATE_LIMIT_ERROR_MESSAGE ? RATE_LIMIT_USER_MESSAGE : parsedError.message,
         code,
         queryId: queryStatus.id,
     })
