@@ -9,9 +9,10 @@ from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
+from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -441,6 +442,10 @@ class SignalReport(UUIDModel):
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
             ),
+            # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
+            # UPPER(col) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
+            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
