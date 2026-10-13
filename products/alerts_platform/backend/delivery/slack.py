@@ -25,7 +25,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, MessageDetail
 
 PROVIDER: Final = "slack"
 
@@ -99,7 +99,14 @@ class SlackTransport:
         text = escape_slack_mrkdwn(message.title)
         try:
             response = post_message(
-                slack, channel, blocks, text, thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None
+                slack,
+                channel,
+                blocks,
+                text,
+                thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
+                # A resolve also shows in the channel, as the HogFunction path posted it. Editing
+                # the opening message notifies nobody, so the reply is what tells people.
+                reply_broadcast=in_reply_to is not None and message.transition.kind == AlertEventKind.RESOLVED,
             )
         except SlackApiError as error:
             # A refusal a person can fix, such as a channel the bot has left, rather than a

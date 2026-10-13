@@ -160,6 +160,7 @@ def post_message(
     blocks: list[dict[str, Any]],
     text: str,
     thread_ts: str | None = None,
+    reply_broadcast: bool = False,
 ) -> SlackResponse:
     # No unfurls: the text is written over untrusted content, so a prompt-injected URL must not make
     # Slack's unfurler fetch an attacker's server from inside the workspace.
@@ -168,6 +169,7 @@ def post_message(
         blocks=blocks,
         text=text,
         thread_ts=thread_ts,
+        reply_broadcast=reply_broadcast,
         unfurl_links=False,
         unfurl_media=False,
     )
