@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     Script,
     ScriptedResponder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 
 @frozen
@@ -40,6 +40,10 @@ class DriveResult:
     # Each cursor that reached storage, so a cursor saved after the last row does not appear.
     committed_states: list[Any]
     raised: BaseException | None
+    # What `source_for_pipeline` returned: the name, the keys, the partitioning and the sort mode.
+    response: SourceResponse | None
+    # The keyword arguments of each `make_tracked_session` call, such as `redact_values`.
+    session_options: list[dict[str, Any]]
 
     @property
     def urls(self) -> list[str]:
@@ -92,6 +96,7 @@ class SourceDriver:
             rows: list[Any] = []
             items: list[Any] = []
             raised: BaseException | None = None
+            response: SourceResponse | None = None
 
             with self._recording_saves(saved):
                 manager = self._manager(built)
@@ -142,6 +147,8 @@ class SourceDriver:
                 saved_states=saved,
                 committed_states=committed,
                 raised=raised,
+                response=response,
+                session_options=list(network.session_options),
             )
 
     def _manager(self, inputs: SourceInputs) -> ResumableSourceManager[Any] | None:

@@ -4,8 +4,7 @@ from django.db.models import Q
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 from products.experiments.backend.facade.timeseries import apply_saved_metric_overrides
 from products.experiments.backend.models.experiment import (
     Experiment,

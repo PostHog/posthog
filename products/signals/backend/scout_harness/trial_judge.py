@@ -179,7 +179,7 @@ class _JudgeRun:
                 posthog_mcp_scopes=[],
                 model=self.snapshot.judge_model,
                 runtime_adapter="codex",
-                reasoning_effort="high",
+                reasoning_effort="xhigh",
                 initial_permission_mode="full-access",
                 github_read_access=False,
                 sandbox_timeout_seconds=JUDGE_MAX_RUNTIME_SECONDS + 120,

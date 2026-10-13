@@ -146,7 +146,7 @@ class TestValidateCredentials:
 
 
 class TestRelayEndpoints:
-    @parameterized.expand([("tables", "getTables"), ("users", "getUsersInAccount")])
+    @parameterized.expand([("domains", "getDomainsV2"), ("tables", "getTables"), ("users", "getUsersInAccount")])
     def test_paginates_until_has_next_page_false(self, endpoint: str, data_path: str) -> None:
         responses = [
             _relay_page(data_path, [{"id": "1"}, {"id": "2"}], "cursor-1"),
@@ -167,6 +167,50 @@ class TestRelayEndpoints:
 
         assert [row["id"] for row in rows] == ["9"]
         assert executor.calls[0]["after"] == "cursor-42"
+
+
+class TestEventsEndpoint:
+    @parameterized.expand(
+        [
+            ("incremental", True, datetime(2026, 6, 1, tzinfo=UTC), "2026-06-01T00:00:00Z"),
+            ("incremental_first_sync", True, None, None),
+            ("full_refresh_ignores_watermark", False, datetime(2026, 6, 1, tzinfo=UTC), None),
+        ]
+    )
+    def test_start_time_filter(
+        self, _label: str, use_incremental: bool, watermark: datetime | None, expected_start: str | None
+    ) -> None:
+        responses = [
+            _relay_page("getEvents", [{"uuid": "e-1"}], "cursor-1"),
+            _relay_page("getEvents", [{"uuid": "e-2"}], None),
+        ]
+        rows, executor, manager = _collect(
+            "events",
+            responses,
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert [row["uuid"] for row in rows] == ["e-1", "e-2"]
+        for call in executor.calls:
+            assert call.get("startTime") == expected_start
+            assert call["descOrder"] is False
+        assert executor.calls[1]["after"] == "cursor-1"
+        assert [(state.cursor, state.window_after) for state in manager.saved] == [("cursor-1", expected_start)]
+
+    def test_resume_replays_cursor_against_saved_start_time(self) -> None:
+        manager = _FakeResumableManager(MonteCarloResumeConfig(cursor="cursor-3", window_after="2026-05-01T00:00:00Z"))
+        responses = [_relay_page("getEvents", [{"uuid": "e-9"}], None)]
+        _, executor, _ = _collect(
+            "events",
+            responses,
+            manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
+        )
+
+        assert executor.calls[0]["after"] == "cursor-3"
+        assert executor.calls[0]["startTime"] == "2026-05-01T00:00:00Z"
 
 
 class TestOffsetEndpoint:
@@ -281,6 +325,8 @@ class TestSourceResponse:
     @parameterized.expand(
         [
             ("alerts", ["uuid"], "desc"),
+            ("domains", ["id"], "asc"),
+            ("events", ["uuid"], "desc"),
             ("monitors", ["uuid"], "asc"),
             ("tables", ["id"], "asc"),
             ("users", ["id"], "asc"),

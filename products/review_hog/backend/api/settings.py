@@ -68,7 +68,7 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         required=False,
         help_text="Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets "
         "its first automatic review when it is marked ready for review. Applies to automatic reviews only: the "
-        "reviewhog label, an @posthog review comment, and the Review button still review drafts.",
+        "posthog-review label, an @posthog review comment, and the Review button still review drafts.",
     )
     resolve_comments = serializers.BooleanField(
         required=False,
@@ -91,7 +91,7 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
     review_inbox_prs = serializers.BooleanField(
         required=False,
         help_text="Review the pull requests the agent opens for Inbox reports assigned to the user: "
-        "ReviewHog reviews each one and posts its findings to the pull request. Off by default.",
+        "PostHog Review reviews each one and posts its findings to the pull request. Off by default.",
     )
     stamphog_review_inbox_prs = serializers.BooleanField(
         required=False,
@@ -131,7 +131,7 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """The requesting user's ReviewHog preferences for a project.
+    """The requesting user's PostHog Review preferences for a project.
 
     Sibling of the perspective/validator/blind-spots config viewsets: skills control *how* a review
     runs, these preferences control *what gets reviewed* and *how strict publishing is*. Only the
@@ -169,11 +169,11 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         methods=["GET"],
         responses={
             200: OpenApiResponse(
-                response=ReviewUserSettingsSerializer, description="The requesting user's ReviewHog preferences."
+                response=ReviewUserSettingsSerializer, description="The requesting user's code review preferences."
             ),
         },
-        summary="Get the user's ReviewHog settings",
-        description="Fetch the requesting user's effective ReviewHog preferences for this project, and where "
+        summary="Get the user's code review settings",
+        description="Fetch the requesting user's effective code review preferences for this project, and where "
         "each value comes from.",
     )
     @extend_schema(
@@ -183,8 +183,8 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             200: OpenApiResponse(response=ReviewUserSettingsSerializer, description="The updated settings."),
             400: OpenApiResponse(description="Invalid field value (e.g. unknown urgency threshold)."),
         },
-        summary="Update the user's ReviewHog settings",
-        description="Partially update the requesting user's ReviewHog preferences for this project. Only the "
+        summary="Update the user's code review settings",
+        description="Partially update the requesting user's code review preferences for this project. Only the "
         "provided fields change. A value equal to the inherited one clears the user's own value.",
     )
     # Not named `settings` — that would shadow DRF's `APIView.settings` (its APISettings object).

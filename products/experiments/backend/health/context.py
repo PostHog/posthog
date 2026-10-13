@@ -6,6 +6,7 @@ from posthog.dataclasses import frozen
 
 from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.filters import pinned_variant, reachable_conditions
 
 
 @frozen
@@ -18,12 +19,13 @@ class FlagVariant:
 class FlagReleaseGroup:
     rollout_percentage: float | None
     property_count: int | None
-    # The variant override of the release condition, as stored. The flag service ignores a key that is
-    # not one of the flag's variants.
-    variant: str | None
-    # The group type the condition aggregates on, or None for persons. A condition without its own value
-    # takes the flag's value, as `effective_aggregation` in rust/feature-flags/src/flags/flag_property_group.rs.
-    aggregation_group_type_index: int | None
+
+
+@frozen
+class ReachableCondition:
+    # Numbered from 1, as the page labels the release conditions ("Set 2").
+    number: int
+    pinned_variant: str | None
 
 
 @frozen
@@ -32,9 +34,8 @@ class FlagState:
     deleted: bool
     release_groups: tuple[FlagReleaseGroup, ...]
     variants: tuple[FlagVariant, ...]
-    # With early exit, the flag service stops at the first condition whose properties match, also when the
-    # user falls outside that condition's rollout.
-    early_exit: bool
+    # The release conditions that can serve a request, in evaluation order.
+    reachable_conditions: tuple[ReachableCondition, ...]
 
 
 @frozen
@@ -51,16 +52,14 @@ class HealthContext:
     """Every input of the health checks, loaded once, so that each check is a pure function of it."""
 
     is_launched: bool
+    is_running: bool
     has_ended: bool
+    is_paused: bool
     archived: bool
     flag: FlagState | None
     primary_metric_count: int
     secondary_metric_count: int
     exposures: ExposureTotals | None
-
-    @property
-    def is_running(self) -> bool:
-        return self.is_launched and not self.has_ended
 
 
 def parse_flag_state(
@@ -69,42 +68,33 @@ def parse_flag_state(
     deleted: bool,
     groups: object,
     variants: object,
-    aggregation_group_type_index: object = None,
-    early_exit: object = False,
+    aggregation_group_type_index: int | None = None,
+    early_exit: bool = False,
 ) -> FlagState:
-    flag_aggregation = _group_type_index(aggregation_group_type_index)
+    conditions = groups if isinstance(groups, list) else []
+    flag_variants = tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
+    variant_keys = {variant.key for variant in flag_variants if variant.key}
+    reachable = reachable_conditions(conditions, flag_aggregation=aggregation_group_type_index, early_exit=early_exit)
     return FlagState(
         active=active,
         deleted=deleted,
-        release_groups=(
-            tuple(_release_group(group, flag_aggregation) for group in groups) if isinstance(groups, list) else ()
+        release_groups=tuple(_release_group(group) for group in conditions),
+        variants=flag_variants,
+        reachable_conditions=tuple(
+            ReachableCondition(number=index + 1, pinned_variant=pinned_variant(conditions[index], variant_keys))
+            for index in reachable
         ),
-        variants=tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else (),
-        early_exit=early_exit is True,
     )
 
 
-def _release_group(group: object, flag_aggregation: int | None) -> FlagReleaseGroup:
+def _release_group(group: object) -> FlagReleaseGroup:
     if not isinstance(group, dict):
-        return FlagReleaseGroup(
-            rollout_percentage=None, property_count=None, variant=None, aggregation_group_type_index=flag_aggregation
-        )
+        return FlagReleaseGroup(rollout_percentage=None, property_count=None)
     properties = group.get("properties")
-    variant = group.get("variant")
     return FlagReleaseGroup(
         rollout_percentage=_percentage(group.get("rollout_percentage")),
         property_count=len(properties) if isinstance(properties, list) else None,
-        variant=variant if isinstance(variant, str) and variant else None,
-        aggregation_group_type_index=(
-            _group_type_index(group["aggregation_group_type_index"])
-            if "aggregation_group_type_index" in group
-            else flag_aggregation
-        ),
     )
-
-
-def _group_type_index(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _variant(variant: object) -> FlagVariant:
@@ -145,7 +135,9 @@ def load_health_context(experiment: Experiment, exposures: ExposureTotals | None
     shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
     return HealthContext(
         is_launched=experiment.is_launched,
+        is_running=experiment.is_running,
         has_ended=experiment.is_stopped,
+        is_paused=experiment.is_paused,
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),

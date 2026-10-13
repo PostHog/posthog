@@ -150,12 +150,6 @@ TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERN
 # agent-proxy in production; unset (local/CI) disables the check.
 AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
 
-# The GitHub App's bot login (`<app slug>[bot]`) ReviewHog posts as. When set, the marker-based
-# idempotency scans only trust comments/reviews authored by this exact identity — otherwise any
-# installed bot could paste a public marker and suppress a publish (or get its comment PATCHed).
-# Unset trusts no author in production, and any Bot-typed author in local development and tests.
-REVIEWHOG_GITHUB_BOT_LOGIN: str = get_from_env("REVIEWHOG_GITHUB_BOT_LOGIN", "")
-
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 # We provide a default as it is needed for hobby deployments. Each entry must be exactly 32 bytes

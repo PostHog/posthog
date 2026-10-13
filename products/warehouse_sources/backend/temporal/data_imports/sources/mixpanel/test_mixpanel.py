@@ -82,6 +82,7 @@ class FakeManager:
     def __init__(self, resume_state: Optional[MixpanelResumeConfig] = None) -> None:
         self._state = resume_state
         self.saved: list[MixpanelResumeConfig] = []
+        self.safe_points = 0
 
     def can_resume(self) -> bool:
         return self._state is not None
@@ -91,6 +92,9 @@ class FakeManager:
 
     def save_state(self, data: MixpanelResumeConfig) -> None:
         self.saved.append(data)
+
+    def safe_point(self) -> None:
+        self.safe_points += 1
 
 
 class TestToDate:
@@ -476,6 +480,95 @@ class TestSingleRequestEndpoints:
         with patch.object(mp, "_request", return_value=FakeResponse(json_data={"results": [{"id": 5}]})):
             batches = list(mp._fetch_annotations("us", "u", "s", "123", LOGGER))
         assert batches == [[{"id": 5}]]
+
+
+class TestReportEndpoints:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-04", tick=False):
+            yield
+
+    def _funnel_response(self) -> FakeResponse:
+        return FakeResponse(
+            json_data={
+                "meta": {"dates": ["2024-06-03", "2024-06-02"]},
+                "data": {
+                    "2024-06-03": {"steps": [{"count": 5, "event": "Signup"}], "analysis": {"completion": 5}},
+                    "2024-06-02": {
+                        "steps": [{"count": 10, "event": "Visit"}, {"count": 4, "event": "Signup"}],
+                        "analysis": {"completion": 4},
+                    },
+                },
+            }
+        )
+
+    @parameterized.expand([("fresh", None, [7, 9]), ("resumed", 7, [9])])
+    def test_funnel_steps_walk_funnels_in_id_order(
+        self, _name: str, resume_funnel_id: Optional[int], expected_funnel_ids: list[int]
+    ) -> None:
+        manager = FakeManager(MixpanelResumeConfig(funnel_id=resume_funnel_id) if resume_funnel_id else None)
+        funnel_list = FakeResponse(json_data=[{"funnel_id": 9, "name": "Checkout"}, {"funnel_id": 7, "name": "Signup"}])
+        funnel_responses = {7: FakeResponse(json_data={"meta": {"dates": []}, "data": {}}), 9: self._funnel_response()}
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> FakeResponse:
+            if url.endswith("/funnels/list"):
+                return funnel_list
+            return funnel_responses[kwargs["params"]["funnel_id"]]
+
+        with patch.object(mp, "_request", side_effect=fake_request) as mock_request:
+            batches = list(mp.get_rows("us", "u", "s", "123", "funnel_steps", LOGGER, manager))  # type: ignore[arg-type]
+
+        query_params = [c.kwargs["params"] for c in mock_request.call_args_list[1:]]
+        assert [p["funnel_id"] for p in query_params] == expected_funnel_ids
+        assert all((p["from_date"], p["to_date"]) == ("2024-03-06", "2024-06-04") for p in query_params)
+        assert [s.funnel_id for s in manager.saved] == expected_funnel_ids
+        assert manager.safe_points == (1 if 7 in expected_funnel_ids else 0)
+        rows = [row for batch in batches for row in batch]
+        assert [(r["funnel_id"], r["funnel_name"], r["date"], r["step_index"], r["event"]) for r in rows] == [
+            (9, "Checkout", "2024-06-02", 0, "Visit"),
+            (9, "Checkout", "2024-06-02", 1, "Signup"),
+            (9, "Checkout", "2024-06-03", 0, "Signup"),
+        ]
+
+    def test_funnel_steps_skips_funnel_rejected_with_400_and_resumes_past_it(self) -> None:
+        manager = FakeManager()
+        funnel_list = FakeResponse(json_data=[{"funnel_id": 9, "name": "Checkout"}, {"funnel_id": 7, "name": "Signup"}])
+        rejected = FakeResponse(status_code=400)
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> FakeResponse:
+            if url.endswith("/funnels/list"):
+                return funnel_list
+            if kwargs["params"]["funnel_id"] == 7:
+                raise requests.HTTPError("400 Client Error", response=rejected)  # type: ignore[arg-type]
+            return self._funnel_response()
+
+        with patch.object(mp, "_request", side_effect=fake_request):
+            batches = list(mp.get_rows("us", "u", "s", "123", "funnel_steps", LOGGER, manager))  # type: ignore[arg-type]
+
+        # Funnel 7 is rejected but the resume cursor still advances past it, so funnel 9
+        # (and any funnel after a rejected one) still syncs instead of the whole sync aborting.
+        assert [s.funnel_id for s in manager.saved] == [7, 9]
+        rows = [row for batch in batches for row in batch]
+        assert [r["funnel_id"] for r in rows] == [9, 9, 9]
+
+    def test_retention_requests_compounded_retention_and_unnests_cohorts(self) -> None:
+        response = FakeResponse(
+            json_data={"2024-06-03": {"counts": [8], "first": 8}, "2024-06-02": {"counts": [10, 6], "first": 10}}
+        )
+        with patch.object(mp, "_request", return_value=response) as mock_request:
+            batches = list(mp.get_rows("us", "u", "s", "123", "retention", LOGGER, FakeManager()))  # type: ignore[arg-type]
+
+        params = mock_request.call_args.kwargs["params"]
+        assert params["retention_type"] == "compounded"
+        assert "born_event" not in params
+        assert (params["from_date"], params["to_date"]) == ("2024-03-06", "2024-06-04")
+        assert batches == [
+            [
+                {"date": "2024-06-02", "interval_index": 0, "count": 10, "first": 10},
+                {"date": "2024-06-02", "interval_index": 1, "count": 6, "first": 10},
+                {"date": "2024-06-03", "interval_index": 0, "count": 8, "first": 8},
+            ]
+        ]
 
 
 class TestGetRowsExportWindow:

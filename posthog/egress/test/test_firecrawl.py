@@ -157,6 +157,7 @@ class TestFirecrawlSearchEgress(SimpleTestCase):
                 "web": [
                     {"url": "https://example.com/widgets", "title": "Widgets", "description": "All the widgets."},
                     {"title": "No url here"},
+                    "not an object",
                 ],
             },
             "creditsUsed": 2,

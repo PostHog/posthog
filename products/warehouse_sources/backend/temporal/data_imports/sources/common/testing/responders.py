@@ -59,8 +59,9 @@ class ScriptedResponse:
         return http_response(status_line, payload, headers)
 
 
-# A script answers each request in turn, or decides from the request itself.
-Script = Sequence[ScriptedResponse] | Callable[[RecordedRequest], ScriptedResponse]
+# A script answers each request in turn, or decides from the request itself. An exception in the
+# list is a transport failure: the request fails with it, as a dropped connection does.
+Script = Sequence[ScriptedResponse | BaseException] | Callable[[RecordedRequest], ScriptedResponse]
 
 
 class UnexpectedRequest(AssertionError):
@@ -87,7 +88,25 @@ class ScriptedResponder:
                 f"the script has no answer left for {request.method} {request.url}"
                 f" (request {network.requests} of this run)"
             )
-        return self._queue.pop(0).to_bytes()
+        answer = self._queue.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer.to_bytes()
+
+
+def always(answer: ScriptedResponse | BaseException) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Give every request the same answer, or fail every request with the same error.
+
+    The real stack retries a 429, a 5xx and a dropped connection, so a list with one such answer runs
+    out on the first retry.
+    """
+
+    def respond(_request: RecordedRequest) -> ScriptedResponse:
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    return respond
 
 
 def route(table: Mapping[str, Sequence[ScriptedResponse]]) -> Callable[[RecordedRequest], ScriptedResponse]:

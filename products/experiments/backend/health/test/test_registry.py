@@ -23,7 +23,9 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
 
 RUNNING_UNEVEN_SPLIT = HealthContext(
     is_launched=True,
+    is_running=True,
     has_ended=False,
+    is_paused=False,
     archived=False,
     flag=FlagState(
         active=True,
@@ -33,7 +35,7 @@ RUNNING_UNEVEN_SPLIT = HealthContext(
             FlagVariant(key="control", rollout_percentage=80),
             FlagVariant(key="test", rollout_percentage=20),
         ),
-        early_exit=False,
+        reachable_conditions=(),
     ),
     primary_metric_count=1,
     secondary_metric_count=0,
@@ -41,6 +43,7 @@ RUNNING_UNEVEN_SPLIT = HealthContext(
 )
 
 NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test": 0})
+ENDED: dict[str, Any] = {"is_running": False, "has_ended": True}
 
 
 def _raise(_ctx: HealthContext) -> Any:
@@ -52,15 +55,15 @@ class TestEvaluate(TestCase):
         [
             ("bias_risk_on_an_uneven_split", {}, [ExperimentHealthFindingCode.BIAS_RISK_MULTIPLE_EXCLUDED]),
             ("nothing_without_exposure_totals", {"exposures": None}, []),
-            ("no_bias_risk_after_the_end", {"has_ended": True}, []),
+            ("no_bias_risk_after_the_end", ENDED, []),
             (
                 "srm_below_the_threshold",
-                {"has_ended": True, "exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.0009)},
+                {**ENDED, "exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.0009)},
                 [ExperimentHealthFindingCode.SRM],
             ),
             (
                 "no_srm_at_the_threshold",
-                {"has_ended": True, "exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.001)},
+                {**ENDED, "exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.001)},
                 [],
             ),
             (
@@ -69,11 +72,15 @@ class TestEvaluate(TestCase):
                 [ExperimentHealthFindingCode.ZERO_EXPOSURES],
             ),
             ("no_zero_exposures_in_the_first_day", {"exposures": replace(NO_EXPOSURES, hours_since_launch=23.9)}, []),
-            ("no_zero_exposures_before_launch", {"is_launched": False, "exposures": NO_EXPOSURES}, []),
+            (
+                "no_zero_exposures_before_launch",
+                {"is_launched": False, "is_running": False, "exposures": NO_EXPOSURES},
+                [],
+            ),
             (
                 "no_zero_exposures_with_only_multiple_variant_users",
                 {
-                    "has_ended": True,
+                    **ENDED,
                     "exposures": replace(NO_EXPOSURES, total_exposures={"control": 0, "test": 0, "$multiple": 3}),
                 },
                 [],

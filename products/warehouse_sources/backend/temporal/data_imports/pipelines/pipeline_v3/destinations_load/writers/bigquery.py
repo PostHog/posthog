@@ -20,7 +20,7 @@ from typing import ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import async_to_sync, sync_to_async
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import Forbidden, NotFound
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import GoogleCloudServiceAccountIntegration
@@ -66,6 +66,11 @@ IMPERSONATION_DENIED_DETAIL = (
     "Service Account Token Creator role on it, then run the sync again."
 )
 
+MISSING_PERMISSION_DETAIL = (
+    "Your Google Cloud service account is missing a permission this sync needs. Grant it the "
+    "BigQuery Data Editor and BigQuery Job User roles on the project, then run the sync again."
+)
+
 
 class BigQueryDestinationConfigurationError(ValueError):
     """The destination's config cannot produce a valid BigQuery write."""
@@ -84,6 +89,19 @@ def _is_impersonation_denied(err: Exception) -> bool:
     """
     message = str(err)
     return "iam.serviceAccounts.getAccessToken" in message and "denied" in message
+
+
+def _is_missing_permission(err: Exception) -> bool:
+    """Whether Google rejected the request outright for a missing IAM permission.
+
+    e.g. "Access Denied: Project <id>: User does not have bigquery.datasets.create permission
+    ...". Distinct from BigQuery's quota-exceeded 403s, also raised as `Forbidden`, which recover
+    on their own and must stay retryable.
+    """
+    if not isinstance(err, Forbidden):
+        return False
+    message = str(err)
+    return "does not have" in message and "permission" in message
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
@@ -158,13 +176,15 @@ class BigQueryDestinationWriter:
         return self._client
 
     @contextmanager
-    def _impersonation_denied_as_configuration_error(self) -> Iterator[None]:
-        # Without this, the 503 shape reads as transient and the run retries until it gives up.
+    def _permission_errors_as_configuration_error(self) -> Iterator[None]:
+        # Without this, both shapes read as transient and the run retries until it gives up.
         try:
             yield
         except Exception as err:
             if _is_impersonation_denied(err):
                 raise DestinationConfigurationError(self._ctx.destination_name, IMPERSONATION_DENIED_DETAIL) from err
+            if _is_missing_permission(err):
+                raise DestinationConfigurationError(self._ctx.destination_name, MISSING_PERMISSION_DETAIL) from err
             raise
 
     def _table_ref(self, table: str) -> str:
@@ -240,13 +260,13 @@ class BigQueryDestinationWriter:
             client = self._get_client()
             client.create_dataset(f"{self._project}.{self._dataset}", exists_ok=True)
 
-        with self._impersonation_denied_as_configuration_error():
+        with self._permission_errors_as_configuration_error():
             await sync_to_async(ensure_dataset, thread_sensitive=False)()
 
     async def write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
-        with self._impersonation_denied_as_configuration_error():
+        with self._permission_errors_as_configuration_error():
             return await self._write_batch(batches, ctx)
 
     async def _write_batch(
@@ -428,7 +448,7 @@ class BigQueryDestinationWriter:
             self._mark_published(client, target_ref)
             client.delete_table(self._table_ref(staging), not_found_ok=True)
 
-        with self._impersonation_denied_as_configuration_error():
+        with self._permission_errors_as_configuration_error():
             await sync_to_async(publish, thread_sensitive=False)()
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
