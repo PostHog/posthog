@@ -236,7 +236,9 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
 
 def _commit_attributions_by_sha(team_id: int, repository: str) -> dict[str, GitHubCommitAttribution]:
     """GitHub's sha→login attribution for the activity window, keyed for the sha join."""
-    github = GitHubIntegration.first_for_team_repository(team_id, repository, source="signals_activity_rebuild")
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="signals_activity_rebuild", priority=Priority.CRITICAL
+    )
     if github is None:
         # Same expected-deferral type the collector raises — the rebuild task logs it
         # instead of capturing an exception.
