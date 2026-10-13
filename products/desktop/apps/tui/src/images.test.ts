@@ -28,18 +28,12 @@ describe("droppedImage", () => {
     ]);
   });
 
-  it("reads a drop the terminal sends unbracketed, with only some spaces escaped, as macOS Terminal does", () => {
-    const second = join(folder, "second shot.jpg");
+  it("reads a drop the terminal sends unbracketed, with a narrow no-break space it never escapes, as macOS names screenshots", () => {
+    // macOS puts U+202F before am/pm in a screenshot's name; Terminal escapes the ASCII spaces around it only.
+    const second = join(folder, "shot at 2.27\u202fpm.jpg");
     writeFileSync(second, "yo");
-    // The space before "shot" comes through bare; only the folder's own space is escaped.
-    const half = (path: string) =>
-      path.replace(
-        /^(.*)\/second shot\.jpg$/,
-        (_, dir: string) => `${dir.replaceAll(" ", "\\ ")}/second shot.jpg`,
-      );
-    const dropped = droppedImages(
-      `${png.replaceAll(" ", "\\ ")} ${half(second)}`,
-    );
+    const escaped = (path: string) => path.replaceAll(" ", "\\ ");
+    const dropped = droppedImages(`${escaped(png)} ${escaped(second)}`);
     expect(dropped.map((image) => image.mimeType)).toEqual([
       "image/png",
       "image/jpeg",

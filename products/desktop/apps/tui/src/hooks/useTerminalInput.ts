@@ -1,5 +1,6 @@
 import { StdinBuffer } from "@earendil-works/pi-tui";
 import { useEffect, useRef } from "react";
+import { droppedPaths } from "../images";
 import type { Click, MouseEvents, Wheel } from "../mouse";
 
 export interface TerminalHandlers {
@@ -31,7 +32,12 @@ export function useTerminalInput(
     keys.on("paste", (text) =>
       latest.current.onKey(`\x1b[200~${text}\x1b[201~`),
     );
-    const raw = (data: string): void => keys.process(data);
+    // macOS Terminal sends a drop as bare keys in one burst, which pi's buffer would split into single keys; a
+    // burst that is nothing but file paths goes on whole.
+    const raw = (data: string): void => {
+      if (droppedPaths(data).length > 0) latest.current.onKey(data);
+      else keys.process(data);
+    };
     mouse.on("press", press);
     mouse.on("drag", drag);
     mouse.on("release", release);
