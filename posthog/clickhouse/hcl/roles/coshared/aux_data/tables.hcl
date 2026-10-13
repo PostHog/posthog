@@ -678,6 +678,18 @@ database "posthog" {
       type    = "DateTime64(6, 'UTC')"
       default = "now() + toIntervalDay(7)"
     }
+    column "entry_url" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "UInt8"
+    }
+    column "has_msclkid" {
+      type = "UInt8"
+    }
+    column "session_max_inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
   }
   table "_web_bounces_dimensional_preaggregated_columns" {
     abstract = true
