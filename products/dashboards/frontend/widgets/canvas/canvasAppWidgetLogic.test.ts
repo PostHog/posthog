@@ -135,7 +135,7 @@ describe('canvasAppWidgetLogic', () => {
         expect(logic.values.renderState).toEqual('error')
     })
 
-    it('keeps a runtime error from the app until the viewer reloads the frame', async () => {
+    it('keeps a runtime error from the app until the viewer reloads, then remounts on a fresh view', async () => {
         jest.mocked(canvasesViewRetrieve).mockResolvedValue(view())
 
         await expectLogic(logic, () => {
@@ -144,10 +144,17 @@ describe('canvasAppWidgetLogic', () => {
 
         logic.actions.setRuntimeError('TypeError: x is undefined')
         expect(logic.values.runtimeError).toEqual('TypeError: x is undefined')
-        expect(logic.values.frameKey).toEqual(0)
-
-        logic.actions.reloadFrame()
-        expect(logic.values.runtimeError).toBeNull()
         expect(logic.values.frameKey).toEqual(1)
+
+        await expectLogic(logic, () => {
+            logic.actions.reloadFrame()
+        })
+            .toDispatchActions(['reloadFrame', 'loadView', 'loadViewSuccess'])
+            .toFinishAllListeners()
+
+        // The reload signs a new artifact URL instead of reusing one whose token may have expired.
+        expect(canvasesViewRetrieve).toHaveBeenCalledTimes(2)
+        expect(logic.values.runtimeError).toBeNull()
+        expect(logic.values.frameKey).toEqual(2)
     })
 })
