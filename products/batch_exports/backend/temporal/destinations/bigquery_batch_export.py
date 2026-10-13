@@ -256,7 +256,7 @@ class BigQueryField(Field):
     @classmethod
     def from_destination_field(cls, field: bigquery.SchemaField) -> typing.Self:
         name = field.name
-        type_name = field.field_type
+        type_name = typing.cast(BigQueryTypeName, field.field_type)
 
         mode = field.mode
         repeated = mode == "REPEATED"
