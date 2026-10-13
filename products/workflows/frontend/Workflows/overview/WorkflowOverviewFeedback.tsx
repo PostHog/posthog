@@ -1,9 +1,8 @@
 import { FeaturePreviewFeedbackBanner } from '../../FeaturePreviewFeedbackBanner'
 
-// Shares the workflow feature preview survey; `surface` keeps these responses apart from the list view's.
-const SURVEY_ID = '01a0856f-7ae3-0000-eef6-fec0a2e1b78f'
-const RATING_QUESTION_ID = 'a899da8d-092a-41ce-ab9b-8e18b2c7cfd8'
-const FEEDBACK_QUESTION_ID = 'acbad4b5-52c2-4a56-a280-5d2ddd064612'
+const SURVEY_ID = '01a135a4-2f3c-0000-4732-df04655842ff'
+const RATING_QUESTION_ID = '521dcdd1-4a8b-40c4-a8b3-41ac5b9a751f'
+const FEEDBACK_QUESTION_ID = '227c1646-eafa-46ad-823c-d2a8892a806b'
 
 export function WorkflowOverviewFeedback(): JSX.Element {
     return (
