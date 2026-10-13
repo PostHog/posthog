@@ -1,7 +1,6 @@
 """Firing, dedup, guardrails and terminal-status bookkeeping for Loops.
 
-See products/tasks/docs/LOOPS.md (Run, Lifecycle and reconciliation, Security and
-guardrails). ``fire_loop`` is the single entry point every trigger path (schedule,
+``fire_loop`` is the single entry point every trigger path (schedule,
 GitHub, API, manual) goes through, so dedup, the usage gate, the per-loop rate cap
 and the overlap policy are enforced once, in one order, regardless of caller.
 """
@@ -169,7 +168,7 @@ def render_context_target_block(context_target: dict | None, *, loop_id: str) ->
             f"`current_version_id` with `canvas-source-retrieve`, then publish the "
             f"complete project with `canvas-publish-create`, passing the version you "
             f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
-            " Read runtime state with `canvas-state-retrieve`: list keys without values, follow next_offset, "
+            " Read runtime state with `canvas-state-retrieve`: list keys without values, pass next_cursor as cursor, "
             "and select only the keys needed. Read long values with `canvas-state-value-retrieve`, keeping "
             "the revision fixed across chunks. Discover these tools through MCP search and info; do not assume "
             "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "

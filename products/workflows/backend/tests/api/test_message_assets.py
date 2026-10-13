@@ -7,12 +7,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.message_assets.sql import INSERT_MESSAGE_ASSET_SQL
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.message_assets_sql import INSERT_MESSAGE_ASSET_SQL
 
 
 def create_message_asset(

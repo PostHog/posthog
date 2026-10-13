@@ -1,6 +1,6 @@
 """Lifecycle pausing for Loops: owner deactivation and integration disconnects.
 
-See products/tasks/docs/LOOPS.md "Lifecycle and reconciliation": deactivating a user is often
+Deactivating a user is often
 the security response, so every loop they own must pause immediately (not lazily at next fire)
 and their in-flight runs must be cancelled. A live sandbox must never keep running with that
 owner's freshly minted credentials after the account has been deactivated. Likewise, a GitHub

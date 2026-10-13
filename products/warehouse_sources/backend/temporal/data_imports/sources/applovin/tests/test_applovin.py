@@ -1,10 +1,8 @@
-from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional, cast
-from urllib.parse import parse_qs, quote, quote_plus, urlparse
+from typing import Any, Optional
+from urllib.parse import quote, quote_plus
 
 import pytest
-from unittest import mock
 
 import requests
 
@@ -16,8 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.a
     AppLovinResumeConfig,
     _body_code,
     _to_date,
-    applovin_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import (
@@ -28,54 +24,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
     REPORT_PAGE_SIZE,
     REPORT_WINDOW_DAYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.applovin.applovin"
-
-
-class FakeResumeManager(ResumableSourceManager[AppLovinResumeConfig]):
-    """In-memory stand-in for the Redis-backed manager."""
-
-    def __init__(self, state: Optional[AppLovinResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[AppLovinResumeConfig] = []
-        self.clear_count = 0
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[AppLovinResumeConfig]:
-        return self.state
-
-    def save_state(self, data: AppLovinResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.clear_count += 1
+from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source import AppLovinSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
+    AppLovinSourceConfig,
+)
 
 
-def _response(body: Any = None, status_code: int = 200, text: str = "", json_error: bool = False) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    resp.text = text
-    if json_error:
-        resp.json.side_effect = ValueError("not json")
-    else:
-        resp.json.return_value = body
-    return resp
+def _driver(api_key: str = "key") -> SourceDriver:
+    return SourceDriver(AppLovinSource(), AppLovinSourceConfig(api_key=api_key))
+
+
+def _page(rows: Any = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"code": 200, "results": rows})
 
 
 def _rows(count: int) -> list[dict[str, str]]:
     return [{"day": "2026-07-01", "package_name": f"com.app.{index}"} for index in range(count)]
-
-
-def _query(url: str) -> dict[str, list[str]]:
-    return parse_qs(urlparse(url).query)
-
-
-def _urls(session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in session.return_value.get.call_args_list]
 
 
 def _today() -> date:
@@ -120,154 +91,120 @@ class TestHelpers:
 
 
 class TestRequestShape:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_report_key_is_registered_for_redaction(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
+    def test_report_key_is_registered_for_redaction(self) -> None:
+        result = _driver("secret-key").run("max_ad_revenue", [_page([]) for _ in range(7)])
 
-        list(get_rows("secret-key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+        assert result.raised is None
+        assert result.session_options[0]["redact_values"] == ("secret-key",)
 
 
 class TestWindowWalking:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_checkpoint_survives_a_failed_walk(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = [
-            _response({"code": 200, "results": _rows(2)}),
-            _response(status_code=500, text="boom"),
-        ]
-        manager = FakeResumeManager()
+    def test_checkpoint_survives_a_failed_walk(self) -> None:
+        first_window = _earliest()
+        second_window = first_window + timedelta(days=REPORT_WINDOW_DAYS)
 
-        with pytest.raises(AppLovinAPIError):
-            list(get_rows("key", "max_ad_revenue", mock.MagicMock(), manager))
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("start") in {first_window.isoformat(), second_window.isoformat()}:
+                return _page(_rows(2))
+            return ScriptedResponse(status=500, body=b"boom")
 
-        assert manager.saved
-        assert manager.clear_count == 0
+        result = _driver().run("max_ad_revenue", respond)
+
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert result.saved_states
+        assert result.final_state == AppLovinResumeConfig(next_window_start=second_window.isoformat())
 
 
 class TestPagination:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_page_advances_offset_and_short_page_ends_the_window(self, mock_session: mock.MagicMock) -> None:
-        first_window = [
-            _response({"code": 200, "results": _rows(REPORT_PAGE_SIZE)}),
-            _response({"code": 200, "results": _rows(REPORT_PAGE_SIZE)}),
-            _response({"code": 200, "results": _rows(3)}),
-        ]
-        # Every later window returns a single short page.
-        mock_session.return_value.get.side_effect = [
-            *first_window,
-            *[_response({"code": 200, "results": []}) for _ in range(50)],
-        ]
-        manager = FakeResumeManager()
+    def test_full_page_advances_offset_and_short_page_ends_the_window(self) -> None:
+        result = _driver().run(
+            "max_ad_revenue",
+            [
+                _page(_rows(REPORT_PAGE_SIZE)),
+                _page(_rows(REPORT_PAGE_SIZE)),
+                _page(_rows(3)),
+                *[_page([]) for _ in range(6)],
+            ],
+        )
 
-        batches = list(get_rows("key", "max_ad_revenue", mock.MagicMock(), manager))
-
-        offsets = [_query(url)["offset"][0] for url in _urls(mock_session)[:4]]
-        assert offsets == ["0", str(REPORT_PAGE_SIZE), str(REPORT_PAGE_SIZE * 2), "0"]
+        assert result.raised is None
+        assert result.params("offset")[:4] == ["0", str(REPORT_PAGE_SIZE), str(REPORT_PAGE_SIZE * 2), "0"]
         # The empty later windows yield nothing, so only the three real pages come through.
-        assert [len(batch) for batch in batches] == [REPORT_PAGE_SIZE, REPORT_PAGE_SIZE, 3]
+        assert [len(batch) for batch in result.items] == [REPORT_PAGE_SIZE, REPORT_PAGE_SIZE, 3]
         # Mid-window checkpoints carry the offset; the window rollover resets it.
-        assert (manager.saved[0].next_window_start, manager.saved[0].next_offset) == (
+        assert (result.saved_states[0].next_window_start, result.saved_states[0].next_offset) == (
             _earliest().isoformat(),
             REPORT_PAGE_SIZE,
         )
-        assert manager.saved[2].next_offset == 0
+        assert result.saved_states[2].next_offset == 0
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_window_and_offset(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
+    def test_resumes_from_saved_window_and_offset(self) -> None:
         resume_start = _today() - timedelta(days=1)
-        manager = FakeResumeManager(
-            AppLovinResumeConfig(next_window_start=resume_start.isoformat(), next_offset=REPORT_PAGE_SIZE)
+        result = _driver().run(
+            "max_ad_revenue",
+            [_page([])],
+            resume_state=AppLovinResumeConfig(next_window_start=resume_start.isoformat(), next_offset=REPORT_PAGE_SIZE),
         )
 
-        list(get_rows("key", "max_ad_revenue", mock.MagicMock(), manager))
-
-        params = _query(_urls(mock_session)[0])
-        assert params["start"] == [resume_start.isoformat()]
-        assert params["offset"] == [str(REPORT_PAGE_SIZE)]
+        assert result.raised is None
+        assert result.requests[0].param("start") == resume_start.isoformat()
+        assert result.requests[0].param("offset") == str(REPORT_PAGE_SIZE)
         # A single window remains, so nothing older gets re-walked.
-        assert len(_urls(mock_session)) == 1
+        assert len(result.requests) == 1
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_state_behind_the_incremental_start_is_ignored(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
+    def test_resume_state_behind_the_incremental_start_is_ignored(self) -> None:
         watermark = _today()
         expected_start = watermark - timedelta(days=REPORT_LOOKBACK_DAYS)
-        manager = FakeResumeManager(
-            AppLovinResumeConfig(next_window_start=(expected_start - timedelta(days=10)).isoformat())
+        result = _driver().run(
+            "max_ad_revenue",
+            [_page([]), _page([])],
+            resume_state=AppLovinResumeConfig(next_window_start=(expected_start - timedelta(days=10)).isoformat()),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark.isoformat(),
         )
 
-        list(
-            get_rows(
-                "key",
-                "max_ad_revenue",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark.isoformat(),
-            )
+        assert result.raised is None
+        assert result.requests[0].param("start") == expected_start.isoformat()
+
+    def test_non_dict_results_are_dropped(self) -> None:
+        result = _driver().run(
+            "max_ad_revenue",
+            [_page([{"day": "2026-07-01"}, "junk", None]), *[_page(None) for _ in range(6)]],
         )
 
-        assert _query(_urls(mock_session)[0])["start"] == [expected_start.isoformat()]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_dict_results_are_dropped(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = [
-            _response({"code": 200, "results": [{"day": "2026-07-01"}, "junk", None]}),
-            *[_response({"code": 200, "results": None}) for _ in range(50)],
-        ]
-
-        batches = list(get_rows("key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
-        assert batches == [[{"day": "2026-07-01"}]]
+        assert result.raised is None
+        assert result.items == [[{"day": "2026-07-01"}]]
 
 
 class TestErrorClassification:
     @pytest.mark.parametrize("status_code", [401, 403])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_auth_statuses_raise_the_auth_prefix(self, mock_session: mock.MagicMock, status_code: int) -> None:
-        mock_session.return_value.get.return_value = _response(status_code=status_code, text="Authentication Failed")
+    def test_auth_statuses_raise_the_auth_prefix(self, status_code: int) -> None:
+        result = _driver().run("max_ad_revenue", [ScriptedResponse(status=status_code, body=b"Authentication Failed")])
 
-        with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows("key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
-        assert str(exc_info.value).startswith(AUTH_ERROR_PREFIX)
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert str(result.raised).startswith(AUTH_ERROR_PREFIX)
 
     @pytest.mark.parametrize("status_code", [400, 404, 422])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_other_client_errors_raise_the_bad_request_prefix(
-        self, mock_session: mock.MagicMock, status_code: int
-    ) -> None:
-        mock_session.return_value.get.return_value = _response(status_code=status_code, text="Invalid column")
+    def test_other_client_errors_raise_the_bad_request_prefix(self, status_code: int) -> None:
+        result = _driver().run("max_ad_revenue", [ScriptedResponse(status=status_code, body=b"Invalid column")])
 
-        with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows("key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
-        assert str(exc_info.value).startswith(BAD_REQUEST_ERROR_PREFIX)
-        assert "Invalid column" in str(exc_info.value)
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert str(result.raised).startswith(BAD_REQUEST_ERROR_PREFIX)
+        assert "Invalid column" in str(result.raised)
 
     @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_throttling_and_upstream_failures_stay_retryable(
-        self, mock_session: mock.MagicMock, status_code: int
-    ) -> None:
-        mock_session.return_value.get.return_value = _response(status_code=status_code, text="try later")
+    def test_throttling_and_upstream_failures_stay_retryable(self, status_code: int) -> None:
+        result = _driver().run("max_ad_revenue", always(ScriptedResponse(status=status_code, body=b"try later")))
 
-        with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows("key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
+        assert isinstance(result.raised, AppLovinAPIError)
         # Must not be classified as a permanent rejection, or an outage disables the source.
-        assert str(exc_info.value).startswith(TRANSIENT_ERROR_PREFIX)
+        assert str(result.raised).startswith(TRANSIENT_ERROR_PREFIX)
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_json_body_on_a_200_is_a_bad_request(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response(text="<html>oops</html>", json_error=True)
+    def test_non_json_body_on_a_200_is_a_bad_request(self) -> None:
+        result = _driver().run("max_ad_revenue", [ScriptedResponse(body=b"<html>oops</html>")])
 
-        with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows("key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
-        assert str(exc_info.value).startswith(BAD_REQUEST_ERROR_PREFIX)
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert str(result.raised).startswith(BAD_REQUEST_ERROR_PREFIX)
 
     @pytest.mark.parametrize(
         "body_code, expected_prefix",
@@ -279,91 +216,73 @@ class TestErrorClassification:
             (500, TRANSIENT_ERROR_PREFIX),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_body_level_error_code_on_a_200_is_classified(
-        self, mock_session: mock.MagicMock, body_code: int, expected_prefix: str
-    ) -> None:
-        mock_session.return_value.get.return_value = _response({"code": body_code, "results": []})
+    def test_body_level_error_code_on_a_200_is_classified(self, body_code: int, expected_prefix: str) -> None:
+        result = _driver().run("max_ad_revenue", [ScriptedResponse(json={"code": body_code, "results": []})])
 
-        with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows("key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
-        assert str(exc_info.value).startswith(expected_prefix)
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert str(result.raised).startswith(expected_prefix)
 
     # A Report Key with reserved characters is percent-/plus-encoded in the request URL, so a
     # transport error that quotes the URL never carries the raw key — redaction must cover the
     # encoded forms too.
     @pytest.mark.parametrize("api_key", ["super-secret", "ab/c+d=="])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_transport_error_never_leaks_the_report_key(self, mock_session: mock.MagicMock, api_key: str) -> None:
+    def test_transport_error_never_leaks_the_report_key(self, api_key: str) -> None:
         # `requests`/`urllib3` quote the built URL, where the key is URL-encoded.
         leaked_url = f"/maxReport?api_key={quote_plus(api_key)}&columns=day"
-        mock_session.return_value.get.side_effect = requests.ConnectionError(
-            f"Max retries exceeded with url: {leaked_url}"
-        )
 
-        with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows(api_key, "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
+        def fail_request(_request: RecordedRequest) -> ScriptedResponse:
+            raise requests.ConnectionError(f"Max retries exceeded with url: {leaked_url}")
 
-        message = str(exc_info.value)
+        result = _driver(api_key).run("max_ad_revenue", fail_request)
+
+        assert isinstance(result.raised, AppLovinAPIError)
+        message = str(result.raised)
         assert api_key not in message
         assert quote_plus(api_key) not in message
         assert quote(api_key, safe="") not in message
         assert "REDACTED" in message
         # The original exception carries the unredacted URL, so it must not be chained.
-        assert exc_info.value.__cause__ is None
+        assert result.raised.__cause__ is None
 
     @pytest.mark.parametrize("api_key", ["super-secret", "ab/c+d=="])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_error_body_echoing_the_report_key_is_redacted(self, mock_session: mock.MagicMock, api_key: str) -> None:
-        mock_session.return_value.get.return_value = _response(
-            status_code=400, text=f"bad request for api_key={api_key}"
+    def test_error_body_echoing_the_report_key_is_redacted(self, api_key: str) -> None:
+        result = _driver(api_key).run(
+            "max_ad_revenue", [ScriptedResponse(status=400, body=f"bad request for api_key={api_key}".encode())]
         )
 
-        with pytest.raises(AppLovinAPIError) as exc_info:
-            list(get_rows(api_key, "max_ad_revenue", mock.MagicMock(), FakeResumeManager()))
-
-        assert api_key not in str(exc_info.value)
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert api_key not in str(result.raised)
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_advertiser_only_key_accepted_on_the_report_probe(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = [
-            _response(status_code=403, text="Authentication Failed"),
-            _response({"code": 200, "results": []}),
-        ]
+    def test_advertiser_only_key_accepted_on_the_report_probe(self) -> None:
+        with scripted_network([ScriptedResponse(status=403, body=b"Authentication Failed"), _page([])]) as network:
+            assert validate_credentials("key") is True
 
-        assert validate_credentials("key") is True
-        assert [urlparse(url).path for url in _urls(mock_session)] == ["/maxReport", "/report"]
+        assert [request.path for request in network.requests_log] == ["/maxReport", "/report"]
 
     @pytest.mark.parametrize(
         "responses",
         [
-            [_response(status_code=403, text="Authentication Failed")] * 2,
-            [_response({"code": 403, "results": []})] * 2,
-            [_response(text="Authentication Failed", json_error=True)] * 2,
+            [ScriptedResponse(status=403, body=b"Authentication Failed")] * 2,
+            [ScriptedResponse(json={"code": 403, "results": []})] * 2,
+            [ScriptedResponse(body=b"Authentication Failed")] * 2,
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_rejected_key_is_invalid(self, mock_session: mock.MagicMock, responses: list[mock.MagicMock]) -> None:
-        mock_session.return_value.get.side_effect = responses
+    def test_rejected_key_is_invalid(self, responses: list[ScriptedResponse]) -> None:
+        with scripted_network(responses) as network:
+            assert validate_credentials("bad") is False
 
-        assert validate_credentials("bad") is False
+        assert [request.path for request in network.requests_log] == ["/maxReport", "/report"]
 
 
 class TestSourceResponse:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_items_yields_rows_as_returned_by_the_api(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = [
-            _response({"code": 200, "results": [{"day": "2026-07-01", "estimated_revenue": "1.23"}]}),
-            *[_response({"code": 200, "results": []}) for _ in range(50)],
-        ]
-        response = applovin_source("key", "max_ad_revenue", mock.MagicMock(), FakeResumeManager())
+    def test_items_yields_rows_as_returned_by_the_api(self) -> None:
+        rows = [{"day": "2026-07-01", "estimated_revenue": "1.23"}]
+        result = _driver().run("max_ad_revenue", [_page(rows), *[_page([]) for _ in range(6)]])
 
-        batches = list(cast("Iterable[Any]", response.items()))
-
-        assert batches == [[{"day": "2026-07-01", "estimated_revenue": "1.23"}]]
+        assert result.raised is None
+        assert result.items == [rows]
 
 
 class TestEndpointCatalogInvariants:

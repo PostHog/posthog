@@ -40,6 +40,8 @@ interface UseChartMarginsOptions {
     xTickLabelRotation?: number
     yTickFormatter?: (value: number) => string
     axisOrientation?: 'vertical' | 'horizontal'
+    /** Percent layouts plot every series on a [0, 1] domain, so tick sizing ignores the raw values. */
+    isPercent?: boolean
     /** Per-side overrides applied on top of the computed margins. */
     override?: Partial<ChartMargins>
     /** Override the value-range source for value-axis tick sizing. Defaults to `series`. Use
@@ -148,6 +150,7 @@ export function useChartMargins({
     xTickLabelRotation = 0,
     yTickFormatter,
     axisOrientation = 'vertical',
+    isPercent = false,
     override,
     valueRangeSeries,
     maxCategoryLabelWidth = 0,
@@ -157,7 +160,10 @@ export function useChartMargins({
     yAxisHidden,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
-    const valueSeries = valueRangeSeries ?? series
+    const valueSeries = useMemo(
+        () => (isPercent ? series.map((s) => ({ ...s, data: [0, 1] })) : (valueRangeSeries ?? series)),
+        [isPercent, series, valueRangeSeries]
+    )
     const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
     const tickLabelRotation = isHorizontal ? 0 : normalizeTickLabelRotation(xTickLabelRotation)
     const categoryWidths = useMemo(

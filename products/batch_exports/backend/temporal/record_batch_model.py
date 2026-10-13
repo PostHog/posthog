@@ -25,6 +25,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
+    apply_hogql_batch_export_modifier_defaults,
     create_hogql_context_for_batch_export,
     find_interval_placeholders,
     load_hogql_modifiers,
@@ -395,7 +396,10 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         user = await User.objects.filter(pk=self.user_id).afirst()
         await database_sync_to_async(validate_hogql_batch_export_user)(team, user)
         context = await database_sync_to_async(create_hogql_context_for_batch_export)(
-            team, user=user, values={"log_comment": self.get_log_comment()}, modifiers=self.hogql_modifiers
+            team,
+            user=user,
+            values={"log_comment": self.get_log_comment()},
+            modifiers=apply_hogql_batch_export_modifier_defaults(team, self.hogql_modifiers),
         )
         # Pinned here rather than resolved in `get_clickhouse_request_settings`, which is sync and runs on
         # the event loop where a database read is not allowed.

@@ -16,6 +16,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: csp_violations
+scout-precheck-query: |
+  SELECT event, count() AS events, max(timestamp) AS last_seen
+  FROM events
+  WHERE event = '$csp_violation'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  GROUP BY event
 ---
 
 # Signals scout: CSP violations
@@ -33,6 +39,8 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
 ## Quick close-out: is CSP reporting even active?
+
+A scheduled run can start with a `<precheck_result>` block. Its row counts the `$csp_violation` events of the last 7 days, so CSP reporting is in use. When the block is present, skip the `not-in-use` close-out. The baseline close-out and the standing enforced / first-party block check still apply.
 
 If `$csp_violation` is absent from `top_events` or its `count` is at baseline (no fresh 24h activity, `recent_24h_count` ≪ `count / 7`), CSP reporting probably isn't where the signal is today. Cheap scratchpad entry + close out:
 

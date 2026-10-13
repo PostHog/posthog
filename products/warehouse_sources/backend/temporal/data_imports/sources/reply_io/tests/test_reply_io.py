@@ -1,166 +1,96 @@
-import json
 from typing import Any
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io import reply_io
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
+    ReplyIoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import (
     PAGE_SIZE,
     ReplyIoResumeConfig,
     check_access,
     check_endpoint_permissions,
-    reply_io_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# check_access / validate_credentials build their own tracked session in the reply_io module.
-REPLY_IO_SESSION_PATCH = f"{reply_io.__name__}.make_tracked_session"
-
-
-def _paged(items: list[dict[str, Any]], has_more: bool) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps({"items": items, "hasMore": has_more}).encode()
-    return resp
+from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import (
+    ENDPOINTS,
+    REPLY_IO_ENDPOINTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source import ReplyIoSource
 
 
-def _bare(body: Any) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(ReplyIoSource(), ReplyIoSourceConfig(api_key="reply-key"))
 
 
-def _make_manager(resume_state: ReplyIoResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _paged(items: list[dict[str, Any]], has_more: bool) -> ScriptedResponse:
+    return ScriptedResponse(json={"items": items, "hasMore": has_more})
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return reply_io_source(
-        api_key="reply-key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager
-    )
+def _bare(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_offset_pagination_until_hasmore_false(self, MockSession) -> None:
+    def test_follows_offset_pagination_until_hasmore_false(self) -> None:
         # A short page (< PAGE_SIZE) with hasMore=True must continue — Reply's hasMore is
         # authoritative, so unlike the built-in OffsetPaginator we don't stop on a short page.
-        session = MockSession.return_value
-        params = _wire(
-            session,
+        result = _driver().run(
+            "contacts",
             [_paged([{"id": 1}, {"id": 2}, {"id": 3}], has_more=True), _paged([{"id": 4}, {"id": 5}], has_more=False)],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert [r["id"] for r in rows] == [1, 2, 3, 4, 5]
-        assert params[0] == {"top": PAGE_SIZE, "skip": 0}
+        assert [r["id"] for r in result.rows] == [1, 2, 3, 4, 5]
+        assert dict(result.requests[0].query) == {"top": (str(PAGE_SIZE),), "skip": ("0",)}
         # Offset advances by rows RECEIVED (3), not PAGE_SIZE — robust to a server-side page cap.
-        assert params[1]["skip"] == 3
+        assert result.requests[1].param("skip") == "3"
         # Checkpoint saved once after the first page (points at the next page); hasMore=false ends it.
-        manager.save_state.assert_called_once_with(ReplyIoResumeConfig(skip=3))
+        assert result.saved_states == [ReplyIoResumeConfig(skip=3)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_paged([{"id": 201}], has_more=False)])
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "contacts",
+            [_paged([{"id": 201}], has_more=False)],
+            resume_state=ReplyIoResumeConfig(skip=200),
+        )
 
-        manager = _make_manager(ReplyIoResumeConfig(skip=200))
-        rows = _rows(_source("contacts", manager))
-
-        assert [r["id"] for r in rows] == [201]
+        assert [r["id"] for r in result.rows] == [201]
         # The initial (skip=0) page is never fetched on resume.
-        assert params[0]["skip"] == 200
+        assert result.params("skip") == ["200"]
 
     @parameterized.expand([("custom_fields",), ("email_template_folders",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_fetches_bare_array_once_without_state(self, endpoint: str, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_bare([{"id": 1}, {"id": 2}])])
+    def test_unpaginated_endpoint_fetches_bare_array_once_without_state(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_bare([{"id": 1}, {"id": 2}])])
 
-        manager = _make_manager()
-        rows = _rows(_source(endpoint, manager))
-
-        assert [r["id"] for r in rows] == [1, 2]
-        assert session.send.call_count == 1
+        assert [r["id"] for r in result.rows] == [1, 2]
+        assert len(result.requests) == 1
         # Bare-array endpoints take no pagination params and never persist resume state.
-        assert "top" not in params[0] and "skip" not in params[0]
-        manager.save_state.assert_not_called()
+        assert "top" not in result.requests[0].query and "skip" not in result.requests[0].query
+        assert result.saved_states == []
 
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_body_exhausts_retries_and_raises_retryable(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_bare([{"id": 1}]) for _ in range(5)])
+    def test_malformed_body_exhausts_retries_and_raises_retryable(self) -> None:
+        result = _driver().run("contacts", always(_bare([{"id": 1}])))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("contacts", _make_manager()))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_non_array_body_is_retryable(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_bare({"items": []}) for _ in range(5)])
+    def test_unpaginated_non_array_body_is_retryable(self) -> None:
+        result = _driver().run("custom_fields", always(_bare({"items": []})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("custom_fields", _make_manager()))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
 
 class TestCredentials:
-    @staticmethod
-    def _session(response: Any) -> mock.MagicMock:
-        session = mock.MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
-    @staticmethod
-    def _response(status: int) -> mock.MagicMock:
-        response = mock.MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        return response
-
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -169,55 +99,57 @@ class TestCredentials:
             ("server_error", 500, False, "Reply returned HTTP 500"),
         ]
     )
-    @mock.patch(REPLY_IO_SESSION_PATCH)
     def test_validate_credentials_at_source_create(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: mock.MagicMock,
     ) -> None:
-        mock_session.return_value = self._session(self._response(status))
-        assert validate_credentials("reply-key") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+            assert validate_credentials("reply-key") == (expected_valid, expected_message)
 
-    @mock.patch(REPLY_IO_SESSION_PATCH)
-    def test_validate_credentials_for_endpoint_names_missing_scope(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value = self._session(self._response(403))
-        valid, message = validate_credentials("reply-key", endpoint="sequences")
+    def test_validate_credentials_for_endpoint_names_missing_scope(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json={}))):
+            valid, message = validate_credentials("reply-key", endpoint="sequences")
         assert valid is False
         assert message == "Your Reply API key is missing the `sequences:read` scope"
 
-    @mock.patch(REPLY_IO_SESSION_PATCH)
-    def test_check_access_connection_error_maps_to_zero(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("reply-key", "/whoami")
+    def test_check_access_connection_error_maps_to_zero(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            status, message = check_access("reply-key", "/whoami")
         assert status == 0
         assert message is not None and "boom" in message
 
 
 class TestEndpointPermissions:
-    @parameterized.expand([("throttled", 429), ("server_error", 500), ("connection_error", 0)])
-    @mock.patch(f"{reply_io.__name__}.check_access")
-    def test_transient_errors_do_not_block_the_picker(
-        self, _name: str, status: int, mock_access: mock.MagicMock
-    ) -> None:
-        mock_access.return_value = (status, None)
-        results = check_endpoint_permissions("reply-key", ["contacts"])
+    @parameterized.expand(
+        [
+            ("throttled", always(ScriptedResponse(status=429, json={}))),
+            ("server_error", always(ScriptedResponse(status=500, json={}))),
+            ("connection_error", always(requests.ConnectionError("boom"))),
+        ]
+    )
+    def test_transient_errors_do_not_block_the_picker(self, _name: str, script: Script) -> None:
+        with scripted_network(script):
+            results = check_endpoint_permissions("reply-key", ["contacts"])
         assert results == {"contacts": None}
 
-    @mock.patch(f"{reply_io.__name__}.check_access")
-    def test_unknown_endpoint_reported_reachable_without_probe(self, mock_access: mock.MagicMock) -> None:
-        results = check_endpoint_permissions("reply-key", ["not_a_table"])
+    def test_unknown_endpoint_reported_reachable_without_probe(self) -> None:
+        with scripted_network([]) as network:
+            results = check_endpoint_permissions("reply-key", ["not_a_table"])
         assert results == {"not_a_table": None}
-        mock_access.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestReplyIoSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        empty = _paged([], has_more=False) if REPLY_IO_ENDPOINTS[endpoint].paginated else _bare([])
+        result = _driver().run(endpoint, [empty])
+
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == ["id"]
         # Most Reply resources expose no stable creation timestamp, so we don't partition.
-        assert response.partition_mode is None
+        assert result.response.partition_mode is None

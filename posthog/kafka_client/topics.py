@@ -1,4 +1,4 @@
-# Keep this in sync with plugin-server/src/config/kafka-topics.ts
+# Keep this in sync with nodejs/src/common/config/kafka-topics.ts
 
 from posthog.settings.data_stores import SUFFIX
 from posthog.settings.kafka import KAFKA_PREFIX

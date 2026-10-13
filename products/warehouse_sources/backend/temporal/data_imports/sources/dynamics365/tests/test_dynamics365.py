@@ -1,21 +1,20 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
+from urllib.parse import parse_qs
 
 import pytest
-from unittest import mock
 
-import requests
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365 import (
     INVALID_ORGANIZATION_URL_ERROR,
     Dynamics365ConfigurationError,
     Dynamics365ResumeConfig,
     build_query_params,
-    dynamics365_source,
     format_odata_datetime,
     normalize_organization_url,
     probe_credentials,
@@ -27,27 +26,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics36
     DYNAMICS365_ENDPOINTS,
     ENDPOINTS,
 )
-
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-AUTH_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
-)
-PROBE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source import Dynamics365Source
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365 import (
+    Dynamics365SourceConfig,
 )
 
 ORGANIZATION_URL = "https://contoso.crm.dynamics.com"
 TENANT_ID = "72f988bf-86f1-41af-91ab-2d7cd011db47"
 API_VERSION = "v9.2"
 DATA_URL = f"{ORGANIZATION_URL}/api/data/{API_VERSION}"
-
-
-def _response(payload: dict[str, Any], status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = json.dumps(payload).encode()
-    response.url = f"{DATA_URL}/accounts"
-    return response
 
 
 def _page(rows: list[dict[str, Any]], next_link: str | None = None) -> dict[str, Any]:
@@ -57,71 +44,15 @@ def _page(rows: list[dict[str, Any]], next_link: str | None = None) -> dict[str,
     return body
 
 
-def _token_response(expires_in: int = 3599) -> mock.MagicMock:
-    # OAuth2Auth reads the token exchange body via response.raw.read (stream=True).
-    response = mock.MagicMock()
-    response.status_code = 200
-    response.raw.read.return_value = json.dumps(
-        {"access_token": "tok-1", "expires_in": expires_in, "token_type": "Bearer"}
-    ).encode()
-    return response
+def _token_response(expires_in: int = 3599) -> ScriptedResponse:
+    return ScriptedResponse(json={"access_token": "tok-1", "expires_in": expires_in, "token_type": "Bearer"})
 
 
-def _make_manager(resume_state: Dynamics365ResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock RESTClient session, snapshotting each request as it is prepared.
-
-    ``request.params`` is one dict mutated across pages, so it has to be copied at prepare time. A
-    real ``requests.Session`` does the preparing, so the OAuth2 token mint and Bearer header are
-    genuinely applied.
-    """
-    session.headers = {}
-    real_session = requests.Session()
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> requests.PreparedRequest:
-        prepared = real_session.prepare_request(request)
-        snapshots.append({"params": dict(request.params or {}), "url": prepared.url, "headers": dict(prepared.headers)})
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
-    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
-
-
-def _source(
-    endpoint: str,
-    manager: mock.MagicMock,
-    *,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-    organization_url: str = ORGANIZATION_URL,
-) -> SourceResponse:
-    return dynamics365_source(
-        organization_url=organization_url,
-        tenant_id=TENANT_ID,
-        client_id="cid",
-        client_secret="sec",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job-1",
-        api_version=API_VERSION,
-        resumable_source_manager=manager,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-        incremental_field=incremental_field,
+def _driver(organization_url: str = ORGANIZATION_URL) -> SourceDriver:
+    config = Dynamics365SourceConfig(
+        organization_url=organization_url, tenant_id=TENANT_ID, client_id="cid", client_secret="sec"
     )
+    return SourceDriver(Dynamics365Source(), config)
 
 
 class TestNormalizeOrganizationUrl:
@@ -247,204 +178,157 @@ class TestStripOdataAnnotations:
 
 
 class TestDynamics365Source:
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_link_until_absent(self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
+    def test_follows_next_link_until_absent(self) -> None:
         next_link = f"{DATA_URL}/accounts?$skiptoken=page2"
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "Accounts",
             [
-                _response(_page([{"accountid": "a-1", "@odata.etag": 'W/"1"'}], next_link=next_link)),
-                _response(_page([{"accountid": "a-2"}])),
+                _token_response(),
+                ScriptedResponse(json=_page([{"accountid": "a-1", "@odata.etag": 'W/"1"'}], next_link)),
+                ScriptedResponse(json=_page([{"accountid": "a-2"}])),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("Accounts", manager))
-
-        assert [row["accountid"] for row in rows] == ["a-1", "a-2"]
+        assert result.raised is None
+        assert [row["accountid"] for row in result.rows] == ["a-1", "a-2"]
         # The etag annotation never reaches the warehouse.
-        assert all("@odata.etag" not in row for row in rows)
-        assert snapshots[0]["url"] == f"{DATA_URL}/accounts"
-        assert snapshots[1]["url"] == next_link
+        assert all("@odata.etag" not in row for row in result.rows)
+        assert result.urls[1:] == [f"{DATA_URL}/accounts", next_link]
         # State is saved only while a next link remains, after the page has been yielded.
-        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [next_link]
+        assert result.saved_states == [Dynamics365ResumeConfig(next_url=next_link)]
+        assert result.committed_states == [Dynamics365ResumeConfig(next_url=next_link)]
 
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_the_saved_next_link(self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
+    def test_resumes_from_the_saved_next_link(self) -> None:
         saved = f"{DATA_URL}/contacts?$skiptoken=page9"
-        snapshots = _wire(session, [_response(_page([{"contactid": "c-9"}]))])
+        result = _driver().run(
+            "Contacts",
+            [_token_response(), ScriptedResponse(json=_page([{"contactid": "c-9"}]))],
+            resume_state=Dynamics365ResumeConfig(next_url=saved),
+        )
 
-        rows = _rows(_source("Contacts", _make_manager(Dynamics365ResumeConfig(next_url=saved))))
+        assert result.raised is None
+        assert result.urls[1:] == [saved]
+        assert [row["contactid"] for row in result.rows] == ["c-9"]
 
-        assert snapshots[0]["url"] == saved
-        assert [row["contactid"] for row in rows] == ["c-9"]
+    def test_empty_page_stops_without_saving(self) -> None:
+        result = _driver().run("Leads", [_token_response(), ScriptedResponse(json=_page([]))])
 
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_saving(self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(session, [_response(_page([]))])
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == [f"/{TENANT_ID}/oauth2/v2.0/token", "/api/data/v9.2/leads"]
+        assert result.saved_states == []
 
-        manager = _make_manager()
-        assert _rows(_source("Leads", manager)) == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_a_response_without_a_value_collection_fails_loud(
-        self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock
-    ) -> None:
+    def test_a_response_without_a_value_collection_fails_loud(self) -> None:
         # Better to fail than to report a successful sync of zero rows.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(session, [_response({"error": {"code": "0x0", "message": "unexpected"}})])
+        result = _driver().run(
+            "Accounts", [_token_response(), ScriptedResponse(json={"error": {"code": "0x0", "message": "unexpected"}})]
+        )
 
-        with pytest.raises(ValueError, match="matched nothing in the response"):
-            _rows(_source("Accounts", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "matched nothing in the response" in str(result.raised)
 
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_host_next_link_is_refused(self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock) -> None:
+    def test_off_host_next_link_is_refused(self) -> None:
         # A spoofed next link must not carry the access token to another host.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(
-            session,
+        result = _driver().run(
+            "Accounts",
             [
-                _response(_page([{"accountid": "a-1"}], next_link="https://evil.test/api/data/v9.2/accounts")),
-                _response(_page([{"accountid": "a-2"}])),
+                _token_response(),
+                ScriptedResponse(json=_page([{"accountid": "a-1"}], "https://evil.test/api/data/v9.2/accounts")),
             ],
         )
 
-        with pytest.raises(Exception, match="allowed hosts"):
-            _rows(_source("Accounts", _make_manager()))
+        assert isinstance(result.raised, Exception)
+        assert "allowed hosts" in str(result.raised)
+        assert all(request.origin != "https://evil.test" for request in result.requests)
 
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_odata_headers_and_page_size_preference(
-        self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(session, [_response(_page([]))])
+    def test_sends_odata_headers_and_page_size_preference(self) -> None:
+        result = _driver().run("Accounts", [_token_response(), ScriptedResponse(json=_page([]))])
 
-        _rows(_source("Accounts", _make_manager()))
-
-        assert snapshots[0]["headers"]["Authorization"] == "Bearer tok-1"
+        assert result.raised is None
+        assert result.requests[1].headers["authorization"] == "Bearer tok-1"
         # The OData negotiation headers ride the session the client builds.
-        assert session.headers["OData-Version"] == "4.0"
-        assert session.headers["OData-MaxVersion"] == "4.0"
-        assert session.headers["Prefer"] == "odata.maxpagesize=5000"
+        assert result.requests[1].headers["odata-version"] == "4.0"
+        assert result.requests[1].headers["odata-maxversion"] == "4.0"
+        assert result.requests[1].headers["prefer"] == "odata.maxpagesize=5000"
 
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_mints_one_environment_scoped_token_for_the_run(
-        self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(
-            session,
+    def test_mints_one_environment_scoped_token_for_the_run(self) -> None:
+        result = _driver().run(
+            "Accounts",
             [
-                _response(_page([{"accountid": "a-1"}], next_link=f"{DATA_URL}/accounts?$skiptoken=p2")),
-                _response(_page([{"accountid": "a-2"}])),
+                _token_response(),
+                ScriptedResponse(json=_page([{"accountid": "a-1"}], f"{DATA_URL}/accounts?$skiptoken=p2")),
+                ScriptedResponse(json=_page([{"accountid": "a-2"}])),
             ],
         )
 
-        _rows(_source("Accounts", _make_manager()))
+        assert result.raised is None
+        token_requests = [request for request in result.requests if request.method == "POST"]
+        assert len(token_requests) == 1
+        assert token_requests[0].url == f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+        body = parse_qs((token_requests[0].body or b"").decode())
+        assert body["grant_type"] == ["client_credentials"]
+        assert body["scope"] == [f"{ORGANIZATION_URL}/.default"]
+        assert body["client_secret"] == ["sec"]
 
-        assert MockAuth.return_value.post.call_count == 1
-        assert (
-            MockAuth.return_value.post.call_args.args[0]
-            == f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
-        )
-        body = MockAuth.return_value.post.call_args.kwargs["data"]
-        assert body["grant_type"] == "client_credentials"
-        assert body["scope"] == f"{ORGANIZATION_URL}/.default"
-        assert body["client_secret"] == "sec"
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_remints_token_when_it_expires_mid_run(self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock) -> None:
+    def test_remints_token_when_it_expires_mid_run(self) -> None:
         # expires_in=0 is the deterministic stand-in for a sync outliving the token lifetime.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response(expires_in=0)
-        _wire(
-            session,
+        result = _driver().run(
+            "Accounts",
             [
-                _response(_page([{"accountid": "a-1"}], next_link=f"{DATA_URL}/accounts?$skiptoken=p2")),
-                _response(_page([{"accountid": "a-2"}])),
+                _token_response(expires_in=0),
+                ScriptedResponse(json=_page([{"accountid": "a-1"}], f"{DATA_URL}/accounts?$skiptoken=p2")),
+                _token_response(expires_in=0),
+                ScriptedResponse(json=_page([{"accountid": "a-2"}])),
             ],
         )
 
-        rows = _rows(_source("Accounts", _make_manager()))
+        assert result.raised is None
+        assert [row["accountid"] for row in result.rows] == ["a-1", "a-2"]
+        assert len([request for request in result.requests if request.method == "POST"]) == 2
 
-        assert [row["accountid"] for row in rows] == ["a-1", "a-2"]
-        assert MockAuth.return_value.post.call_count == 2
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_run_filters_server_side(self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(session, [_response(_page([]))])
-
-        _rows(
-            _source(
-                "Cases",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
-                incremental_field="modifiedon",
-            )
+    def test_incremental_run_filters_server_side(self) -> None:
+        result = _driver().run(
+            "Cases",
+            [_token_response(), ScriptedResponse(json=_page([]))],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
+            incremental_field="modifiedon",
         )
 
-        assert snapshots[0]["params"] == {
-            "$orderby": "modifiedon asc",
-            "$filter": "modifiedon gt 2024-01-02T03:04:05Z",
-        }
+        assert result.raised is None
+        assert result.requests[1].param("$orderby") == "modifiedon asc"
+        assert result.requests[1].param("$filter") == "modifiedon gt 2024-01-02T03:04:05Z"
 
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_next_link_carries_the_query_so_params_are_not_reapplied(
-        self, MockSession: mock.MagicMock, MockAuth: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
+    def test_next_link_carries_the_query_so_params_are_not_reapplied(self) -> None:
         next_link = f"{DATA_URL}/accounts?%24filter=modifiedon+gt+2024-01-02T03%3A04%3A05Z&%24skiptoken=p2"
-        snapshots = _wire(
-            session,
-            [_response(_page([{"accountid": "a-1"}], next_link=next_link)), _response(_page([]))],
+        result = _driver().run(
+            "Accounts",
+            [
+                _token_response(),
+                ScriptedResponse(json=_page([{"accountid": "a-1"}], next_link)),
+                ScriptedResponse(json=_page([])),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
         )
 
-        _rows(
-            _source(
-                "Accounts",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[1]["url"] == next_link
+        assert result.raised is None
+        assert result.urls[2] == next_link
 
     def test_rejects_an_environment_url_before_minting_a_token(self) -> None:
-        with pytest.raises(Dynamics365ConfigurationError):
-            _source("Accounts", _make_manager(), organization_url="https://evil.test")
+        result = _driver("https://evil.test").run("Accounts", [])
+
+        assert isinstance(result.raised, Dynamics365ConfigurationError)
+        assert result.requests == []
 
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_response_shape_per_endpoint(self, endpoint: str) -> None:
         config = DYNAMICS365_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [_token_response(), ScriptedResponse(json=_page([]))])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
@@ -465,23 +349,33 @@ class TestProbeCredentials:
             (500, (200,), False),
         ],
     )
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_maps_probe_status(
-        self, mock_session: mock.MagicMock, status: int, ok_statuses: tuple[int, ...], expected: bool
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+    def test_maps_probe_status(self, status: int, ok_statuses: tuple[int, ...], expected: bool) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            return _token_response() if request.method == "POST" else ScriptedResponse(status=status)
 
-        is_valid, reported = probe_credentials(
-            ORGANIZATION_URL, TENANT_ID, "cid", "sec", API_VERSION, ok_statuses=ok_statuses
-        )
+        with scripted_network(answer) as network:
+            is_valid, reported = probe_credentials(
+                ORGANIZATION_URL, TENANT_ID, "cid", "sec", API_VERSION, ok_statuses=ok_statuses
+            )
 
         assert is_valid is expected
         assert reported == status
+        assert network.requests_log[-1].path == "/api/data/v9.2/accounts"
 
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_reports_unreachable_environment(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert probe_credentials(ORGANIZATION_URL, TENANT_ID, "cid", "sec", API_VERSION) == (False, None)
+    def test_reports_unreachable_environment(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "POST":
+                return _token_response()
+            raise ConnectionResetError("boom")
+
+        with scripted_network(answer) as network:
+            result = probe_credentials(ORGANIZATION_URL, TENANT_ID, "cid", "sec", API_VERSION)
+
+        assert result == (False, None)
+        assert {request.path for request in network.requests_log} == {
+            f"/{TENANT_ID}/oauth2/v2.0/token",
+            "/api/data/v9.2/accounts",
+        }
 
     @pytest.mark.parametrize(
         "endpoint, expected_url",
@@ -492,18 +386,25 @@ class TestProbeCredentials:
             ("NotATable", f"{DATA_URL}/accounts?$top=1&$select=accountid"),
         ],
     )
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_probes_one_row_of_the_requested_table(
-        self, mock_session: mock.MagicMock, endpoint: str | None, expected_url: str
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_probes_one_row_of_the_requested_table(self, endpoint: str | None, expected_url: str) -> None:
+        with scripted_network([_token_response(), ScriptedResponse()]) as network:
+            result = probe_credentials(ORGANIZATION_URL, TENANT_ID, "cid", "sec", API_VERSION, endpoint)
 
-        probe_credentials(ORGANIZATION_URL, TENANT_ID, "cid", "sec", API_VERSION, endpoint)
+        assert result == (True, 200)
+        token_request, data_request = network.requests_log
+        assert data_request.path == expected_url.split("?", 1)[0].removeprefix(ORGANIZATION_URL)
+        assert data_request.param("$top") == "1"
+        assert data_request.param("$select") == expected_url.split("$select=", 1)[1]
+        assert parse_qs((token_request.body or b"").decode())["scope"] == [f"{ORGANIZATION_URL}/.default"]
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == expected_url
-        assert call.kwargs["auth"].scopes == f"{ORGANIZATION_URL}/.default"
-        assert call.kwargs["allow_redirects"] is False
+    def test_probe_does_not_follow_redirect(self) -> None:
+        with scripted_network(
+            [_token_response(), ScriptedResponse(status=302, headers={"Location": "https://evil.test/"})]
+        ) as network:
+            result = probe_credentials(ORGANIZATION_URL, TENANT_ID, "cid", "sec", API_VERSION)
+
+        assert result == (False, 302)
+        assert all(request.origin != "https://evil.test" for request in network.requests_log)
 
     def test_raises_on_an_unusable_environment_url(self) -> None:
         with pytest.raises(Dynamics365ConfigurationError):

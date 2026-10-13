@@ -44,8 +44,10 @@ from posthog.models.deletion_targets import (
     EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
+    TargetPlacement,
     _any_node_has,
     resolve_placements,
+    shards_by_partition,
     surviving_rows_sql,
     sweep_clusters,
 )
@@ -172,15 +174,38 @@ def _start_of_month_after(partition: int) -> datetime:
 # mark the request verified with that row left behind.
 # The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows
 # there are pipeline stragglers the next run converges on, not a sustained obligation.
-_DELETE_PREDICATE = """or(
-    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id))
+_PERSON_ARM = """(dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id))
         AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
-        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id)))),
-    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
-    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, uuid))),
-    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
-        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
-)"""
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))))"""
+_TEAM_ARM = "(dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id)))"
+_EVENT_ARM = "(dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, uuid)))"
+_ADHOC_ARM = """(dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))"""
+
+
+def _any_of(*arms: str) -> str:
+    return "or(\n    " + ",\n    ".join(arms) + "\n)"
+
+
+_DELETE_PREDICATE = _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_ARM)
+
+# sharded_events_json writes deletes as patch parts, which suit the few rows a person, event or
+# adhoc deletion names. The team_id sets come from the dictionaries and lead the sorting key, so the
+# read skips the granules of every team with nothing to delete.
+_PATCH_PART_DELETE_PREDICATE = (
+    _any_of(_PERSON_ARM, _EVENT_ARM, _ADHOC_ARM)
+    + """
+    AND (team_id IN (SELECT DISTINCT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type IN (%(person_deletion_type)s, %(event_deletion_type)s))
+        OR team_id IN (SELECT team_id FROM dictionary(%(adhoc_event_deletes_dictionary)s)))"""
+)
+
+# A team deletion removes every row the team has, which as patch parts would store one patch row per
+# deleted row until merges fold them in. A mutation rewrites the affected parts instead.
+_TEAM_DELETE_PREDICATE = (
+    _TEAM_ARM
+    + """
+    AND team_id IN (SELECT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type = %(team_deletion_type)s)"""
+)
 
 
 # Embedding documents are keyed by the id of the thing they describe, and an Event deletion's key is
@@ -644,6 +669,51 @@ def load_and_verify_adhoc_event_deletes_dictionary(
     return dictionary
 
 
+def _delete_with_patch_parts(
+    placement: TargetPlacement,
+    parameters: dict[str, str | int],
+    reuse_floor: datetime,
+    by_shard: dict[int, list[MutationWaiter]],
+) -> None:
+    """Delete from a patch-part target one partition at a time, and team deletions as a mutation.
+
+    A lightweight delete whose WHERE cannot be pruned holds a block number open in every partition
+    until it finishes, which stalls merges across the table. One statement per partition, sent only to
+    the shards that hold it, keeps that to a single partition. Each statement has finished writing its
+    patch part when it returns, so only the team mutation leaves anything to wait on.
+    """
+    for partition_id, shards in sorted(shards_by_partition(placement).items()):
+        runner = LightweightDeleteMutationRunner(
+            table=placement.target.data_table,
+            predicate=_PATCH_PART_DELETE_PREDICATE,
+            parameters=parameters,
+            partition=partition_id,
+            patch_parts=True,
+        )
+        placement.cluster.map_any_host_in_shards(dict.fromkeys(shards, runner)).result()
+
+    [[pending_team_deletes]] = placement.cluster.any_host(
+        Query(
+            "SELECT count() FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type = %(team_deletion_type)s",
+            parameters,
+        )
+    ).result()
+    if not pending_team_deletes:
+        return
+
+    team_runner = LightweightDeleteMutationRunner(
+        table=placement.target.data_table,
+        predicate=_TEAM_DELETE_PREDICATE,
+        parameters=parameters,
+        reuse_since=reuse_floor,
+        # The session can default DELETE to patch parts, so the mutation mode is named here.
+        settings={"lightweight_delete_mode": "alter_update"},
+    )
+    for host, mutation in placement.cluster.map_one_host_per_shard(team_runner).result().items():
+        if host.shard_num is not None:
+            by_shard.setdefault(host.shard_num, []).append(mutation)
+
+
 @dagster.op
 def delete_events(
     context: dagster.OpExecutionContext,
@@ -695,31 +765,29 @@ def delete_events(
     # Every target this run sweeps must get the delete, or rows survive on the one that missed it.
     placements = resolve_placements(cluster, _targets_named(swept_targets))
     reuse_floor = _mutation_reuse_floor(cluster)
-    delete_mutation_runners = [
-        (
-            placement,
-            LightweightDeleteMutationRunner(
-                table=placement.target.data_table,
-                predicate=_DELETE_PREDICATE,
-                parameters=_delete_predicate_params(
-                    load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
-                ),
-                reuse_since=reuse_floor,
-                patch_parts=placement.target.uses_patch_parts,
-            ),
-        )
-        for placement in placements
-    ]
+    parameters = _delete_predicate_params(
+        load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
+    )
 
     waiters: dict[tuple[str, NodeRole], dict[int, list[MutationWaiter]]] = {}
-    for placement, delete_mutation_runner in delete_mutation_runners:
+    for placement in placements:
+        key = (placement.cluster.data_cluster_name, placement.cluster.shard_role)
+        by_shard = waiters.setdefault(key, {})
+        if placement.target.uses_patch_parts:
+            _delete_with_patch_parts(placement, parameters, reuse_floor, by_shard)
+            continue
+        runner = LightweightDeleteMutationRunner(
+            table=placement.target.data_table,
+            predicate=_DELETE_PREDICATE,
+            parameters=parameters,
+            reuse_since=reuse_floor,
+        )
         # placement.cluster, not the job's handle: the dictionary the predicate joins was created
         # on every cluster here, but the storage table only exists on this one.
-        for host, mutation in placement.cluster.map_one_host_per_shard(delete_mutation_runner).result().items():
+        for host, mutation in placement.cluster.map_one_host_per_shard(runner).result().items():
             if host.shard_num is not None:
-                key = (placement.cluster.data_cluster_name, placement.cluster.shard_role)
-                by_shard = waiters.setdefault(key, {})
                 by_shard.setdefault(host.shard_num, []).append(mutation)
+    waiters = {key: by_shard for key, by_shard in waiters.items() if by_shard}
 
     cluster_mutations: ClusterShardMutations = {
         key: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
