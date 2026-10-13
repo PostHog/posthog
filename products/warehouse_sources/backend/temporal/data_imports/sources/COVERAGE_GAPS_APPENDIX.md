@@ -161,8 +161,8 @@ Today (6): `calculated_metrics`, `dimensions`, `metrics`, `report`, `report_suit
 
 Diffed against: <https://raw.githubusercontent.com/AdobeDocs/analytics-2.0-apis/main/static/swagger.json>
 
-- [ ] `Users (GET /api/{globalCompanyId}/users)` — resolve owner login IDs in segments and calculated metrics to identifiable users (high)
-- [ ] `Annotations (GET /api/{globalCompanyId}/annotations)` — explain traffic and conversion changes with recorded launches, incidents, and campaign dates (medium)
+- [x] `Users (GET /api/{globalCompanyId}/users)` — resolve owner login IDs in segments and calculated metrics to identifiable users (high)
+- [x] `Annotations (GET /api/{globalCompanyId}/annotations)` — explain traffic and conversion changes with recorded launches, incidents, and campaign dates (medium)
 - [ ] `Usage logs (GET /api/{globalCompanyId}/auditlogs/usage)` — analyze report adoption, user activity, and access across report suites (medium)
 
 Note: Parsed all collection GET operations in the official Adobe Swagger reference. The configurable report table already accepts a dimension and metrics, so equivalent report variants were excluded. Users resolve component owner IDs; annotations and usage logs need separate tables. The usage endpoint requires an IMS user token, unlike the source server credential.
