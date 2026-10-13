@@ -1,6 +1,6 @@
 """What the team already has: events, workflows, integrations and saved email templates."""
 
-from django.db.models import F
+from django.db.models import F, Q
 
 from posthog.models import EventDefinition, Team
 from posthog.models.integration import Integration
@@ -17,13 +17,14 @@ _ALLOWED_POSTHOG_EVENTS = frozenset({"$conversation_ticket_created"})
 
 
 def recent_event_names(team: Team, *, exclude: set[str]) -> list[str]:
-    return [
-        name
-        for name in EventDefinition.objects.filter(team_id=team.id)
+    # Filtered before the limit, so a project whose newest definitions are all `$` events still gets its own events.
+    return list(
+        EventDefinition.objects.filter(team_id=team.id)
+        .filter(~Q(name__startswith="$") | Q(name__in=_ALLOWED_POSTHOG_EVENTS))
+        .exclude(name__in=exclude)
         .order_by(F("last_seen_at").desc(nulls_last=True))
         .values_list("name", flat=True)[:EVENT_DEFINITIONS_LIMIT]
-        if name not in exclude and (not name.startswith("$") or name in _ALLOWED_POSTHOG_EVENTS)
-    ]
+    )
 
 
 def used_trigger_events(team: Team) -> set[str]:

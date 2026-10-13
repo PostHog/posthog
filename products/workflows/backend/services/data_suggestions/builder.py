@@ -255,7 +255,9 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
             return _action(step, action_id, "conditional_branch", {"conditions": conditions})
         case "random_split":
             branches = step.branches or []
-            if sum(branch.percentage or 0 for branch in branches) != 100:
+            # A share outside 1 to 100 still sums to 100 but leaves a path that nobody reaches.
+            shares = [branch.percentage or 0 for branch in branches]
+            if sum(shares) != 100 or any(not 0 < share <= 100 for share in shares):
                 return None
             cohorts = [
                 {"percentage": branch.percentage or 0, "name": clean_copy(branch.label)[:60]} for branch in branches

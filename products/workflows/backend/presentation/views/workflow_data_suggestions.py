@@ -115,6 +115,8 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Workflow ideas written by AI from the project's own events. Both calls are free for the customer."""
 
     scope_object = "hog_flow"
+    # These actions read the whole project and create drafts, so access to a single workflow is not enough.
+    requires_resource_level_access = True
     scope_object_read_actions = ["current"]
     # Both calls can run ClickHouse and the models, so a read-only key cannot cause that spend.
     scope_object_write_actions = ["generate", "build"]

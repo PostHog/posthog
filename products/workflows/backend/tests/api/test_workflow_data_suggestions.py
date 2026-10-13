@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
@@ -5,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.utils import timezone
 
+from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -31,6 +34,7 @@ from products.workflows.backend.services.data_suggestions.service import (
     _cache_key,
     _generation_lock_key,
     _to_cache,
+    run_data_suggestions,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
 from products.workflows.backend.services.data_suggestions.team_context import recent_event_names
@@ -92,6 +96,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         cache.delete(_cache_key(self.team))
         self.jev_configured = patch(f"{SERVICE}.system_one_configured", return_value=True).start()
+        # FLAG patches the shared feature_enabled, which the privacy mode check reads too.
+        self.privacy_mode = patch(f"{SERVICE}.is_privacy_mode_enabled", return_value=False).start()
         patch(f"{SERVICE}.classify_event_stages", return_value={}).start()
         self.addCleanup(patch.stopall)
         sync_template_to_db(_email_function_template())
@@ -240,6 +246,10 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.filter(team=self.team, name__in=["trial_started", "user_registered"]).update(
             last_seen_at=timezone.now()
         )
+        # The newest definition is a `$` event, which must not take one of the limited places.
+        EventDefinition.objects.filter(team=self.team, name="$pageview").update(
+            last_seen_at=timezone.now() + timedelta(minutes=1)
+        )
 
         self._list()
 
@@ -263,6 +273,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         [
             ("query timeout", ClickHouseQueryTimeOut()),
             ("query error", InternalCHQueryError("boom")),
+            ("connection failure", NetworkError("Code: 209. (host:9440)")),
         ]
     )
     @patch(f"{EVENT_VOLUME}.execute_hogql_query")
@@ -331,17 +342,26 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without ai data processing approval", False, True, "ai_not_approved"),
-            ("without jev", True, False, "unavailable"),
+            ("without ai data processing approval", False, True, False, "ai_not_approved"),
+            ("without jev", True, False, False, "unavailable"),
+            ("in privacy mode", True, True, True, "unavailable"),
         ]
     )
     @patch(f"{SERVICE}.suggest_ideas")
     def test_ai_is_not_called(
-        self, _name: str, approved: bool, jev_configured: bool, status: str, suggest_ideas: MagicMock, _flag
+        self,
+        _name: str,
+        approved: bool,
+        jev_configured: bool,
+        privacy_mode: bool,
+        status: str,
+        suggest_ideas: MagicMock,
+        _flag,
     ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
         self.jev_configured.return_value = jev_configured
+        self.privacy_mode.return_value = privacy_mode
 
         assert self._list() == {"status": status, "suggestions": []}
         suggest_ideas.assert_not_called()
@@ -447,16 +467,44 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert not enabled.is_valid()
         assert "conditional_branch condition must wrap its filters" in str(enabled.errors)
 
-    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    @patch(f"{SERVICE}.suggest_ideas")
     def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
-        cache.add(_generation_lock_key(self.team), True, 60)
+        suggest_ideas.return_value = [_idea("trial_started")]
+        assert self._list()["status"] == "ready"
+        cache.add(_generation_lock_key(self.team), "another-run", 60)
 
-        assert self._list() == {"status": "generating", "suggestions": []}
-        suggest_ideas.assert_not_called()
+        assert self._list(refresh=True) == {"status": "generating", "suggestions": []}
+        assert suggest_ideas.call_count == 1
 
         cache.delete(_generation_lock_key(self.team))
-        self._list()
-        suggest_ideas.assert_called_once()
+        self._list(refresh=True)
+        assert suggest_ideas.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("ai consent withdrawn after the click", False, "own-run", 0, False),
+            ("a run whose lease ran out", True, "stale-run", 1, True),
+        ]
+    )
+    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    def test_a_background_run_checks_consent_and_only_releases_its_own_lock(
+        self,
+        _name: str,
+        approved: bool,
+        token: str,
+        model_calls: int,
+        lock_left: bool,
+        suggest_ideas: MagicMock,
+        _flag,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        cache.set(_generation_lock_key(self.team), "own-run", 60)
+
+        run_data_suggestions(team_id=self.team.id, user_id=self.user.id, lock_token=token)
+
+        assert suggest_ideas.call_count == model_calls
+        assert (cache.get(_generation_lock_key(self.team)) is not None) is lock_left
 
     @parameterized.expand(
         [
