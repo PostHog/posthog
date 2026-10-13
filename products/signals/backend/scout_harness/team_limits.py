@@ -263,7 +263,6 @@ class BackgroundBackoff:
         return current + 1
 
 
-# Coordinator ticks in one day. A lane budget with no `max_runs_per_tick` spreads the day over these.
 TICKS_PER_DAY = 24 * 60 // COORDINATOR_INTERVAL_MINUTES
 
 
@@ -280,11 +279,7 @@ class BackgroundBudget:
     max_runs_per_tick: int | None = None
 
     def tick_allowance(self, runs_last_24h: int) -> int:
-        tick_cap = (
-            self.max_runs_per_tick
-            if self.max_runs_per_tick is not None
-            else math.ceil(self.max_runs_per_day / TICKS_PER_DAY)
-        )
+        tick_cap = self.max_runs_per_tick or math.ceil(self.max_runs_per_day / TICKS_PER_DAY)
         return max(0, min(self.max_runs_per_day - runs_last_24h, tick_cap))
 
 
@@ -318,6 +313,10 @@ class BackgroundEnrollment:
 
 def _positive_int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _non_negative_int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
@@ -359,8 +358,8 @@ def _parse_background_budget(raw: object) -> BackgroundBudget | None:
     """
     if not isinstance(raw, dict):
         return None
-    max_runs_per_day = raw.get("max_runs_per_day")
-    if not isinstance(max_runs_per_day, int) or isinstance(max_runs_per_day, bool) or max_runs_per_day < 0:
+    max_runs_per_day = _non_negative_int_or_none(raw.get("max_runs_per_day"))
+    if max_runs_per_day is None:
         return None
     return BackgroundBudget(
         max_runs_per_day=max_runs_per_day, max_runs_per_tick=_positive_int_or_none(raw.get("max_runs_per_tick"))
