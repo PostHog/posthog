@@ -34,17 +34,15 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # mean the same shape when the masker version that produced them matches, so a
 # masking change must start a new series rather than merge into the old one.
 #
-# TTL and `retention_days` follow logs_volume_buckets exactly: a 42-day floor
-# (6 weekly samples per time-of-week slot), or the raw logs' retention when that
-# is longer. See that table for why `ttl_only_drop_parts` is off. Nothing caps
-# patterns per series yet, so until something does, row count here is bounded
-# only by how many distinct shapes a service emits.
+# TTL, `retention_days`, `ttl_only_drop_parts` and the test-only TTL skip all
+# match logs_volume_buckets, which gives the reasons. The 42-day floor keeps 6
+# weekly samples per time-of-week slot. Nothing caps patterns per series yet, so
+# row count here is bounded only by how many distinct shapes a service emits.
 
 TABLE_NAME = "logs_pattern_buckets"
 
 
 def LOGS_PATTERN_BUCKETS_TABLE_SQL():
-    # Tests use no TTL, for the reason LOGS_VOLUME_BUCKETS_TABLE_SQL gives.
     ttl_clause = "" if settings.TEST else "TTL time_bucket + toIntervalDay(greatest(42, retention_days))"
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
