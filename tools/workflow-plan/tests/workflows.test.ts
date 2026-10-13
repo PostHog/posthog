@@ -688,13 +688,13 @@ describe('.github/workflows run plans', () => {
         expect(plan.jobs.posthog_build?.result).toBe(result)
         const build = wf.jobs.posthog_build?.steps?.find((step) => step.id === 'build')
         if (result === 'success') {
-            expect(
-                evaluateValue(
-                    build?.with?.['push-image'],
-                    { github },
-                    planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-                )
-            ).toBe(publish)
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            expect(evaluateValue(build?.with?.['push-image'], { github }, functions)).toBe(publish)
+            expect(evaluateValue(build?.with?.['pr-number'], { github }, functions)).toBe(publish ? 1 : '')
         }
         expect(plan.jobs.posthog_build?.steps.find((step) => step.name === 'Container image digest')?.runs).toBe(
             result === 'success' && publish
