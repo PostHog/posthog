@@ -9,18 +9,20 @@ interface FadeEdgeProps {
     direction: 'down' | 'up'
     solid: number
     color?: string
+    /** Opacity of the solid part. Below 1 the content behind shows through, for use over a blur. */
+    opacity?: number
 }
 
 // Drawn with SVG so no gradient dependency is needed.
-export function FadeEdge({ direction, solid, color = colors.background }: FadeEdgeProps): ReactElement {
+export function FadeEdge({ direction, solid, color = colors.background, opacity = 1 }: FadeEdgeProps): ReactElement {
     const id = `fade${useId().replace(/[^a-zA-Z0-9]/g, '')}`
     const down = direction === 'down'
     return (
         <Svg style={styles.fill} width="100%" height="100%" preserveAspectRatio="none">
             <Defs>
                 <LinearGradient id={id} x1="0" y1={down ? '0' : '1'} x2="0" y2={down ? '1' : '0'}>
-                    <Stop offset="0" stopColor={color} stopOpacity={1} />
-                    <Stop offset={String(solid)} stopColor={color} stopOpacity={1} />
+                    <Stop offset="0" stopColor={color} stopOpacity={opacity} />
+                    <Stop offset={String(solid)} stopColor={color} stopOpacity={opacity} />
                     <Stop offset="1" stopColor={color} stopOpacity={0} />
                 </LinearGradient>
             </Defs>

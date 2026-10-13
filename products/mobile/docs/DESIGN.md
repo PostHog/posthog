@@ -58,6 +58,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
+| `BlurEdge` | `ui/BlurEdge.tsx` | Masked blur of the content under floating top chrome |
 | `BackChip` | `ui/BackChip.tsx` | Report and Settings back button |
 | `StateView`, `LoadingView` | `ui/StateView.tsx` | Empty and error screens with a next action; loading spinner |
 | `PostHogLogomark`, `PostHogLogo` | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height` |

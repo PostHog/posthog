@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
+import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
@@ -29,7 +30,8 @@ export function InboxHeader({ onRefresh, refreshing, onOpenMenu }: InboxHeaderPr
     const insets = useScreenInsets()
     return (
         <View style={[styles.header, { paddingTop: topOffset(insets, HEADER_TOP) }]}>
-            <FadeEdge direction="down" solid={HEADER_SOLID} />
+            <BlurEdge solid={HEADER_SOLID} />
+            <FadeEdge direction="down" solid={HEADER_SOLID} opacity={layout.chromeTint} />
             <View style={styles.titleGroup}>
                 <PostHogLogomark height={18} />
                 <Text style={styles.title} accessibilityRole="header">

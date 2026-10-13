@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native'
 import Animated, { Extrapolation, interpolate, type SharedValue, useAnimatedStyle } from 'react-native-reanimated'
 
 import { BackChip } from '@/ui/BackChip'
+import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
@@ -15,6 +16,7 @@ const CHROME_ROW_HEIGHT = 46
 const CHROME_BOTTOM_PADDING = 10
 /** Design-frame offset of the chrome's bottom edge, so the scroll view can tell when the headline passes under it. */
 export const TOP_CHROME_BOTTOM = CHROME_TOP + CHROME_ROW_HEIGHT + CHROME_BOTTOM_PADDING
+const CHROME_SOLID = 0.7
 
 /** How far the headline rises before the chrome title is fully visible. */
 const TITLE_REVEAL_DISTANCE = 28
@@ -38,7 +40,8 @@ export function TopChrome({ onBack, onPrevious, onNext, title }: TopChromeProps)
     const insets = useScreenInsets()
     return (
         <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
-            <FadeEdge direction="down" solid={0.7} />
+            <BlurEdge solid={CHROME_SOLID} />
+            <FadeEdge direction="down" solid={CHROME_SOLID} opacity={layout.chromeTint} />
             <BackChip onPress={onBack} testID="report-back" />
             <View style={styles.titleSlot}>{title ? <ScrollTitle title={title} /> : null}</View>
             <SegmentedPill

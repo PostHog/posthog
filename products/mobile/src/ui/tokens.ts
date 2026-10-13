@@ -149,6 +149,8 @@ export const layout = {
     designHomeIndicator: 34,
     /** Smallest bottom padding, for devices with a home button, where the safe-area inset is 0. */
     minBottomPadding: 16,
+    /** Opacity of the background tint over the blur behind floating top chrome, so the blurred content shows through. */
+    chromeTint: 0.72,
 } as const
 
 type Shadow = Pick<

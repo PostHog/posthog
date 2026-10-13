@@ -51,6 +51,11 @@ Choices the build contract left open, with the reason for each.
   [DESIGN.md](DESIGN.md#reading-handoff-values).
 - **Web preview insets.** The web build uses the prototype's 54pt status bar and 34pt home
   indicator as insets, so it previews like a phone.
+- **Floating chrome blurs what scrolls under it.** The inbox header and the report top chrome sit on
+  `BlurEdge` (`expo-blur` masked by the `FadeEdge` gradient through `@react-native-masked-view/masked-view`)
+  under a 72% background tint, so rows soften and dissolve under the chrome instead of vanishing behind
+  a solid block. Android uses the experimental `dimezisBlurView` method; without it the view is only a
+  tint. The web build has no masked view, so it masks the blur with CSS `mask-image`.
 - **Shadows.** Native uses `shadow*` + `elevation`; web uses the exact CSS `boxShadow`, because
   react-native-web renders `shadowRadius` as a blur half the handoff's size.
 - **Text wrapping.** `lineBreakStrategyIOS="standard"` on iOS and CSS `text-wrap: pretty` on web
