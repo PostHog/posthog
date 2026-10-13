@@ -16,7 +16,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import (
+from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
+
+from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
     RUNTIME_CONTRACT,
@@ -25,8 +27,6 @@ from posthog.cdp.filters import (
     compile_filters_bytecode,
     compile_filters_expr,
 )
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
-
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
