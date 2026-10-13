@@ -596,6 +596,53 @@ describe('LazyLoader', () => {
         })
     })
 
+    describe('lookups that span an expiry sweep', () => {
+        const slowLoader = () => {
+            const releases: ((map: Record<string, string>) => void)[] = []
+            const loader = jest.fn(() => new Promise<Record<string, string>>((resolve) => releases.push(resolve)))
+            const lazy = new LazyLoader<string>({
+                name: 'test',
+                loader,
+                refreshAgeMs: 30_000,
+                refreshJitterMs: 0,
+                bufferMs: 0,
+            })
+            const release = async (index: number, map: Record<string, string>) => {
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                releases[index](map)
+            }
+            return { lazy, release }
+        }
+
+        it('keeps a hit whose entry expires while another key loads', async () => {
+            const { lazy, release } = slowLoader()
+            const first = lazy.get('a')
+            await release(0, { a: 'A' })
+            await first
+
+            jest.spyOn(Date, 'now').mockReturnValue(start + 29_000)
+            const both = lazy.getMany(['a', 'b'])
+            jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
+            await release(1, { b: 'B' })
+
+            expect(await both).toEqual({ a: 'A', b: 'B' })
+        })
+
+        it('keeps a value loaded for an earlier caller while a later load outlives the refresh age', async () => {
+            const { lazy, release } = slowLoader()
+            const first = lazy.get('a')
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            const both = lazy.getMany(['a', 'b'])
+
+            await release(0, { a: 'A' })
+            await first
+            jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
+            await release(1, { b: 'B' })
+
+            expect(await both).toEqual({ a: 'A', b: 'B' })
+        })
+    })
+
     describe('loaderRetry', () => {
         const retriable = (message: string) => Object.assign(new Error(message), { isRetriable: true })
 

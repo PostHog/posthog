@@ -127,7 +127,7 @@ type CacheEntry<T> = {
 
 export class LazyLoader<T> {
     private cache: Record<string, CacheEntry<T> | undefined>
-    private pendingLoads: Record<string, Promise<void> | undefined>
+    private pendingLoads: Record<string, Promise<Record<string, T | null>> | undefined>
 
     private refreshAgeMs: number
     private refreshNullAgeMs: number
@@ -140,7 +140,7 @@ export class LazyLoader<T> {
     private buffer:
         | {
               keys: Set<string>
-              promise: Promise<void>
+              promise: Promise<Record<string, T | null>>
               /** Fires the buffered load now; a no-op once the buffer timer has fired. */
               flush: () => void
           }
@@ -295,10 +295,11 @@ export class LazyLoader<T> {
                     const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
                     setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
 
-                    await this.load(Array.from(keysToLoad), options)
-
-                    for (const key of keys) {
-                        results[key] = this.cache[key]?.value ?? null
+                    // Loaded values come from the load itself: an eviction between the load and a
+                    // read-back of the cache would turn a key that exists into null.
+                    const loaded = await this.load(Array.from(keysToLoad), options)
+                    for (const key of keysToLoad) {
+                        results[key] = loaded[key]
                     }
 
                     return results
@@ -320,11 +321,11 @@ export class LazyLoader<T> {
      * Schedules the keys to be loaded with a buffer to allow batching multiple keys
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
      *
-     * Loaded values land in `this.cache` via `setValues`; callers read them back from there.
+     * Resolves to each key's loaded value; the same values land in `this.cache` via `setValues`.
      */
-    private async load(keys: string[], options?: LoadOptions): Promise<void> {
+    private async load(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
         const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
-        const keyPromises: Promise<void>[] = []
+        const keyPromises: Promise<Record<string, T | null>>[] = []
 
         for (const key of keys) {
             let pendingLoad = this.pendingLoads[key]
@@ -342,7 +343,6 @@ export class LazyLoader<T> {
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
-            // The values land in the cache via setValues, so callers read them from there.
             this.buffer.keys.add(key)
             pendingLoad = this.buffer.promise.finally(() => {
                 delete this.pendingLoads[key]
@@ -356,7 +356,12 @@ export class LazyLoader<T> {
             this.buffer?.flush()
         }
 
-        await Promise.all(keyPromises)
+        const maps = await Promise.all(keyPromises)
+        const loaded: Record<string, T | null> = Object.create(null)
+        keys.forEach((key, index) => {
+            loaded[key] = maps[index][key] ?? null
+        })
+        return loaded
     }
 
     /**
@@ -381,7 +386,9 @@ export class LazyLoader<T> {
             }
         }).then(async (bufferedKeys) => {
             logger.debug('[LazyLoader]', this.options.name, 'Loading: ', bufferedKeys)
-            this.setValues(await this.invokeLoader(bufferedKeys))
+            const loaded = await this.invokeLoader(bufferedKeys)
+            this.setValues(loaded)
+            return loaded
         })
 
         return { keys, promise, flush: () => fire() }
