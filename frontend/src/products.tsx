@@ -158,6 +158,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
+    '/reports': ['Reports', 'reports'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/models': ['Models', 'models'],
@@ -789,6 +790,13 @@ export const productConfiguration: Record<string, any> = {
         name: 'Warehouse properties',
         description: 'Add properties to your people and groups from a data warehouse table.',
         iconType: 'data_warehouse',
+    },
+    Reports: {
+        name: 'Reports',
+        description: 'Organize dashboards, insights, and supporting files in shared project folders.',
+        projectBased: true,
+        layout: 'app-full-scene-height',
+        iconType: 'dashboard',
     },
     DataCatalog: {
         projectBased: true,
@@ -1433,6 +1441,8 @@ export const productUrls = {
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
     warehouseProperties: (tab?: WarehousePropertiesSceneTab): string =>
         `/data-management/warehouse-properties${tab ? `/${tab}` : ''}`,
+    reports: (folder = ''): string => combineUrl('/reports', folder ? { folder } : {}).url,
+    reportsInsights: (): string => '/reports/insights',
     dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),
     dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
     dashboard: (id: string | number, highlightInsightId?: string): string =>

@@ -9,6 +9,7 @@ import { ProjectTreeRef } from '~/types'
 import { productsItemName } from '../navbar/tabs/productsCatalog'
 import { getCustomIcon } from './customIconRegistry'
 import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
+import { isLegacyAnalyticsNavigationItemActive } from './legacyAnalyticsNavigation'
 import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
@@ -41,6 +42,23 @@ describe('project tree utils', () => {
             ['new insight', '/sql', { type: 'insight', ref: null }, false],
         ])('highlights the current insight in %s', (_, pathname, ref, expected) => {
             expect(isProjectTreeItemActive(insight, pathname, ref)).toBe(expected)
+        })
+
+        it.each(['/insights/new', '/insights/sql123/edit'])('keeps custom insights in Reports at %s', (pathname) => {
+            const product = {
+                id: 'custom-products/Product analytics',
+                name: 'Product analytics',
+                record: { path: 'Product analytics', href: '/insights' },
+            }
+            expect(isLegacyAnalyticsNavigationItemActive(product, pathname, null)).toBe(false)
+            expect(isProjectTreeItemActive(product, pathname, null)).toBe(true)
+            expect(
+                isLegacyAnalyticsNavigationItemActive(
+                    { id: 'legacy-navigation/insights', name: 'Insights', record: { href: urls.reportsInsights() } },
+                    pathname,
+                    null
+                )
+            ).toBe(true)
         })
     })
 

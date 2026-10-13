@@ -407,6 +407,7 @@ export function NavTabBrowse(): JSX.Element {
                         ) : (
                             <ProjectTree
                                 root={!uiCustomizationEnabled && isEditMode ? 'products://' : 'custom-products://'}
+                                groupAnalyticsNavigation={uiCustomizationEnabled || !isEditMode}
                                 onItemClicked={(item) => {
                                     // In edit mode a row click toggles a checkbox, which is not navigation
                                     if (!uiCustomizationEnabled && isEditMode) {

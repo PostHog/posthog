@@ -32,6 +32,7 @@ import { ProjectTreeRef } from '~/types'
 import type { Breadcrumb, UserBasicType } from '../../../types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
+import { groupLegacyAnalyticsNavigation } from './legacyAnalyticsNavigation'
 import type { FolderState, ProjectTreeAction } from './types'
 import {
     convertFileSystemEntryToTreeDataItem,
@@ -70,6 +71,8 @@ export interface ProjectTreeLogicProps {
     hideFolders?: string[]
     isActiveInPanel?: boolean
     shortcutScope?: 'products' | 'files'
+    groupAnalyticsNavigation?: boolean
+    folderHref?: (folder: string) => string
 }
 
 const FOLDER_LOADING = [
@@ -510,7 +513,10 @@ export interface projectTreeLogicMeta {
             arg: any,
             arg2: any,
             arg3: any,
-            arg4: any
+            arg4: any,
+            arg5: any,
+            arg6: any,
+            getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[] // projectTreeDataLogic
         ) => TreeDataItem[]
         treeTableColumnOffsets: (treeTableColumnSizes: number[]) => number[]
         checkedItemCountNumeric: (checkedItems: Record<string, boolean>) => number
@@ -1148,6 +1154,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 (_, props) => props.includeRoot,
                 (_, props) => props.hideFolders,
                 (_, props) => props.shortcutScope,
+                (_, props) => props.groupAnalyticsNavigation,
+                (_, props) => props.folderHref,
+                s.getStaticTreeItems,
             ],
             (
                 fullFileSystem: TreeDataItem[],
@@ -1155,9 +1164,29 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 root,
                 includeRoot,
                 hideFolders,
-                shortcutScope: ProjectTreeLogicProps['shortcutScope']
+                shortcutScope: ProjectTreeLogicProps['shortcutScope'],
+                groupAnalyticsNavigation: boolean | undefined,
+                folderHref: ProjectTreeLogicProps['folderHref'],
+                getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
             ): TreeDataItem[] => {
                 let firstFolders = fullFileSystem
+                if (groupAnalyticsNavigation && root === 'custom-products://') {
+                    const availableProducts =
+                        getStaticTreeItems('', false).find((item) => item.id === 'products://')?.children ?? []
+                    firstFolders = groupLegacyAnalyticsNavigation(firstFolders, availableProducts)
+                }
+                if (folderHref && root?.startsWith('project://')) {
+                    const withFolderLinks = (items: TreeDataItem[]): TreeDataItem[] =>
+                        items.map((item) => ({
+                            ...item,
+                            record:
+                                item.record?.type === 'folder'
+                                    ? { ...item.record, href: folderHref(item.record.path) }
+                                    : item.record,
+                            children: item.children ? withFolderLinks(item.children) : undefined,
+                        }))
+                    firstFolders = withFolderLinks(firstFolders)
+                }
 
                 // Filter out folders specified in hideFolders prop
                 if (hideFolders && hideFolders.length > 0) {
@@ -1173,7 +1202,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (rootWithProtocol && root !== 'custom-products://') {
                     const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
-                    const firstFolder = fullFileSystem.find((item) => item.id === protocol)
+                    const firstFolder = firstFolders.find((item) => item.id === protocol)
                     if (firstFolder) {
                         if (ref) {
                             const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])

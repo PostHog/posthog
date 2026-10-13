@@ -44,6 +44,13 @@ export default meta
 type Story = StoryObj<{}>
 export const ListView: Story = {}
 
+export const Reports: Story = {
+    parameters: {
+        pageUrl: urls.reportsInsights(),
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: true },
+    },
+}
+
 export const Home: Story = {
     parameters: {
         featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: 'test' },

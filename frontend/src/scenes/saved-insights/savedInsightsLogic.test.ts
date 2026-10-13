@@ -97,20 +97,22 @@ describe('savedInsightsLogic', () => {
     describe('default tab', () => {
         const savedInsightsUrl = urls.project(MOCK_TEAM_ID, urls.savedInsights())
 
-        it.each([
-            ['missing flag', undefined, SavedInsightsTabs.All],
-            ['test variant', 'test', SavedInsightsTabs.Home],
-            ['boolean enabled', true, SavedInsightsTabs.Home],
-            ['control variant', 'control', SavedInsightsTabs.All],
-            ['boolean disabled', false, SavedInsightsTabs.All],
-        ])('uses the correct default for %s', async (_, flagValue, expectedTab) => {
+        it.each<[string, string | boolean | undefined, SavedInsightsTabs, string]>([
+            ['missing flag', undefined, SavedInsightsTabs.All, urls.savedInsights()],
+            ['test variant', 'test', SavedInsightsTabs.Home, urls.savedInsights()],
+            ['boolean enabled', true, SavedInsightsTabs.Home, urls.savedInsights()],
+            ['control variant', 'control', SavedInsightsTabs.All, urls.savedInsights()],
+            ['boolean disabled', false, SavedInsightsTabs.All, urls.savedInsights()],
+            ['Reports with Home enabled', true, SavedInsightsTabs.All, urls.reportsInsights()],
+            ['Reports without Home', undefined, SavedInsightsTabs.All, urls.reportsInsights()],
+        ])('uses the correct default for %s', async (_, flagValue, expectedTab, path) => {
             if (flagValue !== undefined) {
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: flagValue,
                 })
             }
 
-            router.actions.push(savedInsightsUrl)
+            router.actions.push(path ? urls.project(MOCK_TEAM_ID, path) : savedInsightsUrl)
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -176,7 +178,8 @@ describe('savedInsightsLogic', () => {
         expect(logic.values.paramsFromFilters).toMatchObject({ hide_feature_flag_insights: true })
     })
 
-    it('can filter the insights', async () => {
+    it.each([urls.savedInsights(), urls.reportsInsights()])('can filter the insights at %s', async (path) => {
+        router.actions.push(urls.project(MOCK_TEAM_ID, path))
         // makes a search query
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
         await expectLogic(logic)
@@ -190,6 +193,7 @@ describe('savedInsightsLogic', () => {
                     filters: partial({ search: 'hello' }),
                 },
             })
+        expect(router.values.location.pathname).toEqual(urls.project(MOCK_TEAM_ID, path))
 
         // will not search for a second time
         logic.actions.setSavedInsightsFilters({ search: 'hello' })

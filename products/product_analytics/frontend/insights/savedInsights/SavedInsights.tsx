@@ -85,6 +85,7 @@ export function SavedInsights(): JSX.Element {
         bulkDeleteResponseLoading,
         draftInsightRow,
         showHomeTab,
+        isReportsView,
     } = useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
@@ -394,8 +395,12 @@ export function SavedInsights(): JSX.Element {
         >
             <NewInsightShortcuts />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.SavedInsights].name}
-                description={sceneConfigurations[Scene.SavedInsights].description}
+                name={isReportsView ? 'Insights' : sceneConfigurations[Scene.SavedInsights].name}
+                description={
+                    isReportsView
+                        ? 'Explore your data with saved analyses and reports.'
+                        : sceneConfigurations[Scene.SavedInsights].description
+                }
                 resourceType={{
                     type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
