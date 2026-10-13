@@ -4541,6 +4541,9 @@ class ExperimentService:
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
+        # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
+        enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
+
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
             experiment=experiment,
             fingerprint=fingerprint,

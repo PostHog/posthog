@@ -40,6 +40,25 @@ class TestLumaSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
+    @parameterized.expand(
+        [
+            ("rate_limited", "Luma API error (retryable): status=429, path=/public/v1/calendar/list-events"),
+            ("server_error", "Luma API error (retryable): status=500, path=/public/v1/event/get-guests"),
+        ]
+    )
+    def test_retryable_errors_match_exhausted_backoff(self, _name: str, observed_error: str) -> None:
+        # `_fetch_page` already retries these in-process; once that budget exhausts, Temporal's own
+        # activity retry recovers it, so it shouldn't reach error tracking as a tracked exception.
+        retryable = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable)
+
+    def test_retryable_errors_ignore_unexpected_payload(self) -> None:
+        # A malformed payload shape is a potential bug worth seeing in error tracking, not a
+        # self-healing rate-limit/5xx condition.
+        unrelated_error = "Luma returned an unexpected payload for /public/v1/calendar/list-events: list"
+        retryable = self.source.get_retryable_errors()
+        assert not any(key in unrelated_error for key in retryable)
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.luma.source.luma_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
