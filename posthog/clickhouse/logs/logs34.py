@@ -368,7 +368,8 @@ AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 # reasoning for the environment fallback and severity lowercasing. The 300s grid
 # literal is frozen into each MV's DDL at migration time; BUCKET_SECONDS there
 # must stay equal to it or the detector reads buckets these MVs never write.
-_LOGS34_SERIES_KEY_COLUMNS = """        toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+_LOGS34_SERIES_KEY_COLUMNS = """        team_id,
+        toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
         service_name,
         if(
             resource_attributes['k8s.namespace.name'] != '',
@@ -388,12 +389,11 @@ _LOGS34_SERIES_KEY_COLUMNS = """        toStartOfInterval(timestamp, toIntervalS
 
 
 # `retention_days` is a measure folded into each rollup group, not a dimension.
-#
-# `retention_days` rounds the lifetime from the bucket to the raw expiry up
-# to whole days, so event-time skew and bucket rounding cannot expire the
-# rollup before its logs. Microseconds preserve fractional-second expiries.
-# The 3650-day guard sits above the product's retention ceiling and bounds
-# corrupt expiries. Max keeps mixed retentions as long as the latest expiry.
+# It rounds the lifetime from the bucket to the raw expiry up to whole days, so
+# event-time skew and bucket rounding cannot expire the rollup before its logs.
+# Microseconds preserve fractional-second expiries. The 3650-day guard sits above
+# the product's retention ceiling and bounds corrupt expiries. Max keeps mixed
+# retentions as long as the latest expiry.
 _LOGS34_RETENTION_DAYS_COLUMN = """        toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days"""
 
 
@@ -411,7 +411,6 @@ def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
 FROM
 (
     SELECT
-        team_id,
 {_LOGS34_SERIES_KEY_COLUMNS},
 {_LOGS34_RETENTION_DAYS_COLUMN}
     FROM {db}.{TABLE_NAME}
@@ -437,7 +436,7 @@ AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}
 """
 
 
-def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT():
+def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT() -> str:
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # `pattern_version = 0` marks a row the ingestion consumer never stamped. Those
     # rows would all collapse into one empty-pattern bucket per series, so they are
@@ -457,7 +456,6 @@ def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT():
 FROM
 (
     SELECT
-        team_id,
 {_LOGS34_SERIES_KEY_COLUMNS},
         pattern_version,
         pattern,
@@ -468,7 +466,7 @@ FROM
 GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern"""
 
 
-def LOGS34_TO_PATTERN_BUCKETS_MV():
+def LOGS34_TO_PATTERN_BUCKETS_MV() -> str:
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_pattern_buckets TO {db}.logs_pattern_buckets

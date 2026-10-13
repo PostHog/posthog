@@ -1,6 +1,6 @@
 import re
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -109,14 +109,8 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     ],
     ids=["aligned", "backdated", "future", "bucket_rounding", "subsecond", "floor", "mixed", "negative", "clamp"],
 )
-@pytest.mark.parametrize(
-    "mv_select",
-    [LOGS34_TO_VOLUME_BUCKETS_MV_SELECT, LOGS34_TO_PATTERN_BUCKETS_MV_SELECT],
-    ids=["volume", "pattern"],
-)
 @pytest.mark.usefixtures("clickhouse_database")
-def test_logs_bucket_retention_covers_raw_expiry(
-    mv_select: Callable[[], str],
+def test_logs_volume_bucket_retention_covers_raw_expiry(
     timestamp_offset: timedelta,
     observed_delay: timedelta,
     retentions: list[int],
@@ -125,7 +119,7 @@ def test_logs_bucket_retention_covers_raw_expiry(
     bucket_start = datetime(2026, 1, 2, 12, tzinfo=UTC)
     timestamp = bucket_start + timestamp_offset
     observed_timestamp = timestamp + observed_delay
-    select = mv_select().replace(
+    select = LOGS34_TO_VOLUME_BUCKETS_MV_SELECT().replace(
         f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.logs34", "FROM retention_input"
     )
     rows = sync_execute(
@@ -138,9 +132,7 @@ def test_logs_bucket_retention_covers_raw_expiry(
                 observed_timestamp + toIntervalDay(arrayJoin(%(retentions)s)) AS original_expiry_timestamp,
                 'checkout' AS service_name,
                 'INFO' AS severity_text,
-                CAST(map(), 'Map(String, String)') AS resource_attributes,
-                toUInt8(5) AS pattern_version,
-                'GET <N>' AS pattern
+                CAST(map(), 'Map(String, String)') AS resource_attributes
         )
         SELECT retention_days, log_count FROM ("""
         + select
@@ -158,6 +150,7 @@ def test_logs_bucket_retention_covers_raw_expiry(
         )
 
 
+@pytest.mark.usefixtures("clickhouse_database")
 def test_logs_pattern_buckets_keep_stamped_empty_patterns_and_drop_unstamped_rows() -> None:
     select = LOGS34_TO_PATTERN_BUCKETS_MV_SELECT().replace(
         f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.logs34", "FROM pattern_input"
@@ -168,19 +161,19 @@ def test_logs_pattern_buckets_keep_stamped_empty_patterns_and_drop_unstamped_row
             SELECT
                 42 AS team_id,
                 toDateTime64('2026-01-02 12:01:00', 6, 'UTC') AS timestamp,
-                timestamp + toIntervalDay(14) AS original_expiry_timestamp,
+                timestamp + toIntervalDay(row.3) AS original_expiry_timestamp,
                 'checkout' AS service_name,
                 'INFO' AS severity_text,
                 CAST(map(), 'Map(String, String)') AS resource_attributes,
                 toUInt8(row.1) AS pattern_version,
                 row.2 AS pattern
-            FROM (SELECT arrayJoin([(0, ''), (5, ''), (5, 'GET <N>'), (5, 'GET <N>')]) AS row)
+            FROM (SELECT arrayJoin([(0, '', 14), (5, '', 14), (5, 'GET <N>', 14), (5, 'GET <N>', 30)]) AS row)
         )
-        SELECT pattern_version, pattern, log_count FROM ("""
+        SELECT pattern_version, pattern, retention_days, log_count FROM ("""
         + select
         + ") ORDER BY pattern"
     )
-    assert rows == [(5, "", 1), (5, "GET <N>", 2)]
+    assert rows == [(5, "", 15, 1), (5, "GET <N>", 31, 2)]
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:
