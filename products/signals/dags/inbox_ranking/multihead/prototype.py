@@ -81,11 +81,23 @@ class ExampleTable:
         return self.rows["report_team_id"].to_numpy(dtype=object)[rows]
 
 
-def example_table(snapshots: Mapping[datetime.date, Snapshot], extras: Extras, *, holdout_days: int) -> ExampleTable:
-    """The moments of every prototype head, joined on the report moment."""
+def example_table(
+    snapshots: Mapping[datetime.date, Snapshot],
+    extras: Extras,
+    *,
+    holdout_days: int,
+    head_moments: Mapping[str, pd.DataFrame] | None = None,
+) -> ExampleTable:
+    """The moments of every prototype head, joined on the report moment. `head_moments` holds each
+    head's capped moments by name, when the caller already built them."""
     frames = []
     for head in PROTOTYPE_HEADS:
-        moments = cap_examples(example_moments(snapshots, head, FEATURE_SET, extras), FEATURE_SET.max_examples_per_head)
+        if head_moments is not None:
+            moments = head_moments[head.name]
+        else:
+            moments = cap_examples(
+                example_moments(snapshots, head, FEATURE_SET, extras), FEATURE_SET.max_examples_per_head
+            )
         frames.append(
             moments.assign(holdout=holdout_mask(moments, holdout_days).to_numpy())
             .set_index(["report_id", "snapshot_date"])[["label", "holdout"]]
