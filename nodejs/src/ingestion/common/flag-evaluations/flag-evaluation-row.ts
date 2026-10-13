@@ -29,9 +29,7 @@ const FLAG_EVALUATION_COLUMNS = [
  * narrowed to selected columns declared by the Kafka engine table. Going
  * through serializeEvent keeps every shared field byte-identical to what the
  * events table receives for the same event, rather than a second hand-rolled
- * mapping that could drift from it. The exception is person_created_at on an
- * event without a person. serializeEvent stamps the current time on each call,
- * so the two rows can differ by up to one second.
+ * mapping that could drift from it.
  */
 export type FlagEvaluationRow = Pick<RawKafkaEvent, (typeof FLAG_EVALUATION_COLUMNS)[number]>
 
