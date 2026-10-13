@@ -373,6 +373,7 @@ def _produce_intents(
     *,
     team_uuid: str,
     group_type_name: str | None,
+    project_id: int | None = None,
 ) -> int:
     """Produce one property-update intent per entity to Kafka. Person intents map to a `$set` keyed
     by team:distinct_id; group intents map to a `$groupidentify` keyed by team:group_type:group_key so
@@ -384,6 +385,7 @@ def _produce_intents(
             if is_group:
                 data = {
                     "team_id": team_id,
+                    "project_id": project_id,
                     "token": token,
                     "kind": "group",
                     # $groupidentify isn't tied to a person; capture uses the team uuid as distinct_id.
@@ -495,7 +497,14 @@ async def _process_source_bundles(
             )
             return ps
     produced = await asyncio.to_thread(
-        _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
+        _produce_intents,
+        team_id,
+        team_api_token,
+        source,
+        to_send,
+        team_uuid=team_uuid,
+        group_type_name=group_type_name,
+        project_id=project_id,
     )
     ps.produced = produced
 

@@ -25,6 +25,23 @@ _SETTING = (
 )
 
 
+_PERSONHOG_CLIENT = (
+    "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer.get_personhog_client"
+)
+
+_GROUP_MESSAGE = {
+    "token": "tok",
+    "kind": "group",
+    "distinct_id": "team-uuid",
+    "team_id": 1,
+    "project_id": 2,
+    "group_type": "organization",
+    "group_type_index": 0,
+    "group_key": "acme",
+    "properties": {"plan_tier": "pro"},
+}
+
+
 class TestBuildCaptureKwargs:
     def test_maps_to_set_event_with_person_processing(self):
         kwargs = build_capture_kwargs(
@@ -116,6 +133,49 @@ class TestProcessRecord:
         assert c.process_record(value) == SENT
         assert capture.call_args.kwargs["event_name"] == "$set"
         assert capture.call_args.kwargs["process_person_profile"] is True
+
+    @parameterized.expand(
+        [
+            ("enabled", True, True, {}, True),
+            ("setting_off", False, True, {}, False),
+            ("no_personhog_client", True, False, {}, False),
+            ("message_without_project_id", True, True, {"project_id": None}, False),
+        ]
+    )
+    def test_group_message_routing(self, _name, enabled, has_personhog, overrides, expect_direct):
+        capture = MagicMock(return_value=_capture_result(succeeded=True))
+        write_group = MagicMock(return_value="updated")
+        c = PersonPropertyUpdateConsumer(
+            capture_fn=capture, group_write_fn=write_group, grant_fn=lambda: True, dlq_producer=MagicMock()
+        )
+        value = json.dumps({**_GROUP_MESSAGE, **overrides}).encode()
+
+        with (
+            patch(_SETTING, return_value=enabled),
+            patch(_PERSONHOG_CLIENT, return_value=MagicMock() if has_personhog else None),
+        ):
+            assert c.process_record(value) == SENT
+
+        assert write_group.called is expect_direct
+        assert capture.called is not expect_direct
+        if expect_direct:
+            assert write_group.call_args.args[0].properties == {"plan_tier": "pro"}
+        else:
+            assert capture.call_args.kwargs["event_name"] == "$groupidentify"
+
+    def test_failed_group_write_is_left_for_retry_and_sends_no_event(self):
+        capture = MagicMock()
+        c = PersonPropertyUpdateConsumer(
+            capture_fn=capture,
+            group_write_fn=MagicMock(side_effect=RuntimeError("personhog unavailable")),
+            grant_fn=lambda: True,
+            dlq_producer=MagicMock(),
+        )
+
+        with patch(_SETTING, return_value=True), patch(_PERSONHOG_CLIENT, return_value=MagicMock()):
+            assert c.process_record(json.dumps(_GROUP_MESSAGE).encode()) == RETRY
+
+        capture.assert_not_called()
 
     def test_transient_capture_failure_is_left_for_retry(self):
         # Not succeeded and nothing dropped -> transient (exhausted retries / unaccounted): redeliver.
