@@ -76,13 +76,13 @@ class FunnelBase(ABC):
             return inner_event_query
 
         return parse_select(
-            f"""
+            """
             SELECT
                 *,
                 if(
                     capture_group != 0
                     AND group_rows_with_capture = group_rows
-                    AND group_rows <= {MAX_EVENTS_PER_CAPTURE_ANCHOR},
+                    AND group_rows <= {max_group_rows},
                     (capture_ms + group_offset_ms) / 1000,
                     stored_ms / 1000
                 ) AS capture_order_key
@@ -97,12 +97,15 @@ class FunnelBase(ABC):
                         *,
                         toUnixTimestamp64Milli(client_capture_time) AS capture_ms,
                         toUnixTimestamp64Milli(toDateTime64(timestamp, 3)) AS stored_ms
-                    FROM {{inner_event_query}}
+                    FROM {inner_event_query}
                 )
                 WINDOW capture_window AS (PARTITION BY aggregation_target, capture_group)
             )
             """,
-            {"inner_event_query": inner_event_query},
+            {
+                "inner_event_query": inner_event_query,
+                "max_group_rows": ast.Constant(value=MAX_EVENTS_PER_CAPTURE_ANCHOR),
+            },
         )
 
     def step_order_key(self) -> str:
