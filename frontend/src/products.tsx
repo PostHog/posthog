@@ -1475,7 +1475,8 @@ export const productUrls = {
         kind?: string,
         returnUrl?: string,
         returnLabel?: string,
-        accessMethod?: 'warehouse' | 'direct'
+        accessMethod?: 'warehouse' | 'direct',
+        entryPoint?: string
     ): string => {
         const params = new URLSearchParams()
         if (kind) {
@@ -1489,6 +1490,9 @@ export const productUrls = {
         }
         if (accessMethod) {
             params.set('access_method', accessMethod)
+        }
+        if (entryPoint) {
+            params.set('entry_point', entryPoint)
         }
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
