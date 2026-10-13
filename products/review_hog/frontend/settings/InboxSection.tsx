@@ -17,7 +17,7 @@ export function InboxSection(): JSX.Element {
     return (
         <SceneSection
             title="Inbox"
-            description="These settings cover the pull requests the PostHog agent opens for Inbox reports assigned to you."
+            description="These cover pull requests the PostHog agent opens for your Inbox reports."
         >
             <SettingsTable>
                 <SettingRow

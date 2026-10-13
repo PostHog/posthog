@@ -9,8 +9,8 @@ export function StandardArea(): JSX.Element {
     return (
         <SceneSection
             title="Standard reviews"
-            description="Standard reviews run automatically on every push. They comment on issues and never push to your branch."
-            titleHelper="A pull request that already had a Deep review gets no more automatic reviews."
+            description="Standard reviews run on every push and only comment on your pull request."
+            titleHelper="Standard reviews never push to your branch. A pull request that already had a Deep review gets no more automatic reviews."
         >
             <InstallationClaims />
             <StandardSettingsSection />

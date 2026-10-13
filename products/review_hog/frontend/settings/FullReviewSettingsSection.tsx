@@ -68,8 +68,8 @@ export function FullReviewSettingsSection(): JSX.Element {
     return (
         <SceneSection
             title="Deep reviews"
-            description="Deep reviews are longer and run on request, from the Review button, the posthog-review label, or an Inbox report assigned to you. They cost several times more than Standard reviews."
-            titleHelper="These settings apply to the Deep reviews you start. A review someone else starts on your pull request uses their settings, but only your own Resolve setting can push to your branch."
+            description="Deep reviews run on request and cost several times more than Standard."
+            titleHelper="Start a Deep review with the Review button, the posthog-review label, or an Inbox report assigned to you. These settings apply to the Deep reviews you start. A review someone else starts on your pull request uses their settings, but only your own Resolve setting can push to your branch."
         >
             <SettingsTable>
                 <SettingRow
