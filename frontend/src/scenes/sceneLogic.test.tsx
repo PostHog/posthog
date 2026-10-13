@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_USER_UUID } from 'lib/api.mock'
 
-import { kea, path } from 'kea'
+import { afterMount, kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -44,6 +44,16 @@ const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
+const failingLogic = kea<testLogicType>([
+    path(['scenes', 'sceneLogic', 'testFailingLogic']),
+    afterMount(() => {
+        throw new Error('scene logic mount failed')
+    }),
+])
+
+// Held so a test can reject a still-pending scene import after navigating somewhere else.
+let pendingImportRejection: ((error: Error) => void) | null = null
+
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.AIObservabilityEvaluations]: sceneImport,
@@ -58,6 +68,12 @@ const testScenes: Record<string, () => any> = {
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
+    [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
+    [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
+    [Scene.Experiments]: (): any =>
+        new Promise((_resolve, reject) => {
+            pendingImportRejection = reject
+        }),
 }
 
 describe('sceneLogic', () => {
@@ -85,6 +101,57 @@ describe('sceneLogic', () => {
                 (obj: Record<string, any>) =>
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
+        })
+    })
+
+    // A scene that never mounts must not leave the address bar on it with the previous scene still
+    // rendered, and must leave something error tracking can count.
+    describe('a scene that fails to load', () => {
+        const exceptionEvent = { uuid: 'scene-load-exception', event: '$exception' }
+        let captureExceptionSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            pendingImportRejection = null
+            captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => exceptionEvent as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        it.each([
+            ['its code cannot be imported', urls.surveys(), Scene.Surveys, 'import'],
+            ['its logic throws while mounting', urls.cohorts(), Scene.Cohorts, 'logic_mount'],
+        ])('shows the load error and reports it when %s', async (_desc, url, sceneId, stage) => {
+            router.actions.push(url)
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
+            expect(captureExceptionSpy).toHaveBeenCalledWith(expect.any(Error), {
+                extra: expect.objectContaining({ sceneId, stage }),
+            })
+            // The support form needs this event, or a non-entitled organization cannot report the failure.
+            expect(logic.values.sceneLoadExceptionEvent).toEqual(exceptionEvent)
+        })
+
+        // An import can reject long after the person gave up and went somewhere else. The error
+        // scene must not then replace whatever they are reading now.
+        it('leaves a newer scene alone when a stale import rejects', async () => {
+            router.actions.push(urls.experiments())
+            await expectLogic(logic).delay(1)
+
+            router.actions.push(urls.settings('user'))
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+
+            // Without this the rejection below is a no-op and the assertion passes vacuously.
+            expect(pendingImportRejection).not.toBeNull()
+            pendingImportRejection!(new Error('scene import failed'))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
         })
     })
 
