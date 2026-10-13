@@ -79,10 +79,31 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return template && template.team_id === teamId ? buildTransactionalEmailFlow(teamId, source, template) : null
     }
 
+    // The send API recorded a running lifecycle row, so a send whose template was deleted while it waited must
+    // record a failed row before its job is dropped. The stub flow keeps the row keyed as `hog_flow`, matching
+    // the running row. A job whose row could not be written stays queued so a later fetch retries it.
+    private async failMissingTemplateInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        if (!invocations.length) {
+            return
+        }
+        const recorded = await Promise.all(
+            invocations.map((item) =>
+                this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
+                    { ...item, hogFlow: { id: item.functionId } as HogFlow } as CyclotronJobInvocation,
+                    { error: new Error('The message template no longer exists') }
+                )
+            )
+        )
+        await this.cyclotronJobQueue.dequeueInvocations(
+            invocations.filter((_, i) => recorded[i] || !this.config.HOG_INVOCATION_RESULTS_ENABLED)
+        )
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
+        const missingTemplateInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
 
         await Promise.all(
@@ -108,7 +129,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         id: item.functionId,
                     })
 
-                    failedInvocations.push(item)
+                    if (transactionalEmail && team) {
+                        missingTemplateInvocations.push(item)
+                    } else {
+                        failedInvocations.push(item)
+                    }
 
                     return
                 }
@@ -253,6 +278,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+        await this.failMissingTemplateInvocations(missingTemplateInvocations)
 
         return { loadedInvocations, canceledResults }
     }

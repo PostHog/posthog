@@ -1,5 +1,5 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 
@@ -38,6 +38,7 @@ export class MessageTemplateManagerService {
         this.lazyLoader = new LazyLoader({
             name: 'message_template_manager',
             loader: async (ids) => await this.fetchTemplates(ids),
+            loaderRetry: DEFAULT_LOADER_RETRY,
         })
         this.pubSub.on<{ templateIds: string[] }>('reload-message-templates', (message) => {
             logger.debug('⚡', '[PubSub] Reloading message templates!', { templateIds: message.templateIds })

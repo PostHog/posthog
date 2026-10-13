@@ -407,6 +407,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
             invocation.functionId = template.id
             invocation.teamId = team.id
+            const recordTerminalFailure = jest.spyOn(
+                processor['invocationResultsService'].invocationResultsRowsService,
+                'recordTerminalFailureDurably'
+            )
 
             const results = (await processor.processInvocations([
                 invocation,
@@ -414,6 +418,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
             if (!ownTeam) {
                 expect(results).toHaveLength(0)
+                // The send API already recorded a running row, so dropping the job must record a failed one.
+                expect(recordTerminalFailure).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: invocation.id, hogFlow: { id: template.id } }),
+                    expect.anything()
+                )
                 return
             }
             expect(results).toHaveLength(1)
